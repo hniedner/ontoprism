@@ -695,7 +695,7 @@ def _validate_r101_current(values: list[str], root: Path, runner: CommandRunner)
             "--registry",
             registry,
             "--output",
-            str(root / "tmp/r101-review-current-validation.json"),
+            str(root / "tmp/r101-review-dry-run.json"),
         ],
         root,
         runner,
@@ -762,7 +762,7 @@ def _report_r101_current_reuse(
             existing_packet=Path(existing),
             current_packet=Path(current),
             registry=Path(registry),
-            output=root / "tmp/r101-review-current-validation.json",
+            output=root / "tmp/r101-review-reuse-validation.json",
         )
     except ValueError as exc:
         raise AgentReplayInputError(str(exc)) from exc
@@ -808,7 +808,7 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
         "tmp/m1-6-current-full-corpus.ttl",
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
-        "tmp/r101-review-current-validation.json",
+        "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
@@ -1351,7 +1351,23 @@ def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
 def _capture_pre_sme_verify(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
-    _podman_gate(
+    if values:
+        raise AgentReplayInputError("capture-pre-sme-verify accepts no arguments")
+    status_before = _capture_required(
+        ["git", "status", "--porcelain"], root, runner
+    ).strip()
+    if status_before:
+        raise AgentReplayInputError("verify evidence refuses a dirty worktree")
+    head_before = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    socket_path = _podman_socket(root, runner)
+    context = _capture_required(
+        [_DOCKER, "context", "show"],
+        root,
+        runner,
+        environment=_docker_context_environment(),
+    ).strip()
+    gate_version = _capture_required([_PDM, "--version"], root, runner).strip()
+    gate_exit = _podman_gate(
         values,
         root,
         runner,
@@ -1359,12 +1375,29 @@ def _capture_pre_sme_verify(
         script="verify",
         routing="context",
     )
-    git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    if gate_exit != 0:
+        raise AgentReplayInputError("verify gate did not report exit 0")
+    head_after = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    status_after = _capture_required(
+        ["git", "status", "--porcelain"], root, runner
+    ).strip()
+    if head_after != head_before:
+        raise AgentReplayInputError("git HEAD changed during verify gate")
+    if status_after:
+        raise AgentReplayInputError("verify gate left a dirty worktree")
     writer = importlib.import_module(
         "scripts.research.pre_sme_readiness"
     ).write_verify_evidence
     try:
-        writer(root / "tmp/m1-6-verify-evidence.json", git_head=git_head)
+        writer(
+            root / "tmp/m1-6-verify-evidence.json",
+            git_head=head_after,
+            docker_context=context,
+            docker_endpoint=f"unix://{socket_path}",
+            gate_executable=_PDM,
+            gate_version=gate_version,
+            observed_exit_code=gate_exit,
+        )
     except ValueError as exc:
         raise AgentReplayInputError(str(exc)) from exc
     return 0

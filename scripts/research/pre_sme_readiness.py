@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import tempfile
 from pathlib import Path
-from typing import IO, Literal, Self, cast
+from typing import Annotated, Literal, Self
 
 import rdflib
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from rdflib.store import Store
 from scripts.research.current_evidence import (
     CurrentComparison,
@@ -30,14 +29,16 @@ from ontolib.decomposition.r101_review import (
     load_r101_review_packet,
 )
 from ontolib.decomposition.r103_review import load_r103_review_packet
-from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
+from ontolib.terminologies.ncit.sibling_store import (
+    SiblingStoreValidationError,
+    validate_ncit_sibling_manifest,
+)
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _GIT_SHA = r"^[0-9a-f]{40}$"
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
-_AUTHORIZED_R101_REGISTRY = (
-    "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
-)
+_GROUP_REVIEW_COUNT = 18
+_R103_REVIEW_COUNT = 3
 
 
 class PreSmeValidationError(ValueError):
@@ -73,14 +74,23 @@ def _atomic_write(path: Path, payload: bytes) -> None:
         raise PreSmeValidationError(f"output parent does not exist: {path.parent}")
     descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     staging = Path(name)
+    primary: BaseException | None = None
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(staging, path)
+    except BaseException as exc:
+        primary = exc
+        raise
     finally:
-        staging.unlink(missing_ok=True)
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError as cleanup:
+            if primary is None:
+                raise
+            primary.add_note(f"cleanup failure: {cleanup}")
 
 
 class PrimarySiteObservation(_StrictModel):
@@ -98,8 +108,7 @@ class PrimarySiteAudit(_StrictModel):
     review_required_sites: tuple[PrimarySiteObservation, ...]
     resolved_site_count: int = Field(ge=0)
     review_required_site_count: int = Field(ge=0)
-    resolved_violation_count: Literal[0]
-    scan_passes: Literal[1]
+    parser_passes: Literal[1]
     audit_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -108,26 +117,21 @@ class PrimarySiteAudit(_StrictModel):
             raise ValueError("resolved site count differs")
         if self.review_required_site_count != len(self.review_required_sites):
             raise ValueError("review-required site count differs")
+        resolved_concepts = [item.concept_code for item in self.resolved_sites]
+        if len(resolved_concepts) != len(set(resolved_concepts)):
+            raise ValueError("resolved concepts must be unique")
+        observations = [
+            (item.concept_code, item.filler_code)
+            for item in (*self.resolved_sites, *self.review_required_sites)
+        ]
+        if len(observations) != len(set(observations)):
+            raise ValueError(
+                "resolved and review observations must be pairwise distinct"
+            )
         expected = _identity(self.model_dump(mode="json", exclude={"audit_identity"}))
         if self.audit_identity != expected:
             raise ValueError("primary-site audit identity differs")
         return self
-
-
-class _HashingReader(io.BufferedReader):
-    def __init__(self, raw: IO[bytes]) -> None:
-        super().__init__(raw)  # type: ignore[arg-type]
-        self.digest = hashlib.sha256()
-
-    def read(self, size: int | None = -1) -> bytes:
-        value = super().read(size)
-        self.digest.update(value)
-        return value
-
-    def read1(self, size: int = -1) -> bytes:
-        value = super().read1(size)
-        self.digest.update(value)
-        return value
 
 
 class _PrimarySiteStore(Store):
@@ -163,6 +167,8 @@ class _PrimarySiteStore(Store):
     ) -> None:
         part = self._parts.setdefault(subject, {})
         if predicate == rdflib.URIRef(vocab.AXIS):
+            if "axis" in part:
+                raise PreSmeValidationError("duplicate primary-site axis data")
             part["axis"] = value
         elif predicate == rdflib.URIRef(vocab.FILLER):
             if "filler" in part:
@@ -173,10 +179,14 @@ class _PrimarySiteStore(Store):
                 raise PreSmeValidationError("duplicate needs-review data")
             part["review"] = value
 
-    def _add_constituent(self, subject: rdflib.Node, value: rdflib.Node) -> None:
+    def _add_constituent(  # noqa: C901 - validates the complete RDF observation
+        self, subject: rdflib.Node, value: rdflib.Node
+    ) -> None:
         if not isinstance(value, rdflib.BNode):
             raise PreSmeValidationError("constituent is not a Turtle blank node")
-        part = self._parts.pop(value, {})
+        part = self._parts.pop(value, None)
+        if not part:
+            raise PreSmeValidationError("reused constituent blank node has no data")
         if part.get("axis") != rdflib.URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite"):
             return
         filler = part.get("filler")
@@ -218,10 +228,9 @@ def _parse_primary_sites(artifact: Path) -> tuple[str, _PrimarySiteStore]:
     store = _PrimarySiteStore()
     graph = rdflib.Graph(store=store)
     try:
-        with artifact.open("rb", buffering=0) as raw:
-            stream = _HashingReader(raw)
-            graph.parse(source=stream, format="turtle")
-            artifact_identity = stream.digest.hexdigest()
+        payload = artifact.read_bytes()
+        artifact_identity = hashlib.sha256(payload).hexdigest()
+        graph.parse(data=payload, format="turtle")
     except PreSmeValidationError:
         raise
     except Exception as exc:
@@ -243,7 +252,7 @@ def audit_primary_site_artifact(
     source_release: str,
     output: Path | None = None,
 ) -> PrimarySiteAudit:
-    """Audit a baseline-bound corpus artifact in one bounded parser pass."""
+    """Audit every primary-site observation in one parser pass."""
     if baseline.source_identity != source_identity:
         raise PreSmeValidationError("corpus baseline source identity differs")
     if baseline.ontology_release != source_release:
@@ -268,8 +277,7 @@ def audit_primary_site_artifact(
         "review_required_sites": tuple(store.review),
         "resolved_site_count": len(store.resolved),
         "review_required_site_count": len(store.review),
-        "resolved_violation_count": 0,
-        "scan_passes": 1,
+        "parser_passes": 1,
     }
     audit = PrimarySiteAudit.model_validate(
         {**payload, "audit_identity": _identity(_jsonable(payload))}
@@ -318,6 +326,8 @@ class MachineReadinessInputs(_StrictModel):
     corpus_artifact_identity: str = Field(pattern=_SHA256)
     r101_report_identity: str = Field(pattern=_SHA256)
     r101_registry_identity: str = Field(pattern=_SHA256)
+    r101_existing_packet_identity: str = Field(pattern=_SHA256)
+    r101_current_packet_identity: str = Field(pattern=_SHA256)
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
@@ -334,6 +344,13 @@ class MachineReadinessInputs(_StrictModel):
     r103_review_count: Literal[3]
     r101_exact_validation_established: bool
 
+    @model_validator(mode="after")
+    def _validate_reuse_status(self) -> Self:
+        exact = self.r101_existing_packet_identity == self.r101_current_packet_identity
+        if self.r101_exact_validation_established != exact:
+            raise ValueError("R101 exact-reuse status differs from packet identities")
+        return self
+
 
 class R101ReuseValidation(_StrictModel):
     schema_version: Literal[1]
@@ -345,7 +362,7 @@ class R101ReuseValidation(_StrictModel):
     registry_identity: str = Field(pattern=_SHA256)
     exact_reuse: bool
     authorization: Literal[False]
-    writes_performed: Literal[False]
+    publication_writes_performed: Literal[False]
     validation_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -389,7 +406,7 @@ def build_r101_reuse_validation(
         "registry_identity": registry_identity,
         "exact_reuse": exact,
         "authorization": False,
-        "writes_performed": False,
+        "publication_writes_performed": False,
     }
     return R101ReuseValidation.model_validate(
         {**payload, "validation_identity": _identity(payload)}
@@ -404,12 +421,18 @@ def generate_r101_reuse_validation(
     registry: Path,
     output: Path,
 ) -> R101ReuseValidation:
+    """Report whether an explicitly supplied attestation is exactly reusable.
+
+    Exact reuse requires the registry to bind the supplied existing packet and the
+    regenerated packet to be byte-semantically identical. It reuses that prior human
+    evidence; this operation never creates or rebinds an authorization.
+    """
     try:
         report_value = load_r101_conservation_report(report)
         existing = load_r101_review_packet(existing_packet)
         current = load_r101_review_packet(current_packet)
         registry_value = load_r101_decision_registry(registry)
-    except (OSError, ValueError) as exc:
+    except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     if current.bindings.report_identity != report_value.report_identity:
         raise PreSmeValidationError(
@@ -418,10 +441,6 @@ def generate_r101_reuse_validation(
     if registry_value.packet_identity != existing.packet_identity:
         raise PreSmeValidationError(
             "R101 registry does not bind existing attested packet"
-        )
-    if registry_value.registry_identity != _AUTHORIZED_R101_REGISTRY:
-        raise PreSmeValidationError(
-            "R101 registry identity is not the authorized constant"
         )
     result = build_r101_reuse_validation(
         report_identity=report_value.report_identity,
@@ -435,14 +454,36 @@ def generate_r101_reuse_validation(
     return result
 
 
+class ValidatedFraction(_StrictModel):
+    numerator: int = Field(ge=0)
+    denominator: int = Field(gt=0)
+    value: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _validate_fraction(self) -> Self:
+        if self.numerator > self.denominator:
+            raise ValueError("fraction numerator exceeds denominator")
+        if self.value != self.numerator / self.denominator:
+            raise ValueError("fraction value differs from counts")
+        return self
+
+
 class ReadinessMetrics(_StrictModel):
-    exact_pair_true_positive: int
-    exact_pair_emitted: int
-    exact_pair_expected: int
-    historical_true_positive: Literal[80]
-    historical_emitted: Literal[106]
-    historical_expected: Literal[153]
+    exact_pair_precision: ValidatedFraction
+    exact_pair_recall: ValidatedFraction
+    historical_precision: ValidatedFraction
+    historical_recall: ValidatedFraction
     exceeds_historical_thresholds: bool
+
+    @model_validator(mode="after")
+    def _validate_thresholds(self) -> Self:
+        exceeds = (
+            self.exact_pair_precision.value > self.historical_precision.value
+            and self.exact_pair_recall.value > self.historical_recall.value
+        )
+        if self.exceeds_historical_thresholds != exceeds:
+            raise ValueError("historical threshold claim differs from fractions")
+        return self
 
 
 class GroupingViews(_StrictModel):
@@ -452,7 +493,7 @@ class GroupingViews(_StrictModel):
 
 class PublicationState(_StrictModel):
     status: Literal["not-attempted"]
-    writes_performed: Literal[False]
+    publication_writes_performed: Literal[False]
 
 
 class ReadinessClaims(_StrictModel):
@@ -467,10 +508,57 @@ RequirementKind = Literal[
 ]
 
 
-class HumanRequirement(_StrictModel):
+class PendingHumanRequirement(_StrictModel):
     requirement: RequirementKind
-    count: int | None
+    count: Literal[18, 3, 3291] | None
     status: Literal["pending"]
+
+    @model_validator(mode="after")
+    def _validate_count(self) -> Self:
+        expected = {
+            "group-review": 18,
+            "r103-review": 3,
+            "r101-ledger-authorization": 3291,
+            "final-full-corpus-scientific-acceptance-and-publication": None,
+        }[self.requirement]
+        if self.count != expected:
+            raise ValueError("human requirement count differs")
+        return self
+
+
+class SatisfiedR101Requirement(_StrictModel):
+    requirement: Literal["r101-ledger-authorization"]
+    count: Literal[3291]
+    status: Literal["satisfied-by-exact-reuse"]
+    packet_identity: str = Field(pattern=_SHA256)
+    registry_identity: str = Field(pattern=_SHA256)
+
+
+HumanRequirement = Annotated[
+    PendingHumanRequirement | SatisfiedR101Requirement,
+    Field(discriminator="status"),
+]
+
+
+class ReportIdentities(_StrictModel):
+    source_identity: str = Field(pattern=_SHA256)
+    source_manifest_identity: str = Field(pattern=_SHA256)
+    current_evidence_identity: str = Field(pattern=_SHA256)
+    current_comparison_identity: str = Field(pattern=_SHA256)
+    sample_artifact_identity: str = Field(pattern=_SHA256)
+    corpus_baseline_identity: str = Field(pattern=_SHA256)
+    corpus_artifact_identity: str = Field(pattern=_SHA256)
+    r101_report_identity: str = Field(pattern=_SHA256)
+    r101_registry_identity: str = Field(pattern=_SHA256)
+    r101_existing_packet_identity: str = Field(pattern=_SHA256)
+    r101_current_packet_identity: str = Field(pattern=_SHA256)
+    r101_validation_identity: str = Field(pattern=_SHA256)
+    proposal_registry_identity: str = Field(pattern=_SHA256)
+    primary_site_audit_identity: str = Field(pattern=_SHA256)
+    group_packet_identity: str = Field(pattern=_SHA256)
+    r103_packet_identity: str = Field(pattern=_SHA256)
+    verify_evidence_identity: str = Field(pattern=_SHA256)
+    git_head: str = Field(pattern=_GIT_SHA)
 
 
 class MachineReadinessReport(_StrictModel):
@@ -478,18 +566,27 @@ class MachineReadinessReport(_StrictModel):
     status: Literal["awaiting-human-review"]
     authorization: Literal[False]
     publication: PublicationState
-    identities: dict[str, str]
+    identities: ReportIdentities
     metrics: ReadinessMetrics
     grouping: GroupingViews
     r101_mechanical_unresolved: Literal[0]
     r101_non_r101_delta: Literal[0]
-    primary_site_resolved_violations: Literal[0]
     claims: ReadinessClaims
     human_requirements: tuple[HumanRequirement, ...]
     report_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _validate_identity(self) -> Self:
+        requirements = [item.requirement for item in self.human_requirements]
+        if len(requirements) != len(set(requirements)):
+            raise ValueError("human requirements must be unique")
+        if set(requirements) != {
+            "group-review",
+            "r103-review",
+            "r101-ledger-authorization",
+            "final-full-corpus-scientific-acceptance-and-publication",
+        }:
+            raise ValueError("required human requirements differ")
         expected = _identity(self.model_dump(mode="json", exclude={"report_identity"}))
         if self.report_identity != expected:
             raise ValueError("machine readiness report identity differs")
@@ -505,18 +602,28 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     )
     if not precision_better or not recall_better:
         raise PreSmeValidationError("current exact-pair metrics do not exceed baseline")
-    requirements: list[HumanRequirement] = [
-        HumanRequirement(requirement="group-review", count=18, status="pending"),
-        HumanRequirement(requirement="r103-review", count=3, status="pending"),
+    requirements: list[PendingHumanRequirement | SatisfiedR101Requirement] = [
+        PendingHumanRequirement(requirement="group-review", count=18, status="pending"),
+        PendingHumanRequirement(requirement="r103-review", count=3, status="pending"),
     ]
-    if not inputs.r101_exact_validation_established:
+    if inputs.r101_exact_validation_established:
         requirements.append(
-            HumanRequirement(
+            SatisfiedR101Requirement(
+                requirement="r101-ledger-authorization",
+                count=3291,
+                status="satisfied-by-exact-reuse",
+                packet_identity=inputs.r101_current_packet_identity,
+                registry_identity=inputs.r101_registry_identity,
+            )
+        )
+    else:
+        requirements.append(
+            PendingHumanRequirement(
                 requirement="r101-ledger-authorization", count=3291, status="pending"
             )
         )
     requirements.append(
-        HumanRequirement(
+        PendingHumanRequirement(
             requirement="final-full-corpus-scientific-acceptance-and-publication",
             count=None,
             status="pending",
@@ -526,19 +633,36 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         "schema_version": 1,
         "status": "awaiting-human-review",
         "authorization": False,
-        "publication": {"status": "not-attempted", "writes_performed": False},
+        "publication": {
+            "status": "not-attempted",
+            "publication_writes_performed": False,
+        },
         "identities": {
             key: str(value)
             for key, value in inputs.model_dump(mode="json").items()
             if key.endswith("identity") or key == "git_head"
         },
         "metrics": {
-            "exact_pair_true_positive": inputs.exact_pair_true_positive,
-            "exact_pair_emitted": inputs.exact_pair_emitted,
-            "exact_pair_expected": inputs.exact_pair_expected,
-            "historical_true_positive": 80,
-            "historical_emitted": 106,
-            "historical_expected": 153,
+            "exact_pair_precision": {
+                "numerator": inputs.exact_pair_true_positive,
+                "denominator": inputs.exact_pair_emitted,
+                "value": inputs.exact_pair_true_positive / inputs.exact_pair_emitted,
+            },
+            "exact_pair_recall": {
+                "numerator": inputs.exact_pair_true_positive,
+                "denominator": inputs.exact_pair_expected,
+                "value": inputs.exact_pair_true_positive / inputs.exact_pair_expected,
+            },
+            "historical_precision": {
+                "numerator": 80,
+                "denominator": 106,
+                "value": 80 / 106,
+            },
+            "historical_recall": {
+                "numerator": 80,
+                "denominator": 153,
+                "value": 80 / 153,
+            },
             "exceeds_historical_thresholds": True,
         },
         "grouping": {
@@ -547,7 +671,6 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         },
         "r101_mechanical_unresolved": 0,
         "r101_non_r101_delta": 0,
-        "primary_site_resolved_violations": 0,
         "claims": {"no_unadjudicated_delta": None},
         "human_requirements": tuple(requirements),
     }
@@ -583,11 +706,24 @@ class VerifyEvidence(_StrictModel):
     status: Literal["passed"]
     git_head: str = Field(pattern=_GIT_SHA)
     docker_context: Literal["ontoprism-podman"]
-    writes_performed: Literal[False]
+    docker_endpoint: str = Field(pattern=r"^unix:///.+")
+    gate_executable: str
+    gate_version: str
+    gate_command_identity: str = Field(pattern=_SHA256)
+    observed_exit_code: Literal[0]
+    publication_writes_performed: Literal[False]
     evidence_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _identity_matches(self) -> Self:
+        expected_command = _identity(
+            {
+                "argv": [self.gate_executable, "run", "verify"],
+                "version": self.gate_version,
+            }
+        )
+        if self.gate_command_identity != expected_command:
+            raise ValueError("verify gate command identity differs")
         expected = _identity(
             self.model_dump(mode="json", exclude={"evidence_identity"})
         )
@@ -601,7 +737,7 @@ def require_current_verify_evidence(evidence_head: str, current_head: str) -> No
         raise PreSmeValidationError("verify evidence does not bind current git HEAD")
 
 
-def generate_pre_sme_readiness(
+def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact validation
     *,
     source_manifest: Path,
     current_evidence: Path,
@@ -662,7 +798,7 @@ def generate_pre_sme_readiness(
         )
     except PreSmeValidationError:
         raise
-    except (OSError, ValueError) as exc:
+    except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     require_current_verify_evidence(gate.git_head, expected_git_head)
     checks = (
@@ -678,10 +814,6 @@ def generate_pre_sme_readiness(
         (
             validation.report_identity == report.report_identity,
             "R101 validation report",
-        ),
-        (
-            validation.registry_identity == _AUTHORIZED_R101_REGISTRY,
-            "R101 registry exact reuse",
         ),
         (
             proposals.registry_identity == evidence.proposal_registry_identity,
@@ -702,44 +834,52 @@ def generate_pre_sme_readiness(
             r103.proposal_registry_identity == proposals.registry_identity,
             "R103 proposal",
         ),
-        (audit.resolved_violation_count == 0, "primary-site invariant"),
     )
     for accepted, name in checks:
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = comparison.metrics
-    inputs = MachineReadinessInputs(
-        source_identity=manifest.source_identity,
-        source_manifest_identity=manifest_identity,
-        current_evidence_identity=evidence.evidence_identity,
-        current_comparison_identity=comparison.comparison_identity,
-        sample_artifact_identity=evidence.artifact_identity,
-        corpus_baseline_identity=baseline.baseline_identity,
-        corpus_artifact_identity=artifact_identity,
-        r101_report_identity=report.report_identity,
-        r101_registry_identity=validation.registry_identity,
-        r101_validation_identity=validation.validation_identity,
-        proposal_registry_identity=proposals.registry_identity,
-        primary_site_audit_identity=audit.audit_identity,
-        group_packet_identity=group.packet_identity,
-        r103_packet_identity=r103.packet_identity,
-        verify_evidence_identity=gate.evidence_identity,
-        git_head=gate.git_head,
-        exact_pair_true_positive=metrics.exact_pair_precision.numerator,
-        exact_pair_emitted=metrics.exact_pair_precision.denominator,
-        exact_pair_expected=metrics.exact_pair_recall.denominator,
-        full_partition_agreement=(
-            metrics.full_partition_agreement.numerator,
-            metrics.full_partition_agreement.denominator,
-        ),
-        common_partition_agreement=(
-            metrics.common_pair_partition_agreement.numerator,
-            metrics.common_pair_partition_agreement.denominator,
-        ),
-        group_review_count=cast("Literal[18]", len(group.review_rows)),
-        r103_review_count=cast("Literal[3]", len(r103.rows)),
-        r101_exact_validation_established=validation.exact_reuse,
-    )
+    if len(group.review_rows) != _GROUP_REVIEW_COUNT:
+        raise PreSmeValidationError("group review count differs from 18")
+    if len(r103.rows) != _R103_REVIEW_COUNT:
+        raise PreSmeValidationError("R103 review count differs from 3")
+    try:
+        inputs = MachineReadinessInputs(
+            source_identity=manifest.source_identity,
+            source_manifest_identity=manifest_identity,
+            current_evidence_identity=evidence.evidence_identity,
+            current_comparison_identity=comparison.comparison_identity,
+            sample_artifact_identity=evidence.artifact_identity,
+            corpus_baseline_identity=baseline.baseline_identity,
+            corpus_artifact_identity=artifact_identity,
+            r101_report_identity=report.report_identity,
+            r101_registry_identity=validation.registry_identity,
+            r101_existing_packet_identity=validation.existing_packet_identity,
+            r101_current_packet_identity=validation.current_packet_identity,
+            r101_validation_identity=validation.validation_identity,
+            proposal_registry_identity=proposals.registry_identity,
+            primary_site_audit_identity=audit.audit_identity,
+            group_packet_identity=group.packet_identity,
+            r103_packet_identity=r103.packet_identity,
+            verify_evidence_identity=gate.evidence_identity,
+            git_head=gate.git_head,
+            exact_pair_true_positive=metrics.exact_pair_precision.numerator,
+            exact_pair_emitted=metrics.exact_pair_precision.denominator,
+            exact_pair_expected=metrics.exact_pair_recall.denominator,
+            full_partition_agreement=(
+                metrics.full_partition_agreement.numerator,
+                metrics.full_partition_agreement.denominator,
+            ),
+            common_partition_agreement=(
+                metrics.common_pair_partition_agreement.numerator,
+                metrics.common_pair_partition_agreement.denominator,
+            ),
+            group_review_count=18,
+            r103_review_count=3,
+            r101_exact_validation_established=validation.exact_reuse,
+        )
+    except ValidationError as exc:
+        raise PreSmeValidationError(str(exc)) from exc
     if (
         inputs.exact_pair_true_positive,
         inputs.exact_pair_emitted,
@@ -753,14 +893,40 @@ def generate_pre_sme_readiness(
     return readiness
 
 
-def write_verify_evidence(path: Path, *, git_head: str) -> VerifyEvidence:
+def write_verify_evidence(
+    path: Path,
+    *,
+    git_head: str,
+    docker_context: str,
+    docker_endpoint: str,
+    gate_executable: str,
+    gate_version: str,
+    observed_exit_code: int,
+) -> VerifyEvidence:
+    """Write observations from one successful, clean-worktree verify execution.
+
+    The caller must observe the same clean Git HEAD before and after the gate. This
+    local evidence write is not an ontology, store, or publication write.
+    """
+    command = "pdm run verify"
+    command_identity = _identity(
+        {
+            "argv": [gate_executable, "run", "verify"],
+            "version": gate_version,
+        }
+    )
     payload = {
         "schema_version": 1,
-        "command": "pdm run verify",
+        "command": command,
         "status": "passed",
         "git_head": git_head,
-        "docker_context": "ontoprism-podman",
-        "writes_performed": False,
+        "docker_context": docker_context,
+        "docker_endpoint": docker_endpoint,
+        "gate_executable": gate_executable,
+        "gate_version": gate_version,
+        "gate_command_identity": command_identity,
+        "observed_exit_code": observed_exit_code,
+        "publication_writes_performed": False,
     }
     evidence = VerifyEvidence.model_validate(
         {**payload, "evidence_identity": _identity(payload)}

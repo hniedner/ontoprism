@@ -291,7 +291,7 @@ def test_r101_current_validation_uses_only_existing_sme_artifacts(
         "--registry",
         str(tmp_path / "tmp/r101-review-registry-v3-SME.json"),
         "--output",
-        str(tmp_path / "tmp/r101-review-current-validation.json"),
+        str(tmp_path / "tmp/r101-review-dry-run.json"),
     ]
     assert options["shell"] is False
 
@@ -369,7 +369,7 @@ def test_r101_reuse_report_uses_both_packets_and_existing_registry(
             "existing_packet": tmp_path / "tmp/r101-review-packet-v3.json",
             "current_packet": tmp_path / "tmp/r101-review-packet-current.json",
             "registry": tmp_path / "tmp/r101-review-registry-v3-SME.json",
-            "output": tmp_path / "tmp/r101-review-current-validation.json",
+            "output": tmp_path / "tmp/r101-review-reuse-validation.json",
         }
     ]
 
@@ -385,7 +385,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
-        "tmp/r101-review-current-validation.json",
+        "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
@@ -435,7 +435,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         / "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
     )
     assert calls[1]["r101_validation"] == (
-        tmp_path / "tmp/r101-review-current-validation.json"
+        tmp_path / "tmp/r101-review-reuse-validation.json"
     )
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
@@ -454,6 +454,12 @@ def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
             if arguments == ["git", "rev-parse", "HEAD"]:
                 self.calls.append((arguments, kwargs))
                 return _Result(0, stdout="a" * 40 + "\n")
+            if arguments == ["git", "status", "--porcelain"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="")
+            if arguments == ["/opt/homebrew/bin/pdm", "--version"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="PDM, version 2.25.9\n")
             return super().__call__(arguments, **kwargs)
 
     runner = Runner(
@@ -467,12 +473,49 @@ def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
 
     commands = [command for command, _options in runner.calls]
     assert ["/opt/homebrew/bin/pdm", "run", "verify"] in commands
-    assert commands[-1] == ["git", "rev-parse", "HEAD"]
+    assert commands.count(["git", "rev-parse", "HEAD"]) == 2
+    assert commands.count(["git", "status", "--porcelain"]) == 2
     evidence = json.loads((tmp_path / "tmp/m1-6-verify-evidence.json").read_text())
     assert evidence["command"] == "pdm run verify"
     assert evidence["status"] == "passed"
     assert evidence["git_head"] == "a" * 40
-    assert evidence["writes_performed"] is False
+    assert evidence["publication_writes_performed"] is False
+    assert evidence["observed_exit_code"] == 0
+    assert evidence["docker_context"] == "ontoprism-podman"
+    assert evidence["docker_endpoint"] == f"unix://{socket_path}"
+    assert evidence["gate_executable"] == "/opt/homebrew/bin/pdm"
+    assert evidence["gate_version"] == "PDM, version 2.25.9"
+
+
+@pytest.mark.unit
+def test_pre_sme_verify_refuses_dirty_worktree_without_running_gate_or_writing(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            if arguments == ["git", "status", "--porcelain"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout=" M tracked.py\n")
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    (tmp_path / "tmp").mkdir()
+
+    with pytest.raises(AgentReplayInputError, match="dirty worktree"):
+        run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner)
+
+    assert ["/opt/homebrew/bin/pdm", "run", "verify"] not in [
+        command for command, _options in runner.calls
+    ]
+    assert not (tmp_path / "tmp/m1-6-verify-evidence.json").exists()
 
 
 @pytest.mark.unit

@@ -7,6 +7,9 @@ import pytest
 from scripts.research.pre_sme_readiness import (
     MachineReadinessInputs,
     PreSmeValidationError,
+    PrimarySiteAudit,
+    PrimarySiteObservation,
+    ReadinessMetrics,
     audit_primary_site_artifact,
     build_machine_readiness,
     build_r101_reuse_validation,
@@ -99,8 +102,7 @@ def test_primary_site_liveness_rejects_two_resolved_and_minus_one_passes(
 
     assert audit.resolved_site_count == 1
     assert audit.review_required_site_count == 1
-    assert audit.resolved_violation_count == 0
-    assert audit.scan_passes == 1
+    assert audit.parser_passes == 1
 
 
 @pytest.mark.unit
@@ -137,6 +139,86 @@ def test_primary_site_audit_refuses_bad_inputs_without_output(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("triples", "message"),
+    [
+        (
+            f"""@prefix op: <{_OP}> .
+@prefix ncit: <{_NCIT}> .
+ncit:C1 op:hasConstituent _:site .
+ncit:C2 op:hasConstituent _:site .
+_:site op:axis op:PrimarySite ; op:filler ncit:C10 .
+""",
+            "reused constituent blank node",
+        ),
+        (
+            f"""@prefix op: <{_OP}> .
+@prefix ncit: <{_NCIT}> .
+ncit:C1 op:hasConstituent [ op:axis op:PrimarySite, op:PrimarySite ;
+                            op:filler ncit:C10 ] .
+""",
+            "duplicate primary-site axis",
+        ),
+    ],
+)
+def test_primary_site_parser_rejects_non_total_constituent_observations(
+    tmp_path: Path, triples: str, message: str
+) -> None:
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(triples)
+
+    with pytest.raises(PreSmeValidationError, match=message):
+        audit_primary_site_artifact(
+            artifact=artifact,
+            baseline=_baseline(artifact),
+            source_identity="a" * 64,
+            source_release="26.07d",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("resolved", "review", "message"),
+    [
+        (
+            (
+                PrimarySiteObservation(concept_code="C1", filler_code="C10"),
+                PrimarySiteObservation(concept_code="C1", filler_code="C10"),
+            ),
+            (),
+            "resolved concepts",
+        ),
+        (
+            (PrimarySiteObservation(concept_code="C1", filler_code="C10"),),
+            (PrimarySiteObservation(concept_code="C1", filler_code="C10"),),
+            "pairwise distinct",
+        ),
+    ],
+)
+def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
+    resolved: tuple[PrimarySiteObservation, ...],
+    review: tuple[PrimarySiteObservation, ...],
+    message: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "source_identity": "a" * 64,
+        "source_release": "26.07d",
+        "corpus_baseline_identity": "b" * 64,
+        "corpus_artifact_identity": "c" * 64,
+        "resolved_sites": resolved,
+        "review_required_sites": review,
+        "resolved_site_count": len(resolved),
+        "review_required_site_count": len(review),
+        "parser_passes": 1,
+        "audit_identity": "d" * 64,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        PrimarySiteAudit.model_validate(payload)
+
+
+@pytest.mark.unit
 def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta() -> (
     None
 ):
@@ -153,6 +235,8 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             r101_registry_identity=(
                 "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
             ),
+            r101_existing_packet_identity="a" * 64,
+            r101_current_packet_identity="b" * 64,
             r101_validation_identity="3" * 64,
             proposal_registry_identity="4" * 64,
             primary_site_audit_identity="5" * 64,
@@ -167,22 +251,132 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             common_partition_agreement=(5, 18),
             group_review_count=18,
             r103_review_count=3,
-            r101_exact_validation_established=True,
+            r101_exact_validation_established=False,
         )
     )
 
     assert report.status == "awaiting-human-review"
     assert report.authorization is False
     assert report.publication.status == "not-attempted"
-    assert report.publication.writes_performed is False
+    assert report.publication.publication_writes_performed is False
     assert report.metrics.exceeds_historical_thresholds is True
     assert report.grouping.full_view != report.grouping.common_pair_view
     assert report.claims.no_unadjudicated_delta is None
     assert [item.requirement for item in report.human_requirements] == [
         "group-review",
         "r103-review",
+        "r101-ledger-authorization",
         "final-full-corpus-scientific-acceptance-and-publication",
     ]
+    assert report.human_requirements[2].status == "pending"
+    assert report.human_requirements[2].count == 3291
+
+
+@pytest.mark.unit
+def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity() -> (
+    None
+):
+    inputs = MachineReadinessInputs(
+        source_identity="a" * 64,
+        source_manifest_identity="b" * 64,
+        current_evidence_identity="c" * 64,
+        current_comparison_identity="d" * 64,
+        sample_artifact_identity="e" * 64,
+        corpus_baseline_identity="f" * 64,
+        corpus_artifact_identity="1" * 64,
+        r101_report_identity="2" * 64,
+        r101_registry_identity="3" * 64,
+        r101_existing_packet_identity="4" * 64,
+        r101_current_packet_identity="4" * 64,
+        r101_validation_identity="5" * 64,
+        proposal_registry_identity="6" * 64,
+        primary_site_audit_identity="7" * 64,
+        group_packet_identity="8" * 64,
+        r103_packet_identity="9" * 64,
+        verify_evidence_identity="0" * 64,
+        git_head="a" * 40,
+        exact_pair_true_positive=100,
+        exact_pair_emitted=108,
+        exact_pair_expected=153,
+        full_partition_agreement=(2, 20),
+        common_partition_agreement=(5, 18),
+        group_review_count=18,
+        r103_review_count=3,
+        r101_exact_validation_established=True,
+    )
+
+    requirement = build_machine_readiness(inputs).human_requirements[2]
+
+    assert requirement.requirement == "r101-ledger-authorization"
+    assert requirement.status == "satisfied-by-exact-reuse"
+    assert requirement.packet_identity == "4" * 64
+    assert requirement.registry_identity == "3" * 64
+
+
+@pytest.mark.unit
+def test_readiness_metrics_refuse_inconsistent_fraction_and_threshold_claims() -> None:
+    with pytest.raises(ValueError, match="fraction"):
+        ReadinessMetrics.model_validate(
+            {
+                "exact_pair_precision": {
+                    "numerator": 100,
+                    "denominator": 108,
+                    "value": 0.1,
+                },
+                "exact_pair_recall": {
+                    "numerator": 100,
+                    "denominator": 153,
+                    "value": 100 / 153,
+                },
+                "historical_precision": {
+                    "numerator": 80,
+                    "denominator": 106,
+                    "value": 80 / 106,
+                },
+                "historical_recall": {
+                    "numerator": 80,
+                    "denominator": 153,
+                    "value": 80 / 153,
+                },
+                "exceeds_historical_thresholds": True,
+            }
+        )
+
+
+@pytest.mark.unit
+def test_atomic_audit_write_preserves_primary_failure_and_reports_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(_site_line("C1", "C10"))
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["audit_primary_site_artifact"]
+    )
+
+    def fail_replace(_source: Path, _target: Path) -> None:
+        raise OSError("primary replace failure")
+
+    original_unlink = module.Path.unlink
+
+    def fail_staging_unlink(path: Path, *, missing_ok: bool = False) -> None:
+        if path.name.startswith(".audit.json."):
+            raise OSError("cleanup unlink failure")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(module.os, "replace", fail_replace)
+    monkeypatch.setattr(module.Path, "unlink", fail_staging_unlink)
+
+    with pytest.raises(OSError, match="primary replace failure") as raised:
+        audit_primary_site_artifact(
+            artifact=artifact,
+            baseline=_baseline(artifact),
+            source_identity="a" * 64,
+            source_release="26.07d",
+            output=tmp_path / "audit.json",
+        )
+
+    assert raised.value.__notes__ == ["cleanup failure: cleanup unlink failure"]
+    assert not (tmp_path / "audit.json").exists()
 
 
 @pytest.mark.unit
@@ -226,7 +420,7 @@ def test_r101_reuse_validation_reports_re_attestation_without_authorizing() -> N
     assert result.status == "human-reattestation-required"
     assert result.exact_reuse is False
     assert result.authorization is False
-    assert result.writes_performed is False
+    assert result.publication_writes_performed is False
     assert result.reason == "packet-bindings-differ"
 
 
