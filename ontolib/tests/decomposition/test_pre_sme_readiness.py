@@ -7,7 +7,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from scripts.research.current_evidence import CurrentComparison, CurrentEngineEvidence
+from scripts.research.current_evidence import (
+    CurrentComparison,
+    CurrentEngineEvidence,
+    CurrentRateMetric,
+)
 from scripts.research.pre_sme_readiness import (
     GroupingViews,
     MachineReadinessInputs,
@@ -897,11 +901,14 @@ def test_composed_readiness_reject_branches_are_live_without_output(
             module, "load_r101_conservation_report", lambda _path: bad_report
         )
     else:
-        bad_precision = comparison.metrics.exact_pair_precision.model_copy(
-            update={"numerator": 99}
+        recall = comparison.metrics.exact_pair_recall
+        bad_recall = CurrentRateMetric(
+            numerator=recall.numerator - 1,
+            denominator=recall.denominator,
+            rate=(recall.numerator - 1) / recall.denominator,
         )
         bad_metrics = comparison.metrics.model_copy(
-            update={"exact_pair_precision": bad_precision}
+            update={"exact_pair_recall": bad_recall}
         )
         bad_comparison = comparison.model_copy(update={"metrics": bad_metrics})
         monkeypatch.setattr(
@@ -913,7 +920,10 @@ def test_composed_readiness_reject_branches_are_live_without_output(
             module, "validate_current_comparison", lambda _evidence, _comparison: None
         )
 
-    with pytest.raises(PreSmeValidationError):
+    expected_error = (
+        "exact pair true-positive counts differ" if failure == "metrics" else None
+    )
+    with pytest.raises(PreSmeValidationError, match=expected_error):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()

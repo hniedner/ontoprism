@@ -19,6 +19,7 @@ from rdflib.store import Store
 from scripts.research.current_evidence import (
     CurrentComparison,
     CurrentEngineEvidence,
+    CurrentMetrics,
     validate_current_comparison,
 )
 from scripts.research.group_review_packet import load_group_review_packet
@@ -847,6 +848,13 @@ def require_current_verify_evidence(evidence_head: str, current_head: str) -> No
         raise PreSmeValidationError("verify evidence does not bind current git HEAD")
 
 
+def _validated_current_metrics(comparison: CurrentComparison) -> CurrentMetrics:
+    try:
+        return CurrentMetrics.model_validate(comparison.metrics.model_dump())
+    except ValidationError as exc:
+        raise PreSmeValidationError(str(exc)) from exc
+
+
 def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact validation
     *,
     source_manifest: Path,
@@ -948,7 +956,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
     for accepted, name in checks:
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
-    metrics = comparison.metrics
+    metrics = _validated_current_metrics(comparison)
     if (
         metrics.full_partition_agreement.rate is None
         or metrics.common_pair_partition_agreement.rate is None

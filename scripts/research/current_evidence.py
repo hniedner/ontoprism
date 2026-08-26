@@ -237,6 +237,12 @@ class CurrentMetrics(_StrictModel):
     common_pair_partition_agreement: CurrentCommonPartitionMetric
 
     @model_validator(mode="after")
+    def _exact_pair_views_share_true_positive_count(self) -> Self:
+        if self.exact_pair_precision.numerator != self.exact_pair_recall.numerator:
+            raise ValueError("exact pair true-positive counts differ")
+        return self
+
+    @model_validator(mode="after")
     def _grouping_views_share_cohort(self) -> Self:
         common = self.common_pair_partition_agreement
         if (

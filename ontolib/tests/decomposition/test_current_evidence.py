@@ -125,6 +125,36 @@ def test_current_metrics_reject_grouping_views_with_different_cohorts() -> None:
         )
 
 
+@pytest.mark.unit
+def test_current_metrics_reject_exact_pair_true_positive_count_mismatch() -> None:
+    with pytest.raises(ValueError, match="exact pair true-positive counts differ"):
+        CurrentMetrics.model_validate(
+            {
+                "exact_pair_precision": {
+                    "numerator": 1,
+                    "denominator": 2,
+                    "rate": 0.5,
+                },
+                "exact_pair_recall": {
+                    "numerator": 2,
+                    "denominator": 3,
+                    "rate": 2 / 3,
+                },
+                "full_partition_agreement": {
+                    "numerator": 1,
+                    "denominator": 1,
+                    "rate": 1.0,
+                },
+                "common_pair_partition_agreement": {
+                    "numerator": 1,
+                    "denominator": 1,
+                    "rate": 1.0,
+                    "ineligible": 0,
+                },
+            }
+        )
+
+
 def _fingerprint() -> RunFingerprint:
     manifest = json.loads(_MANIFEST.read_text())
     return RunFingerprint(
