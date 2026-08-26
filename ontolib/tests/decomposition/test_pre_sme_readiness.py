@@ -401,6 +401,82 @@ def test_primary_site_audit_model_refuses_zero_observations() -> None:
         PrimarySiteAudit.model_validate(payload)
 
 
+def _machine_readiness_input_payload() -> dict[str, object]:
+    return {
+        "source_identity": "a" * 64,
+        "source_manifest_identity": "b" * 64,
+        "current_evidence_identity": "c" * 64,
+        "current_comparison_identity": "d" * 64,
+        "sample_artifact_identity": "e" * 64,
+        "corpus_baseline_identity": "f" * 64,
+        "corpus_artifact_identity": "1" * 64,
+        "r101_report_identity": "2" * 64,
+        "r101_registry_identity": "3" * 64,
+        "r101_existing_packet_identity": "4" * 64,
+        "r101_current_packet_identity": "5" * 64,
+        "r101_validation_identity": "6" * 64,
+        "proposal_registry_identity": "7" * 64,
+        "primary_site_audit_identity": "8" * 64,
+        "primary_site_resolved_count": 1,
+        "primary_site_review_required_count": 0,
+        "group_packet_identity": "9" * 64,
+        "r103_packet_identity": "0" * 64,
+        "verify_evidence_identity": "a" * 64,
+        "git_head": "b" * 40,
+        "exact_pair_true_positive": 100,
+        "exact_pair_emitted": 108,
+        "exact_pair_expected": 153,
+        "full_partition_agreement": {
+            "numerator": 2,
+            "denominator": 20,
+            "value": 0.1,
+        },
+        "common_partition_agreement": {
+            "numerator": 5,
+            "denominator": 18,
+            "value": 5 / 18,
+            "ineligible": 2,
+        },
+        "group_review_count": 18,
+        "r103_review_count": 3,
+        "r101_exact_validation_established": False,
+        "r101_occurrence_count": 1,
+        "r101_mechanical_unresolved": 0,
+        "r101_non_r101_delta": 0,
+    }
+
+
+@pytest.mark.unit
+def test_machine_readiness_inputs_serialize_validated_grouping_fractions() -> None:
+    inputs = MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+
+    serialized = inputs.model_dump(mode="json")
+    assert serialized["full_partition_agreement"] == {
+        "numerator": 2,
+        "denominator": 20,
+        "value": 0.1,
+    }
+    assert serialized["common_partition_agreement"] == {
+        "numerator": 5,
+        "denominator": 18,
+        "value": 5 / 18,
+        "ineligible": 2,
+    }
+
+
+@pytest.mark.unit
+def test_machine_readiness_inputs_refuse_empty_grouping_denominator() -> None:
+    payload = _machine_readiness_input_payload()
+    payload["full_partition_agreement"] = {
+        "numerator": 0,
+        "denominator": 0,
+        "value": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="greater than 0"):
+        MachineReadinessInputs.model_validate(payload)
+
+
 @pytest.mark.unit
 def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta() -> (
     None
@@ -432,9 +508,17 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             exact_pair_true_positive=100,
             exact_pair_emitted=108,
             exact_pair_expected=153,
-            full_partition_agreement=(2, 20),
-            common_partition_agreement=(5, 18),
-            common_partition_ineligible=2,
+            full_partition_agreement={
+                "numerator": 2,
+                "denominator": 20,
+                "value": 0.1,
+            },
+            common_partition_agreement={
+                "numerator": 5,
+                "denominator": 18,
+                "value": 5 / 18,
+                "ineligible": 2,
+            },
             group_review_count=18,
             r103_review_count=3,
             r101_exact_validation_established=False,
@@ -504,9 +588,17 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
         exact_pair_true_positive=100,
         exact_pair_emitted=108,
         exact_pair_expected=153,
-        full_partition_agreement=(2, 20),
-        common_partition_agreement=(5, 18),
-        common_partition_ineligible=2,
+        full_partition_agreement={
+            "numerator": 2,
+            "denominator": 20,
+            "value": 0.1,
+        },
+        common_partition_agreement={
+            "numerator": 5,
+            "denominator": 18,
+            "value": 5 / 18,
+            "ineligible": 2,
+        },
         group_review_count=18,
         r103_review_count=3,
         r101_exact_validation_established=True,
@@ -551,9 +643,17 @@ def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities(
         exact_pair_true_positive=100,
         exact_pair_emitted=108,
         exact_pair_expected=153,
-        full_partition_agreement=(2, 20),
-        common_partition_agreement=(5, 18),
-        common_partition_ineligible=2,
+        full_partition_agreement={
+            "numerator": 2,
+            "denominator": 20,
+            "value": 0.1,
+        },
+        common_partition_agreement={
+            "numerator": 5,
+            "denominator": 18,
+            "value": 5 / 18,
+            "ineligible": 2,
+        },
         group_review_count=18,
         r103_review_count=3,
         r101_exact_validation_established=True,

@@ -189,7 +189,12 @@ def _collect_diagnostic_command(
     runner: CommandRunner,
     *,
     environment: dict[str, str] | None = None,
-) -> bool:
+) -> None:
+    """Collect one diagnostic; its output and exit code are evidence, not a verdict.
+
+    Returning means only that collection completed. ``inspect-podman`` is best-effort
+    diagnosis, so the overall operation does not aggregate command success.
+    """
     print(f"\n=== {' '.join(command)} ===")
     try:
         result = runner(
@@ -204,7 +209,7 @@ def _collect_diagnostic_command(
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"collection-error: {_bounded_sanitized(str(exc))}")
-        return False
+        return
     print(f"exit-code: {result.returncode}")
     stdout = _bounded_sanitized(result.stdout)
     stderr = _bounded_sanitized(result.stderr)
@@ -214,7 +219,6 @@ def _collect_diagnostic_command(
     if stderr:
         print("stderr:")
         print(stderr)
-    return result.returncode == 0
 
 
 def _adjudication_inputs(root: Path) -> tuple[str, str, str, str, str]:

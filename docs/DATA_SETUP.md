@@ -111,12 +111,30 @@ is the typed API (D44).
 ### Supported local Podman runtime
 
 The supported local workflow runs OntoPrism against the Docker-compatible API of the
-rootless Podman machine named `ontoprism-vm`. Machine creation and package installation
-remain manual setup. The data-service `docker-compose.yml` is exercised unchanged. The
+rootless Podman machine named `ontoprism-vm`. Install the currently supported Homebrew
+clients and create that machine manually; this is setup, not an agent operation:
+
+```bash
+/opt/homebrew/bin/brew install podman docker docker-compose
+/opt/homebrew/bin/podman machine init --provider applehv --cpus 8 --memory 32768 --disk-size 120 --now --update-connection ontoprism-vm
+```
+
+The supported Compose provider is Docker Compose v2 from the Homebrew
+`/opt/homebrew/bin/docker-compose` executable. Python `podman-compose` is not supported.
+Verify the installation and the non-rootful running machine without resetting it:
+
+```bash
+/opt/homebrew/bin/podman --version
+/opt/homebrew/bin/podman machine inspect ontoprism-vm
+/opt/homebrew/bin/docker --version
+/opt/homebrew/bin/docker-compose version
+```
+
+The data-service `docker-compose.yml` is exercised unchanged. The
 application smoke check uses the unchanged data and app Compose files plus a generated,
-temporary Podman override. The replay operations pin the Homebrew Docker, Podman, external
-Docker Compose v2 provider, and PDM paths; the shared `verify` runner uses its active Python
-environment and resolves npm from `PATH`. Python `podman-compose` is not used or required.
+temporary Podman override. The replay operations pin the Homebrew Docker, Podman, and
+external Docker Compose v2 provider plus PDM paths; the shared `verify` runner uses its active Python
+environment and resolves npm from `PATH`.
 
 Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
@@ -154,11 +172,14 @@ a valid operator-owned context explicitly with `/opt/homebrew/bin/docker context
 <context-name>`. The activation output reports the prior context for this purpose. Never
 delete a context as part of rollback.
 
-`inspect-podman` collects bounded runtime diagnostics, and `check-podman-api` exercises the
+`inspect-podman` collects bounded best-effort runtime diagnostics: each command's output and
+exit code are evidence, while overall exit 0 means collection completed rather than every
+diagnostic succeeded. `check-podman-api` exercises the
 pinned Docker-compatible API and Compose provider. `podman-compose-up` rejects any occupied
 fixed data port before starting the unchanged data Compose stack. `podman-compose-check`
 validates the exact three-service inventory, health, owner labels, loopback bindings,
-service DNS, exact PostgreSQL named-volume identity, and resolved QLever bind paths.
+exact PostgreSQL named-volume identity, and resolved QLever bind paths; specifically, the
+PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`.
 `podman-health-reject` exercises Compose's nonzero unhealthy-service rejection.
 `podman-test-integration` and `podman-test-full-store` run the repository's integration and
 configured-corpus gates with `DOCKER_HOST` pinned to the inspected machine socket.
@@ -175,7 +196,7 @@ indexes.
 Run `podman-app-smoke` only after `podman-compose-down`. It enforces availability of fixed
 ports 5433, 7888, 7889, and 8080; refuses existing primary-stack containers; verifies the
 retained volume's exact ownership before mounting it; and exercises Caddy root, the C3262
-BFF response, and internal service DNS. The wrapper always scopes Compose cleanup and
+BFF response, and service DNS in the exact direction implemented: the API container resolves `web`, `postgres`, `qlever-ncit`, and `qlever-uberon`. The wrapper always scopes Compose cleanup and
 removes generated override and temporary data directories. A failed operation remains the
 primary CLI error, with each cleanup failure also printed to stderr. Do not run a second
 local stack on the same loopback ports, and never mount the PostgreSQL volume from two

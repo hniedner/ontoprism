@@ -338,6 +338,24 @@ def generate_primary_site_audit(
         raise PreSmeValidationError(str(exc)) from exc
 
 
+class ValidatedFraction(_StrictModel):
+    numerator: int = Field(ge=0)
+    denominator: int = Field(gt=0)
+    value: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _validate_fraction(self) -> Self:
+        if self.numerator > self.denominator:
+            raise ValueError("fraction numerator exceeds denominator")
+        if self.value != self.numerator / self.denominator:
+            raise ValueError("fraction value differs from counts")
+        return self
+
+
+class CommonValidatedFraction(ValidatedFraction):
+    ineligible: int = Field(ge=0)
+
+
 class MachineReadinessInputs(_StrictModel):
     source_identity: str = Field(pattern=_SHA256)
     source_manifest_identity: str = Field(pattern=_SHA256)
@@ -362,9 +380,8 @@ class MachineReadinessInputs(_StrictModel):
     exact_pair_true_positive: int = Field(ge=0)
     exact_pair_emitted: int = Field(gt=0)
     exact_pair_expected: int = Field(gt=0)
-    full_partition_agreement: tuple[int, int]
-    common_partition_agreement: tuple[int, int]
-    common_partition_ineligible: int = Field(ge=0)
+    full_partition_agreement: ValidatedFraction
+    common_partition_agreement: CommonValidatedFraction
     group_review_count: Literal[18]
     r103_review_count: Literal[3]
     r101_exact_validation_established: bool
@@ -485,24 +502,6 @@ def generate_r101_reuse_validation(
         dry_run_r101_decision_expansion(report_value, current, registry_value)
     _atomic_write(output, _canonical_bytes(result))
     return result
-
-
-class ValidatedFraction(_StrictModel):
-    numerator: int = Field(ge=0)
-    denominator: int = Field(gt=0)
-    value: float = Field(ge=0, le=1)
-
-    @model_validator(mode="after")
-    def _validate_fraction(self) -> Self:
-        if self.numerator > self.denominator:
-            raise ValueError("fraction numerator exceeds denominator")
-        if self.value != self.numerator / self.denominator:
-            raise ValueError("fraction value differs from counts")
-        return self
-
-
-class CommonValidatedFraction(ValidatedFraction):
-    ineligible: int = Field(ge=0)
 
 
 class ReadinessMetrics(_StrictModel):
@@ -668,6 +667,9 @@ class MachineReadinessReport(_StrictModel):
 
 
 def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessReport:
+    # D59 baseline is 80/106 precision and 80/153 recall
+    # (`pdm run agent-test ontolib/tests/decomposition/test_m1_baseline.py -v`,
+    # 2026-08-26); integer cross-products preserve the strict comparison exactly.
     precision_better = (
         inputs.exact_pair_true_positive * 106 > 80 * inputs.exact_pair_emitted
     )
@@ -746,23 +748,10 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             "exceeds_historical_thresholds": True,
         },
         "grouping": {
-            "full_view": {
-                "numerator": inputs.full_partition_agreement[0],
-                "denominator": inputs.full_partition_agreement[1],
-                "value": (
-                    inputs.full_partition_agreement[0]
-                    / inputs.full_partition_agreement[1]
-                ),
-            },
-            "common_pair_view": {
-                "numerator": inputs.common_partition_agreement[0],
-                "denominator": inputs.common_partition_agreement[1],
-                "value": (
-                    inputs.common_partition_agreement[0]
-                    / inputs.common_partition_agreement[1]
-                ),
-                "ineligible": inputs.common_partition_ineligible,
-            },
+            "full_view": inputs.full_partition_agreement.model_dump(mode="json"),
+            "common_pair_view": inputs.common_partition_agreement.model_dump(
+                mode="json"
+            ),
         },
         "primary_site_audit": {
             "audit_identity": inputs.primary_site_audit_identity,
@@ -978,16 +967,16 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             exact_pair_true_positive=metrics.exact_pair_precision.numerator,
             exact_pair_emitted=metrics.exact_pair_precision.denominator,
             exact_pair_expected=metrics.exact_pair_recall.denominator,
-            full_partition_agreement=(
-                metrics.full_partition_agreement.numerator,
-                metrics.full_partition_agreement.denominator,
+            full_partition_agreement=ValidatedFraction(
+                numerator=metrics.full_partition_agreement.numerator,
+                denominator=metrics.full_partition_agreement.denominator,
+                value=metrics.full_partition_agreement.rate,
             ),
-            common_partition_agreement=(
-                metrics.common_pair_partition_agreement.numerator,
-                metrics.common_pair_partition_agreement.denominator,
-            ),
-            common_partition_ineligible=(
-                metrics.common_pair_partition_agreement.ineligible
+            common_partition_agreement=CommonValidatedFraction(
+                numerator=metrics.common_pair_partition_agreement.numerator,
+                denominator=metrics.common_pair_partition_agreement.denominator,
+                value=metrics.common_pair_partition_agreement.rate,
+                ineligible=metrics.common_pair_partition_agreement.ineligible,
             ),
             group_review_count=_GROUP_REVIEW_COUNT,
             r103_review_count=_R103_REVIEW_COUNT,
