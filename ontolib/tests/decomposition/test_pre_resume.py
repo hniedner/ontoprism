@@ -21,6 +21,7 @@ from ontolib.decomposition.pre_resume import (
     _parse_candidate_rows,
     _validate_candidate_evidence,
     _validate_proof_request,
+    _validation_evidence,
     _work_cohorts,
     canonical_pre_resume_json,
     cohort_identity,
@@ -86,7 +87,6 @@ def _proof_data(**overrides: Any) -> dict[str, Any]:
         "constituent_count_mismatch_count": 0,
         "minted_count_mismatch_count": 0,
         "child_orphan_count": 0,
-        "malformed_row_count": 0,
         "validation": {
             "affected_concept_count": 0,
             "affected_tuple_count": 0,
@@ -231,6 +231,28 @@ def test_nonzero_validation_effects_are_evidence_but_cannot_authorize() -> None:
             authorizable=False,
             reason=None,
         )
+
+
+@pytest.mark.unit
+def test_proof_validation_counts_are_derived_from_inspected_occurrences() -> None:
+    verdict = MissingP106Verdict(
+        affected=(
+            CandidateOccurrence("C1", "o1", "A", "F1", "M"),
+            CandidateOccurrence("C1", "o2", "A", "F1", "M"),
+            CandidateOccurrence("C2", "o3", "A", "F2", "M"),
+        )
+    )
+
+    evidence = _validation_evidence(verdict)
+
+    assert (
+        evidence.affected_concept_count,
+        evidence.affected_tuple_count,
+        evidence.affected_occurrence_count,
+        evidence.affected_residual_filler_count,
+    ) == (2, 2, 3, 2)
+    assert evidence.authorizable is False
+    assert evidence.reason == "missing-P106 affected set is nonzero"
 
 
 @pytest.mark.unit

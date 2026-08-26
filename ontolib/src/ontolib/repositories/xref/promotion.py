@@ -305,6 +305,14 @@ class PromotionReport(StrictFrozenBoundaryModel):
         }
 
 
+def _report_with_skipped_unexpandable(
+    report: PromotionReport, skipped: int
+) -> PromotionReport:
+    return PromotionReport.model_validate(
+        {**report.model_dump(), "skipped_unexpandable": skipped}
+    )
+
+
 # ── the reasoner boundary ──────────────────────────────────────────────
 
 
@@ -1655,7 +1663,7 @@ async def _run_promotion_locked(
     )
     # The drop must be visible: a large silent drop is otherwise indistinguishable from
     # a small candidate set, and xref_run.metrics is the auditable artifact.
-    report = report.model_copy(update={"skipped_unexpandable": skipped})
+    report = _report_with_skipped_unexpandable(report, skipped)
     inherited = await _load_previous_promotions(store, promotion_generation)
     run_id = uuid.uuid4().hex
     publication_records, record_run_ids, quarantined = _promotion_generation_records(

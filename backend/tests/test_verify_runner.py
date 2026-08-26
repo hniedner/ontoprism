@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,13 @@ class _Runner:
             arguments,
             1 if self.fail_at == len(self.calls) else 0,
         )
+
+
+@pytest.mark.unit
+def test_verify_runner_docstring_describes_default_context_selection() -> None:
+    assert inspect.getdoc(run_verify) == (
+        "Run fixed gates after removing Docker selectors to use the default context."
+    )
 
 
 @pytest.mark.unit

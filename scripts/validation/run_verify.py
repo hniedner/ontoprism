@@ -62,7 +62,7 @@ def _subprocess_runner(
 
 
 def run_verify(*, runner: CommandRunner = _subprocess_runner) -> int:
-    """Run fixed gates only when Docker will use its selected default context."""
+    """Run fixed gates after removing Docker selectors to use the default context."""
     environment = dict(os.environ)
     selectors = [
         variable for variable in DOCKER_SELECTOR_VARIABLES if variable in environment

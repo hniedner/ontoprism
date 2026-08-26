@@ -348,6 +348,8 @@ def _annotation_symbols(
         symbol = _resolve_expr_symbol(module, node)
         if symbol:
             symbols.add(symbol)
+        elif name := _annotation_name(node):
+            unresolved.add(name)
     else:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.expr):
@@ -470,11 +472,10 @@ def _cross_findings(
                         f"{location}:{item.line} {item.symbol[1]}.{name}: {direction}"
                     )
                 for missing in sorted(unresolved):
-                    if missing[:1].isupper() and "." not in missing:
-                        findings.append(
-                            f"{location}:{item.line} {item.symbol[1]}.{name}: "
-                            f"unresolved project annotation {missing}"
-                        )
+                    findings.append(
+                        f"{location}:{item.line} {item.symbol[1]}.{name}: "
+                        f"unresolved project annotation {missing}"
+                    )
     return findings
 
 

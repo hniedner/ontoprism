@@ -18,6 +18,9 @@ import pytest
 
 from ontolib.core import download_cache as dl_cache
 from ontolib.terminologies.ncit.owl_download import (
+    OwlDownloadResult,
+    OwlPairDownloadResult,
+    OwlVersionInfo,
     download_ncit_owl,
     owl_download_url,
     probe_owl_version,
@@ -63,6 +66,16 @@ _ZIP_BYTES = _make_zip()
 
 _ZIP_ETAG = '"ncit-zip-v1"'
 _ZIP_LAST_MODIFIED = "Wed, 01 Jul 2026 00:00:00 GMT"
+
+
+@pytest.mark.unit
+def test_owl_result_models_retain_their_runtime_documentation() -> None:
+    assert OwlVersionInfo.__doc__ == "Remote OWL artifact metadata from a HEAD probe."
+    assert OwlDownloadResult.__doc__ is not None
+    assert OwlDownloadResult.__doc__.startswith("Outcome of an OWL download")
+    assert OwlPairDownloadResult.__doc__ == (
+        "Outcome of downloading and binding both NCIt release variants."
+    )
 
 
 class _ZipHandler(BaseHTTPRequestHandler):

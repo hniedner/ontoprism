@@ -124,6 +124,13 @@ def test_milestone_prompt_requires_agent_git_merge_wrapper(config_root: Path) ->
     )
 
 
+def test_repository_agent_guidance_names_only_the_merge_wrapper() -> None:
+    guidance = Path("AGENTS.md").read_text(encoding="utf-8")
+
+    assert "local `pdm run agent-git merge-no-ff <branch>` integration" in guidance
+    assert "local `git merge --no-ff` integration" not in guidance
+
+
 def test_dead_fallback_plugin_artifact_is_rejected(config_root: Path) -> None:
     relative = ".opencode/opencode-model-fallback.jsonc"
     (config_root / relative).write_text("{}")

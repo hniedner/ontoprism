@@ -72,8 +72,9 @@ _ZIP_SYMLINK_MODE = 0o120000
 
 
 class OwlVersionInfo(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
     """Remote OWL artifact metadata from a HEAD probe."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     url: str
     size_bytes: int | None = None
@@ -81,12 +82,13 @@ class OwlVersionInfo(BaseModel):
 
 
 class OwlDownloadResult(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
     """Outcome of an OWL download: the extracted file, or an error.
 
     ``source_last_modified`` / ``source_etag`` echo the cached source's version markers
     (from the download manifest) so a caller can see *which version* is on disk.
     """
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     success: bool
     variant: str
@@ -143,8 +145,9 @@ class OwlArtifactPairManifest(BaseModel):
 
 
 class OwlPairDownloadResult(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
     """Outcome of downloading and binding both NCIt release variants."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     success: bool
     stated: OwlDownloadResult | None = None

@@ -285,6 +285,27 @@ the exact source facts, groups, occurrences, anchors, depth/path, and transforma
 labels and definitions are marked unavailable where the bound current evidence artifact contains
 no source text. Machine evidence is never reviewer rationale.
 
+### Group-review generation
+
+The group-review generation writes `tmp/m1-6-axis-diagnostics.json`,
+`tmp/m1-6-group-review-packet.json`, and `tmp/m1-6-group-review-workbook.xlsx`; all are gitignored
+diagnostic/review artifacts. The workbook leaves Decision, Rationale, Reviewer, and Date blank, so
+generation records no SME adjudication (`pdm run agent-replay generate-group-review`, 2026-08-24).
+
+The group-review rule-evidence audit is deliberately narrow:
+
+| Rule evidence kind | Existing producer and exact fields consumed |
+|---|---|
+| co-assertion preservation | `generate_current_evidence()` → `CurrentConceptEvidence.all_source_occurrences` and `CurrentConstituent.source_occurrences`, retaining `source_group_id`, `source_fact_id`, and `occurrence_id` beside normalized output-group identities |
+| routing | `generate_current_evidence()` → `CurrentConstituent.axis` plus each cited occurrence's `role_code`, `filler_code`, source fact, source group, and occurrence identity |
+| specificity collapse | `build_r101_conservation_report()` → `LedgerOccurrence.retained_r82_target`, `r82_path`, and exact structural occurrence fields; only rows that join to current evidence are emitted |
+| repeated pairs | `generate_current_evidence()` → the complete `CurrentConstituent.source_occurrences` set for one normalized axis/filler pair |
+| reviewed regrouping | `validate_current_comparison()` → current/expected partitions and grouping diagnosis, joined to current source occurrences and output groups; the historical expected partition is explicitly labelled as lacking source citations |
+
+The packet and workbook are generated from exactly the tracked current evidence, tracked current
+comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
+execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
+
 ### R103 manual SME review boundary (#294)
 
 Generate the source-bound packet and blank workbook offline from the pinned stated OWL
@@ -308,25 +329,6 @@ pdm run python scripts/adjudication.py dry-run-r103-review --packet tmp/m1-6-r10
 The importer produces a distinct R103 review-evidence registry. It does not mutate the
 oracle or proposal registry; a later accepted correction proposal must extend the existing
 `ProposalRegistry` through its separate governance path.
-
-These commands write `tmp/m1-6-axis-diagnostics.json`,
-`tmp/m1-6-group-review-packet.json`, and `tmp/m1-6-group-review-workbook.xlsx`; all are gitignored
-diagnostic/review artifacts. The workbook leaves Decision, Rationale, Reviewer, and Date blank, so
-generation records no SME adjudication (`pdm run agent-replay generate-group-review`, 2026-08-24).
-
-The group-review rule-evidence audit is deliberately narrow:
-
-| Rule evidence kind | Existing producer and exact fields consumed |
-|---|---|
-| co-assertion preservation | `generate_current_evidence()` → `CurrentConceptEvidence.all_source_occurrences` and `CurrentConstituent.source_occurrences`, retaining `source_group_id`, `source_fact_id`, and `occurrence_id` beside normalized output-group identities |
-| routing | `generate_current_evidence()` → `CurrentConstituent.axis` plus each cited occurrence's `role_code`, `filler_code`, source fact, source group, and occurrence identity |
-| specificity collapse | `build_r101_conservation_report()` → `LedgerOccurrence.retained_r82_target`, `r82_path`, and exact structural occurrence fields; only rows that join to current evidence are emitted |
-| repeated pairs | `generate_current_evidence()` → the complete `CurrentConstituent.source_occurrences` set for one normalized axis/filler pair |
-| reviewed regrouping | `validate_current_comparison()` → current/expected partitions and grouping diagnosis, joined to current source occurrences and output groups; the historical expected partition is explicitly labelled as lacking source citations |
-
-The packet and workbook are generated from exactly the tracked current evidence, tracked current
-comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
-execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
 
 ### Final machine-readiness evidence
 

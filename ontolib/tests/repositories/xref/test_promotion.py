@@ -48,6 +48,7 @@ from ontolib.repositories.xref.promotion import (
     PromotionReport,
     _curation_alone,
     _refuse_degenerate_context,
+    _report_with_skipped_unexpandable,
     build_disjoint_query,
     build_upstream_partof_query,
     corroboration,
@@ -964,6 +965,24 @@ def test_report_rejects_overlapping_sub_buckets() -> None:
             promoted_on_curation_alone=2,
             promoted_with_structural_corroboration=2,
         )
+
+
+@pytest.mark.unit
+def test_skipped_candidate_update_revalidates_report_accounting() -> None:
+    invalid = PromotionReport.model_construct(
+        considered=2,
+        promoted=1,
+        insufficient_evidence=0,
+        refuted=0,
+        reasoner_errors=0,
+        conflicting_identity=0,
+        skipped_unexpandable=0,
+        promoted_on_curation_alone=0,
+        promoted_with_structural_corroboration=0,
+    )
+
+    with pytest.raises(ValueError, match="promotion accounting does not balance"):
+        _report_with_skipped_unexpandable(invalid, 3)
 
 
 @pytest.mark.unit

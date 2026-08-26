@@ -656,7 +656,6 @@ class PreResumeProof(_StrictModel):
     constituent_count_mismatch_count: NonNegativeCount
     minted_count_mismatch_count: NonNegativeCount
     child_orphan_count: NonNegativeCount
-    malformed_row_count: NonNegativeCount
     validation: PreResumeValidationEvidence
     postgres_reads: PositiveCount
     qlever_reads: PositiveCount
@@ -718,7 +717,6 @@ def _validate_proof_integrity(proof: PreResumeProof) -> None:
         proof.constituent_count_mismatch_count,
         proof.minted_count_mismatch_count,
         proof.child_orphan_count,
-        proof.malformed_row_count,
     )
     if any(counts):
         raise ValueError("completion and child-table integrity must be exact")
@@ -974,17 +972,23 @@ def _build_proof(
         constituent_count_mismatch_count=0,
         minted_count_mismatch_count=0,
         child_orphan_count=0,
-        malformed_row_count=0,
-        validation=PreResumeValidationEvidence(
-            affected_concept_count=0,
-            affected_tuple_count=0,
-            affected_occurrence_count=0,
-            affected_residual_filler_count=0,
-            authorizable=True,
-            reason=None,
-        ),
+        validation=_validation_evidence(candidate.validation),
         postgres_reads=postgres_reads,
         qlever_reads=qlever_reads,
+    )
+
+
+def _validation_evidence(
+    verdict: MissingP106Verdict,
+) -> PreResumeValidationEvidence:
+    counts = verdict.affected_counts
+    return PreResumeValidationEvidence(
+        affected_concept_count=counts[0],
+        affected_tuple_count=counts[1],
+        affected_occurrence_count=counts[2],
+        affected_residual_filler_count=counts[3],
+        authorizable=verdict.authorizable,
+        reason=None if verdict.authorizable else "missing-P106 affected set is nonzero",
     )
 
 

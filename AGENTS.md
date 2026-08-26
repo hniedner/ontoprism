@@ -380,7 +380,7 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   GitHub event. PR creation occurs only when requested. Run `gh pr merge` only when the user
   explicitly authorizes the exact PR in the current conversation and every hard merge check
   passes. This does not prohibit the milestone procedure's
-  local `git merge --no-ff` integration of a verified issue branch into its milestone
+  local `pdm run agent-git merge-no-ff <branch>` integration of a verified issue branch into its milestone
   branch. Record any genuinely unverifiable or unactionable exception and its reason.
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go

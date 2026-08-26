@@ -524,6 +524,13 @@ def test_pre_sme_documentation_names_runtime_and_readiness_contracts() -> None:
     assert "tmp/m1-6-verify-evidence.json" in evidence_guide
     assert "tmp/m1-6-machine-readiness.json" in evidence_guide
     assert "clean worktree" in evidence_guide
+    group_section = evidence_guide.index("### Group-review generation")
+    r103_section = evidence_guide.index("### R103 manual SME review boundary (#294)")
+    assert group_section < r103_section
+    assert (
+        "The group-review generation writes"
+        in evidence_guide[group_section:r103_section]
+    )
 
 
 @pytest.mark.unit

@@ -49,6 +49,7 @@ from test_support.integration_resources import (  # noqa: E402
     validate_integration_test_declaration,
     validate_mutator_manifest_files,
 )
+from test_support.qlever_graph import preserve_qlever_graph  # noqa: E402
 
 from backend.config import get_settings  # noqa: E402
 from ontolib.core.data_build_tools import (  # noqa: E402
@@ -707,58 +708,15 @@ def isolated_qlever_url(
 @pytest.fixture
 def preserved_decomposed_graph(isolated_qlever_url: str) -> Iterator[None]:
     """Restore the disposable public decomposition graph after a mutating contract."""
-    public = decomp_vocab.DECOMPOSED_GRAPH_IRI
-    backup = f"{public}/test-backup/{uuid.uuid4().hex}"
-
-    def update(statement: str) -> None:
-        response = httpx.post(
-            f"{isolated_qlever_url}/update",
-            content=statement.encode(),
-            headers={"Content-Type": "application/sparql-update"},
-            timeout=30,
-        )
-        response.raise_for_status()
-
-    update(
-        f"CLEAR SILENT GRAPH <{backup}>; "
-        f"ADD SILENT GRAPH <{public}> TO GRAPH <{backup}>"
-    )
-    try:
+    with preserve_qlever_graph(isolated_qlever_url, decomp_vocab.DECOMPOSED_GRAPH_IRI):
         yield
-    finally:
-        update(
-            f"CLEAR SILENT GRAPH <{public}>; "
-            f"ADD SILENT GRAPH <{backup}> TO GRAPH <{public}>; "
-            f"DROP SILENT GRAPH <{backup}>"
-        )
 
 
 @pytest.fixture
 def preserved_stated_graph(isolated_qlever_url: str) -> Iterator[None]:
     """Restore the disposable stated graph after a mutating contract."""
-    backup = f"{STATED_GRAPH_IRI}/test-backup/{uuid.uuid4().hex}"
-
-    def update(statement: str) -> None:
-        response = httpx.post(
-            f"{isolated_qlever_url}/update",
-            content=statement.encode(),
-            headers={"Content-Type": "application/sparql-update"},
-            timeout=30,
-        )
-        response.raise_for_status()
-
-    update(
-        f"CLEAR SILENT GRAPH <{backup}>; "
-        f"ADD SILENT GRAPH <{STATED_GRAPH_IRI}> TO GRAPH <{backup}>"
-    )
-    try:
+    with preserve_qlever_graph(isolated_qlever_url, STATED_GRAPH_IRI):
         yield
-    finally:
-        update(
-            f"CLEAR SILENT GRAPH <{STATED_GRAPH_IRI}>; "
-            f"ADD SILENT GRAPH <{backup}> TO GRAPH <{STATED_GRAPH_IRI}>; "
-            f"DROP SILENT GRAPH <{backup}>"
-        )
 
 
 @pytest.fixture

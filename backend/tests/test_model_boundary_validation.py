@@ -139,6 +139,31 @@ def test_validator_reports_unresolved_project_annotations(tmp_path: Path) -> Non
     )
 
 
+def test_validator_reports_dotted_and_unparsable_forward_annotations(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "models.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, slots=True)\n"
+        "class Domain:\n"
+        "    dotted: 'project_models.MissingType'\n"
+        "    malformed: 'MissingType['\n",
+    )
+
+    findings = validate_model_boundaries(tmp_path)
+
+    assert any(
+        "Domain.dotted" in finding and "project_models.MissingType" in finding
+        for finding in findings
+    )
+    assert any(
+        "Domain.malformed" in finding and "MissingType[" in finding
+        for finding in findings
+    )
+
+
 def test_validator_rejects_non_strict_pydantic_boundary(tmp_path: Path) -> None:
     _write(
         tmp_path,
