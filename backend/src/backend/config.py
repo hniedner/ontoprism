@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     """Backend configuration (see .env.example)."""
 
     # The shared .env contains settings for all three processes; unrelated keys are
-    # explicitly ignored, while values for this settings document are never coerced.
+    # ignored. Python-provided document values are strict, while environment and .env
+    # sources parse strings before strict validation.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", strict=True)
 
     # ontoprism's OWN isolated services (see docker-compose.yml); distinct from the

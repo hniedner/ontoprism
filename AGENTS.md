@@ -153,7 +153,7 @@ export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
 pdm run data-build owl
 pdm run data-build ncit-bootstrap
 pdm run data-build uberon-store
-pdm run up               # Compose via current selected Docker context; activate-podman-docker-context required for supported Podman
+pdm run up               # Compose via current selected Docker context; run `pdm run agent-replay activate-podman-docker-context` for supported Podman
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```

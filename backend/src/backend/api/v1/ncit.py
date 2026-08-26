@@ -96,8 +96,9 @@ async def _xref_expected(
 class MappingEntry(StrictBoundaryModel):
     """One terminology alignment for an NCIt concept, serialized for the API.
 
-    ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
-    the predicate is ``exactMatch`` and lifecycle is ``validated``/``active``.
+    The router supplies ``is_identity`` using the same rule as
+    ``UpstreamMapping.is_identity``: true when the predicate is ``exactMatch`` and
+    lifecycle is ``validated``/``active``. The model does not enforce that relationship.
     """
 
     object_id: str
