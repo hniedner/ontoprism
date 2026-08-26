@@ -519,6 +519,41 @@ def test_pre_sme_verify_refuses_dirty_worktree_without_running_gate_or_writing(
 
 
 @pytest.mark.unit
+def test_pre_sme_verify_gate_failure_removes_stale_evidence(tmp_path: Path) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            self.calls.append((arguments, kwargs))
+            if arguments == ["git", "status", "--porcelain"]:
+                return _Result(0, stdout="")
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                return _Result(0, stdout="a" * 40 + "\n")
+            if arguments == ["/opt/homebrew/bin/pdm", "--version"]:
+                return _Result(0, stdout="PDM, version 2.25.9\n")
+            if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
+                return _Result(1, stderr="verify failed")
+            self.calls.pop()
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    output = tmp_path / "tmp/m1-6-verify-evidence.json"
+    output.parent.mkdir()
+    output.write_text("stale passed evidence\n")
+
+    with pytest.raises(AgentReplayInputError, match="verify failed"):
+        run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner)
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="unsupported"):
         run_agent_replay(["import-workbook"], tmp_path)

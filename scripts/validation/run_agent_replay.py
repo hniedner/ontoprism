@@ -1367,6 +1367,8 @@ def _capture_pre_sme_verify(
         environment=_docker_context_environment(),
     ).strip()
     gate_version = _capture_required([_PDM, "--version"], root, runner).strip()
+    evidence_path = root / "tmp/m1-6-verify-evidence.json"
+    evidence_path.unlink(missing_ok=True)
     gate_exit = _podman_gate(
         values,
         root,
@@ -1390,7 +1392,7 @@ def _capture_pre_sme_verify(
     ).write_verify_evidence
     try:
         writer(
-            root / "tmp/m1-6-verify-evidence.json",
+            evidence_path,
             git_head=head_after,
             docker_context=context,
             docker_endpoint=f"unix://{socket_path}",
