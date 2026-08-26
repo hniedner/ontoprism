@@ -31,7 +31,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class AxisDiagnosticError(ValueError):
-    """Axis evidence cannot be interpreted without ambiguity."""
+    """Raised for malformed or unusable evidence; ambiguity returns typed unknown."""
 
 
 def _require(value: str, pattern: re.Pattern[str], name: str) -> None:
