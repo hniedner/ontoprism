@@ -74,18 +74,23 @@ def test_resolved_specialist_models_remain_exact(name: str) -> None:
 
 
 def test_resolved_read_only_agent_requires_effective_deny_catch_all() -> None:
+    permissions = expected_permission_contract(
+        Path(__file__).parents[2], "pr-code-reviewer"
+    )
     agent = {
         "model": "github-copilot/claude-opus-5",
         "mode": "subagent",
-        "permission": [
-            {"permission": "bash", "pattern": "*", "action": "deny"},
-            {"permission": "bash", "pattern": "git status*", "action": "allow"},
-        ],
+        "permission": permissions,
     }
 
     assert validate_resolved_agent("pr-code-reviewer", agent) == []
 
-    agent["permission"][0]["action"] = "ask"
+    catch_all = next(
+        rule
+        for rule in permissions
+        if rule["permission"] == "bash" and rule["pattern"] == "*"
+    )
+    catch_all["action"] = "ask"
     assert (
         "pr-code-reviewer resolved bash catch-all must be deny"
         in validate_resolved_agent("pr-code-reviewer", agent)
@@ -148,7 +153,7 @@ def test_permission_contract_allows_only_the_generated_tool_output_suffix() -> N
 
 
 @pytest.mark.parametrize("pattern", ["git push origin main", "unknown future command"])
-def test_permission_contract_ignores_global_asks_but_rejects_project_suffix_asks(
+def test_permission_contract_accepts_only_asks_in_the_exact_expected_suffix(
     pattern: str,
 ) -> None:
     global_ask = {"permission": "bash", "pattern": "git push *", "action": "ask"}
@@ -163,13 +168,17 @@ def test_permission_contract_ignores_global_asks_but_rejects_project_suffix_asks
         "pattern": pattern,
         "action": "ask",
     }
-    assert validate_permission_contract(
-        [global_ask, *expected, project_ask], [*expected, project_ask]
-    ) == ["resolved project permission suffix contains a bash ask action"]
+    assert (
+        validate_permission_contract(
+            [global_ask, *expected, project_ask], [*expected, project_ask]
+        )
+        == []
+    )
+    assert validate_permission_contract([global_ask, *expected, project_ask], expected)
 
 
 @pytest.mark.parametrize("role", sorted(ROLES))
-def test_checked_in_project_permission_suffix_has_only_allow_and_deny(
+def test_checked_in_project_permission_suffix_has_only_governed_actions(
     role: str,
 ) -> None:
     expected = expected_permission_contract(Path(__file__).parents[2], role)
@@ -180,7 +189,12 @@ def test_checked_in_project_permission_suffix_has_only_allow_and_deny(
     }
 
     bash_actions = {rule["action"] for rule in expected if rule["permission"] == "bash"}
-    assert bash_actions <= {"allow", "deny"}
+    expected_actions = (
+        {"allow", "deny", "ask"}
+        if role in {"ontoprism-team", "implementer"}
+        else {"allow", "deny"}
+    )
+    assert bash_actions <= expected_actions
     assert validate_permission_contract([inherited_ask, *expected], expected) == []
 
 
@@ -237,11 +251,7 @@ def test_layered_project_validates_each_actual_resolved_agent(
         if name == "implementer":
             expected = [
                 *expected,
-                {
-                    "permission": "bash",
-                    "pattern": ask_pattern,
-                    "action": "ask",
-                },
+                {"permission": "bash", "pattern": ask_pattern, "action": "ask"},
             ]
         expected.append(
             {
@@ -270,7 +280,9 @@ def test_layered_project_validates_each_actual_resolved_agent(
         root, tmp_path, {"XDG_DATA_HOME": str(data_home)}, set()
     )
 
-    assert errors == ["resolved project permission suffix contains a bash ask action"]
+    assert errors == [
+        "resolved permission contract is not the exact effective project suffix"
+    ]
     assert ["opencode", "debug", "agent", "implementer"] in calls
     assert sum(call[:3] == ["opencode", "debug", "agent"] for call in calls) == 14
 
@@ -477,26 +489,26 @@ def test_actual_implementer_contract_allows_only_canonical_mutations(
         ("implementer", "git diff --no-ext-diff", "allow"),
         ("implementer", "git diff --check", "allow"),
         ("implementer", "git diff --no-index /dev/null new-file", "allow"),
-        ("architect", "pdm run agent-test backend/tests/test_x.py", "deny"),
+        ("architect", "pdm run agent-test backend/tests/test_x.py", "allow"),
         (
             "pr-code-reviewer",
             "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
-            "deny",
+            "allow",
         ),
         (
             "pr-silent-failure-hunter",
             "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
-            "deny",
+            "allow",
         ),
         (
             "pr-comment-analyzer",
             "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
-            "deny",
+            "allow",
         ),
         (
             "pr-type-design-analyzer",
             "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
-            "deny",
+            "allow",
         ),
         ("architect", "pdm run lint", "deny"),
         ("architect", "git diff --no-ext-diff", "deny"),
@@ -506,7 +518,7 @@ def test_actual_implementer_contract_allows_only_canonical_mutations(
         ("ontoprism-team", "pdm run pytest backend/tests/test_x.py", "deny"),
         ("ontoprism-team", "pdm run test-integration-full-store anything", "deny"),
         ("ontoprism-team", "git diff --ext-diff", "deny"),
-        ("ontoprism-team", "git diff --no-index other new-file", "deny"),
+        ("ontoprism-team", "git diff --no-index other new-file", "ask"),
         ("ontoprism-team", "git diff --no-ext-diff; git reset", "deny"),
         ("implementer", "git diff --check && git clean -fd", "deny"),
         (
@@ -583,8 +595,8 @@ def test_orchestrator_contract_allows_only_fixed_inspection_commands(
             "allow",
         ),
         ("gh run watch 456 --exit-status", "allow"),
-        ("gh pr view 123 --json body", "deny"),
-        ("gh run watch 456", "deny"),
+        ("gh pr view 123 --json body", "ask"),
+        ("gh run watch 456", "ask"),
     ],
 )
 def test_orchestrator_can_execute_only_required_read_only_gh_checks(
@@ -640,6 +652,62 @@ def test_governance_environment_rejects_uncontrolled_overrides() -> None:
         )
     with pytest.raises(RuntimeContractError, match="unexpected governance environment"):
         governance_environment({"OPENCODE_PERMISSION": "allow"}, controlled={})
+
+
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        ("ontoprism-team", "uname -a", "ask"),
+        ("ontoprism-team", "pdm run agent-github issue-create --title x", "allow"),
+        ("ontoprism-team", "pdm run agent-github milestone-close 4", "allow"),
+        ("ontoprism-team", "pdm run agent-github issue-delete 4", "deny"),
+        ("ontoprism-team", "pdm run agent-github milestone-delete 4", "deny"),
+        ("ontoprism-team", "gh issue create --repo hniedner/ontoprism", "deny"),
+        ("ontoprism-team", "gh pr edit 4 --title changed", "deny"),
+        ("ontoprism-team", "pdm install", "deny"),
+        ("implementer", "uname -a", "ask"),
+        ("implementer", "pdm run agent-github issue-close 4", "deny"),
+        ("implementer", "pdm run agent-github-read issue-view 4", "deny"),
+        ("implementer", "pdm install", "deny"),
+    ],
+)
+def test_governed_writer_shell_contract(role: str, command: str, expected: str) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], role)
+
+    assert effective_action(rules, command) == expected
+
+
+SPECIALISTS = sorted(set(ROLES) - {"ontoprism-team", "implementer", *RESERVES})
+
+
+@pytest.mark.parametrize("role", SPECIALISTS)
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("pdm run agent-github-read issue-view 4", "allow"),
+        ("pdm run agent-github-read milestone-list --state open", "allow"),
+        ("pdm run agent-github-read pr-view 4", "allow"),
+        ("pdm run agent-github-read run-list --branch main", "allow"),
+        ("pdm run agent-test backend/tests/test_x.py -v", "allow"),
+        (
+            "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+            "allow",
+        ),
+        (
+            "pdm run agent-test --safe-integration backend/tests/test_x.py -v",
+            "deny",
+        ),
+        ("pdm run agent-github issue-close 4", "deny"),
+        ("pdm run pytest backend/tests/test_x.py", "deny"),
+        ("touch forbidden", "deny"),
+    ],
+)
+def test_read_only_specialists_get_only_governed_reads_and_safe_tests(
+    role: str, command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], role)
+
+    assert effective_action(rules, command) == expected
 
 
 def test_runtime_entry_rejects_an_actual_injected_override_before_commands(

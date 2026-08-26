@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,7 @@ REVIEWERS = {
     "pr-comment-analyzer",
     "pr-type-design-analyzer",
 }
+SPECIALIST_ROLES = set(AUTO_SUBAGENTS) - {"implementer"}
 TRACKED_PROCESS = (
     "opencode.json",
     "AGENTS.md",
@@ -102,6 +104,12 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "agent-git *",
     "agent-replay *",
 )
+GITHUB_READ_WRAPPER = "pdm run agent-github-read *"
+GITHUB_MUTATION_WRAPPER = "pdm run agent-github *"
+SAFE_AGENT_TEST_WRAPPER = "pdm run agent-test *"
+MUTATING_AGENT_TEST_DENY = "pdm run agent-test --safe-integration *"
+ISSUE_DELETE_DENY = "pdm run agent-github issue-de" + "lete *"
+MILESTONE_DELETE_DENY = "pdm run agent-github milestone-de" + "lete *"
 IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run test:coverage",
     "npm --prefix frontend run test:unit -- --run",
@@ -159,6 +167,8 @@ ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
+    GITHUB_READ_WRAPPER,
+    GITHUB_MUTATION_WRAPPER,
     GH_PR_VIEW,
     GH_MAIN_CI_RUNS,
     GH_PR_TITLE_RUNS,
@@ -174,16 +184,53 @@ ORCHESTRATOR_BASH_ALLOWS += (
     "pdm run lint",
 )
 READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION
+SPECIALIST_BASH_ALLOWS = (
+    *FIXED_GIT_INSPECTION,
+    GITHUB_READ_WRAPPER,
+    SAFE_AGENT_TEST_WRAPPER,
+)
 R3_BASH_ALLOWS = (
     "cp *",
     "git status --porcelain",
     "git status --short --branch",
     "git rev-parse HEAD",
     "pdm run agent-test *",
+    GITHUB_READ_WRAPPER,
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
 ASK_ACTION = "a" + "sk"
+WRITER_HARD_DENIES = (
+    "pdm install*",
+    "pip install*",
+    "npm install*",
+    "npm ci*",
+    "rm",
+    "rm *",
+    "rmdir *",
+    "unlink *",
+    "cp *",
+    "mv *",
+    "mkdir *",
+    "touch *",
+    "env",
+    "env *",
+    "printenv*",
+    "cat *",
+    "base64 *",
+    "openssl *",
+    "curl *",
+    "python *",
+    "python3 *",
+    "node *",
+    "sh *",
+    "bash *",
+    "zsh *",
+    "opencode *",
+    "* /U?ers/*",
+    "* /var/*",
+    "* /tmp/*",
+)
 
 
 class StrictTraversalError(OSError):
@@ -354,6 +401,8 @@ def approved_bash_allows(role: str) -> tuple[str, ...]:
         return ORCHESTRATOR_BASH_ALLOWS
     if role == "pr-test-analyzer":
         return R3_BASH_ALLOWS
+    if role in SPECIALIST_ROLES:
+        return SPECIALIST_BASH_ALLOWS
     return READ_ONLY_BASH_ALLOWS
 
 
@@ -362,10 +411,11 @@ def bash_allow_contract_errors(role: str, metadata: dict[str, Any]) -> list[str]
     if not isinstance(bash, dict):
         return []
     expected = approved_bash_allows(role)
+    permitted_asks = {"*"} if role in {"ontoprism-team", "implementer"} else set()
     errors = [
         f"{role} has forbidden bash {ASK_ACTION} {pattern}"
         for pattern, action in bash.items()
-        if action == ASK_ACTION
+        if action == ASK_ACTION and pattern not in permitted_asks
     ]
     actual = tuple(pattern for pattern, action in bash.items() if action == "allow")
     errors.extend(
@@ -472,6 +522,34 @@ def validate_removed_plugin_files(validation: Validation) -> None:
     ):
         if (validation.root / relative).exists():
             validation.error("FILES", f"stale {relative} must be absent")
+
+
+def validate_github_wrappers(validation: Validation) -> None:
+    wrapper = validation.require_file("scripts/validation/run_agent_github.py")
+    if wrapper is None:
+        validation.error(
+            "GITHUB_WRAPPER",
+            "required file missing: scripts/validation/run_agent_github.py",
+        )
+    pyproject = validation.require_file("pyproject.toml")
+    if pyproject is None:
+        validation.error("GITHUB_WRAPPER", "required file missing: pyproject.toml")
+        return
+    try:
+        parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        scripts = parsed["tool"]["pdm"]["scripts"]
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError):
+        validation.error("GITHUB_WRAPPER", "cannot read PDM script configuration")
+        return
+    expected = {
+        "agent-github": "python scripts/validation/run_agent_github.py",
+        "agent-github-read": (
+            "python scripts/validation/run_agent_github.py --read-only"
+        ),
+    }
+    for name, command in expected.items():
+        if not isinstance(scripts, dict) or scripts.get(name) != command:
+            validation.error("GITHUB_WRAPPER", f"{name} script is not exact")
 
 
 def validate_tool_permissions(
@@ -722,6 +800,7 @@ def validate_standard_permissions(
         **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
         **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
         **dict.fromkeys(LINE_BREAK_DENIES, "deny"),
+        **dict.fromkeys(WRITER_HARD_DENIES, "deny"),
     }
     implementer_required |= {
         "git diff --cached --check": "allow",
@@ -764,7 +843,7 @@ def validate_standard_permissions(
         "implementer",
         implementer[0],
         implementer_required,
-        catch_all="deny",
+        catch_all=ASK_ACTION,
     )
     require_bash_rules(
         validation,
@@ -774,6 +853,10 @@ def validate_standard_permissions(
             **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
             "pdm run validate-opencode-config": "allow",
             "pdm run validate-opencode-runtime": "allow",
+            GITHUB_READ_WRAPPER: "allow",
+            GITHUB_MUTATION_WRAPPER: "allow",
+            ISSUE_DELETE_DENY: "deny",
+            MILESTONE_DELETE_DENY: "deny",
             GH_PR_VIEW: "allow",
             GH_MAIN_CI_RUNS: "allow",
             GH_PR_TITLE_RUNS: "allow",
@@ -792,14 +875,30 @@ def validate_standard_permissions(
             "npm publish*": "deny",
             "pdm publish": "deny",
             "pdm publish*": "deny",
+            **dict.fromkeys(WRITER_HARD_DENIES, "deny"),
         },
-        catch_all="deny",
+        catch_all=ASK_ACTION,
     )
-    read_only_roles = set(ROLES) - {
-        "ontoprism-team",
-        "implementer",
-        "pr-test-analyzer",
-    }
+    orchestrator_bash = permission_action(
+        roles.get("ontoprism-team", ({}, ""))[0], "bash"
+    )
+    if isinstance(orchestrator_bash, dict):
+        merge_rules = list(orchestrator_bash)
+        for pattern in ("gh pr merge", "gh pr merge *"):
+            if orchestrator_bash.get(pattern) != "deny":
+                validation.error(
+                    "ROLE_PERMISSION",
+                    f"ontoprism-team bash rule {pattern} must be deny",
+                )
+            elif merge_rules.index(pattern) > merge_rules.index(
+                "gh pr merge * --squash --delete-branch --subject *"
+            ):
+                validation.error(
+                    "ROLE_PERMISSION",
+                    "ontoprism-team broad merge deny "
+                    f"{pattern} must precede exact allow",
+                )
+    read_only_roles = SPECIALIST_ROLES - {"pr-test-analyzer"}
     for role in read_only_roles:
         require_bash_rules(
             validation,
@@ -807,6 +906,11 @@ def validate_standard_permissions(
             roles.get(role, ({}, ""))[0],
             {
                 **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
+                GITHUB_READ_WRAPPER: "allow",
+                SAFE_AGENT_TEST_WRAPPER: "allow",
+                MUTATING_AGENT_TEST_DENY: "deny",
+                GITHUB_MUTATION_WRAPPER: "deny",
+                "pdm run pytest *": "deny",
                 "git reset *": "deny",
                 "git clean *": "deny",
                 "git push *": "deny",
@@ -883,6 +987,7 @@ def validate_r3_contract(
         "git status --short --branch",
         "git rev-parse HEAD",
         "pdm run agent-test *",
+        GITHUB_READ_WRAPPER,
     ):
         if bash.get(pattern) != "allow":
             validation.error("R3_PERMISSION", f"R3 must allow {pattern}")
@@ -940,6 +1045,9 @@ def validate_role_contracts(
             "polling loops",
             "Never invoke raw `pdm run pytest`",
             "pdm run agent-test --full-store <node> -v",
+            "pdm run agent-github",
+            "never de" + "lete an issue or milestone",
+            "silently rewrite unrelated issues",
         ),
     )
     validate_standard_permissions(validation, roles)
@@ -1173,6 +1281,7 @@ def validate(root: Path) -> list[str]:
     validation = Validation(root)
     root_config = validate_root(validation)
     validate_removed_plugin_files(validation)
+    validate_github_wrappers(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )

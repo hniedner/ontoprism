@@ -25,7 +25,9 @@ if str(ROOT) not in sys.path:
 from scripts.validation.validate_opencode_config import (  # noqa: E402
     ASK_ACTION,
     AUTO_SUBAGENTS,
+    RESERVES,
     ROLES,
+    SPECIALIST_ROLES,
     Validation,
     bash_allow_contract_errors,
     load_agent,
@@ -34,7 +36,7 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
 )
 
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
-READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
+READ_ONLY_ROLES = set(ROLES) - {"ontoprism-team", "implementer", "pr-test-analyzer"}
 GOVERNANCE_ENV_PREFIX = "OPENCODE_CONFIG"
 GOVERNANCE_ENV_EXACT = {"OPENCODE_PERMISSION"}
 BUILTIN_AGENT_NAMES = {
@@ -155,15 +157,6 @@ def validate_permission_contract(
     generated_tool_output_pattern: str | None = None,
 ) -> list[str]:
     project_suffix = resolved[-len(expected) :]
-    if any(
-        isinstance(rule, dict)
-        and rule.get("permission") == "bash"
-        and rule.get("action") == ASK_ACTION
-        for rule in project_suffix
-    ):
-        return [
-            f"resolved project permission suffix contains a bash {ASK_ACTION} action"
-        ]
     if project_suffix == expected:
         return []
     if (
@@ -247,18 +240,26 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
                 "deny",
             ),
             ("touch forbidden", "deny"),
+            ("uname -a", "ask"),
+            ("pdm run agent-github issue-close 4", "allow"),
+            ("pdm run agent-github issue-delete 4", "deny"),
         )
-    if name in READ_ONLY_ROLES:
+    if name in SPECIALIST_ROLES - {"pr-test-analyzer"}:
         return (
             ("touch forbidden", "deny"),
             ("git status --porcelain", "allow"),
             (
                 "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
-                "deny",
+                "allow",
             ),
+            ("pdm run agent-github-read issue-view 4", "allow"),
+            ("pdm run agent-test --safe-integration backend/tests/test_x.py", "deny"),
+            ("pdm run agent-github issue-close 4", "deny"),
             ("pdm run pytest ontolib/tests/test_x.py", "deny"),
             ("pdm run test-integration-full-store anything", "deny"),
         )
+    if name in RESERVES:
+        return (("touch forbidden", "deny"), ("git status --porcelain", "allow"))
     if name == "pr-test-analyzer":
         return (
             ("cp source target", "allow"),
@@ -267,6 +268,8 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
                 "pdm run agent-test backend/tests/test_opencode_config_validation.py",
                 "allow",
             ),
+            ("pdm run agent-github-read issue-view 4", "allow"),
+            ("pdm run agent-test --safe-integration backend/tests/test_x.py", "deny"),
             ("git commit", "deny"),
             ("git push --force", "deny"),
             ("gh pr merge", "deny"),
@@ -306,6 +309,8 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         ("git switch --discard-changes main", "deny"),
         ("git branch --force feat/x", "deny"),
         ("git merge --no-ff feat/x", "deny"),
+        ("uname -a", "ask"),
+        ("pdm run agent-github issue-close 4", "deny"),
     )
 
 
@@ -318,7 +323,9 @@ def validate_agent_permissions(
         for rule in bash_rules
         if rule.get("permission") == "bash" and rule.get("pattern") == "*"
     ]
-    expected_catch_all = "deny"
+    expected_catch_all = (
+        ASK_ACTION if name in {"ontoprism-team", "implementer"} else "deny"
+    )
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
     for command, expected in (

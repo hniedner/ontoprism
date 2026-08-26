@@ -19,6 +19,10 @@ permission:
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
     "pdm run agent-test *": allow
+    "pdm run agent-github-read *": allow
+    "pdm run agent-test --safe-integration *": deny
+    "pdm run agent-github *": deny
+    "pdm run pytest *": deny
     "git add": deny
     "git add *": deny
     "git commit": deny

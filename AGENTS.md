@@ -372,8 +372,12 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   not converge. Once a dimension converges, do not run it again in that review cycle.
 
   Every round reviews a clean worktree and committed diff. Pushes and PR creation or updates
-  remain manual user actions. PR merge is the sole GitHub mutation the orchestrator may perform,
-  and only under the exact current-conversation authorization and hard checks above.
+  remain manual user actions. The orchestrator may manage the issue and milestone lifecycle in
+  `hniedner/ontoprism` through the repository-owned `pdm run agent-github` wrapper when the task
+  explicitly requests it: create, edit, comment, label, assign or unassign, set or remove a
+  milestone, close, or reopen issues; and create, edit, close, or reopen milestones. It never
+  deletes issues or milestones or silently rewrites unrelated records. PR merge remains separately
+  restricted to exact current-conversation authorization and the hard checks above.
   After all five dimensions
   converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
   pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured

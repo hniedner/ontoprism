@@ -24,6 +24,11 @@ permission:
     "git diff --check main...HEAD": allow
     "git log --oneline -10": allow
     "git show --stat --oneline HEAD": allow
+    "pdm run agent-github-read *": allow
+    "pdm run agent-test *": allow
+    "pdm run agent-test --safe-integration *": deny
+    "pdm run agent-github *": deny
+    "pdm run pytest *": deny
     "git reset *": deny
     "git clean *": deny
     "git push *": deny
@@ -35,6 +40,8 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*\n*": deny
+    "*\r*": deny
 ---
 
 # Architecture Planner

@@ -11,6 +11,7 @@ import pytest
 from scripts.validation.validate_opencode_config import (
     RESERVES,
     ROLES,
+    SPECIALIST_ROLES,
     Validation,
     load_agent,
     safe_read_text,
@@ -28,13 +29,19 @@ ROOT = Path(__file__).parents[2]
 
 @pytest.fixture
 def config_root(tmp_path: Path) -> Path:
-    for name in ("opencode.json", "AGENTS.md", ".gitignore"):
+    for name in ("opencode.json", "AGENTS.md", ".gitignore", "pyproject.toml"):
         shutil.copy2(ROOT / name, tmp_path / name)
     (tmp_path / ".opencode").mkdir()
     for directory in ("agent", "command"):
         shutil.copytree(
             ROOT / ".opencode" / directory, tmp_path / ".opencode" / directory
         )
+    scripts = tmp_path / "scripts" / "validation"
+    scripts.mkdir(parents=True)
+    shutil.copy2(
+        ROOT / "scripts/validation/run_agent_github.py",
+        scripts / "run_agent_github.py",
+    )
     return tmp_path
 
 
@@ -54,6 +61,38 @@ def update_root_config(root: Path, update: Callable[[dict[str, object]], None]) 
 
 def test_checked_out_opencode_configuration_is_valid(config_root: Path) -> None:
     assert validate(config_root) == []
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        ("agent-github", "python scripts/validation/run_agent_github.py"),
+        (
+            "agent-github-read",
+            "python scripts/validation/run_agent_github.py --read-only",
+        ),
+    ],
+)
+def test_github_wrapper_scripts_are_exact(
+    config_root: Path, script: str, expected: str
+) -> None:
+    pyproject = config_root / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+    pyproject.write_text(
+        text.replace(f'{script} = "{expected}"', f'{script} = "python unsafe.py"'),
+        encoding="utf-8",
+    )
+
+    assert f"GITHUB_WRAPPER: {script} script is not exact" in validate(config_root)
+
+
+def test_github_wrapper_implementation_is_required(config_root: Path) -> None:
+    (config_root / "scripts/validation/run_agent_github.py").unlink()
+
+    assert (
+        "GITHUB_WRAPPER: required file missing: scripts/validation/run_agent_github.py"
+        in validate(config_root)
+    )
 
 
 @pytest.mark.parametrize("suffix", ["admin", "auto", "queue", "bypass"])
@@ -138,7 +177,7 @@ def test_dead_fallback_plugin_artifact_is_rejected(config_root: Path) -> None:
     assert f"FILES: stale {relative} must be absent" in validate(config_root)
 
 
-@pytest.mark.parametrize("role", sorted(ROLES))
+@pytest.mark.parametrize("role", sorted(set(ROLES) - {"ontoprism-team", "implementer"}))
 @pytest.mark.parametrize(
     "pattern",
     ["git push origin main", "unknown future command"],
@@ -844,7 +883,7 @@ def test_agents_governance_rules_are_required(config_root: Path) -> None:
 
 @pytest.mark.parametrize(
     "role",
-    sorted(set(ROLES) - {"implementer", "pr-test-analyzer"}),
+    sorted(SPECIALIST_ROLES - {"pr-test-analyzer"}),
 )
 def test_read_only_agents_require_deny_by_default(config_root: Path, role: str) -> None:
     replace(
@@ -987,15 +1026,16 @@ def test_all_project_agents_deny_unknown_tools_by_default(
     )
 
 
-def test_implementer_bash_is_deny_by_default(config_root: Path) -> None:
+@pytest.mark.parametrize("role", ["implementer", "ontoprism-team"])
+def test_writer_agents_require_ask_by_default(config_root: Path, role: str) -> None:
     replace(
         config_root,
-        ".opencode/agent/implementer.md",
-        '  bash:\n    "*": deny\n',
+        f".opencode/agent/{role}.md",
         '  bash:\n    "*": ask\n',
+        '  bash:\n    "*": deny\n',
     )
 
-    assert "ROLE_PERMISSION: implementer bash catch-all must be deny" in validate(
+    assert f"ROLE_PERMISSION: {role} bash catch-all must be ask" in validate(
         config_root
     )
 
@@ -1130,8 +1170,8 @@ def test_implementer_rejects_raw_commit_allows(config_root: Path, pattern: str) 
     replace(
         config_root,
         ".opencode/agent/implementer.md",
-        '    "git add *": allow\n',
-        f'    "git add *": allow\n    "{pattern}": allow\n',
+        f'    "{pattern}": deny\n',
+        f'    "{pattern}": allow\n',
     )
 
     assert (
@@ -1217,7 +1257,7 @@ def test_authorized_roles_have_only_the_new_safe_inspection_allows(
     assert all(bash[command] == "allow" for command in expected_commands)
     assert permission["*"] == "deny"
     assert "external_directory" not in permission
-    assert "pdm run pytest *" not in bash
+    assert bash["pdm run pytest *"] == "deny"
     assert list(bash).index("git reset") > max(
         list(bash).index(command)
         for command in expected_commands
@@ -1255,7 +1295,7 @@ def test_orchestrator_has_exact_safe_policy_gate_permissions(config_root: Path) 
 
     assert bash["pdm run agent-test *"] == "allow"
     assert bash["pdm run lint"] == "allow"
-    assert "pdm run pytest *" not in bash
+    assert bash["pdm run pytest *"] == "deny"
 
 
 def test_orchestrator_task_delegation_is_exact_and_excludes_reserves(

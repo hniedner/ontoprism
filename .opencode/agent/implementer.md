@@ -16,7 +16,7 @@ permission:
   todowrite: allow
   task: deny
   bash:
-    "*": deny
+    "*": ask
     "pdm run verify": allow
     "pdm run test-ci": allow
     "pdm run test": allow
@@ -56,6 +56,12 @@ permission:
     "git add *": allow
     "git branch -D*": deny
     "git branch * -D*": deny
+    "git branch --force *": deny
+    "git switch *": deny
+    "git commit": deny
+    "git commit *": deny
+    "git -C *": deny
+    "gco *": deny
     "git merge": deny
     "git merge *": deny
     "git reset --hard": deny
@@ -84,6 +90,52 @@ permission:
     "gh pr *": deny
     "gh pr merge": deny
     "gh pr merge*": deny
+    "gh *": deny
+    "pdm run agent-github *": deny
+    "pdm run agent-github-read *": deny
+    "pdm run pytest *": deny
+    "pdm run test-integration-full-store *": deny
+    "pdm --project *": deny
+    "pdm run gh *": deny
+    "pdm run git *": deny
+    "pdm run publish*": deny
+    "npm --prefix other *": deny
+    "npm exec *": deny
+    "npm run publish*": deny
+    "npx *": deny
+    "git diff --output=*": deny
+    "git diff --ext-diff*": deny
+    "git diff --no-ext-diff HEAD*": deny
+    "git diff --no-index * /dev/null": deny
+    "pdm install*": deny
+    "pip install*": deny
+    "npm install*": deny
+    "npm ci*": deny
+    "rm": deny
+    "rm *": deny
+    "rmdir *": deny
+    "unlink *": deny
+    "cp *": deny
+    "mv *": deny
+    "mkdir *": deny
+    "touch *": deny
+    "env": deny
+    "env *": deny
+    "printenv*": deny
+    "cat *": deny
+    "base64 *": deny
+    "openssl *": deny
+    "curl *": deny
+    "python *": deny
+    "python3 *": deny
+    "node *": deny
+    "sh *": deny
+    "bash *": deny
+    "zsh *": deny
+    "opencode *": deny
+    "* /U?ers/*": deny
+    "* /var/*": deny
+    "* /tmp/*": deny
     "npm publish": deny
     "npm publish*": deny
     "pdm publish": deny
