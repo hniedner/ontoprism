@@ -22,7 +22,10 @@ from scripts.research.group_review_packet import load_group_review_packet
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
 from ontolib.decomposition.proposal_registry import load_proposal_registry
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import (
+    R101ConservationReport,
+    load_r101_conservation_report,
+)
 from ontolib.decomposition.r101_review import (
     dry_run_r101_decision_expansion,
     load_r101_decision_registry,
@@ -769,6 +772,11 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     )
 
 
+def r101_human_occurrence_count(report: R101ConservationReport) -> int:
+    """Return exact R101 occurrences covered by the human decision ledger."""
+    return report.counts.covered_by_retained_r82
+
+
 def _load_json_no_duplicates(path: Path, name: str) -> tuple[object, bytes]:
     if not path.is_file():
         raise PreSmeValidationError(f"{name} does not exist: {path}")
@@ -976,7 +984,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             group_review_count=_GROUP_REVIEW_COUNT,
             r103_review_count=_R103_REVIEW_COUNT,
             r101_exact_validation_established=validation.exact_reuse,
-            r101_occurrence_count=report.counts.total,
+            r101_occurrence_count=r101_human_occurrence_count(report),
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc

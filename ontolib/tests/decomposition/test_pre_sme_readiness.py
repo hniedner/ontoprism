@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from scripts.research.pre_sme_readiness import (
@@ -15,6 +15,7 @@ from scripts.research.pre_sme_readiness import (
     build_r101_reuse_validation,
     generate_pre_sme_readiness,
     generate_primary_site_audit,
+    r101_human_occurrence_count,
     require_current_verify_evidence,
 )
 
@@ -22,13 +23,11 @@ from ontolib.decomposition.corpus_baseline import (
     CorpusBaseline,
     corpus_baseline_identity,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
+from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _OP = "https://w3id.org/ontoprism/vocab#"
+_R101_REPORT = Path(__file__).parent / "golden/neoplasm-r101-v4-conservation.json.gz"
 
 
 def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
@@ -411,6 +410,14 @@ def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities(
         ValueError, match="R101 requirement differs from packet identities"
     ):
         type(report).model_validate(payload)
+
+
+@pytest.mark.unit
+def test_r101_human_requirement_uses_current_covered_occurrence_count() -> None:
+    report = load_r101_conservation_report(_R101_REPORT)
+
+    assert r101_human_occurrence_count(report) == 3291
+    assert r101_human_occurrence_count(report) != report.counts.total
 
 
 @pytest.mark.unit
