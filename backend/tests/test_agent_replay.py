@@ -477,6 +477,58 @@ def test_pre_sme_readiness_refuses_dirty_worktree_before_generation(
 
 
 @pytest.mark.unit
+def test_pre_sme_readiness_generation_failure_removes_stale_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-reuse-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    output = tmp_path / "tmp/m1-6-machine-readiness.json"
+    output.write_text("stale readiness\n")
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+
+    def fail_generation(**_values: object) -> None:
+        raise ValueError("readiness failed")
+
+    monkeypatch.setattr(module, "generate_pre_sme_readiness", fail_generation)
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = ""
+                result.stderr = ""
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                result.stdout = "a" * 40 + "\n"
+                result.stderr = ""
+            return result
+
+    with pytest.raises(AgentReplayInputError, match="readiness failed"):
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
     tmp_path: Path,
 ) -> None:

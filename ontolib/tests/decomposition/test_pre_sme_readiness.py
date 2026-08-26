@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from scripts.research.current_evidence import CurrentComparison, CurrentEngineEvidence
 from scripts.research.pre_sme_readiness import (
     MachineReadinessInputs,
     PreSmeValidationError,
@@ -17,6 +20,7 @@ from scripts.research.pre_sme_readiness import (
     generate_primary_site_audit,
     r101_human_occurrence_count,
     require_current_verify_evidence,
+    write_verify_evidence,
 )
 
 from ontolib.decomposition.corpus_baseline import (
@@ -40,13 +44,18 @@ def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
     )
 
 
-def _baseline(artifact: Path) -> CorpusBaseline:
+def _baseline(
+    artifact: Path,
+    *,
+    source_identity: str = "a" * 64,
+    ontology_release: str = "26.07d",
+) -> CorpusBaseline:
     artifact_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     payload: dict[str, object] = {
         "schema_version": 1,
         "run_id": "full-run",
-        "source_identity": "a" * 64,
-        "ontology_release": "26.07d",
+        "source_identity": source_identity,
+        "ontology_release": ontology_release,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -71,6 +80,108 @@ def _baseline(artifact: Path) -> CorpusBaseline:
     return CorpusBaseline.model_validate(
         {**payload, "baseline_identity": corpus_baseline_identity(payload)}
     )
+
+
+def _composed_readiness_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[dict[str, Any], Any, Any, Any, Any]:
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+    golden = Path(__file__).parent / "golden"
+    evidence_path = golden / "neoplasm-current-engine-evidence.json"
+    comparison_path = golden / "neoplasm-current-comparison.json"
+    evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
+    comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
+    report = load_r101_conservation_report(_R101_REPORT)
+    corpus_artifact = tmp_path / "corpus.ttl"
+    corpus_artifact.write_text(_site_line("C1", "C10"))
+    baseline = _baseline(
+        corpus_artifact,
+        source_identity=report.source_identity,
+        ontology_release=report.source_release_id,
+    )
+    audit = audit_primary_site_artifact(
+        artifact=corpus_artifact,
+        baseline=baseline,
+        source_identity=report.source_identity,
+        source_release=report.source_release_id,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    manifest_identity = hashlib.sha256(b"{}").hexdigest()
+    validation = build_r101_reuse_validation(
+        report_identity=report.report_identity,
+        existing_packet_identity="1" * 64,
+        current_packet_identity="2" * 64,
+        registry_identity="3" * 64,
+    )
+    validation_path = tmp_path / "r101-validation.json"
+    validation_path.write_text(validation.model_dump_json())
+    audit_path = tmp_path / "audit.json"
+    audit_path.write_text(audit.model_dump_json())
+    verify_path = tmp_path / "verify.json"
+    write_verify_evidence(
+        verify_path,
+        git_head="a" * 40,
+        docker_context="ontoprism-podman",
+        docker_endpoint="unix:///tmp/podman.sock",
+        gate_executable="/opt/homebrew/bin/pdm",
+        gate_version="PDM, version test",
+        observed_exit_code=0,
+    )
+    group = SimpleNamespace(
+        current_evidence_identity=evidence.evidence_identity,
+        current_comparison_identity=comparison.comparison_identity,
+        r101_report_identity=report.report_identity,
+        packet_identity="4" * 64,
+        review_rows=(None,) * 18,
+    )
+    r103 = SimpleNamespace(
+        source_identity=report.source_identity,
+        candidate_manifest_identity=manifest_identity,
+        proposal_registry_identity=evidence.proposal_registry_identity,
+        packet_identity="5" * 64,
+        rows=(None,) * 3,
+    )
+    monkeypatch.setattr(
+        module,
+        "validate_ncit_sibling_manifest",
+        lambda _path: SimpleNamespace(
+            source_identity=report.source_identity,
+            ontology_version=report.source_release_id,
+        ),
+    )
+    monkeypatch.setattr(module, "load_corpus_baseline", lambda _path: baseline)
+    monkeypatch.setattr(module, "load_r101_conservation_report", lambda _path: report)
+    monkeypatch.setattr(
+        module,
+        "load_proposal_registry",
+        lambda _path: SimpleNamespace(
+            registry_identity=evidence.proposal_registry_identity
+        ),
+    )
+    monkeypatch.setattr(module, "load_group_review_packet", lambda _path: group)
+    monkeypatch.setattr(module, "load_r103_review_packet", lambda _path: r103)
+    unused = tmp_path / "unused.json"
+    unused.write_text("{}")
+    arguments: dict[str, Any] = {
+        "source_manifest": manifest,
+        "current_evidence": evidence_path,
+        "current_comparison": comparison_path,
+        "corpus_baseline": unused,
+        "corpus_artifact": corpus_artifact,
+        "r101_report": unused,
+        "r101_validation": validation_path,
+        "proposal_registry": unused,
+        "primary_site_audit": audit_path,
+        "group_packet": unused,
+        "r103_packet": unused,
+        "verify_evidence": verify_path,
+        "expected_git_head": "a" * 40,
+        "output": tmp_path / "readiness.json",
+    }
+    return arguments, module, report, comparison, group
 
 
 @pytest.mark.unit
@@ -184,6 +295,51 @@ def test_primary_site_parser_rejects_non_total_constituent_observations(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("axis", ['"not-an-iri"', "[]"])
+def test_primary_site_parser_rejects_non_uri_axis_objects(
+    tmp_path: Path, axis: str
+) -> None:
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(
+        f"""@prefix op: <{_OP}> .
+@prefix ncit: <{_NCIT}> .
+ncit:C1 op:hasConstituent [ op:axis {axis} ; op:filler ncit:C10 ] .
+"""
+    )
+
+    with pytest.raises(PreSmeValidationError, match="axis is not an IRI"):
+        audit_primary_site_artifact(
+            artifact=artifact,
+            baseline=_baseline(artifact),
+            source_identity="a" * 64,
+            source_release="26.07d",
+        )
+
+
+@pytest.mark.unit
+def test_primary_site_parser_skips_non_primary_uri_axis(tmp_path: Path) -> None:
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(
+        _site_line("C1", "C10")
+        + f"""@prefix op: <{_OP}> .
+@prefix ncit: <{_NCIT}> .
+ncit:C2 op:hasConstituent [ op:axis op:PrimarySubsite ; op:filler ncit:C11 ] .
+"""
+    )
+
+    audit = audit_primary_site_artifact(
+        artifact=artifact,
+        baseline=_baseline(artifact),
+        source_identity="a" * 64,
+        source_release="26.07d",
+    )
+
+    assert audit.resolved_sites == (
+        PrimarySiteObservation(concept_code="C1", filler_code="C10"),
+    )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("resolved", "review", "message"),
     [
@@ -283,6 +439,8 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             r103_review_count=3,
             r101_exact_validation_established=False,
             r101_occurrence_count=3291,
+            r101_mechanical_unresolved=0,
+            r101_non_r101_delta=0,
         )
     )
 
@@ -305,6 +463,8 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     }
     assert report.primary_site_audit.resolved_site_count == 8039
     assert report.primary_site_audit.review_required_site_count == 5918
+    assert report.r101_mechanical_unresolved == 0
+    assert report.r101_non_r101_delta == 0
     assert report.claims.no_unadjudicated_delta is None
     assert [item.requirement for item in report.human_requirements] == [
         "group-review",
@@ -351,6 +511,8 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
         r103_review_count=3,
         r101_exact_validation_established=True,
         r101_occurrence_count=3291,
+        r101_mechanical_unresolved=0,
+        r101_non_r101_delta=0,
     )
 
     requirement = build_machine_readiness(inputs).human_requirements[2]
@@ -396,6 +558,8 @@ def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities(
         r103_review_count=3,
         r101_exact_validation_established=True,
         r101_occurrence_count=3291,
+        r101_mechanical_unresolved=0,
+        r101_non_r101_delta=0,
     )
     report = build_machine_readiness(inputs)
     payload = report.model_dump(mode="json")
@@ -418,6 +582,21 @@ def test_r101_human_requirement_uses_current_covered_occurrence_count() -> None:
 
     assert r101_human_occurrence_count(report) == 3291
     assert r101_human_occurrence_count(report) != report.counts.total
+
+
+@pytest.mark.unit
+def test_tracked_r101_grouping_schema_contains_only_consumed_totals() -> None:
+    report = load_r101_conservation_report(_R101_REPORT)
+
+    assert all(
+        set(pattern.model_dump())
+        == {"old_filler_code", "retained_filler_code", "occurrence_count"}
+        for pattern in report.grouping_presentation
+    )
+    occurrence_count = sum(
+        pattern.occurrence_count for pattern in report.grouping_presentation
+    )
+    assert occurrence_count == report.counts.covered_by_retained_r82
 
 
 @pytest.mark.unit
@@ -511,6 +690,79 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
         )
 
     assert not output.exists()
+
+
+@pytest.mark.unit
+def test_composed_readiness_derives_zero_delta_from_current_r101_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.r101_mechanical_unresolved == report.counts.unresolved
+    assert readiness.r101_non_r101_delta == report.counts.non_r101_delta
+    assert Path(arguments["output"]).is_file()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["stale-verify", "identity", "counts", "metrics"])
+def test_composed_readiness_reject_branches_are_live_without_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    arguments, module, report, comparison, group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    if failure == "stale-verify":
+        write_verify_evidence(
+            Path(arguments["verify_evidence"]),
+            git_head="b" * 40,
+            docker_context="ontoprism-podman",
+            docker_endpoint="unix:///tmp/podman.sock",
+            gate_executable="/opt/homebrew/bin/pdm",
+            gate_version="PDM, version test",
+            observed_exit_code=0,
+        )
+    elif failure == "identity":
+        monkeypatch.setattr(
+            module,
+            "load_group_review_packet",
+            lambda _path: SimpleNamespace(
+                **{
+                    **group.__dict__,
+                    "current_evidence_identity": "f" * 64,
+                }
+            ),
+        )
+    elif failure == "counts":
+        bad_counts = report.counts.model_copy(update={"unresolved": 1})
+        bad_report = report.model_copy(update={"counts": bad_counts})
+        monkeypatch.setattr(
+            module, "load_r101_conservation_report", lambda _path: bad_report
+        )
+    else:
+        bad_precision = comparison.metrics.exact_pair_precision.model_copy(
+            update={"numerator": 99}
+        )
+        bad_metrics = comparison.metrics.model_copy(
+            update={"exact_pair_precision": bad_precision}
+        )
+        bad_comparison = comparison.model_copy(update={"metrics": bad_metrics})
+        monkeypatch.setattr(
+            module.CurrentComparison,
+            "model_validate_json",
+            classmethod(lambda _cls, _raw: bad_comparison),
+        )
+        monkeypatch.setattr(
+            module, "validate_current_comparison", lambda _evidence, _comparison: None
+        )
+
+    with pytest.raises(PreSmeValidationError):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit

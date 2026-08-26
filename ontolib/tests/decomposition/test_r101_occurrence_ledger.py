@@ -1039,11 +1039,11 @@ def test_generated_ledger_inventory_sentinels_and_exact_tsv_are_bound() -> None:
     )
     assert (
         report.json_identity
-        == "f29210eee8e6d071d17d19a170118c9ea9b82380f4a887adc99eed27f15309a0"
+        == "bfa2ccdcc43e7b1a7c57df023678a48b3aa32fefd21574ed62b35f430868fd54"
     )
     assert (
         report.report_identity
-        == "706613077f7b6edb6d684be57840cb4105d595f2efdf6e9778e49e13614a50a6"
+        == "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
     )
     assert (
         report.tsv_identity

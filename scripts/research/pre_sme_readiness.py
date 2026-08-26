@@ -1,4 +1,8 @@
-"""Write-free, identity-bound machine checks before final M1.6 SME review."""
+"""Identity-bound machine checks with local evidence writes before M1.6 SME review.
+
+The writes are local report artifacts only; this module performs no ontology, store,
+authorization, or publication writes.
+"""
 
 from __future__ import annotations
 
@@ -193,7 +197,7 @@ class _PrimarySiteStore(Store):
                 raise PreSmeValidationError("duplicate needs-review data")
             part["review"] = value
 
-    def _add_constituent(  # noqa: C901 - validates the complete RDF observation
+    def _add_constituent(  # noqa: C901, PLR0912 - validates the complete observation
         self, subject: rdflib.Node, value: rdflib.Node
     ) -> None:
         if not isinstance(value, rdflib.BNode):
@@ -203,6 +207,8 @@ class _PrimarySiteStore(Store):
             raise PreSmeValidationError("reused constituent blank node has no data")
         if "axis" not in part:
             raise PreSmeValidationError("primary-site axis is missing")
+        if not isinstance(part["axis"], rdflib.URIRef):
+            raise PreSmeValidationError("primary-site axis is not an IRI")
         if part.get("axis") != rdflib.URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite"):
             return
         filler = part.get("filler")
@@ -363,6 +369,8 @@ class MachineReadinessInputs(_StrictModel):
     r103_review_count: Literal[3]
     r101_exact_validation_established: bool
     r101_occurrence_count: int = Field(gt=0)
+    r101_mechanical_unresolved: Literal[0]
+    r101_non_r101_delta: Literal[0]
 
     @model_validator(mode="after")
     def _validate_reuse_status(self) -> Self:
@@ -762,8 +770,8 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             "review_required_site_count": inputs.primary_site_review_required_count,
         },
         "r101_occurrence_count": inputs.r101_occurrence_count,
-        "r101_mechanical_unresolved": 0,
-        "r101_non_r101_delta": 0,
+        "r101_mechanical_unresolved": inputs.r101_mechanical_unresolved,
+        "r101_non_r101_delta": inputs.r101_non_r101_delta,
         "claims": {"no_unadjudicated_delta": None},
         "human_requirements": tuple(requirements),
     }
@@ -773,7 +781,7 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
 
 
 def r101_human_occurrence_count(report: R101ConservationReport) -> int:
-    """Return exact R101 occurrences covered by the human decision ledger."""
+    """Return covered-by-retained-R82 occurrences bound by R101 authorization."""
     return report.counts.covered_by_retained_r82
 
 
@@ -985,6 +993,8 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             r103_review_count=_R103_REVIEW_COUNT,
             r101_exact_validation_established=validation.exact_reuse,
             r101_occurrence_count=r101_human_occurrence_count(report),
+            r101_mechanical_unresolved=unresolved,
+            r101_non_r101_delta=non_r101_delta,
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc

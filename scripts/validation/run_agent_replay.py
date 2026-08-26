@@ -836,12 +836,14 @@ def _generate_pre_sme_readiness(
         "r103_packet",
         "verify_evidence",
     )
+    output = root / "tmp/m1-6-machine-readiness.json"
+    output.unlink(missing_ok=True)
     try:
         git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
         generate(
             **dict(zip(names, paths, strict=True)),
             expected_git_head=git_head,
-            output=root / "tmp/m1-6-machine-readiness.json",
+            output=output,
         )
     except ValueError as exc:
         raise AgentReplayInputError(str(exc)) from exc

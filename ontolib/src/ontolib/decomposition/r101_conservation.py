@@ -369,17 +369,10 @@ class ContentAuthorization(_StrictModel):
         return self
 
 
-class GroupingSubgroup(_StrictModel):
-    axis: str
-    evidence_kind: Literal["one-step", "closure-only"]
-    occurrence_count: int = Field(gt=0)
-
-
 class GroupingPattern(_StrictModel):
     old_filler_code: str = Field(pattern=_CODE)
     retained_filler_code: str = Field(pattern=_CODE)
     occurrence_count: int = Field(gt=0)
-    subgroups: tuple[GroupingSubgroup, ...]
 
 
 class R101ConservationReport(_StrictModel):
@@ -793,22 +786,11 @@ def _grouping(occurrences: tuple[LedgerOccurrence, ...]) -> tuple[GroupingPatter
         groups[(item.old_links[0].filler_code, target.filler_code)].append(item)
     result: list[GroupingPattern] = []
     for (old, retained), items in sorted(groups.items()):
-        subgroup_counts = Counter(
-            (item.old_links[0].axis, item.r82_evidence_kind) for item in items
-        )
         result.append(
             GroupingPattern(
                 old_filler_code=old,
                 retained_filler_code=retained,
                 occurrence_count=len(items),
-                subgroups=tuple(
-                    GroupingSubgroup(
-                        axis=axis,
-                        evidence_kind=kind,  # type: ignore[arg-type]
-                        occurrence_count=count,
-                    )
-                    for (axis, kind), count in sorted(subgroup_counts.items())
-                ),
             )
         )
     return tuple(result)
