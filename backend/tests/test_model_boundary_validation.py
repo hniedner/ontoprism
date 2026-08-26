@@ -176,6 +176,50 @@ def test_validator_rejects_non_strict_pydantic_boundary(tmp_path: Path) -> None:
     assert any("Document" in finding and "strict" in finding for finding in findings)
 
 
+@pytest.mark.parametrize(
+    ("base_import", "base_name", "config", "requirement"),
+    [
+        (
+            "from pydantic import BaseModel, ConfigDict",
+            "BaseModel",
+            "ConfigDict(extra='forbid')",
+            "strict=True",
+        ),
+        (
+            "from pydantic import BaseModel, ConfigDict",
+            "BaseModel",
+            "ConfigDict(strict=True)",
+            "extra='forbid'",
+        ),
+        (
+            "from pydantic_settings import BaseSettings",
+            "BaseSettings",
+            "{}",
+            "strict=True",
+        ),
+    ],
+)
+def test_validator_reports_only_missing_pydantic_config_requirements(
+    tmp_path: Path,
+    base_import: str,
+    base_name: str,
+    config: str,
+    requirement: str,
+) -> None:
+    _write(
+        tmp_path,
+        "models.py",
+        f"{base_import}\n"
+        f"class Document({base_name}):\n"
+        f"    model_config = {config}\n"
+        "    value: int\n",
+    )
+
+    assert validate_model_boundaries(tmp_path) == [
+        f"models.py:2 Document: Pydantic boundary model requires {requirement}"
+    ]
+
+
 def test_validator_accepts_inherited_strict_pydantic_config(tmp_path: Path) -> None:
     _write(
         tmp_path,

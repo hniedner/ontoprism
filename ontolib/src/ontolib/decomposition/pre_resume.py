@@ -500,7 +500,7 @@ def cohort_identity(
 
 
 def statement_is_read_only(statement: str) -> bool:
-    """Accept one SELECT/CTE statement and reject every SQL write token."""
+    """Accept one SELECT/CTE statement unless it contains a known SQL write keyword."""
     normalized = _SQL_LITERAL.sub("''", statement).strip()
     if ";" in normalized.rstrip(";"):
         return False

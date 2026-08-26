@@ -587,12 +587,14 @@ def _pydantic_config_findings(
                 )
             )
             missing = [
-                key for key, expected in expected_config if config.get(key) != expected
+                f"{key}={expected!r}"
+                for key, expected in expected_config
+                if config.get(key) != expected
             ]
             if missing:
                 findings.append(
                     f"{item.path.relative_to(root)}:{item.line} {item.symbol[1]}: "
-                    "Pydantic boundary model requires strict=True and extra='forbid'"
+                    f"Pydantic boundary model requires {' and '.join(missing)}"
                 )
     return findings
 
