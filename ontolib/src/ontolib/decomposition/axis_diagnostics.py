@@ -1,4 +1,4 @@
-"""Pure, source-bound classification of NCIt axis range evidence."""
+"""Source-bound NCIt snapshot acquisition and pure axis evidence classification."""
 
 from __future__ import annotations
 
@@ -367,7 +367,7 @@ def classify_axis_range(
     range_code: str,
     snapshot: AxisHierarchyEvidence,
 ) -> AxisRangeEvidence:
-    """Classify an axis filler using only explicit source-bound structural facts."""
+    """Classify using source-bound structural facts and the repository axis contract."""
     _require(axis, _AXIS, "axis")
     _require(filler_code, _CODE, "filler_code")
     _require(range_code, _CODE, "range_code")
