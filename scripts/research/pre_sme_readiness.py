@@ -36,7 +36,9 @@ from ontolib.decomposition.r101_review import (
     load_r101_decision_registry,
     load_r101_review_packet,
 )
-from ontolib.decomposition.r103_review import load_r103_review_packet
+from ontolib.decomposition.r103_review_promotion import (
+    load_r103_promoted_review_state,
+)
 from ontolib.terminologies.ncit.sibling_store import (
     SiblingStoreValidationError,
     validate_ncit_sibling_manifest,
@@ -867,7 +869,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
     proposal_registry: Path,
     primary_site_audit: Path,
     group_packet: Path,
-    r103_packet: Path,
+    r103_review_state: Path,
     verify_evidence: Path,
     expected_git_head: str,
     output: Path,
@@ -910,7 +912,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
         group = load_group_review_packet(group_packet)
-        r103 = load_r103_review_packet(r103_packet)
+        r103 = load_r103_promoted_review_state(r103_review_state).packet
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
         )
