@@ -315,6 +315,11 @@ artifact and the existing proposal registry (no QLever or database connection):
 pdm run agent-replay generate-r103-review
 ```
 
+This command remains the upstream staging producer for historical promotion and
+reproduction. Its standalone packet remains meaningful as the source-bound input to
+that path even though current machine readiness now consumes the packet embedded in
+the tracked promoted state rather than the `tmp/` packet directly.
+
 The operation requires all four inputs and writes only
 `tmp/m1-6-r103-review-packet.json` and
 `tmp/m1-6-r103-review-workbook.xlsx`. The workbook is intentionally untracked and its
@@ -341,7 +346,8 @@ only during the original promotion operation.
 
 The original promotion requires the untracked or archived packet, registry, dry-run,
 oracle, and proposal-registry staging inputs. There is no claim that the tracked golden
-alone can regenerate that historical promotion. It was generated and then rerun as a
+alone can regenerate that historical promotion. The following generation and promotion
+commands are historical reproduction steps; promotion was generated and then rerun as a
 byte-identical no-op with:
 
 ```bash
@@ -373,13 +379,20 @@ selected context, resolved PDM executable/version, exit code, and bound Git HEAD
 local machine evidence and performs no ontology or store publication.
 
 After the current comparison, R101 reuse validation, primary-site audit, group-review
-packet, R103 packet, full-corpus baseline/artifact, proposal registry, source manifest,
-and current-HEAD verify evidence all exist, generate the pending-human report from a
-clean worktree:
+packet, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
+source manifest, and current-HEAD verify evidence all exist, generate the pending-human
+report from a clean worktree:
 
 ```bash
 pdm run agent-replay generate-pre-sme-readiness
 ```
+
+Readiness strictly loads the complete promoted R103 state, validating its embedded
+packet, registry, dry-run, decision vector, and cross-bindings. It then consumes only
+the state's `.packet` for the existing source, candidate-manifest, proposal-registry,
+count, and packet-identity checks; it does not interpret registry decisions or dry-run
+semantics in the report. Therefore changed or malformed registry or dry-run state still
+fails readiness closed, while all three R103 rows remain pending human requirements.
 
 The operation validates all fixed input identities and cohort invariants, refuses verify
 evidence from another Git HEAD, and atomically writes

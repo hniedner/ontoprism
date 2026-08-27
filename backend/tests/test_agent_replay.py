@@ -402,7 +402,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
-        "tmp/m1-6-r103-review-packet.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -453,6 +453,10 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     assert calls[1]["r101_validation"] == (
         tmp_path / "tmp/r101-review-reuse-validation.json"
     )
+    assert calls[1]["r103_review_state"] == (
+        tmp_path / "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json"
+    )
+    assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
 
@@ -504,7 +508,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
-        "tmp/m1-6-r103-review-packet.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -539,6 +543,50 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
 
     assert not output.exists()
+
+
+@pytest.mark.unit
+def test_pre_sme_readiness_refuses_old_packet_without_tracked_state(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-reuse-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = ""
+                result.stderr = ""
+            return result
+
+    with pytest.raises(
+        AgentReplayInputError,
+        match=(
+            r"required input does not exist: ontolib/tests/decomposition/golden/"
+            r"r103-review-state-26\.07d\.json"
+        ),
+    ):
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+
+    assert not (tmp_path / "tmp/m1-6-machine-readiness.json").exists()
 
 
 @pytest.mark.unit
