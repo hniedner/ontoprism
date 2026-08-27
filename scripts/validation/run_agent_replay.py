@@ -9,19 +9,21 @@ operation failure.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, assert_never, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, assert_never, cast
 
 import yaml
 
@@ -67,6 +69,8 @@ _URL_CREDENTIALS = re.compile(
     r"((?:https?|postgresql(?:\+asyncpg)?)://[^\s:/]+:)[^@\s]+(@)", re.I
 )
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_CONTROL_CODEPOINT_LIMIT = 32
+_CONSOLIDATION_VALUE_COUNT = 3
 
 
 class AgentReplayInputError(ValueError):
@@ -96,6 +100,35 @@ class CommandRunner(Protocol):
 
 class Operation(Protocol):
     def __call__(self, values: list[str], root: Path, runner: CommandRunner) -> int: ...
+
+
+@dataclass(frozen=True)
+class ArtifactInventory:
+    entries: tuple[dict[str, object], ...]
+    identity: str
+    logical_bytes: int
+    allocated_bytes: int
+
+
+@dataclass(frozen=True)
+class ConsolidationEntry:
+    source_relative: str
+    source: Path
+    destination_relative: str
+    destination: Path
+    duplicate_of_relative: str | None
+    inventory: ArtifactInventory
+
+
+@dataclass(frozen=True)
+class ConsolidationContext:
+    manifest_relative: str
+    manifest_path: Path
+    report_relative: str
+    report_path: Path
+    manifest_bytes: bytes
+    manifest_digest: str
+    source_specs: tuple[dict[str, object], ...]
 
 
 def _subprocess_runner(
@@ -143,6 +176,568 @@ def _run(command: list[str], root: Path, runner: CommandRunner) -> int:
         text=True,
     )
     return result.returncode
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise AgentReplayInputError(f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def _load_strict_json(data: bytes, *, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(data, object_pairs_hook=_strict_json_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError(f"{label} is not strict JSON") from exc
+    if not isinstance(payload, dict):
+        raise AgentReplayInputError(f"{label} must be a JSON object")
+    return payload
+
+
+def _validated_repository_relative(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise AgentReplayInputError(f"{label} must be a non-empty repository path")
+    path = Path(value)
+    if (
+        path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(ord(character) < _CONTROL_CODEPOINT_LIMIT for character in value)
+        or any(character in value for character in "*?[]{}")
+        or path.as_posix() != value
+    ):
+        raise AgentReplayInputError(f"{label} must be a normalized relative path")
+    return value
+
+
+def _require_no_symlink_components(path: Path, *, root: Path, label: str) -> None:
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise AgentReplayInputError(f"{label} escapes the repository") from exc
+    current = root
+    for part in relative.parts:
+        current /= part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(metadata.st_mode):
+            raise AgentReplayInputError(f"{label} contains a symlink: {current}")
+
+
+def _artifact_inventory(path: Path) -> ArtifactInventory:
+    entries: list[dict[str, object]] = []
+    logical_bytes = 0
+    allocated_bytes = 0
+
+    def visit(current: Path, relative: str) -> None:
+        nonlocal allocated_bytes, logical_bytes
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise AgentReplayInputError(f"artifact tree contains a symlink: {current}")
+        allocated_bytes += metadata.st_blocks * 512
+        if current.is_file():
+            digest = hashlib.sha256()
+            with current.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            logical_bytes += metadata.st_size
+            entries.append(
+                {
+                    "path": relative,
+                    "kind": "file",
+                    "sha256": digest.hexdigest(),
+                    "bytes": metadata.st_size,
+                }
+            )
+            return
+        if not current.is_dir():
+            raise AgentReplayInputError(f"artifact has unsupported kind: {current}")
+        entries.append({"path": relative, "kind": "directory"})
+        with os.scandir(current) as children:
+            for child in sorted(children, key=lambda item: item.name):
+                visit(
+                    Path(child.path),
+                    child.name if relative == "." else f"{relative}/{child.name}",
+                )
+
+    visit(path, ".")
+    encoded = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+    return ArtifactInventory(
+        entries=tuple(entries),
+        identity=hashlib.sha256(encoded).hexdigest(),
+        logical_bytes=logical_bytes,
+        allocated_bytes=allocated_bytes,
+    )
+
+
+def _git_result(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> CapturedCommandResult:
+    try:
+        return runner(
+            arguments,
+            cwd=root,
+            shell=False,
+            check=False,
+            timeout=_DIAGNOSTIC_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AgentReplayInputError(
+            f"Git preflight failed: {' '.join(arguments)}"
+        ) from exc
+
+
+def _require_untracked_ignored(
+    relative: str, root: Path, runner: CommandRunner
+) -> None:
+    tracked = _git_result(["git", "ls-files", "--", relative], root, runner)
+    if tracked.returncode != 0:
+        raise AgentReplayInputError(f"Git tracked-source check failed: {relative}")
+    if tracked.stdout.strip():
+        raise AgentReplayInputError(f"source is tracked by Git: {relative}")
+    ignored = _git_result(["git", "check-ignore", "-q", "--", relative], root, runner)
+    if ignored.returncode == 1:
+        raise AgentReplayInputError(f"source is not ignored by Git: {relative}")
+    if ignored.returncode != 0:
+        raise AgentReplayInputError(f"Git ignored-source check failed: {relative}")
+
+
+def _path_contains(parent: Path, child: Path) -> bool:
+    return child == parent or parent in child.parents
+
+
+def _destination_for(source_relative: str) -> str:
+    within_tmp = Path(source_relative).relative_to("tmp")
+    if len(within_tmp.parts) == 1:
+        return (Path("tmp/obsolete/root") / within_tmp).as_posix()
+    return (Path("tmp/obsolete") / within_tmp).as_posix()
+
+
+def _read_manifest_bytes(path: Path) -> bytes:
+    return path.read_bytes()
+
+
+def _rename_artifact(source: Path, destination: Path) -> None:
+    os.rename(source, destination)
+
+
+def _same_filesystem(source: Path, destination_parent: Path) -> bool:
+    return source.stat().st_dev == destination_parent.stat().st_dev
+
+
+def _inventory_payload(inventory: ArtifactInventory) -> dict[str, object]:
+    return {
+        "identity": inventory.identity,
+        "logical_bytes": inventory.logical_bytes,
+        "allocated_bytes": inventory.allocated_bytes,
+        "entries": list(inventory.entries),
+    }
+
+
+def _write_report(path: Path, payload: dict[str, object]) -> None:
+    serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    path.write_text(serialized, encoding="utf-8")
+
+
+def _valid_completed_totals(
+    report: dict[str, Any],
+    *,
+    sources: int,
+    logical_bytes: int,
+    allocated_bytes: int,
+) -> bool:
+    return (
+        report.get("totals")
+        == {
+            "sources": sources,
+            "logical_bytes": logical_bytes,
+            "allocated_bytes": allocated_bytes,
+        }
+        and re.fullmatch(r"[0-9a-f]{40,64}", str(report.get("git_head"))) is not None
+    )
+
+
+def _completed_report_mappings(
+    report: dict[str, Any],
+    *,
+    manifest_relative: str,
+    manifest_digest: str,
+    source_count: int,
+) -> list[object]:
+    if set(report) != {
+        "schema_version",
+        "status",
+        "manifest",
+        "git_head",
+        "mappings",
+        "totals",
+    }:
+        raise AgentReplayInputError(
+            "existing consolidation report has an invalid schema"
+        )
+    if (
+        type(report.get("schema_version")) is not int
+        or report.get("schema_version") != 1
+        or report.get("status") != "completed"
+        or report.get("manifest")
+        != {"path": manifest_relative, "sha256": manifest_digest}
+    ):
+        raise AgentReplayInputError(
+            "existing consolidation report conflicts with manifest"
+        )
+    mappings = report.get("mappings")
+    if not isinstance(mappings, list) or len(mappings) != source_count:
+        raise AgentReplayInputError(
+            "existing consolidation report mapping count differs"
+        )
+    return mappings
+
+
+def _validate_completed_rerun(
+    report_path: Path,
+    *,
+    manifest_relative: str,
+    manifest_digest: str,
+    source_specs: list[dict[str, object]],
+    root: Path,
+) -> bool:
+    if not report_path.exists():
+        return False
+    report = _load_strict_json(report_path.read_bytes(), label="consolidation report")
+    mappings = _completed_report_mappings(
+        report,
+        manifest_relative=manifest_relative,
+        manifest_digest=manifest_digest,
+        source_count=len(source_specs),
+    )
+    expected_logical = 0
+    expected_allocated = 0
+    for spec, mapping in zip(source_specs, mappings, strict=True):
+        if not isinstance(mapping, dict) or set(mapping) != {
+            "source",
+            "destination",
+            "duplicate_of",
+            "pre",
+            "post",
+        }:
+            raise AgentReplayInputError(
+                "existing consolidation report mapping is invalid"
+            )
+        source_relative = cast("str", spec["path"])
+        destination_relative = _destination_for(source_relative)
+        if (
+            mapping.get("source") != source_relative
+            or mapping.get("destination") != destination_relative
+            or mapping.get("duplicate_of") != spec.get("duplicate_of")
+            or (root / source_relative).exists()
+            or (root / source_relative).is_symlink()
+        ):
+            raise AgentReplayInputError(
+                "completed consolidation state conflicts with manifest"
+            )
+        destination = root / destination_relative
+        if not destination.exists() or destination.is_symlink():
+            raise AgentReplayInputError(
+                "completed consolidation destination is missing"
+            )
+        inventory = _artifact_inventory(destination)
+        if mapping.get("pre") != _inventory_payload(inventory) or mapping.get(
+            "post"
+        ) != _inventory_payload(inventory):
+            raise AgentReplayInputError(
+                "completed consolidation destination differs from report"
+            )
+        expected_logical += inventory.logical_bytes
+        expected_allocated += inventory.allocated_bytes
+    if not _valid_completed_totals(
+        report,
+        sources=len(mappings),
+        logical_bytes=expected_logical,
+        allocated_bytes=expected_allocated,
+    ):
+        raise AgentReplayInputError("existing consolidation report totals are invalid")
+    return True
+
+
+def _parse_consolidation_sources(
+    manifest_bytes: bytes,
+) -> tuple[dict[str, object], ...]:
+    manifest = _load_strict_json(manifest_bytes, label="consolidation manifest")
+    valid_schema = (
+        set(manifest) == {"schema_version", "sources"}
+        and type(manifest.get("schema_version")) is int
+        and manifest.get("schema_version") == 1
+    )
+    if not valid_schema:
+        raise AgentReplayInputError("consolidation manifest has an invalid schema")
+    raw_sources = manifest.get("sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise AgentReplayInputError("manifest sources must be a non-empty ordered list")
+    source_specs: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_sources):
+        valid_keys = (
+            isinstance(raw, dict)
+            and set(raw) <= {"path", "duplicate_of"}
+            and "path" in raw
+        )
+        if not valid_keys:
+            raise AgentReplayInputError(
+                f"manifest source {index} has an invalid schema"
+            )
+        source_relative = _validated_repository_relative(
+            raw["path"], label=f"manifest source {index}"
+        )
+        spec: dict[str, object] = {"path": source_relative}
+        if "duplicate_of" in raw:
+            spec["duplicate_of"] = _validated_repository_relative(
+                raw["duplicate_of"],
+                label=f"manifest source {index} duplicate_of",
+            )
+        source_specs.append(spec)
+    return tuple(source_specs)
+
+
+def _parse_consolidation_request(values: list[str], root: Path) -> ConsolidationContext:
+    if len(values) != _CONSOLIDATION_VALUE_COUNT or values[1] != "--report":
+        raise AgentReplayInputError(
+            "consolidate-obsolete requires <manifest> --report <report>"
+        )
+    manifest_relative = _validated_repository_relative(values[0], label="manifest")
+    report_relative = _validated_repository_relative(values[2], label="report")
+    manifest_path = root / manifest_relative
+    report_path = root / report_relative
+    if (
+        not _path_contains(root / "tmp/plans", manifest_path)
+        or not manifest_path.is_file()
+    ):
+        raise AgentReplayInputError("manifest must be a file under tmp/plans")
+    _require_no_symlink_components(manifest_path, root=root, label="manifest path")
+    if report_path.parent != manifest_path.parent or report_path == manifest_path:
+        raise AgentReplayInputError("report must be a distinct sibling of the manifest")
+    _require_no_symlink_components(report_path.parent, root=root, label="report path")
+    manifest_bytes = _read_manifest_bytes(manifest_path)
+    return ConsolidationContext(
+        manifest_relative=manifest_relative,
+        manifest_path=manifest_path,
+        report_relative=report_relative,
+        report_path=report_path,
+        manifest_bytes=manifest_bytes,
+        manifest_digest=hashlib.sha256(manifest_bytes).hexdigest(),
+        source_specs=_parse_consolidation_sources(manifest_bytes),
+    )
+
+
+def _preflight_consolidation_entry(
+    spec: dict[str, object],
+    *,
+    request: ConsolidationContext,
+    root: Path,
+    runner: CommandRunner,
+) -> ConsolidationEntry:
+    source_relative = cast("str", spec["path"])
+    source = root / source_relative
+    if not _path_contains(root / "tmp", source):
+        raise AgentReplayInputError(f"source must be under tmp: {source_relative}")
+    if _path_contains(root / "tmp/obsolete", source):
+        raise AgentReplayInputError(f"source is already obsolete: {source_relative}")
+    if _path_contains(request.manifest_path.parent, source):
+        raise AgentReplayInputError(
+            f"source is inside the cleanup-plan directory: {source_relative}"
+        )
+    _require_no_symlink_components(source, root=root, label="source path")
+    if not source.exists() or (not source.is_file() and not source.is_dir()):
+        raise AgentReplayInputError(
+            f"source is missing or has wrong kind: {source_relative}"
+        )
+    _require_untracked_ignored(source_relative, root, runner)
+    destination_relative = _destination_for(source_relative)
+    destination = root / destination_relative
+    _require_no_symlink_components(
+        destination.parent, root=root, label="destination path"
+    )
+    if destination.exists() or destination.is_symlink():
+        raise AgentReplayInputError(
+            f"destination already exists: {destination_relative}"
+        )
+    inventory = _artifact_inventory(source)
+    duplicate_relative = cast("str | None", spec.get("duplicate_of"))
+    if duplicate_relative is not None:
+        duplicate = root / duplicate_relative
+        _require_no_symlink_components(duplicate, root=root, label="duplicate_of path")
+        if not duplicate.exists() or (
+            not duplicate.is_file() and not duplicate.is_dir()
+        ):
+            raise AgentReplayInputError(
+                f"duplicate_of is missing or has wrong kind: {duplicate_relative}"
+            )
+        if _artifact_inventory(duplicate).identity != inventory.identity:
+            raise AgentReplayInputError(
+                f"duplicate_of differs from source: {source_relative}"
+            )
+    return ConsolidationEntry(
+        source_relative,
+        source,
+        destination_relative,
+        destination,
+        duplicate_relative,
+        inventory,
+    )
+
+
+def _validate_consolidation_relationships(entries: list[ConsolidationEntry]) -> None:
+    for index, left in enumerate(entries):
+        for right in entries[index + 1 :]:
+            if _path_contains(left.source, right.source) or _path_contains(
+                right.source, left.source
+            ):
+                raise AgentReplayInputError("manifest sources duplicate or overlap")
+    for entry in entries:
+        if any(
+            _path_contains(entry.source, other.destination)
+            or _path_contains(other.destination, entry.source)
+            for other in entries
+        ):
+            raise AgentReplayInputError("source and destination overlap")
+        existing_parent = entry.destination.parent
+        while not existing_parent.exists():
+            existing_parent = existing_parent.parent
+        if not _same_filesystem(entry.source, existing_parent):
+            raise AgentReplayInputError(
+                f"cross-device move refused: {entry.source_relative}"
+            )
+
+
+def _create_destination_parent(destination: Path, created_parents: list[Path]) -> None:
+    missing: list[Path] = []
+    parent = destination.parent
+    while not parent.exists():
+        missing.append(parent)
+        parent = parent.parent
+    for directory in reversed(missing):
+        directory.mkdir()
+        created_parents.append(directory)
+
+
+def _rollback_consolidation(
+    moved: list[ConsolidationEntry], created_parents: list[Path], root: Path
+) -> list[str]:
+    rollback_errors: list[str] = []
+    for entry in reversed(moved):
+        try:
+            _rename_artifact(entry.destination, entry.source)
+        except OSError as exc:
+            rollback_errors.append(f"{entry.destination_relative}: {exc}")
+    for directory in reversed(created_parents):
+        try:
+            directory.rmdir()
+        except OSError as exc:
+            if directory.exists():
+                rollback_errors.append(f"{directory.relative_to(root)}: {exc}")
+    return rollback_errors
+
+
+def _verified_consolidation_mappings(
+    entries: list[ConsolidationEntry],
+) -> list[dict[str, object]]:
+    mappings: list[dict[str, object]] = []
+    for entry in entries:
+        if entry.source.exists() or entry.source.is_symlink():
+            raise AgentReplayInputError(
+                f"source remains after movement: {entry.source_relative}"
+            )
+        post = _artifact_inventory(entry.destination)
+        if post != entry.inventory:
+            raise AgentReplayInputError(
+                f"destination verification failed: {entry.destination_relative}"
+            )
+        mappings.append(
+            {
+                "source": entry.source_relative,
+                "destination": entry.destination_relative,
+                "duplicate_of": entry.duplicate_of_relative,
+                "pre": _inventory_payload(entry.inventory),
+                "post": _inventory_payload(post),
+            }
+        )
+    return mappings
+
+
+def _execute_consolidation(
+    entries: list[ConsolidationEntry],
+    *,
+    request: ConsolidationContext,
+    head: str,
+    root: Path,
+) -> None:
+    created_parents: list[Path] = []
+    moved: list[ConsolidationEntry] = []
+    try:
+        for entry in entries:
+            _create_destination_parent(entry.destination, created_parents)
+            _rename_artifact(entry.source, entry.destination)
+            moved.append(entry)
+        mappings = _verified_consolidation_mappings(entries)
+        payload: dict[str, object] = {
+            "schema_version": 1,
+            "status": "completed",
+            "manifest": {
+                "path": request.manifest_relative,
+                "sha256": request.manifest_digest,
+            },
+            "git_head": head,
+            "mappings": mappings,
+            "totals": {
+                "sources": len(entries),
+                "logical_bytes": sum(item.inventory.logical_bytes for item in entries),
+                "allocated_bytes": sum(
+                    item.inventory.allocated_bytes for item in entries
+                ),
+            },
+        }
+        _write_report(request.report_path, payload)
+    except BaseException as primary:
+        rollback_errors = _rollback_consolidation(moved, created_parents, root)
+        if rollback_errors:
+            primary.add_note("rollback incomplete: " + "; ".join(rollback_errors))
+        raise
+
+
+def _consolidate_obsolete(values: list[str], root: Path, runner: CommandRunner) -> int:
+    """Quarantine reviewed ignored artifacts for manual deletion; never delete them."""
+    if values == ["--help"]:
+        print(
+            "usage: agent-replay consolidate-obsolete <manifest> --report <report>\n"
+            "Quarantines explicitly reviewed ignored tmp artifacts under tmp/obsolete "
+            "for manual deletion; it does not delete artifacts."
+        )
+        return 0
+    request = _parse_consolidation_request(values, root)
+    if _validate_completed_rerun(
+        request.report_path,
+        manifest_relative=request.manifest_relative,
+        manifest_digest=request.manifest_digest,
+        source_specs=list(request.source_specs),
+        root=root,
+    ):
+        print(f"consolidation already completed: {request.report_relative}")
+        return 0
+    entries = [
+        _preflight_consolidation_entry(spec, request=request, root=root, runner=runner)
+        for spec in request.source_specs
+    ]
+    _validate_consolidation_relationships(entries)
+    head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    if _read_manifest_bytes(request.manifest_path) != request.manifest_bytes:
+        raise AgentReplayInputError("manifest changed during preflight")
+    _execute_consolidation(entries, request=request, head=head, root=root)
+    print(f"consolidated {len(entries)} artifacts; report: {request.report_relative}")
+    return 0
 
 
 def _redact_structural_environment(text: str) -> str:
@@ -1731,6 +2326,7 @@ def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> i
 
 
 _OPERATIONS: dict[str, Operation] = {
+    "consolidate-obsolete": _consolidate_obsolete,
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
     "generate-current-evidence": _generate_current_evidence,
