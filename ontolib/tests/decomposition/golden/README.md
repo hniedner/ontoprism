@@ -330,6 +330,32 @@ The importer produces a distinct R103 review-evidence registry. It does not muta
 oracle or proposal registry; a later accepted correction proposal must extend the existing
 `ProposalRegistry` through its separate governance path.
 
+The current local-SME state is durably composed in
+`r103-review-state-26.07d.json`. It remains `review-incomplete`, unresolved by one
+decision, and write-free. This file is a deterministic test golden, not runtime package
+data, accepted NCIt content, publication authorization, or permission to apply a change.
+It embeds the complete packet, decision registry, and dry-run so strict loading and nested
+identity validation do not read `tmp/` after the original staging files disappear. Loading
+the golden does not claim to recompute the file-dependent dry-run; recomputation occurs
+only during the original promotion operation.
+
+The original promotion requires the untracked or archived packet, registry, dry-run,
+oracle, and proposal-registry staging inputs. There is no claim that the tracked golden
+alone can regenerate that historical promotion. It was generated and then rerun as a
+byte-identical no-op with:
+
+```bash
+pdm run adjudication promote-r103-review-state --packet tmp/m1-6-r103-review-packet.json --registry tmp/m1-6-r103-review-decisions.json --dry-run tmp/m1-6-r103-review-dry-run.json --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d.json
+```
+
+Its self-excluding `artifact_identity` is
+`90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a`
+(`pdm run agent-test ontolib/tests/decomposition/test_r103_review_promotion.py::test_tracked_promotion_loads_with_exact_review_and_noncohort_oracle_boundary -v`,
+2026-08-27). The oracle binding covers bytes only and implies no cohort relationship.
+The same test freshly verifies that C2860, C3264, and C3716 are not members of the
+20-code oracle cohort. An oracle byte change requires a distinct new promotion record;
+it must never refresh or overwrite this historical record.
+
 ### Final machine-readiness evidence
 
 Capture the exact verification gate only from a clean worktree with the valid rootless
