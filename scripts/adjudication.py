@@ -68,6 +68,7 @@ from ontolib.decomposition.r103_review import (
     write_r103_review_packet,
     write_r103_review_workbook,
 )
+from ontolib.decomposition.r103_review_promotion import promote_r103_review_state
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
     inspect_resume_selection,
@@ -237,6 +238,15 @@ class _DryRunR103ReviewArgs(Protocol):
     output: Path
 
 
+class _PromoteR103ReviewStateArgs(Protocol):
+    packet: Path
+    registry: Path
+    dry_run: Path
+    oracle: Path
+    proposal_registry: Path
+    output: Path
+
+
 def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser = subparsers.add_parser("generate-group-review-packet")
     group_parser.add_argument("--current-evidence", required=True, type=Path)
@@ -271,6 +281,13 @@ def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
     dry_run.add_argument("--oracle", required=True, type=Path)
     dry_run.add_argument("--proposal-registry", required=True, type=Path)
     dry_run.add_argument("--output", required=True, type=Path)
+    promote = subparsers.add_parser("promote-r103-review-state")
+    promote.add_argument("--packet", required=True, type=Path)
+    promote.add_argument("--registry", required=True, type=Path)
+    promote.add_argument("--dry-run", required=True, type=Path)
+    promote.add_argument("--oracle", required=True, type=Path)
+    promote.add_argument("--proposal-registry", required=True, type=Path)
+    promote.add_argument("--output", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -604,6 +621,22 @@ def _dry_run_r103_review(args: _DryRunR103ReviewArgs) -> None:
     print(f"readiness={result.readiness} writes_performed=false", file=sys.stderr)
 
 
+def _promote_r103_review_state(args: _PromoteR103ReviewStateArgs) -> None:
+    promoted = promote_r103_review_state(
+        packet_path=args.packet,
+        registry_path=args.registry,
+        dry_run_path=args.dry_run,
+        oracle_path=args.oracle,
+        proposal_registry_path=args.proposal_registry,
+        output_path=args.output,
+    )
+    print(
+        f"artifact_identity={promoted.artifact_identity} "
+        "readiness=review-incomplete writes_performed=false",
+        file=sys.stderr,
+    )
+
+
 async def _generate_r101_collapse_policy(
     args: _GenerateR101CollapsePolicyArgs,
 ) -> None:
@@ -884,6 +917,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "dry-run-r103-review":
         _dry_run_r103_review(cast("_DryRunR103ReviewArgs", args))
+        return
+    if args.command == "promote-r103-review-state":
+        _promote_r103_review_state(cast("_PromoteR103ReviewStateArgs", args))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))
