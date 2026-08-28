@@ -36,7 +36,7 @@ from ontolib.decomposition.corpus_baseline import (
 )
 from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.r103_review_promotion import (
-    load_r103_promoted_review_state,
+    load_r103_promoted_review_revision,
 )
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
@@ -176,7 +176,7 @@ def _composed_readiness_inputs(
         "proposal_registry": unused,
         "primary_site_audit": audit_path,
         "group_packet": unused,
-        "r103_review_state": golden / "r103-review-state-26.07d.json",
+        "r103_review_state": golden / "r103-review-state-26.07d-rev2.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
@@ -867,7 +867,7 @@ def test_composed_readiness_derives_zero_delta_from_current_r101_report(
 
 
 @pytest.mark.unit
-def test_composed_readiness_consumes_only_strict_state_packet_semantics(
+def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
@@ -886,15 +886,41 @@ def test_composed_readiness_consumes_only_strict_state_packet_semantics(
     assert readiness.identities.r103_packet_identity == (
         "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449"
     )
-    assert r103_requirement.status == "pending"
+    revision = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
+    assert r103_requirement.status == "satisfied-by-terminal-review"
     assert r103_requirement.count == 3
+    assert r103_requirement.registry_identity == revision.registry.registry_identity
+    assert (
+        r103_requirement.decision_identity
+        == revision.registry.decisions[1].decision_identity
+    )
     assert readiness.authorization is False
     assert readiness.publication.publication_writes_performed is False
     assert "registry" not in payload
     assert "dry_run" not in payload
-    assert "source-supported" not in encoded
-    assert "review-incomplete" not in encoded
+    assert "concept-scoped-accuracy-exclusion" not in encoded
+    assert "ready-for-separate-application" not in encoded
     assert "R. Hannes Niedner" not in encoded
+
+
+@pytest.mark.unit
+def test_readiness_r103_satisfaction_reject_branch_is_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    source = Path(arguments["r103_review_state"])
+    state = json.loads(source.read_text(encoding="utf-8"))
+    state["dry_run"]["unresolved"] = 1
+    changed = tmp_path / "changed-r103-state.json"
+    changed.write_text(json.dumps(state), encoding="utf-8")
+    arguments["r103_review_state"] = changed
+
+    with pytest.raises(PreSmeValidationError):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 def _identity(value: object) -> str:
@@ -927,7 +953,7 @@ def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_ou
     ]
     workbook_identity = _identity(
         {
-            "packet_identity": state["packet"]["packet_identity"],
+            "packet_identity": state["predecessor"]["packet"]["packet_identity"],
             "human_rows": human_rows,
         }
     )
@@ -952,7 +978,7 @@ def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_ou
     arguments["r103_review_state"] = changed
 
     with pytest.raises(
-        PreSmeValidationError, match="promoted human review values differ"
+        PreSmeValidationError, match="revision human review values differ"
     ):
         generate_pre_sme_readiness(**arguments)
 
@@ -974,10 +1000,12 @@ def test_readiness_refuses_non_promoted_state_shapes_without_output(
     else:
         source = Path(arguments["r103_review_state"])
         state_path.write_text(
-            json.dumps(json.loads(source.read_text(encoding="utf-8"))["packet"]),
+            json.dumps(
+                json.loads(source.read_text(encoding="utf-8"))["predecessor"]["packet"]
+            ),
             encoding="utf-8",
         )
-        expected = "R103PromotedReviewState"
+        expected = "R103PromotedReviewRevision"
     arguments["r103_review_state"] = state_path
 
     with pytest.raises(PreSmeValidationError, match=expected):
@@ -1004,12 +1032,12 @@ def test_readiness_independently_rejects_mutated_embedded_packet_bindings(
     arguments, module, _report, _comparison, _group = _composed_readiness_inputs(
         tmp_path, monkeypatch
     )
-    state = load_r103_promoted_review_state(Path(arguments["r103_review_state"]))
+    state = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
     packet = state.packet.model_copy(update={field: "f" * 64})
     monkeypatch.setattr(
         module,
-        "load_r103_promoted_review_state",
-        lambda _path: SimpleNamespace(packet=packet),
+        "load_r103_promoted_review_revision",
+        lambda _path: SimpleNamespace(packet=packet, registry=state.registry),
     )
 
     with pytest.raises(PreSmeValidationError, match=message):

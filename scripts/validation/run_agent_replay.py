@@ -1204,7 +1204,7 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
-        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "tmp/m1-6-verify-evidence.json",
     )
     paths = tuple(Path(item) for item in _require_files(root, relatives))
