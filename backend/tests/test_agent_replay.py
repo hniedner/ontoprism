@@ -402,7 +402,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
-        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -454,7 +454,8 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         tmp_path / "tmp/r101-review-reuse-validation.json"
     )
     assert calls[1]["r103_review_state"] == (
-        tmp_path / "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json"
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json"
     )
     assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
@@ -508,7 +509,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet.json",
-        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -581,7 +582,7 @@ def test_pre_sme_readiness_refuses_old_packet_without_tracked_state(
         AgentReplayInputError,
         match=(
             r"required input does not exist: ontolib/tests/decomposition/golden/"
-            r"r103-review-state-26\.07d\.json"
+            r"r103-review-state-26\.07d-rev2\.json"
         ),
     ):
         run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())

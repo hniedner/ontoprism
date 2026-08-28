@@ -7,6 +7,22 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-28 — the C3264 R103 accuracy exclusion is exact and non-propagating
+
+### D80. A local-SME exclusion suppresses only C3264/R103/C12950 in the curated projection
+
+**Decision:** the terminal #294 revision records the human decision as supplied, retains its
+rationale separately from a machine qualification, and applies
+`("C3264", "R103"): frozenset({"C12950"})` through the existing concept/role policy. R103 is
+non-defining. The exclusion does not transfer to descendants; individual descendants may have
+specific embryonic or fetal origins. The stated NCIt assertion, complete definition, source fact,
+group, occurrence, and provenance remain evidence rather than being deleted.
+
+This is a local-SME `concept-scoped-accuracy-exclusion`, not NCI acceptance or publication.
+Machine readiness may mark only the R103 requirement satisfied; group review, R101 authorization,
+and final scientific acceptance/publication remain separate human requirements, so overall
+authorization remains false.
+
 ## 2026-08-22 — Python domain values and wire documents have separate model systems
 
 ### D79. Dataclasses model domain values; Pydantic models validate boundaries

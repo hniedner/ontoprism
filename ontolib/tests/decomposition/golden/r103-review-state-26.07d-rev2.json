@@ -1,0 +1,402 @@
+{
+  "artifact_identity": "d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160",
+  "dry_run": {
+    "exclusion_previews": [
+      {
+        "filler_code": "C12950",
+        "role_code": "R103",
+        "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+        "source_release": "26.07d",
+        "subject_code": "C3264"
+      }
+    ],
+    "oracle_identity_after": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+    "oracle_identity_before": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+    "outcome_counts": {
+      "concept-scoped-accuracy-exclusion": 1,
+      "source-supported": 2
+    },
+    "proposal_previews": [],
+    "proposal_registry_identity_after": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+    "proposal_registry_identity_before": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+    "readiness": "ready-for-separate-application",
+    "unresolved": 0,
+    "writes_performed": false
+  },
+  "machine_qualification": "R103 is non-defining; this exclusion applies exactly to the C3264/R103/C12950 source assertion, and individual descendants may have specific embryonic or fetal origins.",
+  "oracle_file_sha256": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+  "predecessor": {
+    "artifact_identity": "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a",
+    "dry_run": {
+      "exclusion_previews": [],
+      "oracle_identity_after": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+      "oracle_identity_before": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+      "outcome_counts": {
+        "review-required": 1,
+        "source-supported": 2
+      },
+      "proposal_previews": [],
+      "proposal_registry_identity_after": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+      "proposal_registry_identity_before": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+      "readiness": "review-incomplete",
+      "unresolved": 1,
+      "writes_performed": false
+    },
+    "oracle_file_sha256": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+    "packet": {
+      "candidate_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+      "inventory_scope": "issue-declared assertions, source-presence certified",
+      "method_reference": {
+        "coasserted_facts": [
+          {
+            "filler_code": "C54105",
+            "member_position": 1,
+            "role_code": "R103",
+            "source_fact_identity": "9db7138801b7ab3f0d12ec173f524be1a4cf0304ca35498a98435d84e935919a"
+          },
+          {
+            "filler_code": "C12597",
+            "member_position": 2,
+            "role_code": "R104",
+            "source_fact_identity": "391a24736e584429d517147da8d6eae45c2ffde9dd205ac2c3a020898dba0f22"
+          }
+        ],
+        "comparison_scope": "method comparison evidence only",
+        "complete_definition_identity": "cd8673bb0acece02aa32befe7c81ac70ddd4dc1316a125466cc78fc4ceea3b40",
+        "filler_code": "C54105",
+        "filler_label": "Germinal Layer",
+        "filler_p97_definition": "No P97 definition is present in the pinned stated source.",
+        "genus_facts": [
+          {
+            "genus_code": "C4741",
+            "genus_label": "Neoplasm by Morphology",
+            "member_position": 0,
+            "source_fact_identity": "30fc415f984e034e2405c2f4dce7f539b12de5a2c07162a9774d9b2ebf58a220"
+          }
+        ],
+        "is_decision_row": false,
+        "role_code": "R103",
+        "role_label": "Disease_Has_Normal_Tissue_Origin",
+        "role_p97_definition": "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively.",
+        "source_citation": "Thesaurus-stated.owl#C3708 equivalentClass member 1",
+        "source_fact_identity": "9db7138801b7ab3f0d12ec173f524be1a4cf0304ca35498a98435d84e935919a",
+        "source_group_identity": "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e",
+        "source_occurrence_identity": "30b66fad64bb8bd0c1d0d2f6dfdb98020627a725fc526fed01c04ec380502793",
+        "subject_code": "C3708",
+        "subject_label": "Germ Cell Tumor",
+        "subject_p97_definition": "A benign or malignant, gonadal or extragonadal neoplasm that originates from germ cells. Representative examples include teratoma, seminoma, embryonal carcinoma, and yolk sac tumor."
+      },
+      "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+      "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+      "query_contract_identity": "b6a64e7c66072b403d759c070d2386e68cb0a7da13838cdaca7a57c9e0c45824",
+      "rows": [
+        {
+          "anchor_code": "C2860",
+          "coasserted_facts": [
+            {
+              "filler_code": "C12950",
+              "member_position": 2,
+              "role_code": "R103",
+              "source_fact_identity": "385b9962eed179a61b29593959f42fe4cd24c53fca05b185bb51434f9b085131"
+            }
+          ],
+          "complete_definition_identity": "fce261cdce58ed9ac84b82b2585014aa8a5eb93c40cdc3614b946cf7ebcf1664",
+          "contrast_to_method": "Comparison only; C3708/R103/C54105 demonstrates the same source-query and evidence method and is neither a recommendation nor a rationale.",
+          "current_state": "projected",
+          "depth": 0,
+          "filler_code": "C12950",
+          "filler_label": "Embryonic Tissue",
+          "filler_p97_definition": "Tissue that is formed during the embryonic stage of life of an organism.",
+          "genus_facts": [
+            {
+              "genus_code": "C7617",
+              "genus_label": "Benign Reproductive System Neoplasm",
+              "member_position": 0,
+              "source_fact_identity": "b5e024ba5d1439a737f9512073e849a23ad52d0f7486695b830392a87df73513"
+            }
+          ],
+          "impact_concepts": [
+            "C2860"
+          ],
+          "inherited_roots": [],
+          "machine_evidence": "Mechanical evidence only; the stated restriction, definition text, genera, and coasserted R103/R104 facts are shown without a clinical verdict.",
+          "member_position": 2,
+          "role_code": "R103",
+          "role_is_non_defining": true,
+          "role_label": "Disease_Has_Normal_Tissue_Origin",
+          "role_p97_definition": "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively.",
+          "row_identity": "28201e2c295c0c7979d262e5eb43c165d30e03220a8540c6e73829b7a844a28f",
+          "source_citation": "Thesaurus-stated.owl#C2860 equivalentClass member 2",
+          "source_fact_identity": "385b9962eed179a61b29593959f42fe4cd24c53fca05b185bb51434f9b085131",
+          "source_group_identity": "e61e45cb115b5c13d559794228d2286e1c5790596fb7578fee93a60f6fb2927d",
+          "source_occurrence_identity": "f82f07767009dc2b4c45d4189faa6fa88ad234c941575c82ab7b248674373293",
+          "structural_path": [
+            2
+          ],
+          "subject_code": "C2860",
+          "subject_label": "Adrenal Rest Tumor",
+          "subject_p97_definition": "A benign, testicular or ovarian tumor, derived from adrenal embryonic rest cells. It is composed of hyperplastic adrenal cortical tissue, and it is associated with congenital adrenal hyperplasia."
+        },
+        {
+          "anchor_code": "C3264",
+          "coasserted_facts": [
+            {
+              "filler_code": "C12950",
+              "member_position": 1,
+              "role_code": "R103",
+              "source_fact_identity": "9b65508efbe45468569cedcf54edbc17d62c43bd7a7dd8fc3a96eb3be6c6db9c"
+            },
+            {
+              "filler_code": "C13054",
+              "member_position": 2,
+              "role_code": "R104",
+              "source_fact_identity": "f6f3d0fd52a908c0732c05777239af20d16aec54b3f0ceb8d4fb5d6f6c850f2c"
+            }
+          ],
+          "complete_definition_identity": "4c0f4b10d0fc6337d07c6df95063c5c402d5ea6028a78cc6beb52f4ae5907986",
+          "contrast_to_method": "Comparison only; C3708/R103/C54105 demonstrates the same source-query and evidence method and is neither a recommendation nor a rationale.",
+          "current_state": "projected",
+          "depth": 0,
+          "filler_code": "C12950",
+          "filler_label": "Embryonic Tissue",
+          "filler_p97_definition": "Tissue that is formed during the embryonic stage of life of an organism.",
+          "genus_facts": [
+            {
+              "genus_code": "C7062",
+              "genus_label": "Neoplasm by Special Category",
+              "member_position": 0,
+              "source_fact_identity": "9e0a15838db45e873513f48c6ff4f3e18780db9b6d76f7ab7da2ab4223802b11"
+            }
+          ],
+          "impact_concepts": [
+            "C3264"
+          ],
+          "inherited_roots": [],
+          "machine_evidence": "Mechanical evidence only; the stated restriction, definition text, genera, and coasserted R103/R104 facts are shown without a clinical verdict.",
+          "member_position": 1,
+          "role_code": "R103",
+          "role_is_non_defining": true,
+          "role_label": "Disease_Has_Normal_Tissue_Origin",
+          "role_p97_definition": "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively.",
+          "row_identity": "fbb122149a2cf3cbd0e8efa63034ec4b95275a9f83acd5ef02fe420aab46d240",
+          "source_citation": "Thesaurus-stated.owl#C3264 equivalentClass member 1",
+          "source_fact_identity": "9b65508efbe45468569cedcf54edbc17d62c43bd7a7dd8fc3a96eb3be6c6db9c",
+          "source_group_identity": "a59e8c63234efcd0377bd5d3c55d46806d376c39f97900a0160dc3d7aeb771a3",
+          "source_occurrence_identity": "ea85091fadd45ae71ec60966c4de0e852f9211f09b1dd682bf6d87a48c64c66d",
+          "structural_path": [
+            1
+          ],
+          "subject_code": "C3264",
+          "subject_label": "Embryonal Neoplasm",
+          "subject_p97_definition": "A usually malignant neoplasm composed of primitive (immature) tissues that resemble fetal tissues.  Medulloblastoma, ependymoblastoma, pineoblastoma, and Wilms tumor are representative embryonal neoplasms."
+        },
+        {
+          "anchor_code": "C3716",
+          "coasserted_facts": [
+            {
+              "filler_code": "C34228",
+              "member_position": 2,
+              "role_code": "R103",
+              "source_fact_identity": "182fe12a542bf33f076d44491c15ea303fe64991d06abeae321f8252f071434f"
+            },
+            {
+              "filler_code": "C42050",
+              "member_position": 3,
+              "role_code": "R104",
+              "source_fact_identity": "512d6522792f55a715a757ba5e116f9d1ee68ec2d97fa9a401584df7b170ea67"
+            }
+          ],
+          "complete_definition_identity": "d4fdc6a3de4fecb4a01d73b47a0539ea3abbe65472fd5a7166b5132c199015e6",
+          "contrast_to_method": "Comparison only; C3708/R103/C54105 demonstrates the same source-query and evidence method and is neither a recommendation nor a rationale.",
+          "current_state": "projected",
+          "depth": 0,
+          "filler_code": "C34228",
+          "filler_label": "Neuroectoderm",
+          "filler_p97_definition": "The dorsal surface of the early vertebrate embryo that gives rise to the nervous system.",
+          "genus_facts": [
+            {
+              "genus_code": "C3264",
+              "genus_label": "Embryonal Neoplasm",
+              "member_position": 0,
+              "source_fact_identity": "d71574dd137a841140eb845d672233f0f3b80c0bad08e6ea10a9bfdd73b07dc7"
+            },
+            {
+              "genus_code": "C9305",
+              "genus_label": "Malignant Neoplasm",
+              "member_position": 1,
+              "source_fact_identity": "bd0f11090c788e271d6f522077817492b987b81452b81d9eb3b7e56890c74f13"
+            }
+          ],
+          "impact_concepts": [
+            "C3716"
+          ],
+          "inherited_roots": [],
+          "machine_evidence": "Mechanical evidence only; the stated restriction, definition text, genera, and coasserted R103/R104 facts are shown without a clinical verdict.",
+          "member_position": 2,
+          "role_code": "R103",
+          "role_is_non_defining": true,
+          "role_label": "Disease_Has_Normal_Tissue_Origin",
+          "role_p97_definition": "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively.",
+          "row_identity": "1a7d68f68c3b2cdc1081a46233e9296dcde90aa14df2791b5aa488962ad354e2",
+          "source_citation": "Thesaurus-stated.owl#C3716 equivalentClass member 2",
+          "source_fact_identity": "182fe12a542bf33f076d44491c15ea303fe64991d06abeae321f8252f071434f",
+          "source_group_identity": "0629f676b577a98a20b7dca5b4da6a939bdcc30b78b9a03067e3360794728e03",
+          "source_occurrence_identity": "508910e91fefe93eb90e762be2341bed4153620be5756b5049b86a2b3ae2f620",
+          "structural_path": [
+            2
+          ],
+          "subject_code": "C3716",
+          "subject_label": "Primitive Neuroectodermal Tumor",
+          "subject_p97_definition": "A malignant neoplasm that originates in the neuroectoderm. The neuroectoderm constitutes the portion of the ectoderm of the early embryo that gives rise to the central and peripheral nervous systems and includes some glial cell precursors."
+        }
+      ],
+      "schema_version": 1,
+      "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+      "source_artifact_size": 749451268,
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+      "source_pass_count": 2,
+      "source_release": "26.07d",
+      "tool_identity": "0cf442b5c267f98f12d2c2d32ac101eb8d67d426b633e90d659914767b8d60dc"
+    },
+    "proposal_registry_file_sha256": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+    "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+    "registry": {
+      "decisions": [
+        {
+          "decision_identity": "921d4b2386bfec3b45106389c0ece417c9cf5bb8fda4d41e3f1ca3ad22d7c2a7",
+          "filler_code": "C12950",
+          "outcome": "source-supported",
+          "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+          "rationale": "C12950 is supported by C2860\u2019s stated derivation from adrenal embryonic rest cells. It is anatomically broad but is the most specific currently available NCIt tissue-origin filler; no range-compatible, more specific NCIt replacement has been identified.",
+          "review_date": "2026-08-26",
+          "reviewer": "R. Hannes Niedner, M.D.",
+          "role_code": "R103",
+          "row_identity": "28201e2c295c0c7979d262e5eb43c165d30e03220a8540c6e73829b7a844a28f",
+          "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+          "source_release": "26.07d",
+          "subject_code": "C2860",
+          "workbook_identity": "e7d83f388c144111d9b877a4c3f12117e5dcc5be15aed34b68d427045ea5f265"
+        },
+        {
+          "decision_identity": "d40cf8603a5c1cdd4ef1ca1d7fdd47296159d4d4c851e89d2601c42eff50c8b6",
+          "filler_code": "C12950",
+          "outcome": "review-required",
+          "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+          "rationale": "Fetal-tissue resemblance describes morphology, not necessarily normal tissue of origin, so the R103 assertion should not be projected without stronger evidence.",
+          "review_date": "2026-08-26",
+          "reviewer": "R. Hannes Niedner, M.D.",
+          "role_code": "R103",
+          "row_identity": "fbb122149a2cf3cbd0e8efa63034ec4b95275a9f83acd5ef02fe420aab46d240",
+          "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+          "source_release": "26.07d",
+          "subject_code": "C3264",
+          "workbook_identity": "e7d83f388c144111d9b877a4c3f12117e5dcc5be15aed34b68d427045ea5f265"
+        },
+        {
+          "decision_identity": "287f545fe4ee2d399a606cf59bb2c124612ac0e46abe61532331a48dcdc2d6f2",
+          "filler_code": "C34228",
+          "outcome": "source-supported",
+          "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+          "rationale": "C3716 explicitly states origin in neuroectoderm, and C34228 defines that embryologic tissue; the R103 assertion directly represents the stated normal tissue of origin while R104 separately preserves cell-origin context.",
+          "review_date": "2026-08-26",
+          "reviewer": "R. Hannes Niedner, M.D.",
+          "role_code": "R103",
+          "row_identity": "1a7d68f68c3b2cdc1081a46233e9296dcde90aa14df2791b5aa488962ad354e2",
+          "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+          "source_release": "26.07d",
+          "subject_code": "C3716",
+          "workbook_identity": "e7d83f388c144111d9b877a4c3f12117e5dcc5be15aed34b68d427045ea5f265"
+        }
+      ],
+      "exclusion_preview": [],
+      "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+      "proposal_preview": [],
+      "registry_identity": "dcebd5301858b9b871dd472e1add15bc455ae4e851627e23b16361b1ed1eb5e1",
+      "schema_version": 1,
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+      "source_release": "26.07d",
+      "workbook_identity": "e7d83f388c144111d9b877a4c3f12117e5dcc5be15aed34b68d427045ea5f265"
+    },
+    "schema_version": 1
+  },
+  "predecessor_artifact_identity": "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a",
+  "proposal_registry_file_sha256": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+  "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+  "registry": {
+    "decisions": [
+      {
+        "decision_identity": "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27",
+        "filler_code": "C12950",
+        "outcome": "source-supported",
+        "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+        "rationale": "C12950 is supported by C2860\u2019s stated derivation from adrenal embryonic rest cells. It is anatomically broad but is the most specific currently available NCIt tissue-origin filler; no range-compatible, more specific NCIt replacement has been identified.",
+        "review_date": "2026-08-26",
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "role_code": "R103",
+        "row_identity": "28201e2c295c0c7979d262e5eb43c165d30e03220a8540c6e73829b7a844a28f",
+        "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+        "source_release": "26.07d",
+        "subject_code": "C2860",
+        "workbook_identity": "f3c9e4bba3f4465027c0d3ca522ee059c8df6090e425f31bceed993caec550ca"
+      },
+      {
+        "decision_identity": "13160d82001bf177c4a48ffef94c96c612aed0d1950889cc79e06454cc0422ed",
+        "filler_code": "C12950",
+        "outcome": "concept-scoped-accuracy-exclusion",
+        "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+        "rationale": "My Recommendation: Concept-scoped exclusion\n\nRationale from Scientific Literature: The modern understanding of CNS and peripheral embryonal tumors (such as medulloblastoma, atypical teratoid/rhabdoid tumor, and ETMR) has shifted significantly with molecular profiling. Literature confirms that these tumors arise from the transformation of very specific local progenitor populations or stem cells (e.g., transitional cerebellar progenitors in the rhombic lip for certain medulloblastomas) whose developmental program stalls\u2014not from a generalized pool of \"embryonic tissue.\"\n\nThe term \"embryonal\" in oncology refers primarily to the primitive, undifferentiated morphologic appearance of the tumor cells (small round blue cells resembling those in a developing embryo) rather than a literal derivation from generic embryonic tissue. Because R103 represents a strict causal origin (Disease_Has_Normal_Tissue_Origin), applying a broad \"Embryonic Tissue\" filler across this entire umbrella misrepresents the biology.\n\nTherefore, selecting Concept-scoped exclusion is the correct semantic action. It safely prevents this morphologic resemblance from being falsely projected as a strict anatomic origin in downstream reasoning, while fully preserving the original NCIt source assertion and its provenance in the graph.",
+        "review_date": "2026-08-28",
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "role_code": "R103",
+        "row_identity": "fbb122149a2cf3cbd0e8efa63034ec4b95275a9f83acd5ef02fe420aab46d240",
+        "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+        "source_release": "26.07d",
+        "subject_code": "C3264",
+        "workbook_identity": "f3c9e4bba3f4465027c0d3ca522ee059c8df6090e425f31bceed993caec550ca"
+      },
+      {
+        "decision_identity": "1833ac6bf24aba6523a50d29c41fbcc649f81c36f324e958077b9ae428b48e84",
+        "filler_code": "C34228",
+        "outcome": "source-supported",
+        "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+        "rationale": "C3716 explicitly states origin in neuroectoderm, and C34228 defines that embryologic tissue; the R103 assertion directly represents the stated normal tissue of origin while R104 separately preserves cell-origin context.",
+        "review_date": "2026-08-26",
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "role_code": "R103",
+        "row_identity": "1a7d68f68c3b2cdc1081a46233e9296dcde90aa14df2791b5aa488962ad354e2",
+        "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+        "source_release": "26.07d",
+        "subject_code": "C3716",
+        "workbook_identity": "f3c9e4bba3f4465027c0d3ca522ee059c8df6090e425f31bceed993caec550ca"
+      }
+    ],
+    "exclusion_preview": [
+      {
+        "filler_code": "C12950",
+        "role_code": "R103",
+        "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+        "source_release": "26.07d",
+        "subject_code": "C3264"
+      }
+    ],
+    "packet_identity": "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449",
+    "proposal_preview": [],
+    "registry_identity": "f25220f2d81c3d5f576d48fb11a9b148180b25996fb81916a8cc4532026f1074",
+    "schema_version": 1,
+    "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+    "source_release": "26.07d",
+    "workbook_identity": "f3c9e4bba3f4465027c0d3ca522ee059c8df6090e425f31bceed993caec550ca"
+  },
+  "schema_version": 2,
+  "transcription": {
+    "actor": "software-transcriber",
+    "assertion": [
+      "C3264",
+      "R103",
+      "C12950"
+    ],
+    "authority": "explicit-human-instruction",
+    "authorship_claimed": false,
+    "workbook_identity": "f3c9e4bba3f4465027c0d3ca522ee059c8df6090e425f31bceed993caec550ca"
+  }
+}

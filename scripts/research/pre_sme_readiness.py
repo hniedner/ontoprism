@@ -37,7 +37,7 @@ from ontolib.decomposition.r101_review import (
     load_r101_review_packet,
 )
 from ontolib.decomposition.r103_review_promotion import (
-    load_r103_promoted_review_state,
+    load_r103_promoted_review_revision,
 )
 from ontolib.terminologies.ncit.sibling_store import (
     SiblingStoreValidationError,
@@ -378,6 +378,9 @@ class MachineReadinessInputs(_StrictModel):
     primary_site_review_required_count: int = Field(ge=0)
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
+    r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_decision_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_terminal_review_established: bool = False
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
     exact_pair_true_positive: int = Field(ge=0)
@@ -408,6 +411,16 @@ class MachineReadinessInputs(_StrictModel):
             != self.full_partition_agreement.denominator
         ):
             raise ValueError("grouping denominators do not describe one cohort")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_r103_status(self) -> Self:
+        terminal_identities = (
+            self.r103_registry_identity != "0" * 64
+            and self.r103_decision_identity != "0" * 64
+        )
+        if self.r103_terminal_review_established != terminal_identities:
+            raise ValueError("R103 terminal-review status differs from identities")
         return self
 
 
@@ -599,8 +612,16 @@ class SatisfiedR101Requirement(_StrictModel):
     registry_identity: str = Field(pattern=_SHA256)
 
 
+class SatisfiedR103Requirement(_StrictModel):
+    requirement: Literal["r103-review"]
+    count: Literal[3]
+    status: Literal["satisfied-by-terminal-review"]
+    registry_identity: str = Field(pattern=_SHA256)
+    decision_identity: str = Field(pattern=_SHA256)
+
+
 HumanRequirement = Annotated[
-    PendingHumanRequirement | SatisfiedR101Requirement,
+    PendingHumanRequirement | SatisfiedR101Requirement | SatisfiedR103Requirement,
     Field(discriminator="status"),
 ]
 
@@ -622,6 +643,8 @@ class ReportIdentities(_StrictModel):
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
+    r103_registry_identity: str = Field(pattern=_SHA256)
+    r103_decision_identity: str = Field(pattern=_SHA256)
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
 
@@ -683,6 +706,20 @@ class MachineReadinessReport(_StrictModel):
             raise ValueError("machine readiness report identity differs")
         return self
 
+    @model_validator(mode="after")
+    def _validate_r103_requirement(self) -> Self:
+        by_requirement = {item.requirement: item for item in self.human_requirements}
+        r103 = by_requirement.get(_R103_REVIEW)
+        terminal_r103 = self.identities.r103_registry_identity != "0" * 64
+        if terminal_r103 != isinstance(r103, SatisfiedR103Requirement):
+            raise ValueError("R103 requirement differs from revision identities")
+        if isinstance(r103, SatisfiedR103Requirement) and (
+            r103.registry_identity != self.identities.r103_registry_identity
+            or r103.decision_identity != self.identities.r103_decision_identity
+        ):
+            raise ValueError("R103 satisfied requirement identities differ")
+        return self
+
 
 def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessReport:
     # D59 baseline is 80/106 precision and 80/153 recall
@@ -696,14 +733,29 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     )
     if not precision_better or not recall_better:
         raise PreSmeValidationError("current exact-pair metrics do not exceed baseline")
-    requirements: list[PendingHumanRequirement | SatisfiedR101Requirement] = [
+    requirements: list[
+        PendingHumanRequirement | SatisfiedR101Requirement | SatisfiedR103Requirement
+    ] = [
         PendingHumanRequirement(
             requirement=_GROUP_REVIEW, count=_GROUP_REVIEW_COUNT, status="pending"
         ),
-        PendingHumanRequirement(
-            requirement=_R103_REVIEW, count=_R103_REVIEW_COUNT, status="pending"
-        ),
     ]
+    if inputs.r103_terminal_review_established:
+        requirements.append(
+            SatisfiedR103Requirement(
+                requirement=_R103_REVIEW,
+                count=_R103_REVIEW_COUNT,
+                status="satisfied-by-terminal-review",
+                registry_identity=inputs.r103_registry_identity,
+                decision_identity=inputs.r103_decision_identity,
+            )
+        )
+    else:
+        requirements.append(
+            PendingHumanRequirement(
+                requirement=_R103_REVIEW, count=_R103_REVIEW_COUNT, status="pending"
+            )
+        )
     if inputs.r101_exact_validation_established:
         requirements.append(
             SatisfiedR101Requirement(
@@ -857,7 +909,7 @@ def _validated_current_metrics(comparison: CurrentComparison) -> CurrentMetrics:
         raise PreSmeValidationError(str(exc)) from exc
 
 
-def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact validation
+def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     *,
     source_manifest: Path,
     current_evidence: Path,
@@ -912,7 +964,8 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
         group = load_group_review_packet(group_packet)
-        r103 = load_r103_promoted_review_state(r103_review_state).packet
+        r103_revision = load_r103_promoted_review_revision(r103_review_state)
+        r103 = r103_revision.packet
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
         )
@@ -992,6 +1045,11 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             primary_site_review_required_count=audit.review_required_site_count,
             group_packet_identity=group.packet_identity,
             r103_packet_identity=r103.packet_identity,
+            r103_registry_identity=r103_revision.registry.registry_identity,
+            r103_decision_identity=(
+                r103_revision.registry.decisions[1].decision_identity
+            ),
+            r103_terminal_review_established=True,
             verify_evidence_identity=gate.evidence_identity,
             git_head=gate.git_head,
             exact_pair_true_positive=metrics.exact_pair_precision.numerator,
