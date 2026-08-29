@@ -7,6 +7,28 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-29 — group review distinguishes scoreable, review-bearing, and absent pairs
+
+### D81. Historical schema-3 review remains immutable; schema 4 starts a fresh review boundary
+
+**Decision:** current comparison schema 3 classifies every expected/current pair into one of six
+disjoint relations: matched scoreable, expected not emitted, expected emitted but not scoreable,
+current-only scoreable, current-only review-bearing, or provisional proposed. Axis diagnostics use
+a closed current-projection status independently of the range verdict. Active group-review packet
+schema 4 carries those pair relations and source-occurrence context while normalized groups include
+only release-bound scoreable pairs.
+
+The historical schema-3 packet is admitted byte-identically beside its frozen Markdown and sidecar.
+It remains a separate strict model solely to interpret that human record. It is never upgraded,
+converted, or fed to schema-4 workbook/import code: doing so would silently assign semantics the
+reviewer did not see. The rev2 producer therefore creates a fresh blank schema-4 workbook, a
+pair-relation correction audit, and machine validation that the workbook contains no decisions.
+
+**Why:** review-bearing output and release-bound scoring are independent facts. Treating every
+emitted pair as scoreable changed group identities and made old rationale appear reusable under a
+contract it never reviewed. Preserving the historical bytes while beginning a typed blank boundary
+keeps observation separate from inference and prevents accidental human-decision carry-forward.
+
 ## 2026-08-28 — the C3264 R103 accuracy exclusion is exact and non-propagating
 
 ### D80. A local-SME exclusion suppresses only C3264/R103/C12950 in the curated projection

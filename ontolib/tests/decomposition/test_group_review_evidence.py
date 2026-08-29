@@ -5,23 +5,22 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from openpyxl import load_workbook
 from pydantic import ValidationError
-from scripts.adjudication import _parser
 from scripts.research import group_review_packet as group_review
 
 pytestmark = pytest.mark.unit
 
 _ROOT = Path(__file__).parents[3]
 _GOLDEN = Path(__file__).with_name("golden")
-_PACKET = _ROOT / "tmp/m1-6-group-review-packet.json"
+_SOURCE_PACKET = _ROOT / "tmp/m1-6-group-review-packet.json"
+_HISTORICAL_PACKET = _ROOT / "evidence/group-review-packet-26.07d-schema3.json"
 _MARKDOWN = _ROOT / "evidence/group-review-rationale-26.07d.md"
 _SIDECAR = _ROOT / "evidence/group-review-rationale-26.07d.json"
 _SOURCE_MARKDOWN = _ROOT / "tmp/m1-6-group-review-rationale-template.md"
 
 
 def _loaded():
-    packet = group_review.load_group_review_packet(_PACKET)
+    packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     return packet, group_review.load_group_review_rationale_evidence(
         markdown_path=_MARKDOWN,
         sidecar_path=_SIDECAR,
@@ -72,7 +71,7 @@ def test_tracked_markdown_is_frozen_verbatim_and_strictly_bound() -> None:
 def test_admission_writes_frozen_markdown_before_computing_sidecar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    packet = group_review.load_group_review_packet(_PACKET)
+    packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     source = tmp_path / "completed.md"
     source.write_bytes(_SOURCE_MARKDOWN.read_bytes())
     (tmp_path / "evidence").mkdir()
@@ -138,7 +137,7 @@ def test_parser_treats_only_human_rationale_block_as_opaque_text() -> None:
 def test_loader_rejects_changed_deleted_duplicate_reordered_or_malformed_markdown(
     tmp_path: Path, mutation, message: str
 ) -> None:
-    packet = group_review.load_group_review_packet(_PACKET)
+    packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     markdown, sidecar = _mutated_markdown(tmp_path, mutation)
 
     with pytest.raises(ValueError, match=message):
@@ -174,7 +173,7 @@ def test_loader_rejects_changed_deleted_duplicate_reordered_or_malformed_markdow
 def test_loader_rejects_malformed_digest_row_and_unknown_sidecar_fields(
     tmp_path: Path, mutation, message: str
 ) -> None:
-    packet = group_review.load_group_review_packet(_PACKET)
+    packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     payload = mutation(json.loads(_SIDECAR.read_bytes()))
     if "unexpected" not in payload and payload["sidecar_identity"] != "0" * 64:
         payload["sidecar_identity"] = group_review._identity(
@@ -189,66 +188,6 @@ def test_loader_rejects_malformed_digest_row_and_unknown_sidecar_fields(
         )
 
 
-def test_governed_transcription_round_trips_real_workbook_and_dry_run(
-    tmp_path: Path,
-) -> None:
-    packet, evidence = _loaded()
-    workbook = tmp_path / "m1-6-group-review-workbook-reviewed.xlsx"
-    registry_path = tmp_path / "m1-6-group-review-decisions.json"
-    dry_run_path = tmp_path / "m1-6-group-review-dry-run.json"
-
-    registry, dry_run = group_review.transcribe_group_review_rationale_evidence(
-        packet=packet,
-        evidence=evidence,
-        workbook=workbook,
-        registry_output=registry_path,
-        dry_run_output=dry_run_path,
-    )
-
-    assert tuple(
-        (
-            row.review_row_identity,
-            row.concept_code,
-            row.review_type,
-            row.pair_decision,
-            row.decision,
-            group_review.rationale_sha256(row.rationale),
-            len(row.rationale),
-            row.reviewer,
-            row.review_date,
-        )
-        for row in registry.decisions
-    ) == tuple(
-        (
-            row.review_row_identity,
-            row.concept_code,
-            row.review_type,
-            row.pair_decision,
-            row.decision,
-            row.rationale_sha256,
-            row.rationale_chars,
-            evidence.reviewer,
-            evidence.review_date,
-        )
-        for row in evidence.rows
-    )
-    assert registry == group_review.load_group_decision_registry(registry_path)
-    assert json.loads(dry_run_path.read_bytes()) == dry_run.model_dump(mode="json")
-    assert dry_run.writes_performed is False
-    assert dry_run.unresolved_count == 11
-    assert dry_run.deferred_count == 4
-
-    book = load_workbook(workbook, data_only=False)
-    assert book["Bindings"].sheet_state == "veryHidden"
-    assert all(sheet.protection.sheet for sheet in book.worksheets)
-    assert not any(
-        isinstance(cell.value, str) and cell.value.startswith("=")
-        for sheet in book.worksheets
-        for row in sheet.iter_rows()
-        for cell in row
-    )
-
-
 def test_first_evidence_admission_inventory_is_exact_and_rejects_binary() -> None:
     observed = tuple(
         sorted(
@@ -258,6 +197,7 @@ def test_first_evidence_admission_inventory_is_exact_and_rejects_binary() -> Non
     )
     expected = (
         "evidence/README.md",
+        "evidence/group-review-packet-26.07d-schema3.json",
         "evidence/group-review-rationale-26.07d.json",
         "evidence/group-review-rationale-26.07d.md",
     )
@@ -270,62 +210,41 @@ def test_first_evidence_admission_inventory_is_exact_and_rejects_binary() -> Non
         )
 
 
+def test_historical_packet_is_byte_admitted_and_binds_frozen_rationale() -> None:
+    packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
+    sidecar = group_review.GroupReviewRationaleSidecar.model_validate_json(
+        _SIDECAR.read_bytes()
+    )
+
+    assert _HISTORICAL_PACKET.read_bytes() == _SOURCE_PACKET.read_bytes()
+    assert packet.schema_version == 3
+    assert packet.packet_identity == sidecar.packet_identity
+    assert (
+        group_review.load_group_review_rationale_evidence(
+            markdown_path=_MARKDOWN,
+            sidecar_path=_SIDECAR,
+            packet=packet,
+        ).sidecar
+        == sidecar
+    )
+
+
 def test_evidence_docs_record_exact_governed_commands_and_open_status() -> None:
     docs = (_ROOT / "docs/evidence/README.md").read_text(encoding="utf-8")
     golden = (_GOLDEN / "README.md").read_text(encoding="utf-8")
-    command = (
-        "pdm run adjudication transcribe-group-review-evidence --packet "
-        "tmp/m1-6-group-review-packet.json --markdown "
-        "evidence/group-review-rationale-26.07d.md --sidecar "
-        "evidence/group-review-rationale-26.07d.json --reviewed-xlsx "
-        "tmp/m1-6-group-review-workbook-reviewed.xlsx --registry-output "
-        "tmp/m1-6-group-review-decisions.json --dry-run-output "
-        "tmp/m1-6-group-review-dry-run.json"
-    )
 
     for text in (docs, golden):
-        assert command in text
+        assert (
+            "pdm run agent-replay generate-axis-diagnostics "
+            "C35501 C12431 MINT-781c8c8c6096" in text
+        )
+        assert "pdm run agent-replay generate-group-review-rev2" in text
+        assert "evidence/group-review-packet-26.07d-schema3.json" in text
+        assert "historical" in text.casefold()
+        assert "schema 4" in text
+        assert "transcribe-group-review-evidence" not in text
         assert "11 corrections" in text
         assert "4 escalations" in text
         assert "#274" in text
         assert "#127" in text
         assert "publication" in text.casefold()
-
-
-def test_group_review_evidence_cli_names_every_boundary_path() -> None:
-    args = _parser().parse_args(
-        [
-            "transcribe-group-review-evidence",
-            "--packet",
-            "packet.json",
-            "--markdown",
-            "rationale.md",
-            "--sidecar",
-            "rationale.json",
-            "--reviewed-xlsx",
-            "reviewed.xlsx",
-            "--registry-output",
-            "registry.json",
-            "--dry-run-output",
-            "dry-run.json",
-        ]
-    )
-
-    assert (
-        args.packet,
-        args.markdown,
-        args.sidecar,
-        args.reviewed_xlsx,
-        args.registry_output,
-        args.dry_run_output,
-    ) == tuple(
-        Path(value)
-        for value in (
-            "packet.json",
-            "rationale.md",
-            "rationale.json",
-            "reviewed.xlsx",
-            "registry.json",
-            "dry-run.json",
-        )
-    )

@@ -29,6 +29,8 @@ async def test_group_review_boundary_matches_configured_authoritative_source(
         r101_report_path=r101,
         output=tmp_path / "packet.json",
         workbook=tmp_path / "review.xlsx",
+        correction_audit=tmp_path / "audit.xlsx",
+        blank_validation=tmp_path / "blank-validation.json",
     )
 
     assert packet.source_identity == source.source_identity

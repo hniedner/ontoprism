@@ -21,9 +21,12 @@ from scripts.research.current_evidence import (
     CurrentRateMetric,
     CurrentSourceOccurrence,
     HistoricalOraclePairCitation,
+    PairRelationSummary,
     PartitionDiagnosisEvidence,
     RowReplayStatus,
     UnavailableActualPairCitation,
+    _comparison_payload,
+    _pair_relations,
     _row_replay,
     _typed_diagnosis,
     generate_current_evidence,
@@ -958,6 +961,7 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         "evidence_identity": "0" * 64,
     }
     if model is CurrentComparison:
+        raw["schema_version"] = 3
         raw.pop("concepts")
         raw.pop("evidence_identity")
         raw["current_evidence_identity"] = "3" * 64
@@ -1129,6 +1133,154 @@ def test_regenerate_current_comparison_uses_tracked_evidence_without_store(
         for partition in (concept.full_partition, concept.common_pair_partition)
         if (diagnosis := partition.primary_diagnosis) is not None
     )
+
+
+@pytest.mark.unit
+def test_pair_relations_are_exhaustive_unique_and_reach_all_six_variants(
+    tmp_path: Path,
+) -> None:
+    comparison = regenerate_current_comparison(
+        evidence_path=_TRACKED_CURRENT_EVIDENCE,
+        oracle_path=_ORACLE,
+        row_decisions_path=_ROWS,
+        proposal_registry_path=_REGISTRY,
+        output=tmp_path / "comparison.json",
+    )
+    field_names = tuple(PairRelationSummary.model_fields)
+    assert field_names == (
+        "expected_matched_scoreable",
+        "expected_emitted_review_bearing",
+        "expected_not_emitted",
+        "current_only_scoreable",
+        "current_only_review_bearing",
+        "current_only_proposed",
+    )
+    reached = {
+        name
+        for concept in comparison.concepts
+        for name in field_names
+        if getattr(concept.pair_relations, name)
+    }
+    evidence = CurrentEngineEvidence.model_validate_json(
+        _TRACKED_CURRENT_EVIDENCE.read_bytes()
+    )
+    registry = load_proposal_registry(_REGISTRY)
+    oracle = load_adjudication(_ORACLE, registry)
+    oracle_target = next(item for item in oracle.concepts if item.code == "C101539")
+    evidence_target = next(item for item in evidence.concepts if item.code == "C101539")
+    assert oracle_target.expected is not None
+    production_shaped = _pair_relations(
+        tuple(
+            item
+            for item in oracle_target.expected.constituents
+            if item.filler != "C47806"
+        ),
+        evidence_target.constituents,
+    )
+    if production_shaped.current_only_review_bearing:
+        reached.add("current_only_review_bearing")
+    assert reached == set(field_names)
+    for concept in comparison.concepts:
+        relations = concept.pair_relations
+        pairs = tuple(pair for name in field_names for pair in getattr(relations, name))
+        assert len(pairs) == len(set(pairs))
+        assert not hasattr(concept, "missing_pairs")
+        assert not hasattr(concept, "extra_pairs")
+        assert set(concept.full_partition.expected_not_scoreable_pairs) == set(
+            concept.pair_relations.expected_not_emitted
+        ) | set(concept.pair_relations.expected_emitted_review_bearing)
+        assert (
+            concept.full_partition.current_only_scoreable_pairs
+            == concept.pair_relations.current_only_scoreable
+        )
+
+
+@pytest.mark.unit
+def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
+    tmp_path: Path,
+) -> None:
+    comparison = regenerate_current_comparison(
+        evidence_path=_TRACKED_CURRENT_EVIDENCE,
+        oracle_path=_ORACLE,
+        row_decisions_path=_ROWS,
+        proposal_registry_path=_REGISTRY,
+        output=tmp_path / "comparison.json",
+    )
+    by_code = {concept.code: concept.pair_relations for concept in comparison.concepts}
+    expected_review_bearing = {
+        "C101539": {
+            ("op:ClinicalFinding", "C47806"),
+            ("op:ClinicalFinding", "C47817"),
+        },
+        "C132677": {
+            ("op:ClinicalFinding", "C40557"),
+            ("op:ClinicalFinding", "C40989"),
+            ("op:ClinicalFinding", "C48322"),
+        },
+        "C100054": {
+            ("op:ClinicalFinding", "C36027"),
+            ("op:ClinicalFinding", "C8326"),
+        },
+    }
+    for code, pairs in expected_review_bearing.items():
+        assert set(by_code[code].expected_emitted_review_bearing) == pairs
+        assert not pairs & set(by_code[code].expected_not_emitted)
+    assert ("op:ClinicalFinding", "C41444") in set(
+        by_code["C132677"].expected_not_emitted
+    )
+    assert not by_code["C100054"].expected_not_emitted
+
+
+@pytest.mark.unit
+def test_scoreable_predicate_mutation_moves_pair_without_reinterpreting_it() -> None:
+    evidence = CurrentEngineEvidence.model_validate_json(
+        _TRACKED_CURRENT_EVIDENCE.read_bytes()
+    )
+    registry = load_proposal_registry(_REGISTRY)
+    oracle = load_adjudication(_ORACLE, registry)
+    baseline_metrics, baseline = _comparison_payload(oracle.concepts, evidence)
+    target = next(
+        concept
+        for concept in evidence.concepts
+        if any(
+            not item.needs_review and item.provenance_status == "ncit-26.07d"
+            for item in concept.constituents
+        )
+    )
+    constituent = next(
+        item
+        for item in target.constituents
+        if not item.needs_review and item.provenance_status == "ncit-26.07d"
+    )
+    pair = (constituent.axis, constituent.filler)
+    mutated_constituent = constituent.model_copy(update={"needs_review": True})
+    mutated_target = target.model_copy(
+        update={
+            "constituents": tuple(
+                mutated_constituent if item is constituent else item
+                for item in target.constituents
+            )
+        }
+    )
+    mutated_evidence = evidence.model_copy(
+        update={
+            "concepts": tuple(
+                mutated_target if item is target else item for item in evidence.concepts
+            )
+        }
+    )
+    mutated_metrics, mutated = _comparison_payload(oracle.concepts, mutated_evidence)
+    baseline_relations = next(item for item in baseline if item.code == target.code)
+    mutated_relations = next(item for item in mutated if item.code == target.code)
+
+    assert pair in baseline_relations.pair_relations.expected_matched_scoreable
+    assert pair in mutated_relations.pair_relations.expected_emitted_review_bearing
+    assert pair not in {
+        item
+        for block in mutated_relations.full_partition.actual_partition
+        for item in block
+    }
+    assert mutated_metrics != baseline_metrics
 
 
 @pytest.mark.unit

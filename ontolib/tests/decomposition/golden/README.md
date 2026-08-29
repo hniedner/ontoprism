@@ -265,7 +265,7 @@ blank SME workbook:
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review
+pdm run agent-replay generate-group-review-rev2
 ```
 
 The generated group workbook keeps all human fields blank. For pair-only rows, the SME must
@@ -285,24 +285,30 @@ the exact source facts, groups, occurrences, anchors, depth/path, and transforma
 labels and definitions are marked unavailable where the bound current evidence artifact contains
 no source text. Machine evidence is never reviewer rationale.
 
-The reduced first tracked evidence admission preserves the completed Markdown verbatim at
-`evidence/group-review-rationale-26.07d.md`; its JSON sidecar is digest/operational binding only.
-Regenerate the ignored reviewed workbook, registry, and write-free dry run from that admission:
+The tracked historical admission preserves the completed Markdown verbatim at
+`evidence/group-review-rationale-26.07d.md`; its JSON sidecar is digest/operational binding only,
+and `evidence/group-review-packet-26.07d-schema3.json` preserves the exact schema-3 machine context.
+Schema 3 did not distinguish scoreable release-bound pairs from review-bearing emitted pairs, so
+the old review is historical context rather than an active decision registry. Generate fresh
+schema-4 diagnostics and a blank schema 4 review boundary instead of transcribing it:
 
 ```bash
-pdm run adjudication transcribe-group-review-evidence --packet tmp/m1-6-group-review-packet.json --markdown evidence/group-review-rationale-26.07d.md --sidecar evidence/group-review-rationale-26.07d.json --reviewed-xlsx tmp/m1-6-group-review-workbook-reviewed.xlsx --registry-output tmp/m1-6-group-review-decisions.json --dry-run-output tmp/m1-6-group-review-dry-run.json
+pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
+pdm run agent-replay generate-group-review-rev2
 ```
 
-All 18 rows are reviewed, but 11 corrections and 4 escalations remain open and block #274 and
-#127. Readiness regeneration waits for those dispositions; this evidence does not satisfy the
-group requirement or authorize publication.
+The historical record contains 11 corrections and 4 escalations. They remain open context for the
+new blank review and block #274 and #127; this evidence does not satisfy the group requirement or
+authorize publication.
 
 ### Group-review generation
 
-The group-review generation writes `tmp/m1-6-axis-diagnostics.json`,
-`tmp/m1-6-group-review-packet.json`, and `tmp/m1-6-group-review-workbook.xlsx`; all are gitignored
-diagnostic/review artifacts. The workbook leaves Decision, Rationale, Reviewer, and Date blank, so
-generation records no SME adjudication (`pdm run agent-replay generate-group-review`, 2026-08-24).
+The group-review generation writes `tmp/m1-6-axis-diagnostics-rev2.json`,
+`tmp/m1-6-group-review-packet-rev2.json`, `tmp/m1-6-group-review-workbook-rev2.xlsx`,
+`tmp/m1-6-group-correction-audit-rev2.xlsx`, and
+`tmp/m1-6-group-review-blank-validation-rev2.json`; all are gitignored diagnostic/review artifacts.
+The workbook leaves Pair Decision, Decision, Rationale, Reviewer, and Date blank, so generation
+records no SME adjudication (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
 
 The group-review rule-evidence audit is deliberately narrow:
 
@@ -316,7 +322,7 @@ The group-review rule-evidence audit is deliberately narrow:
 
 The packet and workbook are generated from exactly the tracked current evidence, tracked current
 comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
-execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
+execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
 
 ### R103 manual SME review boundary (#294)
 

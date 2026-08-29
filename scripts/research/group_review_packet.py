@@ -40,6 +40,7 @@ try:
         CurrentEngineEvidence,
         CurrentMetrics,
         CurrentPartitionComparison,
+        PairRelationSummary,
         validate_current_comparison,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -50,6 +51,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         CurrentEngineEvidence,
         CurrentMetrics,
         CurrentPartitionComparison,
+        PairRelationSummary,
         validate_current_comparison,
     )
 
@@ -290,7 +292,7 @@ class RuleEvidenceRow(StrictFrozenBoundaryModel):
         return self
 
 
-class GroupReviewRow(StrictFrozenBoundaryModel):
+class HistoricalGroupReviewRow(StrictFrozenBoundaryModel):
     row_identity: str = Field(pattern=_SHA256)
     concept_code: str = Field(pattern=r"^C[0-9]+$")
     review_type: Literal["pair-only", "grouping"]
@@ -308,7 +310,7 @@ class GroupReviewRow(StrictFrozenBoundaryModel):
         return self
 
 
-class GroupReviewConcept(StrictFrozenBoundaryModel):
+class HistoricalGroupReviewConcept(StrictFrozenBoundaryModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     expected_partition: Partition
     actual_partition: Partition
@@ -359,8 +361,147 @@ class GroupReviewConcept(StrictFrozenBoundaryModel):
         return self
 
 
-class GroupReviewPacket(StrictFrozenBoundaryModel):
+class HistoricalGroupReviewPacket(StrictFrozenBoundaryModel):
     schema_version: Literal[3]
+    source_identity: str = Field(pattern=_SHA256)
+    ncit_version: str
+    current_evidence_identity: str = Field(pattern=_SHA256)
+    current_comparison_identity: str = Field(pattern=_SHA256)
+    r101_report_identity: str = Field(pattern=_SHA256)
+    historical_full_partition_agreement: HistoricalAgreement
+    current_metrics: CurrentMetrics
+    cohort: ReviewCohort
+    transformation_rule_catalog: tuple[TransformationRuleCatalogEntry, ...] = Field(
+        min_length=5, max_length=5
+    )
+    review_boundary: ReviewBoundary
+    concepts: tuple[HistoricalGroupReviewConcept, ...] = Field(min_length=1)
+    rule_kinds: tuple[RuleKind, ...] = Field(min_length=5, max_length=5)
+    rule_evidence: tuple[RuleEvidenceRow, ...] = Field(min_length=5)
+    review_rows: tuple[HistoricalGroupReviewRow, ...] = Field(min_length=1)
+    packet_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _validate_packet(self) -> Self:
+        concept_codes = tuple(item.code for item in self.concepts)
+        if concept_codes != self.cohort.full_disagreement_codes:
+            raise ValueError("packet concepts do not match full disagreement cohort")
+        if tuple(row.concept_code for row in self.review_rows) != concept_codes:
+            raise ValueError("packet review rows do not match disagreement cohort")
+        evidence_ids = {row.row_identity for row in self.rule_evidence}
+        if any(
+            not set(row.evidence_row_ids) <= evidence_ids for row in self.review_rows
+        ):
+            raise ValueError("review row cites absent rule evidence")
+        expected = _identity(self.model_dump(mode="json", exclude={"packet_identity"}))
+        if self.packet_identity != expected:
+            raise ValueError("group review packet identity does not match payload")
+        return self
+
+
+PairRelationKind = Literal[
+    "expected-emitted-review-bearing",
+    "current-only-review-bearing",
+    "current-only-proposed",
+]
+
+
+class NonScoreableEmittedPair(StrictFrozenBoundaryModel):
+    relation: PairRelationKind
+    pair: Pair
+    source_occurrence_ids: tuple[str, ...]
+    source_occurrences: tuple[SourceOccurrenceDocument, ...]
+    normalized_group_membership: Literal["excluded-non-scoreable"]
+
+    @model_validator(mode="after")
+    def _occurrence_documents_match(self) -> Self:
+        if self.source_occurrence_ids != tuple(
+            item.occurrence_id for item in self.source_occurrences
+        ):
+            raise ValueError("non-scoreable pair occurrence documents differ")
+        if any(item.filler_code != self.pair[1] for item in self.source_occurrences):
+            raise ValueError("non-scoreable pair occurrence filler differs")
+        if self.relation != "current-only-proposed" and not self.source_occurrences:
+            raise ValueError(
+                "release-bound non-scoreable pair lacks occurrence context"
+            )
+        return self
+
+
+class GroupReviewRow(StrictFrozenBoundaryModel):
+    row_identity: str = Field(pattern=_SHA256)
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    review_type: Literal["pair-only", "grouping"]
+    pair_relations: PairRelationSummary
+    grouping_diagnosis: GroupingDiagnosis
+    current_scoreable_group_ids: tuple[str, ...]
+    evidence_row_ids: tuple[str, ...] = Field(min_length=1)
+    machine_suggestion: str
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        expected = _identity(self.model_dump(mode="json", exclude={"row_identity"}))
+        if self.row_identity != expected:
+            raise ValueError("review row identity differs")
+        return self
+
+
+class GroupReviewConcept(StrictFrozenBoundaryModel):
+    code: str = Field(pattern=r"^C[0-9]+$")
+    expected_partition: Partition
+    actual_partition: Partition
+    pair_relations: PairRelationSummary
+    non_scoreable_emitted_pairs: tuple[NonScoreableEmittedPair, ...]
+    common_pair_eligible: bool
+    common_pair_agrees: bool | None
+    grouping_diagnosis: GroupingDiagnosis
+    expected_groups: tuple[ExpectedNormalizedGroup, ...]
+    actual_groups: tuple[ActualNormalizedGroup, ...]
+    disposition: ReviewDisposition
+
+    @model_validator(mode="after")
+    def _partitions_and_diagnoses_are_consistent(self) -> Self:
+        expected_rows = _partition_rows(self.expected_partition)
+        actual_rows = _partition_rows(self.actual_partition)
+        common = compare_common_pair_partition(expected_rows, actual_rows)
+        if (
+            self.common_pair_eligible != common.eligible
+            or self.common_pair_agrees != common.agrees
+        ):
+            raise ValueError("common-pair fields do not match normalized partitions")
+        expected_kind, affected = _grouping_diagnosis(common)
+        if (self.grouping_diagnosis.kind, self.grouping_diagnosis.affected_pairs) != (
+            expected_kind,
+            affected,
+        ):
+            raise ValueError("grouping diagnosis does not match normalized partitions")
+        expected_pairs = tuple(
+            sorted(pair for block in self.expected_partition for pair in block)
+        )
+        documented_expected = tuple(
+            sorted(pair for group in self.expected_groups for pair in group.pairs)
+        )
+        actual_pairs = tuple(
+            sorted(pair for block in self.actual_partition for pair in block)
+        )
+        documented_actual = tuple(
+            sorted(pair.pair for group in self.actual_groups for pair in group.pairs)
+        )
+        if expected_pairs != documented_expected or actual_pairs != documented_actual:
+            raise ValueError("normalized group documents do not match partitions")
+        context_pairs = tuple(item.pair for item in self.non_scoreable_emitted_pairs)
+        expected_context = (
+            self.pair_relations.expected_emitted_review_bearing
+            + self.pair_relations.current_only_review_bearing
+            + self.pair_relations.current_only_proposed
+        )
+        if tuple(sorted(context_pairs)) != tuple(sorted(expected_context)):
+            raise ValueError("non-scoreable pair context differs from pair relations")
+        return self
+
+
+class GroupReviewPacket(StrictFrozenBoundaryModel):
+    schema_version: Literal[4]
     source_identity: str = Field(pattern=_SHA256)
     ncit_version: str
     current_evidence_identity: str = Field(pattern=_SHA256)
@@ -447,21 +588,6 @@ def diagnose_grouping(expected: Partition, actual: Partition) -> GroupingDiagnos
     )
     kind, affected = _grouping_diagnosis(comparison)
     return GroupingDiagnosis(kind=kind, affected_pairs=affected)
-
-
-def _pair_delta(
-    missing: tuple[Pair, ...], extra: tuple[Pair, ...]
-) -> PairDeltaDiagnosis:
-    status = (
-        "missing-and-extra-pairs"
-        if missing and extra
-        else "missing-pair"
-        if missing
-        else "extra-pair"
-        if extra
-        else "no-pair-delta"
-    )
-    return PairDeltaDiagnosis(status=status, missing_pairs=missing, extra_pairs=extra)
 
 
 def _occurrence_document(value: object) -> SourceOccurrenceDocument:
@@ -560,6 +686,40 @@ def _validate_actual_partition(
         raise ValueError("actual normalized partition does not match current evidence")
 
 
+def _non_scoreable_emitted_pairs(
+    comparison: CurrentConceptComparison,
+    evidence: CurrentConceptEvidence,
+) -> tuple[NonScoreableEmittedPair, ...]:
+    by_pair = {(item.axis, item.filler): item for item in evidence.constituents}
+    relations: tuple[tuple[PairRelationKind, tuple[Pair, ...]], ...] = (
+        (
+            "expected-emitted-review-bearing",
+            comparison.pair_relations.expected_emitted_review_bearing,
+        ),
+        (
+            "current-only-review-bearing",
+            comparison.pair_relations.current_only_review_bearing,
+        ),
+        (
+            "current-only-proposed",
+            comparison.pair_relations.current_only_proposed,
+        ),
+    )
+    return tuple(
+        NonScoreableEmittedPair(
+            relation=relation,
+            pair=pair,
+            source_occurrence_ids=by_pair[pair].source_occurrence_ids,
+            source_occurrences=tuple(
+                _occurrence_document(item) for item in by_pair[pair].source_occurrences
+            ),
+            normalized_group_membership="excluded-non-scoreable",
+        )
+        for relation, pairs in relations
+        for pair in pairs
+    )
+
+
 def _concept_packet(
     comparison: CurrentConceptComparison,
     evidence: CurrentConceptEvidence,
@@ -571,7 +731,8 @@ def _concept_packet(
         code=comparison.code,
         expected_partition=full.expected_partition,
         actual_partition=full.actual_partition,
-        pair_delta=_pair_delta(full.missing_pairs, full.extra_pairs),
+        pair_relations=comparison.pair_relations,
+        non_scoreable_emitted_pairs=_non_scoreable_emitted_pairs(comparison, evidence),
         common_pair_eligible=common.eligible,
         common_pair_agrees=common.agrees,
         grouping_diagnosis=diagnose_grouping(
@@ -809,16 +970,16 @@ def _review_rows(
         payload = {
             "concept_code": concept.code,
             "review_type": "grouping" if grouping else "pair-only",
-            "pair_delta": concept.pair_delta,
+            "pair_relations": concept.pair_relations,
             "grouping_diagnosis": concept.grouping_diagnosis,
-            "actual_group_ids": tuple(
+            "current_scoreable_group_ids": tuple(
                 group.normalized_group_id for group in concept.actual_groups
             ),
             "evidence_row_ids": evidence_ids,
             "machine_suggestion": (
                 "Review proposed co-membership against exact source occurrences."
                 if grouping
-                else "Review the pair delta separately from grouping."
+                else "Review pair relations separately from scoreable grouping."
             ),
         }
         result.append(GroupReviewRow(**payload, row_identity=_identity(payload)))
@@ -861,7 +1022,7 @@ def build_group_review_packet(
     )
     rule_evidence = _machine_rule_evidence(concepts, evidence, r101_report)
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         "source_identity": comparison.source_identity,
         "ncit_version": comparison.ncit_version,
         "current_evidence_identity": evidence.evidence_identity,
@@ -943,6 +1104,11 @@ def load_group_review_packet(path: Path) -> GroupReviewPacket:
     return GroupReviewPacket.model_validate_json(path.read_bytes())
 
 
+def load_historical_group_review_packet(path: Path) -> HistoricalGroupReviewPacket:
+    """Load the immutable schema-3 packet used only by historical rationale."""
+    return HistoricalGroupReviewPacket.model_validate_json(path.read_bytes())
+
+
 Decision = Literal[
     "Approve intentional normalization",
     "Require source-reproducible correction",
@@ -958,9 +1124,9 @@ _DECISIONS: tuple[Decision, ...] = (
 _REVIEW_HEADERS = (
     "Concept",
     "Review Type",
-    "Pair Delta",
+    "Pair Relations",
     "Grouping Diagnosis",
-    "Actual Group IDs",
+    "Current Scoreable Group IDs",
     "Evidence Row IDs",
     "Evidence Links",
     "Machine Evidence / Suggestion",
@@ -1009,6 +1175,17 @@ class GroupDecisionDryRun(StrictFrozenBoundaryModel):
     affected_concepts: tuple[str, ...]
     affected_groups: tuple[str, ...]
     affected_traces: tuple[str, ...]
+
+
+class BlankGroupReviewValidation(StrictFrozenBoundaryModel):
+    schema_version: Literal[1]
+    packet_identity: str = Field(pattern=_SHA256)
+    review_workbook_identity: str = Field(pattern=_SHA256)
+    correction_audit_identity: str = Field(pattern=_SHA256)
+    writes_performed: Literal[False]
+    human_decisions_present: Literal[False]
+    authorization: Literal[False]
+    readiness_eligible: Literal[False]
 
 
 class GroupReviewRationaleRow(StrictFrozenBoundaryModel):
@@ -1113,8 +1290,12 @@ def _one_match(pattern: re.Pattern[str], section: str, field: str) -> str:
 
 
 def _parse_group_review_markdown(  # noqa: C901
-    markdown: bytes, packet: GroupReviewPacket
-) -> tuple[str, str, tuple[tuple[GroupReviewRow, Decision, str], ...]]:
+    markdown: bytes, packet: HistoricalGroupReviewPacket
+) -> tuple[
+    str,
+    str,
+    tuple[tuple[HistoricalGroupReviewRow, Decision, str], ...],
+]:
     try:
         text = markdown.decode("utf-8")
     except UnicodeDecodeError as error:
@@ -1141,7 +1322,7 @@ def _parse_group_review_markdown(  # noqa: C901
     )
     if observed_sections != expected_sections:
         raise ValueError("group review Markdown review sections differ")
-    parsed: list[tuple[GroupReviewRow, Decision, str]] = []
+    parsed: list[tuple[HistoricalGroupReviewRow, Decision, str]] = []
     packet_by_code = {row.concept_code: row for row in packet.review_rows}
     for position, heading in enumerate(headings):
         row = packet_by_code[heading.group(2)]
@@ -1171,7 +1352,7 @@ def _parse_group_review_markdown(  # noqa: C901
         if not rationale.strip():
             raise ValueError("group review Markdown rationale is blank")
         parsed.append((row, cast("Decision", selected), rationale))
-    parsed_by_code: dict[str, tuple[GroupReviewRow, Decision, str]] = {
+    parsed_by_code: dict[str, tuple[HistoricalGroupReviewRow, Decision, str]] = {
         row.concept_code: (row, decision, rationale)
         for row, decision, rationale in parsed
     }
@@ -1187,7 +1368,7 @@ def _canonical_markdown_path(ncit_version: str) -> str:
 
 
 def _build_group_review_rationale_sidecar(
-    *, markdown: bytes, packet: GroupReviewPacket
+    *, markdown: bytes, packet: HistoricalGroupReviewPacket
 ) -> GroupReviewRationaleSidecar:
     reviewer, review_date, parsed = _parse_group_review_markdown(markdown, packet)
     rows = tuple(
@@ -1217,7 +1398,10 @@ def _build_group_review_rationale_sidecar(
 
 
 def load_group_review_rationale_evidence(  # noqa: C901
-    *, markdown_path: Path, sidecar_path: Path, packet: GroupReviewPacket
+    *,
+    markdown_path: Path,
+    sidecar_path: Path,
+    packet: HistoricalGroupReviewPacket,
 ) -> LoadedGroupReviewRationale:
     """Read the exact first-admission human rationale and operational binding."""
     markdown = markdown_path.read_bytes()
@@ -1274,6 +1458,7 @@ def validate_first_evidence_inventory(
     """Enforce only the exact reduced first evidence admission inventory."""
     expected = (
         "evidence/README.md",
+        f"evidence/group-review-packet-{ncit_version}-schema3.json",
         f"evidence/group-review-rationale-{ncit_version}.json",
         f"evidence/group-review-rationale-{ncit_version}.md",
     )
@@ -1302,16 +1487,16 @@ def _evidence_links(packet: GroupReviewPacket, row: GroupReviewRow) -> str:
 
 def _visible_row(packet: GroupReviewPacket, row: GroupReviewRow) -> tuple[object, ...]:
     machine = {
-        "pair_delta": row.pair_delta.model_dump(mode="json"),
+        "pair_relations": row.pair_relations.model_dump(mode="json"),
         "grouping_diagnosis": row.grouping_diagnosis.model_dump(mode="json"),
         "suggestion": row.machine_suggestion,
     }
     return (
         row.concept_code,
         row.review_type,
-        json.dumps(row.pair_delta.model_dump(mode="json"), sort_keys=True),
+        json.dumps(row.pair_relations.model_dump(mode="json"), sort_keys=True),
         json.dumps(row.grouping_diagnosis.model_dump(mode="json"), sort_keys=True),
-        json.dumps(row.actual_group_ids),
+        json.dumps(row.current_scoreable_group_ids),
         json.dumps(row.evidence_row_ids),
         _evidence_links(packet, row),
         json.dumps(machine, sort_keys=True),
@@ -1327,6 +1512,14 @@ _GROUP_EVIDENCE_HEADERS = (
     "Source Evidence Status",
     "Source Group IDs",
     "Source Occurrence IDs",
+)
+_PAIR_RELATION_EVIDENCE_HEADERS = (
+    "Concept",
+    "Pair Relation",
+    "Pair",
+    "Occurrence Context",
+    "Normalized Group Membership",
+    "Interpretation",
 )
 _SOURCE_EVIDENCE_HEADERS = (
     "Occurrence ID",
@@ -1394,6 +1587,34 @@ def _group_evidence_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...],
                     )
                 )
     return tuple(rows)
+
+
+def _pair_relation_evidence_rows(
+    packet: GroupReviewPacket,
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (
+            concept.code,
+            context.relation,
+            json.dumps(context.pair),
+            json.dumps(
+                tuple(
+                    item.model_dump(mode="json") for item in context.source_occurrences
+                ),
+                sort_keys=True,
+            ),
+            "Excluded from scoreable grouping",
+            (
+                "Emitted NCIt 26.07d content carrying review status; occurrence "
+                "context is shown independently from scoreable grouping."
+                if context.relation != "current-only-proposed"
+                else "Provisional proposed NCIt content; source occurrence context "
+                "is shown when available and no normalized group is assigned."
+            ),
+        )
+        for concept in packet.concepts
+        for context in concept.non_scoreable_emitted_pairs
+    )
 
 
 def _source_evidence_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...], ...]:
@@ -1516,6 +1737,12 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
     )
     _append_evidence_sheet(
         book,
+        "Pair Relation Evidence",
+        _PAIR_RELATION_EVIDENCE_HEADERS,
+        _pair_relation_evidence_rows(packet),
+    )
+    _append_evidence_sheet(
+        book,
         "Source Evidence",
         _SOURCE_EVIDENCE_HEADERS,
         _source_evidence_rows(packet),
@@ -1566,6 +1793,183 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
     finally:
         with suppress(FileNotFoundError):
             os.unlink(staging)
+
+
+_CORRECTION_AUDIT_HEADERS = (
+    "Concept",
+    "Pair Relation",
+    "Pair",
+    "Occurrence Context",
+    "Current Scoreable Group IDs",
+    "Scoreable Grouping Diagnosis",
+    "Correction Action",
+    "Correction Rationale",
+    "Reviewer",
+    "Date",
+)
+_CORRECTION_HUMAN_HEADERS = (
+    "Correction Action",
+    "Correction Rationale",
+    "Reviewer",
+    "Date",
+)
+
+
+def _correction_audit_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...], ...]:
+    rows: list[tuple[object, ...]] = []
+    for concept in packet.concepts:
+        contexts = {
+            item.pair: tuple(
+                row.model_dump(mode="json") for row in item.source_occurrences
+            )
+            for item in concept.non_scoreable_emitted_pairs
+        }
+        group_ids = tuple(group.normalized_group_id for group in concept.actual_groups)
+        for field, pairs in concept.pair_relations:
+            relation = field.replace("_", "-")
+            for pair in pairs:
+                rows.append(
+                    (
+                        concept.code,
+                        relation,
+                        json.dumps(pair),
+                        json.dumps(contexts.get(pair, ()), sort_keys=True),
+                        json.dumps(group_ids),
+                        concept.grouping_diagnosis.kind,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                )
+        rows.append(
+            (
+                concept.code,
+                "scoreable-grouping",
+                None,
+                None,
+                json.dumps(group_ids),
+                concept.grouping_diagnosis.kind,
+                None,
+                None,
+                None,
+                None,
+            )
+        )
+    return tuple(rows)
+
+
+def _save_deterministic_workbook(path: Path, book: Workbook) -> None:
+    book.calculation.fullCalcOnLoad = False
+    book.calculation.forceFullCalc = False
+    fixed = datetime(2000, 1, 1)
+    book.properties.created = fixed
+    book.properties.modified = fixed
+    descriptor, staging = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.close(descriptor)
+    try:
+        book.save(staging)
+        _normalize_xlsx(Path(staging), path)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(staging)
+
+
+def write_group_correction_audit(path: Path, packet: GroupReviewPacket) -> None:
+    """Write machine context with every human correction field blank."""
+    if not path.parent.is_dir():
+        raise ValueError(f"output parent does not exist: {path.parent}")
+    book = Workbook()
+    instructions = book.active
+    if instructions is None:
+        raise ValueError("workbook did not create an active sheet")
+    instructions.title = "Instructions"
+    instructions.append(["Blank group-correction audit"])
+    instructions.append(
+        [
+            "Pair relations and scoreable grouping are independent machine context. "
+            "All correction fields are intentionally blank for a new human review."
+        ]
+    )
+    sheet = book.create_sheet("Correction Audit")
+    sheet.append(_CORRECTION_AUDIT_HEADERS)
+    for row in _correction_audit_rows(packet):
+        sheet.append(row)
+    sheet.freeze_panes = "A2"
+    bindings = book.create_sheet("Bindings")
+    bindings.append(["Name", "Value"])
+    for name, value in _expected_bindings(packet):
+        bindings.append([name, value])
+    bindings.sheet_state = "veryHidden"
+    for worksheet in book.worksheets:
+        for cells in worksheet.iter_rows():
+            for cell in cells:
+                header = worksheet.cell(1, cast("int", cell.column)).value
+                cell.protection = Protection(
+                    locked=header not in _CORRECTION_HUMAN_HEADERS
+                )
+        worksheet.protection.sheet = True
+    _save_deterministic_workbook(path, book)
+
+
+def _validate_blank_correction_audit(path: Path, packet: GroupReviewPacket) -> None:
+    _reject_unsafe_workbook(path)
+    book = load_workbook(path, data_only=False)
+    if book.sheetnames != ["Instructions", "Correction Audit", "Bindings"]:
+        raise ValueError("correction audit sheet inventory differs")
+    if book["Bindings"].sheet_state != "veryHidden":
+        raise ValueError("correction audit binding visibility differs")
+    bindings = tuple(
+        (row[0].value, row[1].value)
+        for row in book["Bindings"].iter_rows(min_row=2, max_col=2)
+    )
+    if bindings != _expected_bindings(packet):
+        raise ValueError("correction audit bindings differ")
+    _validate_evidence_sheet(
+        book,
+        "Correction Audit",
+        _CORRECTION_AUDIT_HEADERS,
+        _correction_audit_rows(packet),
+    )
+
+
+def validate_blank_group_review_outputs(
+    *,
+    packet: GroupReviewPacket,
+    review_workbook: Path,
+    correction_audit: Path,
+    output: Path,
+) -> BlankGroupReviewValidation:
+    """Validate blank machine boundaries without creating decisions or readiness."""
+    forbidden_registry = output.with_name("must-not-exist-decision-registry.json")
+    if forbidden_registry.exists():
+        raise ValueError("blank validation registry output already exists")
+    try:
+        import_group_review_decisions(packet, review_workbook, forbidden_registry)
+    except ValueError as error:
+        if str(error) != "all human fields are required":
+            raise
+    else:
+        raise ValueError("blank review workbook unexpectedly contains human decisions")
+    if forbidden_registry.exists():
+        raise ValueError("blank validation created a decision artifact")
+    _validate_blank_correction_audit(correction_audit, packet)
+    result = BlankGroupReviewValidation(
+        schema_version=1,
+        packet_identity=packet.packet_identity,
+        review_workbook_identity=hashlib.sha256(
+            review_workbook.read_bytes()
+        ).hexdigest(),
+        correction_audit_identity=hashlib.sha256(
+            correction_audit.read_bytes()
+        ).hexdigest(),
+        writes_performed=False,
+        human_decisions_present=False,
+        authorization=False,
+        readiness_eligible=False,
+    )
+    _write_json(output, result.model_dump(mode="json"))
+    return result
 
 
 def _reject_unsafe_workbook(path: Path) -> None:
@@ -1625,6 +2029,7 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
         "Instructions",
         "Group Review",
         "Group Evidence",
+        "Pair Relation Evidence",
         "Source Evidence",
         "Rule Evidence",
         "Bindings",
@@ -1640,6 +2045,12 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
         raise ValueError("review workbook binding cells differ")
     _validate_evidence_sheet(
         book, "Group Evidence", _GROUP_EVIDENCE_HEADERS, _group_evidence_rows(packet)
+    )
+    _validate_evidence_sheet(
+        book,
+        "Pair Relation Evidence",
+        _PAIR_RELATION_EVIDENCE_HEADERS,
+        _pair_relation_evidence_rows(packet),
     )
     _validate_evidence_sheet(
         book,
@@ -1769,7 +2180,7 @@ def dry_run_group_review_decisions(
                     for decision in registry.decisions
                     for group in by_identity[
                         decision.review_row_identity
-                    ].actual_group_ids
+                    ].current_scoreable_group_ids
                 }
             )
         ),
@@ -1818,7 +2229,7 @@ def _write_bytes(path: Path, value: bytes) -> None:
 
 def admit_group_review_rationale_evidence(
     *,
-    packet: GroupReviewPacket,
+    packet: HistoricalGroupReviewPacket,
     source_markdown: Path,
     markdown_output: Path,
     sidecar_output: Path,
@@ -1854,73 +2265,6 @@ def admit_group_review_rationale_evidence(
         markdown_path=markdown_output, sidecar_path=sidecar_output, packet=packet
     )
     return sidecar
-
-
-def transcribe_group_review_rationale_evidence(
-    *,
-    packet: GroupReviewPacket,
-    evidence: LoadedGroupReviewRationale,
-    workbook: Path,
-    registry_output: Path,
-    dry_run_output: Path,
-) -> tuple[GroupDecisionRegistry, GroupDecisionDryRun]:
-    """Transcribe governed Markdown through the existing workbook importer."""
-    write_group_review_workbook(workbook, packet)
-    book = load_workbook(workbook, data_only=False)
-    sheet = book["Group Review"]
-    headers = {str(cell.value): cast("int", cell.column) for cell in sheet[1]}
-    row_by_identity = {
-        row.row_identity: (index, row)
-        for index, row in enumerate(packet.review_rows, start=2)
-    }
-    if tuple(row.review_row_identity for row in evidence.rows) != tuple(
-        row_by_identity
-    ):
-        raise ValueError("group review transcription row identities differ")
-    for decision in evidence.rows:
-        index, packet_row = row_by_identity[decision.review_row_identity]
-        if sheet.cell(index, headers["Concept"]).value != packet_row.concept_code:
-            raise ValueError("group review transcription workbook row differs")
-        sheet.cell(index, headers["Pair Decision"], decision.pair_decision)
-        sheet.cell(index, headers["Decision"], decision.decision)
-        sheet.cell(index, headers["Rationale"], decision.rationale)
-        sheet.cell(index, headers["Reviewer"], evidence.reviewer)
-        sheet.cell(index, headers["Date"], evidence.review_date)
-    book.save(workbook)
-    registry = import_group_review_decisions(packet, workbook, registry_output)
-    observed = tuple(
-        (
-            row.review_row_identity,
-            row.concept_code,
-            row.review_type,
-            row.pair_decision,
-            row.decision,
-            rationale_sha256(row.rationale),
-            len(row.rationale),
-            row.reviewer,
-            row.review_date,
-        )
-        for row in registry.decisions
-    )
-    expected = tuple(
-        (
-            row.review_row_identity,
-            row.concept_code,
-            row.review_type,
-            row.pair_decision,
-            row.decision,
-            row.rationale_sha256,
-            row.rationale_chars,
-            evidence.reviewer,
-            evidence.review_date,
-        )
-        for row in evidence.rows
-    )
-    if observed != expected:
-        raise ValueError("imported group decisions differ from rationale evidence")
-    dry_run = dry_run_group_review_decisions(packet, registry)
-    _write_json(dry_run_output, dry_run.model_dump(mode="json"))
-    return registry, dry_run
 
 
 def generate_group_review_packet(
@@ -1962,6 +2306,8 @@ def generate_group_review_boundary(
     r101_report_path: Path,
     output: Path,
     workbook: Path,
+    correction_audit: Path,
+    blank_validation: Path,
 ) -> GroupReviewPacket:
     """Generate the bound machine packet and blank manual-review workbook."""
     packet = generate_group_review_packet(
@@ -1971,4 +2317,11 @@ def generate_group_review_boundary(
         output=output,
     )
     write_group_review_workbook(workbook, packet)
+    write_group_correction_audit(correction_audit, packet)
+    validate_blank_group_review_outputs(
+        packet=packet,
+        review_workbook=workbook,
+        correction_audit=correction_audit,
+        output=blank_validation,
+    )
     return packet

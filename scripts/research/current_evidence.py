@@ -306,8 +306,8 @@ class CurrentPartitionComparison(_StrictModel):
     agrees: bool | None
     expected_partition: PairPartition
     actual_partition: PairPartition
-    missing_pairs: tuple[tuple[str, str], ...]
-    extra_pairs: tuple[tuple[str, str], ...]
+    expected_not_scoreable_pairs: tuple[tuple[str, str], ...]
+    current_only_scoreable_pairs: tuple[tuple[str, str], ...]
     shared_pair_count: int = Field(ge=0)
     ineligibility_reason: Literal["zero-shared-pairs", "one-shared-pair"] | None
     primary_diagnosis: PartitionDiagnosisEvidence | None
@@ -324,12 +324,30 @@ class CurrentPartitionComparison(_StrictModel):
         return self
 
 
+class PairRelationSummary(_StrictModel):
+    expected_matched_scoreable: tuple[tuple[str, str], ...]
+    expected_emitted_review_bearing: tuple[tuple[str, str], ...]
+    expected_not_emitted: tuple[tuple[str, str], ...]
+    current_only_scoreable: tuple[tuple[str, str], ...]
+    current_only_review_bearing: tuple[tuple[str, str], ...]
+    current_only_proposed: tuple[tuple[str, str], ...]
+
+    @model_validator(mode="after")
+    def _relations_are_canonical_and_unique(self) -> Self:
+        collections = tuple(getattr(self, name) for name in type(self).model_fields)
+        if any(tuple(sorted(values)) != values for values in collections):
+            raise ValueError("pair relation collections must be sorted")
+        pairs = tuple(pair for values in collections for pair in values)
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("pair relations must be exhaustive and unique")
+        return self
+
+
 class CurrentConceptComparison(_StrictModel):
     code: str
     full_partition: CurrentPartitionComparison
     common_pair_partition: CurrentPartitionComparison
-    missing_pairs: tuple[tuple[str, str], ...]
-    extra_pairs: tuple[tuple[str, str], ...]
+    pair_relations: PairRelationSummary
 
 
 class RowReplayStatus(StrEnum):
@@ -419,7 +437,7 @@ class CurrentRowReplay(_StrictModel):
 
 
 class CurrentComparison(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -584,6 +602,47 @@ def _scoreable_partition_rows(
     )
 
 
+def _pair_relations(
+    expected: tuple[GoldenConstituent, ...],
+    current: tuple[CurrentConstituent, ...],
+) -> PairRelationSummary:
+    expected_scoreable = {
+        (item.axis, item.filler)
+        for item in expected
+        if not item.needs_review and item.provenance_status == "ncit-26.07d"
+    }
+    current_scoreable = {
+        (item.axis, item.filler)
+        for item in current
+        if not item.needs_review and item.provenance_status == "ncit-26.07d"
+    }
+    current_review_bearing = {
+        (item.axis, item.filler)
+        for item in current
+        if item.needs_review and item.provenance_status == "ncit-26.07d"
+    }
+    current_proposed = {
+        (item.axis, item.filler)
+        for item in current
+        if item.provenance_status == "proposed"
+    }
+    current_emitted = current_scoreable | current_review_bearing | current_proposed
+    return PairRelationSummary(
+        expected_matched_scoreable=tuple(
+            sorted(expected_scoreable & current_scoreable)
+        ),
+        expected_emitted_review_bearing=tuple(
+            sorted(expected_scoreable & current_review_bearing)
+        ),
+        expected_not_emitted=tuple(sorted(expected_scoreable - current_emitted)),
+        current_only_scoreable=tuple(sorted(current_scoreable - expected_scoreable)),
+        current_only_review_bearing=tuple(
+            sorted(current_review_bearing - expected_scoreable)
+        ),
+        current_only_proposed=tuple(sorted(current_proposed - expected_scoreable)),
+    )
+
+
 def _comparison_payload(
     oracle_concepts: tuple[AdjudicatedConcept, ...],
     evidence: CurrentEngineEvidence,
@@ -617,8 +676,9 @@ def _comparison_payload(
                 code=concept.code,
                 full_partition=_typed_partition(full, actual),
                 common_pair_partition=_typed_partition(common, actual),
-                missing_pairs=full.missing_pairs,
-                extra_pairs=full.extra_pairs,
+                pair_relations=_pair_relations(
+                    concept.expected.constituents, actual.constituents
+                ),
             )
         )
     metrics = CurrentMetrics(
@@ -837,8 +897,8 @@ def _typed_partition(
         agrees=comparison.agrees,
         expected_partition=comparison.expected_partition,
         actual_partition=comparison.actual_partition,
-        missing_pairs=comparison.missing_pairs,
-        extra_pairs=comparison.extra_pairs,
+        expected_not_scoreable_pairs=comparison.missing_pairs,
+        current_only_scoreable_pairs=comparison.extra_pairs,
         shared_pair_count=comparison.shared_pair_count,
         ineligibility_reason=comparison.ineligibility_reason,
         primary_diagnosis=diagnosis,
@@ -928,7 +988,6 @@ def _build_current_comparison(
     common = {
         field: getattr(evidence, field)
         for field in (
-            "schema_version",
             "ncit_version",
             "source_identity",
             "sample_manifest_identity",
@@ -945,6 +1004,7 @@ def _build_current_comparison(
     metrics, reports = _comparison_payload(adjudicated, evidence)
     row_replay = _row_replay(rows, adjudicated, registry, evidence.concepts)
     comparison_payload = {
+        "schema_version": 3,
         **common,
         "current_evidence_identity": evidence.evidence_identity,
         "metrics": metrics,

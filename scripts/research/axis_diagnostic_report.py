@@ -371,7 +371,12 @@ class PairRangeDiagnostic(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     axis: str
     filler: str
-    in_current_projection: bool
+    current_projection_status: Literal[
+        "scoreable-release-bound",
+        "review-bearing-release-bound",
+        "provisional-proposed",
+        "not-emitted",
+    ]
     in_expected_oracle: bool
     verdict: AxisRangeEvidenceDocument
 
@@ -385,7 +390,7 @@ class DiagnosticMetrics(_StrictModel):
 
 
 class AxisDiagnosticReport(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -585,7 +590,7 @@ def build_axis_diagnostic_report(
     """Build the pre-SME report without changing any accepted engine artifact."""
     metrics = CurrentMetrics.model_validate(comparison.metrics.model_dump())
     current_pairs = {
-        (concept.code, item.axis, item.filler)
+        (concept.code, item.axis, item.filler): item
         for concept in evidence.concepts
         for item in concept.constituents
     }
@@ -596,7 +601,7 @@ def build_axis_diagnostic_report(
         for item in concept.expected.constituents
     }
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "ncit_version": comparison.ncit_version,
         "source_identity": comparison.source_identity,
         "sample_manifest_identity": comparison.sample_manifest_identity,
@@ -628,7 +633,9 @@ def build_axis_diagnostic_report(
                 code=code,
                 axis=axis,
                 filler=filler,
-                in_current_projection=(code, axis, filler) in current_pairs,
+                current_projection_status=_current_projection_status(
+                    current_pairs.get((code, axis, filler))
+                ),
                 in_expected_oracle=(code, axis, filler) in expected_pairs,
                 verdict=axis_evidence_to_document(verdict),
             )
@@ -643,6 +650,23 @@ def build_axis_diagnostic_report(
         **payload,
         report_identity=_identity(payload),
     )
+
+
+def _current_projection_status(
+    item: CurrentConstituent | None,
+) -> Literal[
+    "scoreable-release-bound",
+    "review-bearing-release-bound",
+    "provisional-proposed",
+    "not-emitted",
+]:
+    if item is None:
+        return "not-emitted"
+    if item.provenance_status == "proposed":
+        return "provisional-proposed"
+    if item.needs_review:
+        return "review-bearing-release-bound"
+    return "scoreable-release-bound"
 
 
 def _required_inputs(paths: tuple[Path, ...], output: Path) -> None:
