@@ -127,19 +127,25 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
 
 try:
     from scripts.research.group_review_packet import (
+        admit_group_review_rationale_evidence,
         dry_run_group_review_decisions,
         generate_group_review_boundary,
         import_group_review_decisions,
         load_group_decision_registry,
         load_group_review_packet,
+        load_group_review_rationale_evidence,
+        transcribe_group_review_rationale_evidence,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.group_review_packet import (  # type: ignore[no-redef]
+        admit_group_review_rationale_evidence,
         dry_run_group_review_decisions,
         generate_group_review_boundary,
         import_group_review_decisions,
         load_group_decision_registry,
         load_group_review_packet,
+        load_group_review_rationale_evidence,
+        transcribe_group_review_rationale_evidence,
     )
 
 try:
@@ -225,6 +231,22 @@ class _DryRunGroupReviewArgs(Protocol):
     output: Path
 
 
+class _AdmitGroupReviewEvidenceArgs(Protocol):
+    packet: Path
+    source_markdown: Path
+    markdown_output: Path
+    sidecar_output: Path
+
+
+class _TranscribeGroupReviewEvidenceArgs(Protocol):
+    packet: Path
+    markdown: Path
+    sidecar: Path
+    reviewed_xlsx: Path
+    registry_output: Path
+    dry_run_output: Path
+
+
 class _PrepareR103ReviewArgs(Protocol):
     stated_owl: Path
     source_manifest: Path
@@ -300,6 +322,18 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     dry_run.add_argument("--packet", required=True, type=Path)
     dry_run.add_argument("--registry", required=True, type=Path)
     dry_run.add_argument("--output", required=True, type=Path)
+    admit = subparsers.add_parser("admit-group-review-evidence")
+    admit.add_argument("--packet", required=True, type=Path)
+    admit.add_argument("--source-markdown", required=True, type=Path)
+    admit.add_argument("--markdown-output", required=True, type=Path)
+    admit.add_argument("--sidecar-output", required=True, type=Path)
+    transcribe = subparsers.add_parser("transcribe-group-review-evidence")
+    transcribe.add_argument("--packet", required=True, type=Path)
+    transcribe.add_argument("--markdown", required=True, type=Path)
+    transcribe.add_argument("--sidecar", required=True, type=Path)
+    transcribe.add_argument("--reviewed-xlsx", required=True, type=Path)
+    transcribe.add_argument("--registry-output", required=True, type=Path)
+    transcribe.add_argument("--dry-run-output", required=True, type=Path)
 
 
 def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -479,6 +513,33 @@ def _dry_run_group_review(args: _DryRunGroupReviewArgs) -> None:
         load_group_decision_registry(args.registry),
     )
     write_canonical_json(result.model_dump(mode="json"), args.output)
+
+
+def _admit_group_review_evidence(args: _AdmitGroupReviewEvidenceArgs) -> None:
+    admit_group_review_rationale_evidence(
+        packet=load_group_review_packet(args.packet),
+        source_markdown=args.source_markdown,
+        markdown_output=args.markdown_output,
+        sidecar_output=args.sidecar_output,
+    )
+
+
+def _transcribe_group_review_evidence(
+    args: _TranscribeGroupReviewEvidenceArgs,
+) -> None:
+    packet = load_group_review_packet(args.packet)
+    evidence = load_group_review_rationale_evidence(
+        markdown_path=args.markdown,
+        sidecar_path=args.sidecar,
+        packet=packet,
+    )
+    transcribe_group_review_rationale_evidence(
+        packet=packet,
+        evidence=evidence,
+        workbook=args.reviewed_xlsx,
+        registry_output=args.registry_output,
+        dry_run_output=args.dry_run_output,
+    )
 
 
 async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
@@ -1022,6 +1083,14 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return
     if args.command == "dry-run-group-review":
         _dry_run_group_review(cast("_DryRunGroupReviewArgs", args))
+        return
+    if args.command == "admit-group-review-evidence":
+        _admit_group_review_evidence(cast("_AdmitGroupReviewEvidenceArgs", args))
+        return
+    if args.command == "transcribe-group-review-evidence":
+        _transcribe_group_review_evidence(
+            cast("_TranscribeGroupReviewEvidenceArgs", args)
+        )
         return
     if args.command == "prepare-r103-review-packet":
         _prepare_r103_review(cast("_PrepareR103ReviewArgs", args))

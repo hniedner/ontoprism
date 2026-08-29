@@ -1011,9 +1011,274 @@ class GroupDecisionDryRun(StrictFrozenBoundaryModel):
     affected_traces: tuple[str, ...]
 
 
+class GroupReviewRationaleRow(StrictFrozenBoundaryModel):
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    review_row_identity: str = Field(pattern=_SHA256)
+    review_type: Literal["pair-only", "grouping"]
+    decision: Decision
+    pair_decision: Decision | None
+    rationale_sha256: str = Field(pattern=_SHA256)
+    rationale_chars: int = Field(gt=0)
+
+
+class GroupReviewRationaleSidecar(StrictFrozenBoundaryModel):
+    schema_version: Literal[1]
+    evidence_kind: Literal["group-review-rationale"]
+    packet_identity: str = Field(pattern=_SHA256)
+    ncit_version: str
+    reviewer: str = Field(min_length=1)
+    review_date: str = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    markdown_path: str
+    markdown_sha256: str = Field(pattern=_SHA256)
+    rows: tuple[GroupReviewRationaleRow, ...] = Field(min_length=18, max_length=18)
+    sidecar_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        expected = _identity(self.model_dump(mode="json", exclude={"sidecar_identity"}))
+        if self.sidecar_identity != expected:
+            raise ValueError("group review rationale sidecar identity differs")
+        return self
+
+
+class LoadedGroupReviewRationaleRow(StrictFrozenBoundaryModel):
+    concept_code: str
+    review_row_identity: str
+    review_type: Literal["pair-only", "grouping"]
+    decision: Decision
+    pair_decision: Decision | None
+    rationale: str
+    rationale_sha256: str
+    rationale_chars: int
+
+
+class LoadedGroupReviewRationale(StrictFrozenBoundaryModel):
+    sidecar: GroupReviewRationaleSidecar
+    rows: tuple[LoadedGroupReviewRationaleRow, ...]
+
+    @property
+    def reviewer(self) -> str:
+        return self.sidecar.reviewer
+
+    @property
+    def review_date(self) -> str:
+        return self.sidecar.review_date
+
+
 def load_group_decision_registry(path: Path) -> GroupDecisionRegistry:
     """Load an identity-checked group decision artifact."""
     return GroupDecisionRegistry.model_validate_json(path.read_bytes())
+
+
+_SECTION_HEADING = re.compile(r"^## ([0-9]+)\. (C[0-9]+) — .+$", re.MULTILINE)
+_SELECTED_OUTCOME = re.compile(r"^- \*\*Selec[t]ed outcome:\*\* (.+)$", re.MULTILINE)
+_REVIEW_TYPE = re.compile(
+    r"^- \*\*Review type:\*\* (pair-only|grouping)$", re.MULTILINE
+)
+_DIAGNOSIS = re.compile(r"^- \*\*Diagnosis:\*\* (.+)$", re.MULTILINE)
+_EXPECTED_ACTUAL = re.compile(r"^- \*\*Expected vs actual:\*\* (.+)$", re.MULTILINE)
+_RATIONALE_MARKER = "Human rationale:\n"
+_RATIONALE_SECTION_CODES = (
+    "C181564",
+    "C186620",
+    "C162226",
+    "C206219",
+    "C115118",
+    "C89995",
+    "C27787",
+    "C115057",
+    "C101539",
+    "C132677",
+    "C6135",
+    "C100051",
+    "C4791",
+    "C27262",
+    "C102870",
+    "C100054",
+    "C198031",
+    "C35756",
+)
+
+
+def rationale_sha256(rationale: str) -> str:
+    """Digest the exact UTF-8 rationale text extracted from the Markdown boundary."""
+    return hashlib.sha256(rationale.encode("utf-8")).hexdigest()
+
+
+def _one_match(pattern: re.Pattern[str], section: str, field: str) -> str:
+    matches = pattern.findall(section)
+    if len(matches) != 1:
+        raise ValueError(f"group review Markdown {field} differs")
+    return matches[0]
+
+
+def _parse_group_review_markdown(  # noqa: C901
+    markdown: bytes, packet: GroupReviewPacket
+) -> tuple[str, str, tuple[tuple[GroupReviewRow, Decision, str], ...]]:
+    try:
+        text = markdown.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("group review Markdown is not UTF-8") from error
+    reviewer_matches = re.findall(
+        r"^- Reviewer confirmed: \*\*(.+)\*\*$", text, re.MULTILINE
+    )
+    date_matches = re.findall(
+        r"^- Review date confirmed: \*\*([0-9]{4}-[0-9]{2}-[0-9]{2})\*\*$",
+        text,
+        re.MULTILINE,
+    )
+    if len(reviewer_matches) != 1 or len(date_matches) != 1:
+        raise ValueError("group review Markdown reviewer/date differs")
+    _normalize_review_date(date_matches[0])
+    headings = tuple(_SECTION_HEADING.finditer(text))
+    if set(_RATIONALE_SECTION_CODES) != {
+        row.concept_code for row in packet.review_rows
+    }:
+        raise ValueError("group review Markdown cohort differs from packet")
+    expected_sections = tuple(enumerate(_RATIONALE_SECTION_CODES, start=1))
+    observed_sections = tuple(
+        (int(match.group(1)), match.group(2)) for match in headings
+    )
+    if observed_sections != expected_sections:
+        raise ValueError("group review Markdown review sections differ")
+    parsed: list[tuple[GroupReviewRow, Decision, str]] = []
+    packet_by_code = {row.concept_code: row for row in packet.review_rows}
+    for position, heading in enumerate(headings):
+        row = packet_by_code[heading.group(2)]
+        end = (
+            headings[position + 1].start()
+            if position + 1 < len(headings)
+            else len(text)
+        )
+        section = text[heading.start() : end]
+        selected = _one_match(_SELECTED_OUTCOME, section, "selected outcome")
+        if selected not in _DECISIONS:
+            raise ValueError("group review Markdown selected outcome differs")
+        review_type = _one_match(_REVIEW_TYPE, section, "review type")
+        diagnosis = _one_match(_DIAGNOSIS, section, "diagnosis")
+        _one_match(_EXPECTED_ACTUAL, section, "expected-vs-actual")
+        if review_type != row.review_type:
+            raise ValueError("group review Markdown review type differs from packet")
+        if diagnosis != row.grouping_diagnosis.kind:
+            raise ValueError("group review Markdown diagnosis differs from packet")
+        if section.count(_RATIONALE_MARKER) != 1:
+            raise ValueError("group review Markdown Human rationale marker differs")
+        rationale_start = section.index(_RATIONALE_MARKER) + len(_RATIONALE_MARKER)
+        remainder = section[rationale_start:]
+        delimiter = remainder.find("\n---\n")
+        rationale_region = remainder if delimiter == -1 else remainder[:delimiter]
+        rationale = rationale_region.strip("\n")
+        if not rationale.strip():
+            raise ValueError("group review Markdown rationale is blank")
+        parsed.append((row, cast("Decision", selected), rationale))
+    parsed_by_code: dict[str, tuple[GroupReviewRow, Decision, str]] = {
+        row.concept_code: (row, decision, rationale)
+        for row, decision, rationale in parsed
+    }
+    return (
+        reviewer_matches[0],
+        date_matches[0],
+        tuple(parsed_by_code[row.concept_code] for row in packet.review_rows),
+    )
+
+
+def _canonical_markdown_path(ncit_version: str) -> str:
+    return f"evidence/group-review-rationale-{ncit_version}.md"
+
+
+def _build_group_review_rationale_sidecar(
+    *, markdown: bytes, packet: GroupReviewPacket
+) -> GroupReviewRationaleSidecar:
+    reviewer, review_date, parsed = _parse_group_review_markdown(markdown, packet)
+    rows = tuple(
+        GroupReviewRationaleRow(
+            concept_code=row.concept_code,
+            review_row_identity=row.row_identity,
+            review_type=row.review_type,
+            decision=decision,
+            pair_decision=decision if row.review_type == "pair-only" else None,
+            rationale_sha256=rationale_sha256(rationale),
+            rationale_chars=len(rationale),
+        )
+        for row, decision, rationale in parsed
+    )
+    payload = {
+        "schema_version": 1,
+        "evidence_kind": "group-review-rationale",
+        "packet_identity": packet.packet_identity,
+        "ncit_version": packet.ncit_version,
+        "reviewer": reviewer,
+        "review_date": review_date,
+        "markdown_path": _canonical_markdown_path(packet.ncit_version),
+        "markdown_sha256": hashlib.sha256(markdown).hexdigest(),
+        "rows": rows,
+    }
+    return GroupReviewRationaleSidecar(**payload, sidecar_identity=_identity(payload))
+
+
+def load_group_review_rationale_evidence(  # noqa: C901
+    *, markdown_path: Path, sidecar_path: Path, packet: GroupReviewPacket
+) -> LoadedGroupReviewRationale:
+    """Read the exact first-admission human rationale and operational binding."""
+    markdown = markdown_path.read_bytes()
+    sidecar = GroupReviewRationaleSidecar.model_validate_json(sidecar_path.read_bytes())
+    if sidecar.packet_identity != packet.packet_identity:
+        raise ValueError("group review rationale packet identity differs")
+    if sidecar.ncit_version != packet.ncit_version:
+        raise ValueError("group review rationale NCIt version differs")
+    if sidecar.markdown_path != _canonical_markdown_path(packet.ncit_version):
+        raise ValueError("group review rationale Markdown path differs")
+    reviewer, review_date, parsed = _parse_group_review_markdown(markdown, packet)
+    if sidecar.markdown_sha256 != hashlib.sha256(markdown).hexdigest():
+        raise ValueError("group review rationale markdown digest differs")
+    if (sidecar.reviewer, sidecar.review_date) != (reviewer, review_date):
+        raise ValueError("group review rationale reviewer/date differs")
+    loaded_rows: list[LoadedGroupReviewRationaleRow] = []
+    if len(sidecar.rows) != len(parsed):
+        raise ValueError("group review rationale rows differ")
+    for stored, (packet_row, decision, rationale) in zip(
+        sidecar.rows, parsed, strict=True
+    ):
+        expected_pair = decision if packet_row.review_type == "pair-only" else None
+        if (
+            stored.concept_code != packet_row.concept_code
+            or stored.review_row_identity != packet_row.row_identity
+            or stored.review_type != packet_row.review_type
+            or stored.decision != decision
+            or stored.pair_decision != expected_pair
+        ):
+            raise ValueError("group review rationale row binding differs")
+        digest = rationale_sha256(rationale)
+        if stored.rationale_sha256 != digest:
+            raise ValueError("group review rationale digest differs")
+        if stored.rationale_chars != len(rationale):
+            raise ValueError("group review rationale character count differs")
+        loaded_rows.append(
+            LoadedGroupReviewRationaleRow(
+                concept_code=stored.concept_code,
+                review_row_identity=stored.review_row_identity,
+                review_type=stored.review_type,
+                decision=stored.decision,
+                pair_decision=stored.pair_decision,
+                rationale=rationale,
+                rationale_sha256=digest,
+                rationale_chars=len(rationale),
+            )
+        )
+    return LoadedGroupReviewRationale(sidecar=sidecar, rows=tuple(loaded_rows))
+
+
+def validate_first_evidence_inventory(
+    paths: tuple[str, ...], *, ncit_version: str
+) -> None:
+    """Enforce only the exact reduced first evidence admission inventory."""
+    expected = (
+        "evidence/README.md",
+        f"evidence/group-review-rationale-{ncit_version}.json",
+        f"evidence/group-review-rationale-{ncit_version}.md",
+    )
+    if tuple(sorted(paths)) != expected:
+        raise ValueError("first evidence inventory differs")
 
 
 def _evidence_links(packet: GroupReviewPacket, row: GroupReviewRow) -> str:
@@ -1536,6 +1801,126 @@ def _write_json(path: Path, value: object) -> None:
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
+
+
+def _write_bytes(path: Path, value: bytes) -> None:
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def admit_group_review_rationale_evidence(
+    *,
+    packet: GroupReviewPacket,
+    source_markdown: Path,
+    markdown_output: Path,
+    sidecar_output: Path,
+) -> GroupReviewRationaleSidecar:
+    """Admit a frozen Markdown copy, then bind its actual post-write bytes."""
+    expected_markdown = _canonical_markdown_path(packet.ncit_version)
+    if markdown_output.as_posix() != expected_markdown:
+        raise ValueError(
+            "group review rationale output path differs from packet release"
+        )
+    expected_sidecar = expected_markdown.removesuffix(".md") + ".json"
+    if sidecar_output.as_posix() != expected_sidecar:
+        raise ValueError(
+            "group review rationale sidecar path differs from packet release"
+        )
+    if not source_markdown.is_file():
+        raise ValueError(
+            f"group review rationale source does not exist: {source_markdown}"
+        )
+    if not markdown_output.parent.is_dir():
+        raise ValueError(
+            f"evidence output parent does not exist: {markdown_output.parent}"
+        )
+    source = source_markdown.read_bytes()
+    _parse_group_review_markdown(source, packet)
+    _write_bytes(markdown_output, source)
+    persisted = markdown_output.read_bytes()
+    if persisted != source:
+        raise ValueError("admitted group review Markdown differs from frozen source")
+    sidecar = _build_group_review_rationale_sidecar(markdown=persisted, packet=packet)
+    _write_json(sidecar_output, sidecar.model_dump(mode="json"))
+    load_group_review_rationale_evidence(
+        markdown_path=markdown_output, sidecar_path=sidecar_output, packet=packet
+    )
+    return sidecar
+
+
+def transcribe_group_review_rationale_evidence(
+    *,
+    packet: GroupReviewPacket,
+    evidence: LoadedGroupReviewRationale,
+    workbook: Path,
+    registry_output: Path,
+    dry_run_output: Path,
+) -> tuple[GroupDecisionRegistry, GroupDecisionDryRun]:
+    """Transcribe governed Markdown through the existing workbook importer."""
+    write_group_review_workbook(workbook, packet)
+    book = load_workbook(workbook, data_only=False)
+    sheet = book["Group Review"]
+    headers = {str(cell.value): cast("int", cell.column) for cell in sheet[1]}
+    row_by_identity = {
+        row.row_identity: (index, row)
+        for index, row in enumerate(packet.review_rows, start=2)
+    }
+    if tuple(row.review_row_identity for row in evidence.rows) != tuple(
+        row_by_identity
+    ):
+        raise ValueError("group review transcription row identities differ")
+    for decision in evidence.rows:
+        index, packet_row = row_by_identity[decision.review_row_identity]
+        if sheet.cell(index, headers["Concept"]).value != packet_row.concept_code:
+            raise ValueError("group review transcription workbook row differs")
+        sheet.cell(index, headers["Pair Decision"], decision.pair_decision)
+        sheet.cell(index, headers["Decision"], decision.decision)
+        sheet.cell(index, headers["Rationale"], decision.rationale)
+        sheet.cell(index, headers["Reviewer"], evidence.reviewer)
+        sheet.cell(index, headers["Date"], evidence.review_date)
+    book.save(workbook)
+    registry = import_group_review_decisions(packet, workbook, registry_output)
+    observed = tuple(
+        (
+            row.review_row_identity,
+            row.concept_code,
+            row.review_type,
+            row.pair_decision,
+            row.decision,
+            rationale_sha256(row.rationale),
+            len(row.rationale),
+            row.reviewer,
+            row.review_date,
+        )
+        for row in registry.decisions
+    )
+    expected = tuple(
+        (
+            row.review_row_identity,
+            row.concept_code,
+            row.review_type,
+            row.pair_decision,
+            row.decision,
+            row.rationale_sha256,
+            row.rationale_chars,
+            evidence.reviewer,
+            evidence.review_date,
+        )
+        for row in evidence.rows
+    )
+    if observed != expected:
+        raise ValueError("imported group decisions differ from rationale evidence")
+    dry_run = dry_run_group_review_decisions(packet, registry)
+    _write_json(dry_run_output, dry_run.model_dump(mode="json"))
+    return registry, dry_run
 
 
 def generate_group_review_packet(

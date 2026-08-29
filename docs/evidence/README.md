@@ -1,20 +1,16 @@
 # Evidence destinations
 
 `docs/evidence/` contains tracked explanatory prose about evidence boundaries and
-destinations. It is documentation, not a store for non-documentary evidence.
-
-A future top-level `evidence/` directory is intended for compact, durable,
-identity-bound non-documentary evidence. That directory does not yet exist, and no
-repository gate currently enforces admission to it. The first file proposed for that
-destination must include a separately reviewed admission/policy test; this statement
-does not make that future policy an enforced constraint today.
+destinations. It is documentation, not a store for non-documentary evidence. The
+top-level `evidence/` directory now has one deliberately narrow admission governed by
+its exact inventory test and group-review loader, not by a generic pre-commit policy.
 
 Existing tracked test goldens remain under
 `ontolib/tests/decomposition/golden/` according to D63. A file under `tmp/` does not
 become tracked merely because it is an evidence candidate.
 
 The following categories are explicitly out of scope and are not admitted to the
-future top-level destination:
+top-level destination:
 
 - XLSX files;
 - TTL, NT, or OWL corpora;
@@ -29,6 +25,25 @@ future top-level destination:
 Everything OntoPrism emits is NCIt. Describe provenance using **derived from**,
 **aligned to**, **corroborated by**, or **proposed, evidenced by** language; do not
 describe emitted NCIt content as externally owned.
+
+## Group-review rationale admission (#274)
+
+`evidence/group-review-rationale-26.07d.md` is the byte-frozen, authoritative contextual
+human record for all 18 review rows. Its JSON sidecar stores digests and operational
+bindings only; it does not duplicate rationale, questions, or context. Reviewer, date,
+outcomes, and rationales are local-SME evidence, not independently validated source or
+standards claims, NCI acceptance, publication, or publication authorization.
+
+Generate the ignored reviewed workbook and registry through the existing safe workbook
+writer/importer, and produce the write-free dry run, with:
+
+```bash
+pdm run adjudication transcribe-group-review-evidence --packet tmp/m1-6-group-review-packet.json --markdown evidence/group-review-rationale-26.07d.md --sidecar evidence/group-review-rationale-26.07d.json --reviewed-xlsx tmp/m1-6-group-review-workbook-reviewed.xlsx --registry-output tmp/m1-6-group-review-decisions.json --dry-run-output tmp/m1-6-group-review-dry-run.json
+```
+
+All 18 rows are reviewed, but 11 corrections and 4 escalations remain open and block
+#274 and #127. Readiness regeneration must wait until those open dispositions are
+resolved; group review remains pending and publication remains unauthorized.
 
 ## R103 staging and readiness
 
