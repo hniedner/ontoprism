@@ -28,22 +28,28 @@ describe emitted NCIt content as externally owned.
 
 ## Group-review rationale admission (#274)
 
-`evidence/group-review-rationale-26.07d.md` is the byte-frozen, authoritative contextual
-human record for all 18 review rows. Its JSON sidecar stores digests and operational
-bindings only; it does not duplicate rationale, questions, or context. Reviewer, date,
-outcomes, and rationales are local-SME evidence, not independently validated source or
-standards claims, NCI acceptance, publication, or publication authorization.
+`evidence/group-review-packet-26.07d-schema3.json` is the byte-frozen historical schema-3
+packet that binds `evidence/group-review-rationale-26.07d.md` and its compact JSON
+sidecar. The Markdown is the authoritative contextual human record for all 18 review
+rows. The sidecar stores digests and operational bindings only; it does not duplicate
+rationale, questions, or context. Reviewer, date, outcomes, and rationales are local-SME
+evidence, not independently validated source or standards claims, NCI acceptance,
+publication, or publication authorization.
 
-Generate the ignored reviewed workbook and registry through the existing safe workbook
-writer/importer, and produce the write-free dry run, with:
+Schema 3 did not distinguish scoreable release-bound pairs from review-bearing emitted
+pairs. It is retained only to interpret the historical review and is not converted into
+the active schema 4 packet or replayed through the active importer. Generate fresh
+ignored schema-4 diagnostics, review packet, blank workbook, pair-relation audit, and
+blank validation with:
 
 ```bash
-pdm run adjudication transcribe-group-review-evidence --packet tmp/m1-6-group-review-packet.json --markdown evidence/group-review-rationale-26.07d.md --sidecar evidence/group-review-rationale-26.07d.json --reviewed-xlsx tmp/m1-6-group-review-workbook-reviewed.xlsx --registry-output tmp/m1-6-group-review-decisions.json --dry-run-output tmp/m1-6-group-review-dry-run.json
+pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
+pdm run agent-replay generate-group-review-rev2
 ```
 
-All 18 rows are reviewed, but 11 corrections and 4 escalations remain open and block
-#274 and #127. Readiness regeneration must wait until those open dispositions are
-resolved; group review remains pending and publication remains unauthorized.
+The historical record contains 11 corrections and 4 escalations. Those dispositions are
+context for the new blank review rather than active schema-4 decisions; they remain open
+and block #274 and #127. Publication remains unauthorized.
 
 ## R103 staging and readiness
 

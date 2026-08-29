@@ -1,6 +1,6 @@
 {
   "artifact_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
-  "comparison_identity": "688ad142d6aa4d1bc9a1408d19af443089a0479d7594f31490e5d4db942bbafc",
+  "comparison_identity": "623ff22d7c5be0eccdd736059d6714650645f4e12486f6f1cf6c5635a04029dc",
   "concepts": [
     {
       "code": "C27262",
@@ -38,7 +38,22 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C41165"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -69,22 +84,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C41165"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36220"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41397"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -133,7 +133,6 @@
         },
         "shared_pair_count": 5
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -168,7 +167,22 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C41165"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -215,22 +229,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C41165"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36220"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41397"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -279,20 +278,49 @@
         },
         "shared_pair_count": 5
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C41165"
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C36220"
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C41063"
+          ],
+          [
+            "op:Morphology",
+            "C35501"
+          ],
+          [
+            "op:Morphology",
+            "C9290"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C13051"
+          ],
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C41397"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedRegion",
+            "C41165"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C102870",
@@ -324,7 +352,18 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ],
+          [
+            "op:PrimarySite",
+            "C12404"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -349,18 +388,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedSite",
-            "C12321"
-          ],
-          [
-            "op:PrimarySite",
-            "C12404"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -409,7 +437,6 @@
         },
         "shared_pair_count": 4
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -438,7 +465,18 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ],
+          [
+            "op:PrimarySite",
+            "C12404"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -475,18 +513,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedSite",
-            "C12321"
-          ],
-          [
-            "op:PrimarySite",
-            "C12404"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -535,70 +562,106 @@
         },
         "shared_pair_count": 4
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedSite",
-          "C12321"
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C36903"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C156460"
+          ],
+          [
+            "op:Morphology",
+            "C121619"
+          ],
+          [
+            "op:Morphology",
+            "C39986"
+          ]
         ],
-        [
-          "op:PrimarySite",
-          "C12404"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ],
+          [
+            "op:PrimarySite",
+            "C12404"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C162770",
       "common_pair_partition": {
         "actual_partition": [],
         "agrees": null,
+        "current_only_scoreable_pairs": [],
         "eligible": false,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [],
-        "extra_pairs": [],
         "ineligibility_reason": "zero-shared-pairs",
-        "missing_pairs": [],
         "primary_diagnosis": null,
         "shared_pair_count": 0
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [],
         "agrees": true,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": null,
         "shared_pair_count": 0
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C102883",
       "common_pair_partition": {
         "actual_partition": [],
         "agrees": null,
+        "current_only_scoreable_pairs": [],
         "eligible": false,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [],
-        "extra_pairs": [],
         "ineligibility_reason": "zero-shared-pairs",
-        "missing_pairs": [],
         "primary_diagnosis": null,
         "shared_pair_count": 0
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [],
         "agrees": true,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": null,
         "shared_pair_count": 0
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C115057",
@@ -634,7 +697,27 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C54224"
+          ],
+          [
+            "op:Morphology",
+            "C9315"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12418"
+          ],
+          [
+            "op:PrimarySite",
+            "C54224"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -663,27 +746,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C54224"
-          ],
-          [
-            "op:Morphology",
-            "C9315"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12418"
-          ],
-          [
-            "op:PrimarySite",
-            "C54224"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -759,16 +822,6 @@
         },
         "shared_pair_count": 5
       },
-      "extra_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C54224"
-        ],
-        [
-          "op:Morphology",
-          "C9315"
-        ]
-      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -813,7 +866,27 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C54224"
+          ],
+          [
+            "op:Morphology",
+            "C9315"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12418"
+          ],
+          [
+            "op:PrimarySite",
+            "C54224"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -854,27 +927,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C54224"
-          ],
-          [
-            "op:Morphology",
-            "C9315"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12418"
-          ],
-          [
-            "op:PrimarySite",
-            "C54224"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -950,16 +1003,58 @@
         },
         "shared_pair_count": 5
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C12418"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
         ],
-        [
-          "op:PrimarySite",
-          "C54224"
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C54224"
+          ],
+          [
+            "op:Morphology",
+            "C9315"
+          ]
+        ],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C36771"
+          ],
+          [
+            "op:Morphology",
+            "C42690"
+          ],
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        "expected_not_emitted": [
+          [
+            "op:AssociatedRegion",
+            "C12418"
+          ],
+          [
+            "op:PrimarySite",
+            "C54224"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C101539",
@@ -997,7 +1092,34 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ],
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -1028,34 +1150,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12705"
-          ],
-          [
-            "op:AssociatedRegion",
-            "C13063"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C188014"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47806"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47817"
-          ],
-          [
-            "op:PrimarySite",
-            "C12400"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1110,7 +1205,6 @@
         },
         "shared_pair_count": 5
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -1145,7 +1239,34 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ],
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -1212,34 +1333,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12705"
-          ],
-          [
-            "op:AssociatedRegion",
-            "C13063"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C188014"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47806"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47817"
-          ],
-          [
-            "op:PrimarySite",
-            "C12400"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1294,32 +1388,66 @@
         },
         "shared_pair_count": 5
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C12705"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
         ],
-        [
-          "op:AssociatedRegion",
-          "C13063"
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C188014"
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C36836"
+          ],
+          [
+            "op:Morphology",
+            "C7153"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ],
+          [
+            "op:StageSystem",
+            "C140961"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C47806"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C47817"
-        ],
-        [
-          "op:PrimarySite",
-          "C12400"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ],
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C132677",
@@ -1351,7 +1479,26 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -1376,26 +1523,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:ClinicalFinding",
-            "C40557"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C40989"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41444"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C48322"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1450,7 +1578,6 @@
         },
         "shared_pair_count": 4
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -1479,7 +1606,26 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -1528,26 +1674,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:ClinicalFinding",
-            "C40557"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C40989"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41444"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C48322"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1602,24 +1729,54 @@
         },
         "shared_pair_count": 4
       },
-      "missing_pairs": [
-        [
-          "op:ClinicalFinding",
-          "C40557"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-4563e6974906"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C40989"
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C41444"
+        "expected_matched_scoreable": [
+          [
+            "op:MetastaticSite",
+            "C32298"
+          ],
+          [
+            "op:Morphology",
+            "C8566"
+          ],
+          [
+            "op:StageSystem",
+            "C132248"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C48322"
+        "expected_not_emitted": [
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C181564",
@@ -1663,7 +1820,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -1700,9 +1859,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1757,7 +1914,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -1798,7 +1954,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -1835,9 +1993,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -1892,7 +2048,44 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-27f8060dd413"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ],
+          [
+            "op:Morphology",
+            "C9039"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ],
+          [
+            "op:PrimarySite",
+            "C12311"
+          ],
+          [
+            "op:StageSystem",
+            "C180901"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C186620",
@@ -1936,7 +2129,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -1973,9 +2168,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2030,7 +2223,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -2071,7 +2263,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -2108,9 +2302,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2165,7 +2357,39 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ],
+          [
+            "op:Morphology",
+            "C9039"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ],
+          [
+            "op:PrimarySite",
+            "C12311"
+          ],
+          [
+            "op:StageSystem",
+            "C186618"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C162226",
@@ -2209,7 +2433,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -2246,9 +2472,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2303,7 +2527,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -2344,7 +2567,9 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -2381,9 +2606,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2438,7 +2661,39 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ],
+          [
+            "op:Morphology",
+            "C9039"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ],
+          [
+            "op:PrimarySite",
+            "C12311"
+          ],
+          [
+            "op:StageSystem",
+            "C186617"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C206219",
@@ -2482,7 +2737,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -2519,14 +2781,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:PrimarySite",
-            "C12316"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2581,7 +2836,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -2622,7 +2876,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -2665,14 +2926,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:PrimarySite",
-            "C12316"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -2727,12 +2981,44 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": [
-        [
-          "op:PrimarySite",
-          "C12316"
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ],
+          [
+            "op:Morphology",
+            "C7558"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C12313"
+          ],
+          [
+            "op:PrimarySubsite",
+            "C32514"
+          ],
+          [
+            "op:StageSystem",
+            "C206211"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ],
+        "expected_not_emitted": [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C198031",
@@ -2764,7 +3050,31 @@
           ]
         ],
         "agrees": true,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C4005"
+          ],
+          [
+            "op:StageValue",
+            "C198022"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12746"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C13049"
+          ],
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -2791,44 +3101,10 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:Morphology",
-            "C4005"
-          ],
-          [
-            "op:StageValue",
-            "C198022"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12746"
-          ],
-          [
-            "op:NormalTissueOrigin",
-            "C13049"
-          ],
-          [
-            "op:PrimarySite",
-            "C12431"
-          ]
-        ],
         "primary_diagnosis": null,
         "shared_pair_count": 4
       },
-      "extra_pairs": [
-        [
-          "op:Morphology",
-          "C4005"
-        ],
-        [
-          "op:StageValue",
-          "C198022"
-        ]
-      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -2869,7 +3145,31 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C4005"
+          ],
+          [
+            "op:StageValue",
+            "C198022"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12746"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C13049"
+          ],
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -2914,7 +3214,14 @@
             ]
           ]
         ],
-        "extra_pairs": [
+        "ineligibility_reason": null,
+        "primary_diagnosis": null,
+        "shared_pair_count": 4
+      },
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [
           [
             "op:Morphology",
             "C4005"
@@ -2924,8 +3231,26 @@
             "C198022"
           ]
         ],
-        "ineligibility_reason": null,
-        "missing_pairs": [
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C12914"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C60644"
+          ],
+          [
+            "op:Morphology",
+            "C3168"
+          ],
+          [
+            "op:StageSystem",
+            "C198023"
+          ]
+        ],
+        "expected_not_emitted": [
           [
             "op:AssociatedRegion",
             "C12746"
@@ -2938,24 +3263,8 @@
             "op:PrimarySite",
             "C12431"
           ]
-        ],
-        "primary_diagnosis": null,
-        "shared_pair_count": 4
-      },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C12746"
-        ],
-        [
-          "op:NormalTissueOrigin",
-          "C13049"
-        ],
-        [
-          "op:PrimarySite",
-          "C12431"
         ]
-      ]
+      }
     },
     {
       "code": "C100054",
@@ -2993,7 +3302,18 @@
           ]
         ],
         "agrees": true,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:ClinicalFinding",
+            "C36027"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C8326"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3026,22 +3346,10 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:ClinicalFinding",
-            "C36027"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C8326"
-          ]
-        ],
         "primary_diagnosis": null,
         "shared_pair_count": 5
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -3076,7 +3384,18 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:ClinicalFinding",
+            "C36027"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C8326"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3119,9 +3438,15 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
+        "primary_diagnosis": null,
+        "shared_pair_count": 5
+      },
+      "pair_relations": {
+        "current_only_proposed": [],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
           [
             "op:ClinicalFinding",
             "C36027"
@@ -3131,19 +3456,30 @@
             "C8326"
           ]
         ],
-        "primary_diagnosis": null,
-        "shared_pair_count": 5
-      },
-      "missing_pairs": [
-        [
-          "op:ClinicalFinding",
-          "C36027"
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedSite",
+            "C137974"
+          ],
+          [
+            "op:CellType",
+            "C36862"
+          ],
+          [
+            "op:Morphology",
+            "C204977"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C32365"
+          ],
+          [
+            "op:PrimarySite",
+            "C12341"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C8326"
-        ]
-      ]
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C100051",
@@ -3191,7 +3527,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3236,14 +3579,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedSite",
-            "C61107"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -3298,7 +3634,6 @@
         },
         "shared_pair_count": 7
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -3343,7 +3678,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3394,14 +3736,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedSite",
-            "C61107"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -3456,12 +3791,53 @@
         },
         "shared_pair_count": 7
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedSite",
-          "C61107"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:WithFinding",
+            "MINT-e7a70a54f6ff"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedPriorDisease",
+            "C3270"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C12413"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C49274"
+          ],
+          [
+            "op:CellType",
+            "C36773"
+          ],
+          [
+            "op:Morphology",
+            "C9385"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C49276"
+          ],
+          [
+            "op:PrimarySite",
+            "C12415"
+          ]
+        ],
+        "expected_not_emitted": [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C6135",
@@ -3511,7 +3887,42 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:CellType",
+            "C36825"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3554,42 +3965,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12705"
-          ],
-          [
-            "op:CellType",
-            "C36825"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C155863"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C207031"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41457"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C43574"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47804"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47807"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -3644,7 +4020,6 @@
         },
         "shared_pair_count": 7
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -3691,7 +4066,42 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:CellType",
+            "C36825"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3782,42 +4192,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12705"
-          ],
-          [
-            "op:CellType",
-            "C36825"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C155863"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C207031"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41457"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C43574"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47804"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C47807"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -3872,40 +4247,82 @@
         },
         "shared_pair_count": 7
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C12705"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
         ],
-        [
-          "op:CellType",
-          "C36825"
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C155863"
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ],
+          [
+            "op:MolecularAbnormality",
+            "C129702"
+          ],
+          [
+            "op:Morphology",
+            "C3879"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ],
+          [
+            "op:PrimarySite",
+            "C12400"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C207031"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C41457"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C43574"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C47804"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C47807"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ],
+          [
+            "op:CellType",
+            "C36825"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C4791",
@@ -3947,7 +4364,34 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedLineageClassification",
+            "C12471"
+          ],
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -3986,34 +4430,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedLineageClassification",
-            "C12471"
-          ],
-          [
-            "op:CellType",
-            "C36899"
-          ],
-          [
-            "op:CellType",
-            "C36954"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36105"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36122"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C53583"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -4068,7 +4485,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -4107,7 +4523,34 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedLineageClassification",
+            "C12471"
+          ],
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -4180,34 +4623,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedLineageClassification",
-            "C12471"
-          ],
-          [
-            "op:CellType",
-            "C36899"
-          ],
-          [
-            "op:CellType",
-            "C36954"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36105"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36122"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C53583"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -4262,32 +4678,70 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedLineageClassification",
-          "C12471"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:Laterality",
+            "MINT-77bd086d7877"
+          ]
         ],
-        [
-          "op:CellType",
-          "C36899"
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ]
         ],
-        [
-          "op:CellType",
-          "C36954"
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12905"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C13004"
+          ],
+          [
+            "op:AssociatedSite",
+            "C13004"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C35998"
+          ],
+          [
+            "op:Morphology",
+            "C3499"
+          ],
+          [
+            "op:PrimarySite",
+            "C12869"
+          ]
         ],
-        [
-          "op:ClinicalFinding",
-          "C36105"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C36122"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C53583"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedLineageClassification",
+            "C12471"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C35756",
@@ -4325,40 +4779,7 @@
           ]
         ],
         "agrees": true,
-        "eligible": true,
-        "expected_partition": [
-          [
-            [
-              "op:CellType",
-              "C36820"
-            ]
-          ],
-          [
-            [
-              "op:Morphology",
-              "C4917"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12468"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySubsite",
-              "C12683"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C90530"
-            ]
-          ]
-        ],
-        "extra_pairs": [
+        "current_only_scoreable_pairs": [
           [
             "op:Morphology",
             "C4878"
@@ -4368,8 +4789,8 @@
             "C9049"
           ]
         ],
-        "ineligibility_reason": null,
-        "missing_pairs": [
+        "eligible": true,
+        "expected_not_scoreable_pairs": [
           [
             "op:AssociatedLineageClassification",
             "C12704"
@@ -4427,19 +4848,42 @@
             "C28064"
           ]
         ],
+        "expected_partition": [
+          [
+            [
+              "op:CellType",
+              "C36820"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C4917"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12468"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySubsite",
+              "C12683"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C90530"
+            ]
+          ]
+        ],
+        "ineligibility_reason": null,
         "primary_diagnosis": null,
         "shared_pair_count": 5
       },
-      "extra_pairs": [
-        [
-          "op:Morphology",
-          "C4878"
-        ],
-        [
-          "op:Morphology",
-          "C9049"
-        ]
-      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -4486,7 +4930,75 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C4878"
+          ],
+          [
+            "op:Morphology",
+            "C9049"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ],
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C3331"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36129"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36184"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C54209"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C55817"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C60308"
+          ],
+          [
+            "op:StageSystem",
+            "C141685"
+          ],
+          [
+            "op:StageValue",
+            "C27978"
+          ],
+          [
+            "op:StageValue",
+            "C28064"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -4599,7 +5111,23 @@
             ]
           ]
         ],
-        "extra_pairs": [
+        "ineligibility_reason": null,
+        "primary_diagnosis": null,
+        "shared_pair_count": 5
+      },
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ],
+          [
+            "op:WithFinding",
+            "MINT-a60f42d6b2d0"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [
           [
             "op:Morphology",
             "C4878"
@@ -4609,23 +5137,10 @@
             "C9049"
           ]
         ],
-        "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedLineageClassification",
-            "C12704"
-          ],
-          [
-            "op:AssociatedLineageClassification",
-            "C12705"
-          ],
+        "expected_emitted_review_bearing": [
           [
             "op:ClinicalFinding",
             "C155863"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C207031"
           ],
           [
             "op:ClinicalFinding",
@@ -4641,10 +5156,6 @@
           ],
           [
             "op:ClinicalFinding",
-            "C43574"
-          ],
-          [
-            "op:ClinicalFinding",
             "C54209"
           ],
           [
@@ -4656,10 +5167,6 @@
             "C60308"
           ],
           [
-            "op:StageSystem",
-            "C141685"
-          ],
-          [
             "op:StageValue",
             "C27978"
           ],
@@ -4668,67 +5175,51 @@
             "C28064"
           ]
         ],
-        "primary_diagnosis": null,
-        "shared_pair_count": 5
-      },
-      "missing_pairs": [
-        [
-          "op:AssociatedLineageClassification",
-          "C12704"
+        "expected_matched_scoreable": [
+          [
+            "op:CellType",
+            "C36820"
+          ],
+          [
+            "op:Morphology",
+            "C4917"
+          ],
+          [
+            "op:PrimarySite",
+            "C12468"
+          ],
+          [
+            "op:PrimarySubsite",
+            "C12683"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
         ],
-        [
-          "op:AssociatedLineageClassification",
-          "C12705"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C155863"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C207031"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C3331"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C36129"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C36184"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C43574"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C54209"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C55817"
-        ],
-        [
-          "op:ClinicalFinding",
-          "C60308"
-        ],
-        [
-          "op:StageSystem",
-          "C141685"
-        ],
-        [
-          "op:StageValue",
-          "C27978"
-        ],
-        [
-          "op:StageValue",
-          "C28064"
+        "expected_not_emitted": [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ],
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ],
+          [
+            "op:StageSystem",
+            "C141685"
+          ]
         ]
-      ]
+      }
     },
     {
       "code": "C89995",
@@ -4772,7 +5263,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C2955"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -4809,14 +5307,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:Morphology",
-            "C2955"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -4871,12 +5362,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [
-        [
-          "op:Morphology",
-          "C2955"
-        ]
-      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -4923,7 +5408,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C2955"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -4960,14 +5452,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:Morphology",
-            "C2955"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -5022,7 +5507,49 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [
+          [
+            "op:Morphology",
+            "C2955"
+          ]
+        ],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C54189"
+          ],
+          [
+            "op:Morphology",
+            "C4910"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C32926"
+          ],
+          [
+            "op:PrimarySite",
+            "C12382"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C27787",
@@ -5070,7 +5597,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -5111,14 +5645,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:Morphology",
-            "C7251"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -5194,12 +5721,6 @@
         },
         "shared_pair_count": 7
       },
-      "extra_pairs": [
-        [
-          "op:Morphology",
-          "C7251"
-        ]
-      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -5250,7 +5771,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
         "eligible": true,
+        "expected_not_scoreable_pairs": [],
         "expected_partition": [
           [
             [
@@ -5291,14 +5819,7 @@
             ]
           ]
         ],
-        "extra_pairs": [
-          [
-            "op:Morphology",
-            "C7251"
-          ]
-        ],
         "ineligibility_reason": null,
-        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -5374,7 +5895,53 @@
         },
         "shared_pair_count": 7
       },
-      "missing_pairs": []
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:AssociatedRegion",
+            "C12722"
+          ],
+          [
+            "op:CellType",
+            "C36903"
+          ],
+          [
+            "op:Morphology",
+            "C5027"
+          ],
+          [
+            "op:PrimarySite",
+            "C12412"
+          ],
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "expected_not_emitted": []
+      }
     },
     {
       "code": "C115118",
@@ -5418,7 +5985,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -5455,14 +6029,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12378"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -5517,7 +6084,6 @@
         },
         "shared_pair_count": 6
       },
-      "extra_pairs": [],
       "full_partition": {
         "actual_partition": [
           [
@@ -5558,7 +6124,14 @@
           ]
         ],
         "agrees": false,
+        "current_only_scoreable_pairs": [],
         "eligible": true,
+        "expected_not_scoreable_pairs": [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
+        ],
         "expected_partition": [
           [
             [
@@ -5601,14 +6174,7 @@
             ]
           ]
         ],
-        "extra_pairs": [],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:AssociatedRegion",
-            "C12378"
-          ]
-        ],
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
@@ -5663,12 +6229,49 @@
         },
         "shared_pair_count": 6
       },
-      "missing_pairs": [
-        [
-          "op:AssociatedRegion",
-          "C12378"
+      "pair_relations": {
+        "current_only_proposed": [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        "current_only_review_bearing": [],
+        "current_only_scoreable": [],
+        "expected_emitted_review_bearing": [],
+        "expected_matched_scoreable": [
+          [
+            "op:Morphology",
+            "C3513"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C49221"
+          ],
+          [
+            "op:PrimarySite",
+            "C203674"
+          ],
+          [
+            "op:PrimarySubsite",
+            "C12389"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27976"
+          ]
+        ],
+        "expected_not_emitted": [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
         ]
-      ]
+      }
     }
   ],
   "current_evidence_identity": "317468148a9ebba445861fa55f039db37c5eaf65f842cdd639c281b2e2c691a7",
@@ -8210,6 +8813,6 @@
   "run_fingerprint_identity": "ecb34db2a7410b145bb2ed849f4d3d0a1e62aa40442b5d63eebe90d9da70ae6b",
   "run_id": "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
-  "schema_version": 2,
+  "schema_version": 3,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
 }

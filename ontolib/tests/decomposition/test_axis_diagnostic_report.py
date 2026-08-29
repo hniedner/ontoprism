@@ -4,11 +4,13 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from scripts.adjudication import _parser
 from scripts.research.axis_diagnostic_report import (
     AxisDiagnosticReport,
+    PairRangeDiagnostic,
     ResidualPrecoordinationVerdict,
     SourcePairEvidence,
     build_axis_diagnostic_report,
@@ -127,7 +129,10 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         "reason": range_verdict.reason,
         "structural_path": list(range_verdict.structural_path),
     }
-    assert report.range_diagnostics[0].in_current_projection is True
+    assert report.schema_version == 2
+    assert report.range_diagnostics[0].current_projection_status == (
+        "scoreable-release-bound"
+    )
     assert report.range_diagnostics[0].in_expected_oracle is True
     assert report.residual_diagnostics["C35501"].model_dump(mode="json") == {
         "status": residual_verdict.status,
@@ -182,6 +187,59 @@ def test_report_identity_rejects_rebound_payload() -> None:
         type(report).model_validate_json(json.dumps(payload))
 
 
+def test_current_projection_status_is_typed_and_independent_from_range_verdict() -> (
+    None
+):
+    oracle, rows, registry, evidence, comparison = _inputs()
+    verdict = classify_axis_range(
+        "op:ClinicalFinding",
+        "C47806",
+        "C36292",
+        AxisHierarchyEvidence(
+            source_identity=evidence.source_identity,
+            edges=(),
+            disjoint_pairs=(),
+        ),
+    )
+    report = build_axis_diagnostic_report(
+        oracle=oracle,
+        rows=rows,
+        registry=registry,
+        evidence=evidence,
+        comparison=comparison,
+        source_evidence={},
+        range_verdicts={
+            ("C101539", "op:ClinicalFinding", "C47806"): verdict,
+            ("C132677", "op:ClinicalFinding", "C41444"): verdict,
+        },
+        residual_verdicts={},
+    )
+    statuses = {
+        row.filler: row.current_projection_status for row in report.range_diagnostics
+    }
+    assert statuses == {
+        "C47806": "review-bearing-release-bound",
+        "C41444": "not-emitted",
+    }
+    baseline = report.range_diagnostics[0]
+    changed_verdict = baseline.model_copy(
+        update={"verdict": report.range_diagnostics[1].verdict}
+    )
+    assert changed_verdict.current_projection_status == (
+        baseline.current_projection_status
+    )
+    assert set(
+        get_args(
+            PairRangeDiagnostic.model_fields["current_projection_status"].annotation
+        )
+    ) == {
+        "scoreable-release-bound",
+        "review-bearing-release-bound",
+        "provisional-proposed",
+        "not-emitted",
+    }
+
+
 @pytest.mark.full_store
 @pytest.mark.integration
 async def test_generator_writes_identity_bound_packet_without_changing_inputs(
@@ -217,11 +275,21 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
             row.code,
             row.axis,
             row.filler,
-            row.in_current_projection,
+            row.current_projection_status,
             row.in_expected_oracle,
+            row.verdict.status,
         )
         for row in invalid
-    ] == [("C35756", "op:StageSystem", "C141685", False, True)]
+    ] == [
+        (
+            "C35756",
+            "op:StageSystem",
+            "C141685",
+            "not-emitted",
+            True,
+            "invalid",
+        )
+    ]
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 

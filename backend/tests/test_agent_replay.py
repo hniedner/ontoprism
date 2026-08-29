@@ -35,6 +35,33 @@ class _Result:
         self.stderr = stderr
 
 
+@pytest.mark.unit
+def test_group_review_rev2_uses_only_new_output_paths(tmp_path: Path) -> None:
+    required = (
+        "scripts/adjudication.py",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(["generate-group-review-rev2"], tmp_path, runner=runner) == 0
+    )
+
+    command = runner.calls[0][0]
+    assert str(tmp_path / "tmp/m1-6-group-review-packet-rev2.json") in command
+    assert str(tmp_path / "tmp/m1-6-group-review-workbook-rev2.xlsx") in command
+    assert str(tmp_path / "tmp/m1-6-group-correction-audit-rev2.xlsx") in command
+    assert str(tmp_path / "tmp/m1-6-group-review-blank-validation-rev2.json") in command
+    assert str(tmp_path / "tmp/m1-6-group-review-packet.json") not in command
+    assert str(tmp_path / "tmp/m1-6-group-review-workbook.xlsx") not in command
+
+
 class _PodmanDiagnosticRunner:
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path

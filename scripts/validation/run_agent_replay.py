@@ -990,13 +990,15 @@ def _generate_axis_diagnostics(
     ]
     for filler in values:
         command.extend(("--residual-filler", filler))
-    command.extend(("--output", str(root / "tmp/m1-6-axis-diagnostics.json")))
+    command.extend(("--output", str(root / "tmp/m1-6-axis-diagnostics-rev2.json")))
     return _run(command, root, runner)
 
 
-def _generate_group_review(values: list[str], root: Path, runner: CommandRunner) -> int:
+def _generate_group_review_rev2(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
     if values:
-        raise AgentReplayInputError("generate-group-review accepts no arguments")
+        raise AgentReplayInputError("generate-group-review-rev2 accepts no arguments")
     script, evidence, comparison, r101_report = _require_files(
         root,
         (
@@ -1018,9 +1020,13 @@ def _generate_group_review(values: list[str], root: Path, runner: CommandRunner)
             "--r101-report",
             r101_report,
             "--output",
-            str(root / "tmp/m1-6-group-review-packet.json"),
+            str(root / "tmp/m1-6-group-review-packet-rev2.json"),
             "--workbook",
-            str(root / "tmp/m1-6-group-review-workbook.xlsx"),
+            str(root / "tmp/m1-6-group-review-workbook-rev2.xlsx"),
+            "--correction-audit",
+            str(root / "tmp/m1-6-group-correction-audit-rev2.xlsx"),
+            "--blank-validation",
+            str(root / "tmp/m1-6-group-review-blank-validation-rev2.json"),
         ],
         root,
         runner,
@@ -2332,7 +2338,7 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-current-evidence": _generate_current_evidence,
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
-    "generate-group-review": _generate_group_review,
+    "generate-group-review-rev2": _generate_group_review_rev2,
     "generate-r103-review": _generate_r103_review,
     "validate-r101-current": _validate_r101_current,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,
