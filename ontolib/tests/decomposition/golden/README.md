@@ -13,8 +13,8 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-engine-evidence.json` | The recorded engine run scored against the oracle. |
 | `neoplasm-corpus-comparison.json` | The tracked residual comparison for the M1 sample. |
 | `neoplasm.json`, `neoplasm-draft.json` | `AUTO-DRAFT` review inputs. **Not** oracles. Retained as seeds. |
-| `proposal-registry.json` | The proposal registry bound to the oracle. |
-| `complete-definition.json`, `minted-concepts.json` | Fixtures for the complete-definition and minting paths. |
+| `proposal-registry.json` | The sole current strict governance record for proposals bound to the oracle. |
+| `complete-definition.json` | Fixture for the complete-definition path. |
 | `neoplasm-current-engine-evidence.json` | Current-source 20-code replay evidence; never the historical attested run. |
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
 | `neoplasm-current-corpus-baseline.json` | Current-source full-corpus pre-change counts and exact representation identity. |
@@ -22,6 +22,14 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
 | `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
 | `r101-review-registry-v3-sme.json.gz` | Deterministic test golden of the complete proposed review registry; it is not runtime package data or publication authorization. |
+
+`proposal-registry.json` is the sole current strict golden governance record for minted proposals.
+It records `MINT-781c8c8c6096` as `locally-approved`, meaning local SME approval only—not
+submission, acceptance in NCIt, runtime publication, or full-corpus publication. Runtime database
+minted concepts and the API that serves them are separate product state; this directory does not
+replace or certify those runtime surfaces. The C27787 adjudication rationale contains superseded
+lifecycle prose whose identity-bound correction is deferred and blocked as recorded in D82; the
+strict registry, not that prose, is current authority.
 
 The compressed review registry has schema 3/status `proposed`, identity
 `358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975`, and exactly
