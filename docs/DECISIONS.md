@@ -7,6 +7,47 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-30 — MINT-781c8c8c6096 lifecycle authority is reconciled
+
+### D82. The strict proposal registry is the sole current governance record for the C27787 mint
+
+**Decision:** on 2026-08-30 the user explicitly set the authoritative current state of
+`MINT-781c8c8c6096` to `locally-approved`. The strict
+`ontolib/tests/decomposition/golden/proposal-registry.json` entry and the augmented C27787
+expected constituent in `neoplasm-adjudicated.json` are the current authorities; together they
+record exactly one proposal and one constituent with that ID, `op:CellType`,
+`locally-approved` provenance, and `needs_review=false`
+(`pdm run agent-test ontolib/tests/decomposition/test_m1_baseline.py::test_mint_781_lifecycle_has_one_strict_local_authority -v`,
+2026-08-30).
+
+`locally-approved` means local SME approval only. It is not submitted, accepted-in-ncit,
+runtime-published, or full-corpus-published. The deterministic ID and all
+non-lifecycle proposal fields remain unchanged, as do the augmented constituent, row decisions,
+current comparison, engine evidence, and corpus evidence
+(`git diff --no-ext-diff -- ontolib/tests/decomposition/golden/proposal-registry.json ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-current-comparison.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json`,
+2026-08-30). This reconciliation changes no runtime graph, store, database, API, frontend, or
+publication surface (`git diff --no-ext-diff -- ontolib/src backend/src frontend/src`, 2026-08-30).
+
+The old minted-concept golden JSON was a stale duplicate that still said proposed and unapproved
+(`git diff --no-ext-diff -- 'ontolib/tests/decomposition/golden/minted*.json'`, 2026-08-30).
+No production source or script consumed it
+(`git grep -n "minted[-]concepts[.]json" -- ontolib/src backend/src frontend/src scripts`,
+2026-08-30).
+It is removed rather than retained as a compatibility record. Runtime database minted concepts and
+their API are separate product state and are not changed or certified by this golden-governance
+cleanup.
+
+**Deferred blocking technical debt:** the C27787 adjudication rationale still contains historical
+phrases including “approved for submission”
+(`git grep -n "approved for submission" -- ontolib/tests/decomposition/golden/neoplasm-adjudicated.json`,
+2026-08-30). That prose is not current lifecycle authority. Editing it would change oracle identity
+and require current-evidence and R103 rebinding. Although `tmp/m1-6-current-replay.ttl` is present
+(`ls "tmp/m1-6-current-replay.ttl"`, 2026-08-30), it is not tracked
+(`git ls-files "tmp/m1-6-current-replay.ttl"`, 2026-08-30), and no persisted run
+ID proving the required rebind was supplied for this batch. Rebinding is therefore **BLOCKED**;
+identities must not be hand-edited. No other SME correction is approved by this decision, and the
+broader correction feedback remains unresolved.
+
 ## 2026-08-29 — group review distinguishes scoreable, review-bearing, and absent pairs
 
 ### D81. Historical schema-3 review remains immutable; schema 4 starts a fresh review boundary
@@ -2109,12 +2150,15 @@ complete default product without any licensed dependency.
 
 ### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
 
-**Current-status correction (D57):** the original `MINT-3a7f2c8e901d` identifier and
+**Current-status correction (D82; superseding D57/D58 lifecycle guidance):** the original
+`MINT-3a7f2c8e901d` identifier and
 parent `C12917` were authored outside the deterministic mint contract and before the
 source-bound duplicate audit found `C54110 Malignant Germ Cell`. The proposal is now
-`MINT-781c8c8c6096` with parent `C54110`. D57/D58 later advanced it to
-`locally-approved` for the filterable augmented view; it is still not NCIt-authored or
-accepted by NCI.
+`MINT-781c8c8c6096` with parent `C54110`. Its sole current strict governance record is
+`ontolib/tests/decomposition/golden/proposal-registry.json`, where its state is
+`locally-approved`: local SME approval only, not submission, NCI acceptance, runtime publication,
+or full-corpus publication. See D82. The old ID, parent, and lifecycle statement below are retained
+only as superseded decision history.
 
 > **Current-status correction (2026-08-06) — the organ principle stands; its hand-maintained
 > implementation does not, and must not be rebuilt by hand.**
@@ -2193,7 +2237,11 @@ Same anatomy code legitimately appears on multiple axes (primary + associated). 
 
 **Part 5: Minted concepts for NCIt gaps**
 
-SME identified that C27787 (testicular NSGCT) has no suitable NCIt cell type. Decision: **mint temporary ID** `MINT-3a7f2c8e901d` for "Malignant Non-Seminomatous Germ Cell" with parent C12917. Minted concepts tracked in `ontolib/tests/decomposition/golden/minted-concepts.json` (git-tracked) for reproducibility.
+**Historical statement, superseded by D82:** SME identified that C27787 (testicular NSGCT) has no
+suitable NCIt cell type and selected the temporary ID `MINT-3a7f2c8e901d` for “Malignant
+Non-Seminomatous Germ Cell” with parent C12917. That old ID and parent are not current. D82 points
+to `ontolib/tests/decomposition/golden/proposal-registry.json` for the deterministic replacement,
+parent, and current local lifecycle state.
 
 **Part 6: Structural bugs identified**
 
@@ -2206,7 +2254,9 @@ SME identified that C27787 (testicular NSGCT) has no suitable NCIt cell type. De
 - Establishes minted-concept workflow for NCIt gaps (reproducible, git-tracked)
 - Flags two bugs blocking golden set completion
 
-**Evidence:** SME review (workbook + decisions log) and `ontolib/tests/decomposition/golden/minted-concepts.json`.
+**Evidence (historical):** the original SME review and this decision log preserve what D23 decided.
+For current proposal governance and the augmented expected constituent, use the strict registry and
+oracle named by D82; do not infer current state from this historical paragraph.
 
 ---
 

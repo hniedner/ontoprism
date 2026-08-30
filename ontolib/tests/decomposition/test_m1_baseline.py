@@ -45,11 +45,14 @@ if TYPE_CHECKING:
     from scripts.research.golden_review import AdjudicationArtifact, RowDecisionExport
 
 _GOLDEN = Path(__file__).with_name("golden")
+_DECISIONS_PATH = Path(__file__).parents[3] / "docs" / "DECISIONS.md"
 _ADJUDICATION_PATH = _GOLDEN / "neoplasm-adjudicated.json"
 _ENGINE_EVIDENCE_PATH = _GOLDEN / "neoplasm-engine-evidence.json"
 _CORPUS_COMPARISON_PATH = _GOLDEN / "neoplasm-corpus-comparison.json"
 _PROPOSAL_REGISTRY_PATH = _GOLDEN / "proposal-registry.json"
 _ROW_DECISIONS_PATH = _GOLDEN / "neoplasm-row-decisions.json"
+_MINT_ID = "MINT-781c8c8c6096"
+_OBSOLETE_MINTED_GOLDEN = "minted" + "-concepts.json"
 
 
 def _mapping(value: object, label: str) -> dict[str, Any]:
@@ -184,6 +187,69 @@ def test_tracked_oracle_records_154_expected_constituents(
         if concept.expected is not None
     )
     assert total == 154
+
+
+@pytest.mark.unit
+def test_mint_781_lifecycle_has_one_strict_local_authority(
+    m1_artifact: AdjudicationArtifact,
+) -> None:
+    """The C27787 mint has one local authority and no stale golden lifecycle."""
+    registry = _mapping(
+        read_json_without_duplicates(_PROPOSAL_REGISTRY_PATH), "proposal registry"
+    )
+    registry_proposals = [
+        _mapping(proposal, "proposal")
+        for proposal in _sequence(registry["proposals"], "proposals")
+    ]
+    proposals = [
+        proposal for proposal in registry_proposals if proposal["id"] == _MINT_ID
+    ]
+    assert len(proposals) == 1
+    assert proposals[0]["kind"] == "concept"
+    assert proposals[0]["status"] == "locally-approved"
+    assert proposals[0]["source_concepts"] == ["C27787"]
+    assert not any(
+        "C27787" in _sequence(proposal.get("source_concepts", []), "source concepts")
+        and proposal.get("status") == "accepted-in-ncit"
+        for proposal in registry_proposals
+    )
+
+    c27787 = next(
+        concept for concept in m1_artifact.concepts if concept.code == "C27787"
+    )
+    assert c27787.expected is not None
+    minted = [
+        constituent
+        for constituent in c27787.expected.constituents
+        if constituent.filler == _MINT_ID
+    ]
+    assert len(minted) == 1
+    assert minted[0].axis == "op:CellType"
+    assert minted[0].proposal_id == _MINT_ID
+    assert minted[0].provenance_status == "locally-approved"
+    assert minted[0].needs_review is False
+
+    assert not (_GOLDEN / _OBSOLETE_MINTED_GOLDEN).exists()
+
+    readme = " ".join((_GOLDEN / "README.md").read_text(encoding="utf-8").split())
+    decisions = _DECISIONS_PATH.read_text(encoding="utf-8")
+    d82 = " ".join(
+        decisions.split("### D82.", maxsplit=1)[1].split("\n## ", maxsplit=1)[0].split()
+    )
+    d23 = " ".join(
+        decisions.split("### D23.", maxsplit=1)[1].split("\n---", maxsplit=1)[0].split()
+    )
+    for current_guidance in (readme, d82, d23):
+        assert "proposal-registry.json" in current_guidance
+        assert _OBSOLETE_MINTED_GOLDEN not in current_guidance
+
+    assert "sole current strict governance record" in readme
+    assert "local SME approval only" in d82
+    assert (
+        "not submitted, accepted-in-ncit, runtime-published, or full-corpus-published"
+        in d82
+    )
+    assert "No other SME correction is approved by this decision" in d82
 
 
 @pytest.mark.unit
