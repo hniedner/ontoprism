@@ -9,10 +9,13 @@ from typing import get_args
 import pytest
 from scripts.adjudication import _parser
 from scripts.research.axis_diagnostic_report import (
+    AvailableSourcePairEvidence,
     AxisDiagnosticReport,
     PairRangeDiagnostic,
     ResidualPrecoordinationVerdict,
-    SourcePairEvidence,
+    SerializedSourceOccurrence,
+    SourceBackedCoordinateMissingEvidence,
+    UnavailableSourcePairEvidence,
     build_axis_diagnostic_report,
     collect_residual_verdicts,
     collect_source_pair_evidence,
@@ -43,6 +46,21 @@ _EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
 
 
+def _occurrence() -> SerializedSourceOccurrence:
+    return SerializedSourceOccurrence(
+        occurrence_id="1" * 64,
+        root_code="C27262",
+        source_fact_id="a" * 64,
+        source_group_id="2" * 64,
+        anchor_code="C9290",
+        depth=1,
+        role_code="R105",
+        filler_code="C41063",
+        structural_path=(0, 3),
+        member_position=3,
+    )
+
+
 def _inputs():  # type: ignore[no-untyped-def]
     registry = load_proposal_registry(_REGISTRY)
     return (
@@ -56,7 +74,7 @@ def _inputs():  # type: ignore[no-untyped-def]
 
 def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> None:
     oracle, rows, registry, evidence, comparison = _inputs()
-    supports: dict[tuple[str, str, str], SourcePairEvidence] = {}
+    supports = {}
     for result in comparison.row_replay.results:
         if (
             result.row_type == "ADD IF MISSING"
@@ -64,11 +82,20 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
             and result.status == "selection-miss"
         ):
             supports[(result.code, result.expected.axis, result.expected.filler)] = (
-                SourcePairEvidence(stage="extracted", source_definition_ids=("a" * 64,))
+                AvailableSourcePairEvidence(
+                    status="available",
+                    extraction_stage="extracted",
+                    source_definition_ids=("a" * 64,),
+                    occurrences=(_occurrence(),),
+                )
             )
-    supports[("C27262", "op:Morphology", "C9290")] = SourcePairEvidence(
-        stage="source-only",
-        source_definition_ids=("b" * 64,),
+    supports[("C27262", "op:Morphology", "C9290")] = (
+        SourceBackedCoordinateMissingEvidence(
+            status="source-backed-coordinate-missing",
+            extraction_stage="source-only",
+            source_definition_ids=("b" * 64,),
+            reason="genus-has-no-restriction-occurrence",
+        )
     )
 
     range_verdict = classify_axis_range(
@@ -115,7 +142,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         == ("C27262", "op:Morphology", "C9290")
     )
     assert c9290.classification == "added"
-    assert c9290.source_definition_ids == ("b" * 64,)
+    assert c9290.source_evidence.source_definition_ids == ("b" * 64,)
     selection_misses = [
         row for row in report.candidate_rows if row.classification == "selection-miss"
     ]
@@ -129,7 +156,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         "reason": range_verdict.reason,
         "structural_path": list(range_verdict.structural_path),
     }
-    assert report.schema_version == 2
+    assert report.schema_version == 3
     assert report.range_diagnostics[0].current_projection_status == (
         "scoreable-release-bound"
     )
@@ -185,6 +212,52 @@ def test_report_identity_rejects_rebound_payload() -> None:
 
     with pytest.raises(ValueError, match="report identity"):
         type(report).model_validate_json(json.dumps(payload))
+
+
+def test_source_evidence_variants_are_strict_and_discriminated() -> None:
+    available = AvailableSourcePairEvidence(
+        status="available",
+        extraction_stage="source-only",
+        source_definition_ids=("a" * 64,),
+        occurrences=(_occurrence(),),
+    )
+    coordinate_missing = SourceBackedCoordinateMissingEvidence(
+        status="source-backed-coordinate-missing",
+        extraction_stage="extracted",
+        source_definition_ids=("b" * 64,),
+        reason="definition-fact-absent-from-occurrence-ledger",
+    )
+    unavailable = UnavailableSourcePairEvidence(
+        status="unavailable",
+        reason="no-matching-stated-definition-fact",
+    )
+
+    assert available.occurrences[0].structural_path == (0, 3)
+    assert coordinate_missing.source_definition_ids == ("b" * 64,)
+    assert unavailable.model_dump() == {
+        "status": "unavailable",
+        "reason": "no-matching-stated-definition-fact",
+    }
+    with pytest.raises(ValueError, match="at least 1 item"):
+        AvailableSourcePairEvidence(
+            status="available",
+            extraction_stage="source-only",
+            source_definition_ids=(),
+            occurrences=(_occurrence(),),
+        )
+    with pytest.raises(ValueError, match="Input should be"):
+        SourceBackedCoordinateMissingEvidence(
+            status="source-backed-coordinate-missing",
+            extraction_stage="source-only",
+            source_definition_ids=("b" * 64,),
+            reason="open-ended-reason",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="Extra inputs"):
+        UnavailableSourcePairEvidence(
+            status="unavailable",
+            reason="no-matching-stated-definition-fact",
+            source_definition_ids=("c" * 64,),  # type: ignore[call-arg]
+        )
 
 
 def test_current_projection_status_is_typed_and_independent_from_range_verdict() -> (
@@ -376,11 +449,14 @@ async def test_source_collector_cites_genus_without_inventing_contextual_facts()
         )
 
     c9290 = source[("C27262", "op:Morphology", "C9290")]
-    assert c9290.stage == "source-only"
+    assert c9290.status == "source-backed-coordinate-missing"
     assert c9290.source_definition_ids == (
         "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf",
     )
-    assert ("C27262", "op:AssociatedRegion", "C41165") not in source
+    assert source[("C27262", "op:AssociatedRegion", "C41165")].model_dump() == {
+        "status": "unavailable",
+        "reason": "no-matching-stated-definition-fact",
+    }
 
 
 @pytest.mark.full_store
