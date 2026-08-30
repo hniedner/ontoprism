@@ -103,18 +103,78 @@ def _identity(value: object) -> str:
     ).hexdigest()
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SourcePairEvidence:
-    stage: Literal["source-only", "extracted"]
-    source_definition_ids: tuple[str, ...]
+class SerializedSourceOccurrence(_StrictModel):
+    occurrence_id: str = Field(pattern=_SHA256)
+    root_code: str = Field(pattern=r"^C[0-9]+$")
+    source_fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str = Field(pattern=r"^C[0-9]+$")
+    depth: int = Field(ge=0)
+    role_code: str = Field(pattern=r"^R[0-9]+$")
+    filler_code: str = Field(pattern=r"^C[0-9]+$")
+    structural_path: tuple[int, ...] = Field(min_length=1)
+    member_position: int = Field(ge=0)
 
-    def __post_init__(self) -> None:
-        if not self.source_definition_ids:
-            raise ValueError("source definition IDs must not be empty")
+    @model_validator(mode="after")
+    def _validate_path(self) -> Self:
+        if any(position < 0 for position in self.structural_path):
+            raise ValueError("source occurrence path positions must be non-negative")
+        if self.structural_path[-1] != self.member_position:
+            raise ValueError("source occurrence member must end its structural path")
+        return self
+
+
+class AvailableSourcePairEvidence(_StrictModel):
+    status: Literal["available"]
+    extraction_stage: Literal["source-only", "extracted"]
+    source_definition_ids: tuple[str, ...] = Field(min_length=1)
+    occurrences: tuple[SerializedSourceOccurrence, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_definition_ids(self) -> Self:
         if any(
             _DIGEST.fullmatch(value) is None for value in self.source_definition_ids
         ):
             raise ValueError("source definition ID is invalid")
+        if any(
+            occurrence.source_fact_id not in self.source_definition_ids
+            for occurrence in self.occurrences
+        ):
+            raise ValueError(
+                "source occurrence does not cite a matching definition fact"
+            )
+        return self
+
+
+class SourceBackedCoordinateMissingEvidence(_StrictModel):
+    status: Literal["source-backed-coordinate-missing"]
+    extraction_stage: Literal["source-only", "extracted"]
+    source_definition_ids: tuple[str, ...] = Field(min_length=1)
+    reason: Literal[
+        "genus-has-no-restriction-occurrence",
+        "definition-fact-absent-from-occurrence-ledger",
+    ]
+
+    @model_validator(mode="after")
+    def _validate_definition_ids(self) -> Self:
+        if any(
+            _DIGEST.fullmatch(value) is None for value in self.source_definition_ids
+        ):
+            raise ValueError("source definition ID is invalid")
+        return self
+
+
+class UnavailableSourcePairEvidence(_StrictModel):
+    status: Literal["unavailable"]
+    reason: Literal["no-matching-stated-definition-fact"]
+
+
+type SourcePairEvidence = Annotated[
+    AvailableSourcePairEvidence
+    | SourceBackedCoordinateMissingEvidence
+    | UnavailableSourcePairEvidence,
+    Field(discriminator="status"),
+]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -198,7 +258,7 @@ def _expected_candidate_keys(
     }
 
 
-async def collect_source_pair_evidence(
+async def collect_source_pair_evidence(  # noqa: C901
     client: object,
     rows: RowDecisionExport,
     *,
@@ -213,6 +273,22 @@ async def collect_source_pair_evidence(
     for code in concept_codes:
         complete = await read_complete_definition(client.select_once, code)  # type: ignore[attr-defined]
         by_pair: dict[tuple[str, str], set[str]] = {}
+        occurrence_by_fact: dict[str, list[SerializedSourceOccurrence]] = {}
+        for occurrence in complete.occurrences:
+            occurrence_by_fact.setdefault(occurrence.source_fact_id, []).append(
+                SerializedSourceOccurrence(
+                    occurrence_id=occurrence.occurrence_id,
+                    root_code=occurrence.root_code,
+                    source_fact_id=occurrence.source_fact_id,
+                    source_group_id=occurrence.source_group_id,
+                    anchor_code=occurrence.anchor_code,
+                    depth=occurrence.depth,
+                    role_code=occurrence.role_code,
+                    filler_code=occurrence.filler_code,
+                    structural_path=occurrence.structural_path,
+                    member_position=occurrence.member_position,
+                )
+            )
         for fact in complete.facts:
             if isinstance(fact, GenusDefinitionFact):
                 pair = ("op:Morphology", fact.genus_code)
@@ -224,13 +300,50 @@ async def collect_source_pair_evidence(
             else:
                 continue
             by_pair.setdefault(pair, set()).add(fact.fact_id)
-        for expected_code, axis, filler in expected:
-            if expected_code != code or (axis, filler) not in by_pair:
+        for expected_code, axis, filler in sorted(expected):
+            if expected_code != code:
                 continue
-            result[(code, axis, filler)] = SourcePairEvidence(
-                stage="source-only",
-                source_definition_ids=tuple(sorted(by_pair[(axis, filler)])),
+            definition_ids = tuple(sorted(by_pair.get((axis, filler), ())))
+            if not definition_ids:
+                result[(code, axis, filler)] = UnavailableSourcePairEvidence(
+                    status="unavailable",
+                    reason="no-matching-stated-definition-fact",
+                )
+                continue
+            occurrences = tuple(
+                sorted(
+                    (
+                        occurrence
+                        for fact_id in definition_ids
+                        for occurrence in occurrence_by_fact.get(fact_id, ())
+                    ),
+                    key=lambda item: (item.anchor_code, item.structural_path),
+                )
             )
+            if occurrences:
+                source: SourcePairEvidence = AvailableSourcePairEvidence(
+                    status="available",
+                    extraction_stage="source-only",
+                    source_definition_ids=definition_ids,
+                    occurrences=occurrences,
+                )
+            else:
+                genus = any(
+                    isinstance(fact, GenusDefinitionFact)
+                    and fact.fact_id in definition_ids
+                    for fact in complete.facts
+                )
+                source = SourceBackedCoordinateMissingEvidence(
+                    status="source-backed-coordinate-missing",
+                    extraction_stage="source-only",
+                    source_definition_ids=definition_ids,
+                    reason=(
+                        "genus-has-no-restriction-occurrence"
+                        if genus
+                        else "definition-fact-absent-from-occurrence-ledger"
+                    ),
+                )
+            result[(code, axis, filler)] = source
     return result
 
 
@@ -257,7 +370,25 @@ class CandidateRowDiagnostic(_StrictModel):
         "proposal-only",
         "unavailable-source-evidence",
     ]
-    source_definition_ids: tuple[str, ...]
+    source_evidence: SourcePairEvidence
+
+    @model_validator(mode="after")
+    def _validate_source_semantics(self) -> Self:
+        if self.classification in {"selection-miss", "extraction-miss"} and (
+            self.source_evidence.status == "unavailable"
+        ):
+            raise ValueError(
+                "selection/extraction miss requires source-backed evidence"
+            )
+        if self.classification == "unavailable-source-evidence" and (
+            self.source_evidence.status != "unavailable"
+        ):
+            raise ValueError("unavailable classification requires unavailable evidence")
+        if self.classification == "proposal-only" and (
+            self.source_evidence.status == "available"
+        ):
+            raise ValueError("proposal-only candidate cannot claim a source occurrence")
+        return self
 
 
 class DisjointPairDocument(_StrictModel):
@@ -390,7 +521,7 @@ class DiagnosticMetrics(_StrictModel):
 
 
 class AxisDiagnosticReport(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -534,8 +665,12 @@ def _candidate_classification(
         return "added"
     if old_status == RowReplayStatus.PROPOSAL_ONLY:
         return "proposal-only"
-    if source is not None:
-        return "extraction-miss" if source.stage == "source-only" else "selection-miss"
+    if source is not None and source.status != "unavailable":
+        return (
+            "extraction-miss"
+            if source.extraction_stage == "source-only"
+            else "selection-miss"
+        )
     return "unavailable-source-evidence"
 
 
@@ -555,7 +690,9 @@ def _candidate_rows(
         if not isinstance(row, KeptRow):
             raise ValueError("kept candidate row lacks expected pair")
         key = (row.code, row.expected.axis, row.expected.filler)
-        source = source_evidence.get(key)
+        source = source_evidence.get(key) or UnavailableSourcePairEvidence(
+            status="unavailable", reason="no-matching-stated-definition-fact"
+        )
         old_status = replay[ordinal].status
         result.append(
             CandidateRowDiagnostic(
@@ -566,9 +703,7 @@ def _candidate_rows(
                     old_status=old_status,
                     source=source,
                 ),
-                source_definition_ids=(
-                    source.source_definition_ids if source is not None else ()
-                ),
+                source_evidence=source,
             )
         )
     if len(result) != _CANDIDATE_COUNT:
@@ -601,7 +736,7 @@ def build_axis_diagnostic_report(
         for item in concept.expected.constituents
     }
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "ncit_version": comparison.ncit_version,
         "source_identity": comparison.source_identity,
         "sample_manifest_identity": comparison.sample_manifest_identity,
@@ -713,11 +848,11 @@ def _mark_extracted_source_evidence(
             continue
         key = (row.code, row.expected.axis, row.expected.filler)
         source = result.get(key)
-        if source is not None:
-            result[key] = SourcePairEvidence(
-                stage="extracted",
-                source_definition_ids=source.source_definition_ids,
-            )
+        if isinstance(
+            source,
+            (AvailableSourcePairEvidence, SourceBackedCoordinateMissingEvidence),
+        ):
+            result[key] = source.model_copy(update={"extraction_stage": "extracted"})
     return result
 
 

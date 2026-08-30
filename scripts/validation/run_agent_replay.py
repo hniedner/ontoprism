@@ -1033,6 +1033,54 @@ def _generate_group_review_rev2(
     )
 
 
+def _generate_specialist_review_packets(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-specialist-review-packets accepts no arguments"
+        )
+    script, literature, registry, diagnostics, evidence, comparison, groups = (
+        _require_files(
+            root,
+            (
+                "scripts/adjudication.py",
+                "tmp/m1-6-specialist-literature-context.json",
+                "ontolib/tests/decomposition/golden/proposal-registry.json",
+                "tmp/m1-6-axis-diagnostics-rev2.json",
+                "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+                "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+                "tmp/m1-6-group-review-packet-rev2.json",
+            ),
+        )
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "generate-specialist-review-packets",
+            "--literature-context",
+            literature,
+            "--proposal-registry",
+            registry,
+            "--axis-diagnostics",
+            diagnostics,
+            "--current-evidence",
+            evidence,
+            "--current-comparison",
+            comparison,
+            "--group-review-packet",
+            groups,
+            "--output-directory",
+            str(root / "tmp/m1-6-specialist-packets"),
+            "--producing-command",
+            "pdm run agent-replay generate-specialist-review-packets",
+        ],
+        root,
+        runner,
+    )
+
+
 def _generate_r103_review(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("generate-r103-review accepts no arguments")
@@ -2339,6 +2387,7 @@ _OPERATIONS: dict[str, Operation] = {
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review-rev2": _generate_group_review_rev2,
+    "generate-specialist-review-packets": _generate_specialist_review_packets,
     "generate-r103-review": _generate_r103_review,
     "validate-r101-current": _validate_r101_current,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,
