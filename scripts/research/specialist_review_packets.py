@@ -16,6 +16,8 @@ from typing import Any, Literal, Self, cast
 from defusedxml.ElementTree import iterparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+
 try:
     from scripts.research.specialist_cadsr_usage import (
         CadsrUsageRow,
@@ -41,6 +43,7 @@ _MINT = re.compile(r"MINT-[0-9a-f]{12}")
 _GROUP_PACKET_SCHEMA = 4
 _DIAGNOSTIC_SCHEMA = 3
 _STAGE_B_DECISION_WIDTH = 7
+_CONTROLLING_AUTHORITY_MAX = 2
 Relation = Literal[
     "expected-matched-scoreable",
     "expected-emitted-review-bearing",
@@ -89,9 +92,15 @@ class SpecialistPair(_StrictModel):
     source_role_label: str = Field(min_length=1)
     source_role_definition: str = Field(min_length=1)
     source_occurrences: tuple[SourceOccurrence, ...]
+    source_evidence_status: Literal[
+        "available", "source-backed-coordinate-missing", "unavailable"
+    ] = "unavailable"
+    source_evidence_reason: str = "no-matching-stated-definition-fact"
+    source_definition_ids: tuple[str, ...] = ()
     current_projection_status: str = Field(min_length=1)
     axis_range_verdict: Literal["valid", "invalid", "unknown"]
     modality: str = Field(min_length=1)
+    derivation: str = "source-coordinate-unavailable"
     governance: str = Field(min_length=1)
     fallback: str = Field(min_length=1)
     allowed_reaxis_targets: tuple[str, ...]
@@ -117,6 +126,23 @@ class SpecialistRowPacket(_StrictModel):
                     raise ValueError(
                         f"unknown semantic pair in clinical question: {key.axis}/{key.filler}"
                     )
+        questioned = [
+            (key.axis, key.filler)
+            for question in self.question_pair_keys
+            for key in question
+        ]
+        asked = {
+            (pair.key.axis, pair.key.filler)
+            for pair in self.pairs
+            if pair.review_scope in {"stage-a-and-stage-b", "stage-a-clinical-only"}
+        }
+        if set(questioned) != asked or len(questioned) != len(set(questioned)):
+            missing = sorted(asked - set(questioned))
+            extra = sorted(set(questioned) - asked)
+            raise ValueError(
+                "curated question set must cover every asked pair exactly once; "
+                f"missing={missing}; extra={extra}"
+            )
         engineering = set(self.engineering_pair_ids)
         if set(self.engineering_blockers) != engineering:
             raise ValueError(
@@ -322,13 +348,19 @@ class PacketIndexEntry(_StrictModel):
     context_pair_ids: tuple[str, ...]
 
 
+class SuppressedCandidate(_StrictModel):
+    axis: str
+    generated_id: str = Field(pattern=r"^MINT-[0-9a-f]{12}$")
+    reason: Literal["unregistered", "range-ineligible"]
+
+
 class PacketIndex(_StrictModel):
     schema_version: Literal[2] = 2
     ncit_version: Literal["26.07d"]
     input_identities: dict[str, str]
     literature_context_identity: str = Field(pattern=_SHA256)
     cadsr_usage_identity: str = Field(pattern=_SHA256)
-    suppressed_unregistered_mints_by_row: dict[str, int]
+    suppressed_candidates_by_row: dict[str, tuple[SuppressedCandidate, ...]]
     packets: tuple[PacketIndexEntry, ...]
     index_identity: str = Field(pattern=_SHA256)
 
@@ -424,6 +456,37 @@ def _labels(raw_inputs: tuple[Any, ...]) -> tuple[dict[str, str], dict[str, str]
     return labels, role_labels
 
 
+def _source_definition_ids(
+    raw_inputs: tuple[Any, ...],
+) -> dict[tuple[str, str, str], tuple[str, ...]]:
+    """Index definition facts retained by the bound current-engine evidence."""
+    evidence = next(
+        (
+            item
+            for item in raw_inputs
+            if isinstance(item, dict)
+            and isinstance(item.get("artifact_identity"), str)
+            and isinstance(item.get("concepts"), list)
+            and any(
+                isinstance(concept, dict) and "constituents" in concept
+                for concept in item["concepts"]
+            )
+        ),
+        None,
+    )
+    if not isinstance(evidence, dict):
+        return {}
+    return {
+        (str(concept["code"]), str(item["axis"]), str(item["filler"])): tuple(
+            str(identity) for identity in item.get("source_definition_ids", ())
+        )
+        for concept in evidence["concepts"]
+        if isinstance(concept, dict)
+        for item in concept.get("constituents", ())
+        if isinstance(item, dict) and item.get("source_definition_ids")
+    }
+
+
 def _hash_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -458,18 +521,18 @@ def _ncit_metadata(
 
 
 def _scope(
-    code: str, key: PairKey, relation: Relation, range_status: str
+    code: str,
+    key: PairKey,
+    relation: Relation,
+    range_status: str,
+    diagnostic_classification: str | None,
+    source_status: str,
 ) -> tuple[ReviewScope, str, str | None]:
-    clinical_only = {
-        ("C102870", "op:AssociatedSite", "C12321"),
-        ("C198031", "op:NormalTissueOrigin", "C13049"),
-        ("C198031", "op:PrimarySite", "C12431"),
-    }
-    if (code, key.axis, key.filler) in clinical_only:
+    if diagnostic_classification == "selection-miss":
         return (
             "stage-a-clinical-only",
-            "Clinical applicability is reviewable, but selector output cannot receive Stage B action until #274 is repaired.",
-            "#274 selector repair queued; regenerate packets after repair",
+            "Diagnostic classification is selection-miss: clinical applicability is reviewable, but the current projection gate cannot represent a terminal Stage B action.",
+            "#274 selector repair queued; regenerate packets and rerun the release gate after repair",
         )
     if code == "C35756" and key.filler == "C141685":
         return (
@@ -482,6 +545,17 @@ def _scope(
             "engineering-only",
             "Stored range verdict is invalid; no human ontology action is offered.",
             "#271 range repair blocked; rerun deterministic range gate after repair",
+        )
+    if source_status == "unavailable":
+        owner = (
+            "#267"
+            if key.axis in {"op:AssociatedRegion", "op:AssociatedLineageClassification"}
+            else "#274"
+        )
+        return (
+            "engineering-only",
+            "No exact occurrence or typed source-backed coordinate-missing fact exists; human action is blocked rather than inferred from a label or historical proposal.",
+            f"{owner} source-routing repair queued; regenerate packets and rerun provenance validation after repair",
         )
     if relation == "current-only-proposed":
         return (
@@ -501,29 +575,69 @@ def filter_governed_pairs(
     relations: tuple[tuple[tuple[str, str], Relation], ...],
     registered_mints: set[str],
     range_status: dict[tuple[str, str], str],
-) -> tuple[tuple[tuple[tuple[str, str], Relation], ...], int, tuple[str, ...]]:
+) -> tuple[
+    tuple[tuple[tuple[str, str], Relation], ...],
+    tuple[SuppressedCandidate, ...],
+    tuple[str, ...],
+]:
     """Filter MINT lifecycle/range eligibility before assigning human pair IDs."""
     visible: list[tuple[tuple[str, str], Relation]] = []
     registered_visible: set[str] = set()
-    suppressed = 0
+    suppressed: list[SuppressedCandidate] = []
     for key, relation in relations:
         filler = key[1]
         if filler.startswith("MINT-"):
             if filler not in registered_mints or range_status.get(key) != "valid":
-                suppressed += 1
+                suppressed.append(
+                    SuppressedCandidate(
+                        axis=key[0],
+                        generated_id=filler,
+                        reason=(
+                            "unregistered"
+                            if filler not in registered_mints
+                            else "range-ineligible"
+                        ),
+                    )
+                )
                 continue
             registered_visible.add(filler)
         visible.append((key, relation))
-    return tuple(visible), suppressed, tuple(sorted(registered_visible))
+    return tuple(visible), tuple(suppressed), tuple(sorted(registered_visible))
 
 
-def _build_rows(
+def _axis_governance(axis: str) -> str:
+    contract = AXIS_CONTRACTS[axis]
+    governance = contract.governance
+    if governance.status == "stable":
+        return "stable"
+    return (
+        f"provisional since {governance.since.isoformat()}; review by "
+        f"{governance.review_by.isoformat()}; trigger={governance.review_trigger}; "
+        f"evidence_count={governance.evidence_count}"
+    )
+
+
+def _axis_fallback(axis: str) -> str:
+    governance = AXIS_CONTRACTS[axis].governance
+    if governance.status == "stable":
+        return "none (stable contract)"
+    return (
+        f"{governance.fallback_axis}; needsReview="
+        f"{str(governance.fallback_needs_review).lower()}"
+    )
+
+
+def _build_rows(  # noqa: PLR0915
     context: GeneratedLiteratureContext,
     raw_inputs: tuple[Any, ...],
     registered_mints: set[str],
     ncit_labels: dict[str, str] | None = None,
     ncit_definitions: dict[str, str] | None = None,
-) -> tuple[tuple[SpecialistRowPacket, ...], dict[str, int], tuple[str, ...]]:
+) -> tuple[
+    tuple[SpecialistRowPacket, ...],
+    dict[str, tuple[SuppressedCandidate, ...]],
+    tuple[str, ...],
+]:
     group = next(
         (
             item
@@ -547,6 +661,7 @@ def _build_rows(
     if not isinstance(group, dict) or not isinstance(diagnostic, dict):
         raise ValueError("group packet and axis diagnostics are required")
     labels, role_labels = _labels(raw_inputs)
+    retained_definition_ids = _source_definition_ids(raw_inputs)
     labels.update(ncit_labels or {})
     role_labels.update(
         {
@@ -574,7 +689,7 @@ def _build_rows(
     )
     dossiers = {row.code: row for row in context.dossiers}
     rows: list[SpecialistRowPacket] = []
-    suppression: dict[str, int] = {}
+    suppression: dict[str, tuple[SuppressedCandidate, ...]] = {}
     visible_registered: set[str] = set()
     for code in CONCEPT_ORDER:
         concept = next(item for item in group["concepts"] if item["code"] == code)
@@ -624,12 +739,45 @@ def _build_rows(
             range_status = (
                 diagnostic_row["verdict"]["status"] if diagnostic_row else "unknown"
             )
-            scope, reason, blocker = _scope(code, key, relation, range_status)
             source_rows: list[dict[str, Any]] = occurrences.get(raw_key, [])
-            if not source_rows and (code, axis, filler) in candidates:
-                source_rows = candidates[(code, axis, filler)]["source_evidence"].get(
-                    "occurrences", []
+            candidate = candidates.get((code, axis, filler))
+            source_evidence = candidate.get("source_evidence", {}) if candidate else {}
+            definition_ids = tuple(
+                str(value) for value in source_evidence.get("source_definition_ids", ())
+            ) or retained_definition_ids.get((code, axis, filler), ())
+            if not source_rows:
+                source_rows = source_evidence.get("occurrences", [])
+            source_status = (
+                "available"
+                if source_rows
+                else (
+                    "source-backed-coordinate-missing"
+                    if definition_ids
+                    else str(source_evidence.get("status", "unavailable"))
                 )
+            )
+            source_reason = (
+                "exact-occurrence-coordinates"
+                if source_rows
+                else str(
+                    source_evidence.get(
+                        "reason",
+                        (
+                            "definition-fact-retained-without-occurrence-coordinate"
+                            if definition_ids
+                            else "no-matching-stated-definition-fact"
+                        ),
+                    )
+                )
+            )
+            scope, reason, blocker = _scope(
+                code,
+                key,
+                relation,
+                range_status,
+                str(candidate.get("classification")) if candidate else None,
+                source_status,
+            )
             source_occurrences = tuple(
                 SourceOccurrence(
                     occurrence_id=str(item["occurrence_id"]),
@@ -661,7 +809,11 @@ def _build_rows(
                 )
             )
             role_codes = sorted({item.role_code for item in source_occurrences})
-            role_code = ", ".join(role_codes) if role_codes else "unavailable"
+            role_code = (
+                ", ".join(role_codes)
+                if role_codes
+                else ("rdfs:subClassOf" if definition_ids else "unavailable")
+            )
             pairs.append(
                 SpecialistPair(
                     pair_id=pair_id,
@@ -683,7 +835,11 @@ def _build_rows(
                         for value in role_codes
                     )
                     if role_codes
-                    else "No source role occurrence available",
+                    else (
+                        "Named parent definition operand"
+                        if definition_ids
+                        else "No source role occurrence available"
+                    ),
                     source_role_definition="; ".join(
                         definitions.get(
                             value,
@@ -692,23 +848,34 @@ def _build_rows(
                         for value in role_codes
                     )
                     if role_codes
-                    else "Explicitly unavailable: no source role occurrence exists for this pair.",
+                    else (
+                        "The named parent is retained as a stated definition fact without a role occurrence coordinate."
+                        if definition_ids
+                        else "Explicitly unavailable: no source role occurrence exists for this pair."
+                    ),
                     source_occurrences=source_occurrences,
+                    source_evidence_status=cast(
+                        "Literal['available', 'source-backed-coordinate-missing', 'unavailable']",
+                        source_status,
+                    ),
+                    source_evidence_reason=source_reason,
+                    source_definition_ids=definition_ids,
                     current_projection_status=str(projection),
                     axis_range_verdict=range_status,
-                    modality="direct"
+                    modality=AXIS_CONTRACTS[axis].modality,
+                    derivation="direct"
                     if any(item.depth == 0 for item in source_occurrences)
                     else (
                         "inherited"
                         if source_occurrences
-                        else "source-coordinate-unavailable"
+                        else (
+                            "named-parent"
+                            if definition_ids
+                            else "source-coordinate-unavailable"
+                        )
                     ),
-                    governance="active axis contract; op:NormalTissueOrigin is non-defining"
-                    if axis != "op:NormalTissueOrigin"
-                    else "provisional non-defining axis contract",
-                    fallback="No fallback used."
-                    if source_occurrences
-                    else "No source coordinate; no fallback inference admitted.",
+                    governance=_axis_governance(axis),
+                    fallback=_axis_fallback(axis),
                     allowed_reaxis_targets=tuple(
                         sorted(
                             {
@@ -747,18 +914,106 @@ def _escape(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", "<br>")
 
 
+def _allowed_actions(pair: SpecialistPair) -> tuple[str, ...]:
+    actions = {
+        "expected-matched-scoreable": (
+            "RETAIN-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+        "expected-emitted-review-bearing": (
+            "PROMOTE-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+        "expected-not-emitted": (
+            "ADD-SCOREABLE",
+            "OMIT",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+        "current-only-scoreable": (
+            "RETAIN-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+        "current-only-review-bearing": (
+            "PROMOTE-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+        "current-only-proposed": (
+            "PROMOTE-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+            "RE-AXIS",
+            "GROUP-TOGETHER",
+            "KEEP-SEPARATE",
+        ),
+    }[pair.relation]
+    if not pair.allowed_reaxis_targets:
+        actions = tuple(action for action in actions if action != "RE-AXIS")
+    return actions
+
+
+def pair_consequences(pair: SpecialistPair) -> dict[str, str]:
+    """Return only actions valid for this relation and stored range evidence."""
+    base = (
+        "source facts unchanged; no adoption or equivalence is asserted; "
+        "readiness remains false until the complete row validates"
+    )
+    metric = {
+        "RETAIN-SCOREABLE": "scoreability and needsReview unchanged; row-local ΔTP=0, ΔFP=0, ΔFN=0",
+        "REMOVE-FROM-PROJECTION": (
+            "projection removed; source fact retained with needsReview; possible row-local "
+            "ΔTP=-1 and ΔFN=+1 for an expected scoreable pair, or ΔFP=-1 for a current-only scoreable pair"
+        ),
+        "PROMOTE-SCOREABLE": (
+            "scoreability enabled and needsReview cleared; possible row-local ΔTP=+1 and ΔFN=-1 for an expected pair, or ΔFP=+1 for a current-only pair"
+        ),
+        "ADD-SCOREABLE": "scoreability enabled and needsReview cleared; possible row-local ΔTP=+1 and ΔFN=-1",
+        "OMIT": "pair remains absent and not scoreable; current metric counts do not change and an expected-pair false negative remains",
+        "RE-AXIS": (
+            "source role remains unchanged; normalized axis changes only to a listed range-valid target; scoreability is recomputed and any TP/FP/FN change is row-local"
+        ),
+        "GROUP-TOGETHER": "normalized group assignment changes; assessment association and current pair-level metric counts do not change",
+        "KEEP-SEPARATE": "independent normalized groups are retained; current pair-level metric counts do not change",
+    }
+    return {action: f"{metric[action]}; {base}." for action in _allowed_actions(pair)}
+
+
 def _consequence(pair: SpecialistPair) -> str:
-    return "Every action preserves source facts. RETAIN: scoreable unchanged (ΔTP=0, ΔFP=0, ΔFN=0). REMOVE: scoreability off and needsReview retained (potential ΔTP=-1 or ΔFP=-1; recall/precision recomputed exactly from TP, FP, FN). PROMOTE/ADD: scoreability on and needsReview cleared (potential ΔTP=+1 or ΔFP=+1 and ΔFN=-1 only when the pair is expected). RE-AXIS: same arithmetic only after a stored valid target; invalid/unknown offers no action. GROUP-TOGETHER changes normalized group partition only, not assessment association or equivalence. No predicted post-review metric is asserted."
+    return " ".join(
+        f"{action}: {text}" for action, text in pair_consequences(pair).items()
+    )
 
 
 def _render_packet(
     row: SpecialistRowPacket,
     dossier: LiteratureDossierSource,
     cadsr: CadsrUsageRow,
+    cadsr_report: SpecialistCadsrUsageReport,
     actual_partition: object,
     expected_partition: object,
-    suppression_count: int,
+    suppressed_candidates: tuple[SuppressedCandidate, ...],
 ) -> bytes:
+    suppressed_axes: dict[str, int] = {}
+    for candidate in suppressed_candidates:
+        suppressed_axes[candidate.axis] = suppressed_axes.get(candidate.axis, 0) + 1
+    axis_lines = []
+    for axis in sorted({pair.key.axis for pair in row.pairs}):
+        contract = AXIS_CONTRACTS[axis]
+        axis_lines.append(
+            f"- `{axis}` — {contract.label}: {contract.definition} Governance: {_axis_governance(axis)}. Fallback: {_axis_fallback(axis)}. Modality: {contract.modality}."
+        )
     lines = [
         f"# {row.code} — {row.label}",
         "",
@@ -766,12 +1021,12 @@ def _render_packet(
         "",
         "## Return workflow",
         "",
-        f"1. Save the returned file as `{row.code}-specialist-return.md`; do not edit its file name prefix.",
+        f"1. Save the returned file at `tmp/m1-6-specialist-packets/{row.code}-specialist-return.md`; do not edit its file name prefix.",
         "2. Edit only blank response cells in the Stage A and Stage B Markdown tables. Do not edit JSON (there is no human JSON response surface).",
         "3. Stage A is clinical classification; Stage B is ontology action. One person may perform both only by separately signing both roles.",
-        "4. Return the one row file. The validator rejects edits outside response cells and rejects partial-ready claims.",
+        "4. Return the one row file and run `pdm run python scripts/adjudication.py validate-completed-specialist-review --directory tmp/m1-6-specialist-packets`. The validator rejects edits outside response cells and rejects partial-ready claims.",
         "",
-        "Neutral format example (synthetic, not a selected answer): `PX | UNRESOLVED | PMID:00000000 | More evidence needed`.",
+        "Neutral syntactic format example (angle-bracket tokens are not valid responses): `<PAIR-ID> | <ALLOWED-STATUS> | <CITATION-ID> | <RATIONALE>`.",
         "",
         "## Source-bound concept",
         "",
@@ -783,11 +1038,18 @@ def _render_packet(
         f"**Status:** {cadsr.status}  ",
         f"**Linked CDE IDs (bounded):** {', '.join(cadsr.cde_ids) or 'none'}  ",
         f"**Truncated:** {str(cadsr.truncated).lower()}  ",
+        f"**Bound report source identity:** {cadsr_report.source_identity}  ",
+        f"**Bound database provenance:** {cadsr_report.database_path}; {cadsr_report.source_provenance}; query limit={cadsr_report.query_limit}; command={cadsr_report.producing_command}  ",
         "caDSR usage does not determine clinical or ontology correctness.",
         "",
         "## Audited factual context",
         "",
         *(f"- {item}" for item in dossier.factual_context),
+        "",
+        "## Axis contract legend",
+        "",
+        "D23 governs these univocal axes: R101 resolves to the named organ; extent/spread belongs to stage; metastasis belongs to a separate site axis; same anatomy may legitimately appear on multiple axes.",
+        *axis_lines,
         "",
         "## Pair inventory",
         "",
@@ -803,12 +1065,12 @@ def _render_packet(
             or "explicitly unavailable"
         )
         lines.append(
-            f"| {pair.pair_id} | `{pair.key.axis} {pair.key.filler}` — {_escape(pair.filler_label)}; P97: {_escape(pair.filler_definition)} | {pair.relation}; **{pair.review_scope}**; reason={_escape(pair.scope_reason)}; contested={str(pair.contested).lower()} | {pair.source_role_code} {_escape(pair.source_role_label)}; definition={_escape(pair.source_role_definition)}; {coordinates} | {pair.current_projection_status}; {pair.axis_range_verdict}; RE-AXIS targets={', '.join(pair.allowed_reaxis_targets) or 'none'} | {pair.modality}; {pair.governance}; {pair.fallback} |"
+            f"| {pair.pair_id} | `{pair.key.axis} {pair.key.filler}` — {_escape(pair.filler_label)}; P97: {_escape(pair.filler_definition)} | {pair.relation}; **{pair.review_scope}**; reason={_escape(pair.scope_reason)}; contested={str(pair.contested).lower()} | {pair.source_role_code} {_escape(pair.source_role_label)}; definition={_escape(pair.source_role_definition)}; evidence={pair.source_evidence_status}; reason={_escape(pair.source_evidence_reason)}; source_definition_ids={','.join(pair.source_definition_ids) or 'none'}; {coordinates} | {pair.current_projection_status}; {pair.axis_range_verdict}; RE-AXIS targets={', '.join(pair.allowed_reaxis_targets) or 'none'} | modality={pair.modality}; derivation={pair.derivation}; governance={pair.governance}; fallback={pair.fallback} |"
         )
     lines.extend(
         [
             "",
-            f"Suppression disclosure: {suppression_count} unregistered candidate(s) were removed before pair numbering; identifiers and actions are intentionally absent from this human packet.",
+            f"Suppression disclosure: the complete machine inventory included {len(suppressed_candidates)} withheld unregistered or range-ineligible generated candidate(s) ({', '.join(f'{axis}={count}' for axis, count in sorted(suppressed_axes.items())) or 'no affected axis'}); the reviewer action inventory excludes them and identifiers are intentionally absent from this human packet.",
             "",
             "**Current metric identity/context:** pair precision, recall, and F1 over the bound current comparison; row-local potential changes are bounded to one TP/FP/FN contribution per pair. No predicted post-review values are rendered.",
             "",
@@ -864,7 +1126,7 @@ def _render_packet(
         if pair.pair_id in asked:
             lines.append(f"| {pair.pair_id} |  |  |  |")
             lines.append(
-                f"<!-- QUESTION {pair.pair_id}: {_escape(question_text.get(pair.pair_id, 'Classify this exact semantic pair under the cited row context.'))} -->"
+                f"<!-- QUESTION {pair.pair_id}: {_escape(question_text[pair.pair_id])} -->"
             )
     lines.extend(
         [
@@ -872,7 +1134,7 @@ def _render_packet(
             "",
             "## Stage B — Ontology review",
             "",
-            "Requires sufficient Stage A. Actions: RETAIN-SCOREABLE, REMOVE-FROM-PROJECTION, RE-AXIS, PROMOTE-SCOREABLE, ADD-SCOREABLE, OMIT, GROUP-TOGETHER, KEEP-SEPARATE. Relation-specific allowed actions are validated. RE-AXIS is offered only for listed stored-valid targets. GROUP-TOGETHER changes normalized group only; it creates no assessment association or equivalence.",
+            "Requires sufficient Stage A. Action definitions: RETAIN-SCOREABLE keeps a scoreable pair; REMOVE-FROM-PROJECTION preserves its source fact but removes projection; PROMOTE-SCOREABLE promotes review-bearing evidence; ADD-SCOREABLE adds an expected absent pair; OMIT leaves it absent; RE-AXIS changes only the normalized axis while the source role remains unchanged; GROUP-TOGETHER or KEEP-SEPARATE controls normalized partition only. No action asserts adoption or equivalence.",
             "Whole-row DEFER retains nonterminal pair evidence but emits no terminal delta or final partition. Readiness remains false; there is no partial-ready state.",
             "",
             "<!-- RESPONSE-CELLS-START B -->",
@@ -890,6 +1152,9 @@ def _render_packet(
     )
     for pair in row.pairs:
         if pair.pair_id in set(row.action_pair_ids):
+            lines.append(
+                f"<!-- Allowed actions: {pair.pair_id} = {', '.join(_allowed_actions(pair))} -->"
+            )
             lines.append(f"| {pair.pair_id} | {pair.relation} |  |  |  |  |  |")
     lines.extend(
         [
@@ -911,7 +1176,7 @@ def _render_packet(
     return "\n".join(lines).encode()
 
 
-def generate_specialist_review_packets(  # noqa: C901, PLR0915
+def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
     *,
     literature_context_path: Path,
     proposal_registry_path: Path,
@@ -1008,6 +1273,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
             row,
             dossier_by_code[row.code],
             cadsr_by_code[row.code],
+            cadsr,
             concept["actual_partition"],
             concept["expected_partition"],
             suppression[row.code],
@@ -1032,7 +1298,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
         "input_identities": identities,
         "literature_context_identity": _sha(payloads[literature_context_path]),
         "cadsr_usage_identity": _sha(payloads[cadsr_usage_path]),
-        "suppressed_unregistered_mints_by_row": suppression,
+        "suppressed_candidates_by_row": suppression,
         "packets": tuple(entries),
         "index_identity": "0" * 64,
     }
@@ -1041,7 +1307,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
     index_payload = _canonical(index)
     packet_payloads["index.json"] = index_payload
     findings: list[str] = []
-    rendered = b"\n".join(packet_payloads.values())
+    rendered = b"\n".join(
+        payload for name, payload in packet_payloads.items() if name.endswith(".md")
+    )
     all_mints = set(
         _MINT.findall(b"\n".join(payloads.values()).decode(errors="ignore"))
     )
@@ -1049,6 +1317,35 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
     leaked = sorted(item for item in suppressed_mints if item.encode() in rendered)
     if leaked:
         findings.append("suppressed MINT identifiers leaked into rendered bytes")
+    if any(row.status == "error" for row in cadsr.rows):
+        findings.append("caDSR report contains an error row")
+    for row in rows:
+        dossier = dossier_by_code[row.code]
+        if not any(
+            citation.status == "cited"
+            and citation.authority_order <= _CONTROLLING_AUTHORITY_MAX
+            and not citation.exact_passage.startswith("Unavailable:")
+            for citation in dossier.citations
+        ):
+            findings.append(f"{row.code} lacks a passage-bearing controlling citation")
+        if any(
+            pair.source_evidence_status == "unavailable"
+            for pair in row.pairs
+            if pair.pair_id in row.action_pair_ids
+        ):
+            findings.append(
+                f"{row.code} has an actionable pair without source provenance"
+            )
+    rendered_text = rendered.decode(errors="replace")
+    for marker in (
+        "Classify this exact semantic pair",
+        "specialist must supply",
+        "research gap",
+        "not-found",
+        "UNRESOLVED |",
+    ):
+        if marker.lower() in rendered_text.lower():
+            findings.append(f"rendered packets contain prohibited marker: {marker}")
     validation_values: dict[str, object] = {
         "schema_version": 2,
         "index_identity": index.index_identity,
@@ -1056,7 +1353,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
         "status": "failed" if findings else "passed",
         "findings": tuple(findings),
         "producing_command": producing_command,
-        "produced_on": "2026-08-31",
+        "produced_on": date.today().isoformat(),
         "artifact_files_written": (
             *packet_payloads.keys(),
             "generation-validation.json",
@@ -1072,10 +1369,6 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
     packet_payloads["generation-validation.json"] = _canonical(
         GenerationValidation.model_validate(validation_values)
     )
-    if findings:
-        raise ValueError(
-            "specialist packet generation validation failed: " + "; ".join(findings)
-        )
     expected = set(packet_payloads)
     if (
         output_directory.is_dir()
@@ -1085,6 +1378,10 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
             for name, payload in packet_payloads.items()
         )
     ):
+        if findings:
+            raise ValueError(
+                "specialist packet generation validation failed: " + "; ".join(findings)
+            )
         return index
     output_directory.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
@@ -1108,6 +1405,10 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0915
             os.replace(backup, output_directory)
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    if findings:
+        raise ValueError(
+            "specialist packet generation validation failed: " + "; ".join(findings)
+        )
     return index
 
 
@@ -1119,6 +1420,10 @@ def validate_completion(
     action_pairs: tuple[str, ...] | None = None,
     engineering_only_pairs: tuple[str, ...] = (),
 ) -> bool:
+    if action_pairs is None and stage_b.row_outcome == "DEFERRED":
+        raise ValueError(
+            "index action-pair set must be supplied for a DEFERRED Stage B"
+        )
     asked, assessed = (
         set(clinically_asked_pairs),
         {item.pair_id for item in stage_a.assessments},
@@ -1128,8 +1433,10 @@ def validate_completion(
     engineering = set(engineering_only_pairs)
     if assessed != asked:
         raise ValueError("Stage A assessments must exactly equal index asked-pair set")
-    if decided != actions:
+    if stage_b.row_outcome == "RESOLVED" and decided != actions:
         raise ValueError("Stage B decisions must exactly equal index action-pair set")
+    if stage_b.row_outcome == "DEFERRED" and decided:
+        raise ValueError("DEFERRED Stage B cannot contain terminal decisions")
     if decided & engineering:
         raise ValueError("engineering-only pair cannot have an ontology action")
     if stage_a.clinical_stage != "SUFFICIENT-FOR-ONTOLOGY-REVIEW" and stage_b.decisions:

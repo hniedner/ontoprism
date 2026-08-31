@@ -59,3 +59,20 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     )
     assert primary_site.count("depth=4") == 2
     assert len(re.findall(r"^\| P[0-9]+ \| `", lung, re.MULTILINE)) == 21
+
+    assert "Classify this exact semantic pair" not in rendered
+    assert "UNRESOLVED |" not in rendered
+    assert "op:NormalTissueOrigin is non-defining" not in rendered
+    assert "complete machine inventory included" in rendered
+    assert "MINT-" not in rendered
+    assert "axis contract legend" in rendered.lower()
+    assert "D23" in rendered
+    assert "Allowed actions:" in rendered
+    assert "source-backed-coordinate-missing" in rendered
+    assert "not-found" not in rendered
+    assert "specialist must supply" not in rendered.lower()
+    assert all(entry.asked_pair_ids for entry in index.packets)
+    assert all(
+        set(entry.engineering_pair_ids).isdisjoint(entry.action_pair_ids)
+        for entry in index.packets
+    )

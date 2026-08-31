@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CONCEPT_ORDER = ("C27262", "C102870", "C6135", "C4791", "C100054", "C198031", "C35756")
+_CONTROLLING_AUTHORITY_MAX = 2
 
 
 class _StrictModel(BaseModel):
@@ -45,6 +47,15 @@ class LiteratureCitation(_StrictModel):
             raise ValueError(
                 "unavailable citation cannot contain a claimed exact passage"
             )
+        if self.status == "not-found":
+            raise ValueError("research-gap/not-found citations are not dispatchable")
+        if self.status == "cited" and (
+            self.exact_passage.startswith("Unavailable:")
+            or not self.url.startswith("https://")
+        ):
+            raise ValueError(
+                "cited source requires an accessible exact passage and URL"
+            )
         return self
 
 
@@ -73,19 +84,25 @@ class LiteratureDossierSource(_StrictModel):
             sorted(item.authority_order for item in self.citations)
         ):
             raise ValueError("citations must be in authority order")
+        if not any(
+            citation.status == "cited"
+            and citation.authority_order <= _CONTROLLING_AUTHORITY_MAX
+            for citation in self.citations
+        ):
+            raise ValueError("row requires a passage-bearing controlling citation")
         for question in self.questions:
             selected = [citations.get(item) for item in question.citation_ids]
             if None in selected:
                 raise ValueError("question references an unknown citation")
-            if (
-                not any(
-                    item is not None and item.status == "cited" for item in selected
-                )
-                and "supply" not in question.text.lower()
+            if not any(
+                item is not None and item.status == "cited" for item in selected
             ):
                 raise ValueError(
-                    "question backed only by unavailable sources must ask the "
-                    "specialist to supply a source"
+                    "question requires at least one accessible passage-bearing citation"
+                )
+            if "supply" in question.text.lower():
+                raise ValueError(
+                    "researchable evidence cannot be delegated to the specialist"
                 )
         return self
 
@@ -111,6 +128,7 @@ class GeneratedLiteratureContext(_StrictModel):
     evidence_pass: Literal["final"]
     source_path: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generated_on: str
     dossiers: tuple[LiteratureDossierSource, ...]
 
 
@@ -124,13 +142,25 @@ def generate_specialist_literature_context(
     """Write deterministic decision-free context after strict evidence validation."""
     source_bytes = source_path.read_bytes()
     source = LiteratureContextSource.model_validate_json(source_bytes)
+    generated_on = date.today().isoformat()
     generated = GeneratedLiteratureContext(
         schema_version=2,
         ncit_version=source.ncit_version,
         evidence_pass=source.evidence_pass,
         source_path=source_path.as_posix(),
         source_identity=hashlib.sha256(source_bytes).hexdigest(),
-        dossiers=source.dossiers,
+        generated_on=generated_on,
+        dossiers=tuple(
+            dossier.model_copy(
+                update={
+                    "citations": tuple(
+                        citation.model_copy(update={"verified_on": generated_on})
+                        for citation in dossier.citations
+                    )
+                }
+            )
+            for dossier in source.dossiers
+        ),
     )
     payload = _canonical(generated.model_dump(mode="json"))
     output_path.parent.mkdir(parents=True, exist_ok=True)
