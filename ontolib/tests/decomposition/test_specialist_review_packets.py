@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from scripts.adjudication import _parser
@@ -37,6 +39,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
             schema_version=1,
             database_path="data/cadsr/cde_repository.db",
             source_identity="a" * 64,
+            source_provenance="fixture provenance",
             producing_command="fixed",
             query_limit=10,
             rows=tuple(
@@ -76,7 +79,9 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
         )
         relations = {name: [] for name in relation_names}
         for number, key in enumerate(keys):
-            relations[relation_names[number % len(relation_names)]].append(list(key))
+            relations[relation_names[number % (len(relation_names) - 1)]].append(
+                list(key)
+            )
             ranges.append(
                 {
                     "code": dossier.code,
@@ -124,7 +129,34 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
         encoding="utf-8",
     )
     evidence = tmp_path / "evidence.json"
-    evidence.write_text("{}", encoding="utf-8")
+    evidence.write_text(
+        json.dumps(
+            {
+                "artifact_identity": "a" * 64,
+                "concepts": [
+                    {
+                        "code": dossier.code,
+                        "constituents": [
+                            {
+                                "axis": axis,
+                                "filler": filler,
+                                "source_definition_ids": ["b" * 64],
+                            }
+                            for axis, filler in sorted(
+                                {
+                                    (key.axis, key.filler)
+                                    for question in dossier.questions
+                                    for key in question.pair_keys
+                                }
+                            )
+                        ],
+                    }
+                    for dossier in context.dossiers
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     comparison = tmp_path / "comparison.json"
     comparison.write_text("{}", encoding="utf-8")
     labels = tmp_path / "labels.json"
@@ -214,9 +246,20 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
         path.write_text("{}", encoding="utf-8")
     commands: list[list[str]] = []
 
-    def runner(command: list[str], **_kwargs: object):  # type: ignore[no-untyped-def]
-        commands.append(command)
-        return type("Result", (), {"returncode": 0})()
+    def runner(
+        arguments: list[str],
+        *,
+        cwd: Path,
+        shell: Literal[False],
+        check: Literal[False],
+        timeout: float | None,
+        capture_output: bool,
+        text: Literal[True],
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, shell, check, timeout, capture_output, text, env
+        commands.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, "", "")
 
     assert (
         run_agent_replay(

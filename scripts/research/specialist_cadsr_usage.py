@@ -31,6 +31,7 @@ class SpecialistCadsrUsageReport(_StrictModel):
     schema_version: Literal[1]
     database_path: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_provenance: str = Field(min_length=1)
     producing_command: str
     query_limit: int = Field(ge=1)
     rows: tuple[CadsrUsageRow, ...]
@@ -95,6 +96,7 @@ def generate_specialist_cadsr_usage(
         schema_version=1,
         database_path=database_path.as_posix(),
         source_identity=hashlib.sha256(identity_payload).hexdigest(),
+        source_provenance=provenance,
         producing_command=producing_command,
         query_limit=limit,
         rows=tuple(rows),

@@ -126,6 +126,38 @@ def test_engineering_only_questions_have_no_ontology_action_but_no_question_is_i
         validate_completion(stage_a, stage_b, clinically_asked_pairs=("P1",))
 
 
+def test_whole_row_defer_is_nonterminal_with_real_action_inventory() -> None:
+    deferred_a = _stage_a().model_copy(
+        update={
+            "clinical_stage": "DEFERRED",
+            "blocker": "Controlling evidence conflicts and needs resolution.",
+        }
+    )
+    deferred_b = OntologyStageB(
+        reviewer_name="Ontology Reviewer",
+        review_date="2026-08-31",
+        conflict_of_interest="None declared",
+        row_outcome="DEFERRED",
+        decisions=(),
+        blocker="Stage A is nonterminal.",
+    )
+
+    assert validate_completion(
+        deferred_a,
+        deferred_b,
+        clinically_asked_pairs=("P1",),
+        action_pairs=("P1", "P2"),
+    )
+
+    sufficient_a = _stage_a()
+    assert validate_completion(
+        sufficient_a,
+        deferred_b.model_copy(update={"blocker": "Ontology representation blocked."}),
+        clinically_asked_pairs=("P1",),
+        action_pairs=("P1", "P2"),
+    )
+
+
 def test_completion_rejects_missing_asked_pair_and_action_on_engineering_pair() -> None:
     stage_a = _stage_a()
     stage_b = OntologyStageB(
@@ -201,7 +233,7 @@ def test_completed_validator_allows_only_response_blocks_to_change(
         literature_context_identity="a" * 64,
         cadsr_usage_identity="b" * 64,
         input_identities={"literature": "a" * 64},
-        suppressed_unregistered_mints_by_row={"C27262": 0},
+        suppressed_candidates_by_row={"C27262": ()},
         packets=(
             PacketIndexEntry(
                 code="C27262",

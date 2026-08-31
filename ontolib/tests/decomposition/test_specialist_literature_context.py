@@ -69,6 +69,22 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
     assert "C198034" in rendered
     assert "C6681" in rendered
     assert "C6682" in rendered
+    assert "supply" not in rendered.lower()
+    assert "not-found" not in rendered
+    assert "research gap" not in rendered.lower()
+    assert "10.1186/s13045-024-01571-4" in rendered
+    assert "39075565" in rendered
+    assert "PMC11287910" in rendered
+    assert all(
+        any(
+            citation.status == "cited"
+            and citation.exact_passage
+            and not citation.exact_passage.startswith("Unavailable:")
+            and citation.authority_order <= 2
+            for citation in row.citations
+        )
+        for row in source.dossiers
+    )
 
 
 def test_literature_generator_is_deterministic_and_rejects_open_citations(
