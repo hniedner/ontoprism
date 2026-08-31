@@ -16,6 +16,7 @@ from scripts.research.specialist_review_packets import (
     SpecialistPair,
     SpecialistRowPacket,
     context_correction_note,
+    derive_dispatch_decision,
     filter_governed_pairs,
 )
 
@@ -84,13 +85,13 @@ def test_row_contract_partitions_every_pair_once_and_resolves_semantic_questions
             (PairKey(axis="op:Morphology", filler="C2"),),
         ),
         engineering_blockers={
-            "P1": "#274 selector owner; queued; regenerate after repair",
             "P3": "#271 range owner; blocked; rerun range gate",
         },
     )
     assert row.asked_pair_ids == ("P1", "P2")
     assert row.action_pair_ids == ("P2",)
-    assert row.engineering_pair_ids == ("P1", "P3")
+    assert row.clinical_only_pair_ids == ("P1",)
+    assert row.engineering_pair_ids == ("P3",)
     assert row.context_pair_ids == ("P4",)
     assert row.resolved_question_pair_ids == (("P1",), ("P2",))
 
@@ -116,6 +117,7 @@ def test_index_schema_three_binds_complete_pair_contracts_and_dispatch() -> None
         "row_contract_identity",
         "asked_pair_ids",
         "action_pair_ids",
+        "clinical_only_pair_ids",
         "engineering_pair_ids",
         "context_pair_ids",
         "row_sha256",
@@ -126,7 +128,8 @@ def test_index_schema_three_binds_complete_pair_contracts_and_dispatch() -> None
         "pair_contracts",
         "dispatch_status",
         "withholding_reasons",
-        "row_validation_path",
+        "expected_return_validation_path",
+        "generated",
     } <= set(PacketIndexEntry.model_fields)
     assert {
         "pair_id",
@@ -150,6 +153,31 @@ def test_index_schema_three_binds_complete_pair_contracts_and_dispatch() -> None
         "row_readiness",
         "publication",
     } <= set(ActionConsequence.model_fields)
+    assert {"release_ready_codes", "withheld_codes", "release_ready"} <= set(
+        PacketIndex.model_fields
+    )
+
+
+def test_dispatch_decision_is_derived_from_prerequisites_and_pair_evidence() -> None:
+    ready = derive_dispatch_decision(
+        engineering_blockers={},
+        asked_pair_ids=("P3", "P4"),
+        supported_pair_ids=("P3", "P4"),
+    )
+    assert ready.status == "dispatchable"
+    assert ready.reasons == ()
+
+    withheld = derive_dispatch_decision(
+        engineering_blockers={"P2": "#274 selector repair queued; regenerate"},
+        asked_pair_ids=("P2", "P3"),
+        supported_pair_ids=("P3",),
+    )
+    assert withheld.status == "withheld"
+    assert withheld.reasons == (
+        "P2 engineering prerequisite unresolved: #274 selector repair queued; "
+        "regenerate",
+        "P2 lacks complete accessible pair-relevant evidence",
+    )
 
 
 def test_no_legacy_dead_packet_models_remain() -> None:
