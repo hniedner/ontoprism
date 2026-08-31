@@ -27,6 +27,58 @@ def test_c6135_source_facts_are_neutral_observations_without_answer_cues() -> No
     assert "measured subset rather than a universal property" not in source_facts
 
 
+def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    claims = [claim for question in dossier.questions for claim in question.claims]
+    by_pair = {
+        (claim.pair_key.axis, claim.pair_key.filler): [
+            item for item in claims if item.pair_key == claim.pair_key
+        ]
+        for claim in claims
+    }
+
+    assert dossier.exact_label == "Conjunctival Melanocytic Intraepithelial Lesion"
+    assert (
+        "Conjunctival Melanocytic Intraepithelial Neoplasia" not in SOURCE.read_text()
+    )
+    p4_facts = " ".join(
+        item.source_fact for item in by_pair[("op:ClinicalFinding", "C8326")]
+    )
+    assert "classification-dependent" not in p4_facts.lower()
+    assert "low-grade atypia" in p4_facts
+    assert "high-grade atypia" in p4_facts
+    p6_facts = " ".join(
+        item.source_fact for item in by_pair[("op:NormalTissueOrigin", "C32365")]
+    )
+    assert "does not" not in p6_facts.lower()
+    assert {
+        item.citation_id
+        for pair in (
+            ("op:ClinicalFinding", "C36027"),
+            ("op:ClinicalFinding", "C8326"),
+        )
+        for item in by_pair[pair]
+    } == {"milman-2023", "mudhar-2024"}
+
+
+def test_c100054_bresler_bibliography_is_exact_and_access_is_honest() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    citation = next(
+        item for item in dossier.citations if item.citation_id == "bresler-2021"
+    )
+
+    assert citation.bibliography == (
+        "Bresler SC et al. “Conjunctival Melanocytic Lesions.” "
+        "Arch Pathol Lab Med. 2022;146(5):632-646."
+    )
+    assert citation.doi == "10.5858/arpa.2021-0006-RA"
+    assert citation.pmid == "34424954"
+    assert citation.status == "access-restricted"
+    assert citation.verified_on is None
+
+
 def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() -> None:
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
 

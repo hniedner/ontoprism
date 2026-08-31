@@ -128,6 +128,10 @@ def test_b6_return_channel_has_exact_instruction_and_deadline() -> None:
         channel.deadline
         == "No deadline assigned; coordinator will communicate changes."
     )
+    assert channel.fallback == (
+        "If that channel is unavailable, contact the OntoPrism project coordinator "
+        "before transmitting review material."
+    )
 
 
 @pytest.mark.parametrize(
@@ -326,6 +330,16 @@ def test_d10_pair_action_and_partition_are_not_interchangeable() -> None:
             "answer cue in question: requested ontology action instead of human "
             "applicability",
         ),
+        (
+            "source_fact",
+            "The finding is CLASSIFICATION-DEPENDENT.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "factual_context",
+            "The finding is universal and defining.",
+            "answer cue in factual_context: pre-answered clinical status",
+        ),
     ],
 )
 def test_semantic_answer_cue_gate_rejects_structured_conclusion_classes(
@@ -352,3 +366,20 @@ def test_answer_cue_gate_accepts_neutral_observations_and_questions() -> None:
         ),
     )
     assert semantic_answer_cue_findings(records) == ()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "UNIVERSAL-DEFINING",
+        "UNIVERSAL-NONDEFINING",
+        "CHARACTERISTIC-NONUNIVERSAL",
+        "CLASSIFICATION-DEPENDENT",
+        "INAPPLICABLE",
+        "UNRESOLVED",
+    ],
+)
+def test_answer_cue_gate_is_live_for_every_allowed_status(status: str) -> None:
+    assert semantic_answer_cue_findings(
+        (("C999", "source_fact", f"Observed conclusion: {status}."),)
+    )

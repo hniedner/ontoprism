@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from pathlib import Path
 
 import pytest
 from scripts.research.specialist_cadsr_usage import SpecialistCadsrUsageReport
 from scripts.research.specialist_review_packets import (
+    DispatchManifest,
     PacketIndex,
+    validate_dispatch_bundle,
     validate_specialist_review_generation,
 )
 
@@ -23,6 +27,9 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     )
 
     assert validation.status == "passed"
+    assert validation.readiness_meaning == (
+        "ontology/publication readiness; separate from dispatch readiness"
+    )
     assert len(index.packets) == 7
     assert tuple(row.status for row in cadsr.rows) == (
         "usage-found",
@@ -204,6 +211,11 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
             assert "CUSTOM-CURRENT-MODEL response syntax" in packet
             assert "synthetic IDs only: `PX1; PX2`" in packet
     eye = (_PACKETS / "C100054.md").read_text(encoding="utf-8")
+    eye_entry = next(entry for entry in index.packets if entry.code == "C100054")
+    assert eye.startswith(
+        "# C100054 — Conjunctival Melanocytic Intraepithelial Lesion\n"
+    )
+    assert "Conjunctival Melanocytic Intraepithelial Neoplasia" not in eye
     assert "WHO-EYE04" in eye
     assert "WHO-EYE05" in eye
     assert "### Clinical question for P3" in eye
@@ -213,6 +225,29 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert "[[ONTOPRISM:STAGE-A:START]]" in eye
     assert "[[ONTOPRISM:STAGE-B:START]]" in eye
     assert "OntoPrism project coordinator" in eye
+    assert "Packet reference: C100054 / NCIt 26.07d / " in eye
+    assert "coordinator validates the full packet SHA-256 and manifest identity" in eye
+    assert (
+        "If that channel is unavailable, contact the OntoPrism project coordinator "
+        "before transmitting review material."
+    ) in eye
+    assert "request receipt confirmation" in eye.lower()
+    assert (
+        "## Engineering blockers and consequences\n\nNone for this packet generation."
+        in eye
+    )
+    assert "**Current scoreable baseline partition:** G1={" in eye
+    assert "**Historical proposal warning and partition:**" in eye
+    assert " op:" in eye.split("**Current scoreable baseline partition:**", 1)[1]
+    assert "RETAIN-CURRENT" not in eye_entry.grouping_contract.allowed_dispositions
+    assert (
+        "Partition modes: "
+        + ", ".join(eye_entry.grouping_contract.allowed_dispositions)
+    ) in eye
+    assert eye_entry.pair_contracts[2].citation_ids == ("milman-2023", "mudhar-2024")
+    assert eye_entry.pair_contracts[3].citation_ids == ("milman-2023", "mudhar-2024")
+    assert "so atypia degree is classification-dependent" not in eye
+    assert "does not by itself establish" not in eye
     dispatch = Path("tmp/m1-6-specialist-dispatch")
     assert {path.name for path in dispatch.iterdir()} == {
         "C100054.md",
@@ -221,3 +256,28 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert (dispatch / "C100054.md").read_bytes() == (
         _PACKETS / "C100054.md"
     ).read_bytes()
+    manifest_payload = (dispatch / "dispatch-manifest.json").read_bytes()
+    manifest = DispatchManifest.model_validate_json(manifest_payload)
+    assert manifest.dispatch_ready is True
+    assert manifest.release_ready_codes == ("C100054",)
+    assert (
+        validate_dispatch_bundle(
+            dispatch_directory=dispatch,
+            packet_directory=_PACKETS,
+            index=index,
+        )
+        == manifest
+    )
+    manifest_values = json.loads(manifest_payload)
+    manifest_values.pop("manifest_identity")
+    assert (
+        manifest.manifest_identity
+        == hashlib.sha256(
+            (json.dumps(manifest_values, indent=2, sort_keys=True) + "\n").encode()
+        ).hexdigest()
+    )
+    assert (
+        manifest.packets[0].sha256
+        == hashlib.sha256((dispatch / "C100054.md").read_bytes()).hexdigest()
+    )
+    assert "Expected post-return output (not a current bundle file)" in eye
