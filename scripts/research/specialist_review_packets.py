@@ -46,7 +46,6 @@ _SHA256 = r"^[0-9a-f]{64}$"
 _MINT = re.compile(r"MINT-[0-9a-f]{12}")
 _GROUP_PACKET_SCHEMA = 4
 _DIAGNOSTIC_SCHEMA = 3
-_STAGE_B_DECISION_WIDTH = 6
 _CONTROLLING_AUTHORITY_MAX = 2
 _MIN_SCOPE_TOKEN_LENGTH = 4
 Relation = Literal[
@@ -89,6 +88,9 @@ class ReturnChannel(_StrictModel):
     deadline: Literal["No deadline assigned; coordinator will communicate changes."] = (
         "No deadline assigned; coordinator will communicate changes."
     )
+    fallback: Literal[
+        "If that channel is unavailable, contact the OntoPrism project coordinator before transmitting review material."
+    ] = "If that channel is unavailable, contact the OntoPrism project coordinator before transmitting review material."
 
 
 class PairScopeInput(_StrictModel):
@@ -158,7 +160,10 @@ _SOURCE_CLINICAL_CUE = re.compile(
     r"(?:\bnot through\b|\bbut not\b.{0,80}\buniversal\b|"
     r"\bwithout (?:proving|making)\b.{0,80}\buniversal\b|"
     r"\brather than (?:a )?universal\b|\bnot (?:a )?universal\b|"
-    r"\bnot presumed universal\b|\bdoes not (?:prove|establish)\b.{0,80}\buniversal)",
+    r"\bnot presumed universal\b|\bdoes not (?:prove|establish)\b.{0,80}\buniversal|"
+    r"\b(?:UNIVERSAL-DEFINING|UNIVERSAL-NONDEFINING|CHARACTERISTIC-NONUNIVERSAL|"
+    r"CLASSIFICATION-DEPENDENT|INAPPLICABLE|UNRESOLVED)\b|"
+    r"\buniversal\b.{0,30}\bdefining\b)",
     re.IGNORECASE,
 )
 _ONTOLOGY_ACTION_CUE = re.compile(
@@ -716,6 +721,9 @@ class GenerationValidation(_StrictModel):
     ontology_writes: Literal[False]
     runtime_mutated: Literal[False]
     readiness: Literal[False]
+    readiness_meaning: Literal[
+        "ontology/publication readiness; separate from dispatch readiness"
+    ]
     release_ready_codes: tuple[str, ...]
     withheld_codes: tuple[str, ...]
     release_ready: bool
@@ -735,10 +743,19 @@ class DispatchManifest(_StrictModel):
         "OntoPrism project coordinator"
     )
     instruction: str
+    dispatch_ready: Literal[True] = True
     release_ready_codes: tuple[str, ...]
     packets: tuple[DispatchManifestEntry, ...]
     index_identity: str = Field(pattern=_SHA256)
     manifest_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _listed_packets_are_exact(self) -> Self:
+        if tuple(item.code for item in self.packets) != self.release_ready_codes:
+            raise ValueError("dispatch packets must exactly match release-ready codes")
+        if any(item.path != f"{item.code}.md" for item in self.packets):
+            raise ValueError("dispatch packet path must match its code")
+        return self
 
 
 class CompletionValidation(_StrictModel):
@@ -816,6 +833,7 @@ def _write_dispatch_bundle(
         "schema_version": 1,
         "recipient": "OntoPrism project coordinator",
         "instruction": ReturnChannel().instruction,
+        "dispatch_ready": True,
         "release_ready_codes": index.release_ready_codes,
         "packets": entries,
         "index_identity": index.index_identity,
@@ -851,6 +869,42 @@ def _write_dispatch_bundle(
             os.replace(backup, dispatch_directory)
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    validate_dispatch_bundle(
+        dispatch_directory=dispatch_directory,
+        packet_directory=packet_directory,
+        index=index,
+    )
+
+
+def validate_dispatch_bundle(
+    *, dispatch_directory: Path, packet_directory: Path, index: PacketIndex
+) -> DispatchManifest:
+    """Parse strictly and independently recompute the dispatch identity chain."""
+    manifest = DispatchManifest.model_validate_json(
+        (dispatch_directory / "dispatch-manifest.json").read_bytes()
+    )
+    values = manifest.model_dump(mode="json")
+    if _identity_without(values, "manifest_identity") != manifest.manifest_identity:
+        raise ValueError("dispatch manifest identity mismatch")
+    if (
+        manifest.index_identity != index.index_identity
+        or manifest.release_ready_codes != index.release_ready_codes
+    ):
+        raise ValueError("dispatch manifest is not bound to the packet index")
+    expected_files = {
+        "dispatch-manifest.json",
+        *(item.path for item in manifest.packets),
+    }
+    if {
+        path.name for path in dispatch_directory.iterdir() if path.is_file()
+    } != expected_files:
+        raise ValueError("dispatch directory contains an unexpected file set")
+    for item in manifest.packets:
+        dispatched = (dispatch_directory / item.path).read_bytes()
+        canonical = (packet_directory / item.path).read_bytes()
+        if dispatched != canonical or _sha(dispatched) != item.sha256:
+            raise ValueError(f"dispatch packet identity mismatch: {item.path}")
+    return manifest
 
 
 def _labels(raw_inputs: tuple[Any, ...]) -> tuple[dict[str, str], dict[str, str]]:
@@ -950,6 +1004,23 @@ def _ncit_metadata(
     if missing:
         raise ValueError(f"NCIt source lacks exact labels for packet codes: {missing}")
     return labels, definitions
+
+
+def validate_source_preferred_labels(
+    context: GeneratedLiteratureContext, source_labels: dict[str, str]
+) -> None:
+    """Reject literature display labels that differ from stated NCIt labels."""
+    mismatches = tuple(
+        dossier.code
+        for dossier in context.dossiers
+        if dossier.code in source_labels
+        and dossier.exact_label != source_labels[dossier.code]
+    )
+    if mismatches:
+        raise ValueError(
+            "literature/context label does not match NCIt stated preferred label: "
+            + ", ".join(mismatches)
+        )
 
 
 def filter_governed_pairs(
@@ -1124,9 +1195,20 @@ def _build_rows(  # noqa: PLR0915
             for claim in question.claims
         }
         claims_by_key = {
-            (claim.pair_key.axis, claim.pair_key.filler): claim
-            for question in dossier.questions
-            for claim in question.claims
+            key: tuple(
+                (question.question_id, claim)
+                for question in dossier.questions
+                for claim in question.claims
+                if (claim.pair_key.axis, claim.pair_key.filler) == key
+            )
+            for key in {
+                (claim.pair_key.axis, claim.pair_key.filler)
+                for question in dossier.questions
+                for claim in question.claims
+            }
+        }
+        primary_claim_by_key = {
+            key: records[0][1] for key, records in claims_by_key.items()
         }
         concept = next(item for item in group["concepts"] if item["code"] == code)
         occurrences: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -1224,7 +1306,7 @@ def _build_rows(  # noqa: PLR0915
                     ),
                     has_clinical_claim=(axis, filler) in claimed_keys,
                     claim_contests_projection=(
-                        (axis, filler) in claims_by_key
+                        (axis, filler) in primary_claim_by_key
                         and _claim_contests_projection(
                             dossier,
                             filler=filler,
@@ -1400,9 +1482,7 @@ def pair_consequences(pair: SpecialistPair) -> dict[str, ActionConsequence]:
         ),
         "PROMOTE-SCOREABLE": (
             1 if relation == "expected-emitted-review-bearing" else 0,
-            1
-            if relation in {"current-only-review-bearing", "current-only-proposed"}
-            else 0,
+            1 if relation == "current-only-review-bearing" else 0,
             -1 if relation == "expected-emitted-review-bearing" else 0,
             1,
             "scoreable-promoted",
@@ -1428,6 +1508,40 @@ def pair_consequences(pair: SpecialistPair) -> dict[str, ActionConsequence]:
     }
 
 
+def allowed_partition_modes(
+    action_pairs: tuple[SpecialistPair, ...],
+) -> tuple[
+    Literal[
+        "RETAIN-CURRENT",
+        "GROUP-SPECIFIED-PAIRS-TOGETHER",
+        "KEEP-SPECIFIED-PAIRS-SEPARATE",
+        "CUSTOM-CURRENT-MODEL",
+        "EMPTY",
+    ],
+    ...,
+]:
+    """Derive partition modes from possible indexed pair actions."""
+    modes: tuple[
+        Literal[
+            "RETAIN-CURRENT",
+            "GROUP-SPECIFIED-PAIRS-TOGETHER",
+            "KEEP-SPECIFIED-PAIRS-SEPARATE",
+            "CUSTOM-CURRENT-MODEL",
+            "EMPTY",
+        ],
+        ...,
+    ] = (
+        "RETAIN-CURRENT",
+        "GROUP-SPECIFIED-PAIRS-TOGETHER",
+        "KEEP-SPECIFIED-PAIRS-SEPARATE",
+        "CUSTOM-CURRENT-MODEL",
+        "EMPTY",
+    )
+    if any("PROMOTE-SCOREABLE" in _allowed_actions(pair) for pair in action_pairs):
+        return tuple(mode for mode in modes if mode != "RETAIN-CURRENT")
+    return modes
+
+
 def context_correction_note(context_count: int) -> str:
     """Report observed context-pair liveness without overstating schema support."""
     if context_count < 0:
@@ -1450,6 +1564,20 @@ def context_correction_note(context_count: int) -> str:
     )
 
 
+def _render_partition(
+    partition: object, pair_id_by_key: dict[tuple[str, str], str]
+) -> str:
+    groups = cast("list[list[list[str]]]", partition)
+    rendered = []
+    for number, group in enumerate(groups, start=1):
+        members = "; ".join(
+            f"{pair_id_by_key.get((axis, filler), 'UNINDEXED')} {axis} {filler}"
+            for axis, filler in group
+        )
+        rendered.append(f"G{number}={{{members}}}")
+    return "; ".join(rendered) or "none"
+
+
 def _render_packet(  # noqa: C901, PLR0912
     row: SpecialistRowPacket,
     dossier: LiteratureDossierSource,
@@ -1459,6 +1587,8 @@ def _render_packet(  # noqa: C901, PLR0912
     expected_partition: object,
     suppressed_candidates: tuple[SuppressedCandidate, ...],
     dispatch: DispatchDecision,
+    row_contract_identity: str,
+    partition_modes: tuple[str, ...],
 ) -> bytes:
     suppressed_axes: dict[str, int] = {}
     for candidate in suppressed_candidates:
@@ -1469,11 +1599,14 @@ def _render_packet(  # noqa: C901, PLR0912
         axis_lines.append(
             f"- `{axis}` — {contract.label}: {contract.definition} Governance: {_axis_governance(axis)}. Fallback: {_axis_fallback(axis)}. Modality: {contract.modality}."
         )
+    pair_id_by_key = {
+        (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
+    }
     lines = [
         f"# {row.code} — {row.label}",
         "",
         (
-            "**Blank specialist packet.** Current NCIt 26.07d baseline only. Historical proposals are warnings, not selected responses. This packet is write-free; readiness is false and it cannot authorize equivalence, adoption, or publication."
+            "**Blank specialist packet.** Current NCIt 26.07d baseline only. Historical proposals are warnings, not selected responses. This packet is write-free; ontology/publication readiness is false and it cannot authorize equivalence, adoption, or publication. Dispatch readiness is separately recorded in the dispatch manifest."
             if dispatch.status == "dispatchable"
             else "**NOT FOR DISPATCH.** Read-only engineering-coordination dossier. It contains no attestation, response, return, or ontology-action request and must be regenerated after every withholding reason is resolved."
         ),
@@ -1481,13 +1614,6 @@ def _render_packet(  # noqa: C901, PLR0912
         *(f"- **Withholding reason:** {reason}" for reason in dispatch.reasons),
         f"**Workload:** asked={len(row.asked_pair_ids)}; action={len(row.action_pair_ids)}; engineering={len(row.engineering_pair_ids)}; context={len(row.context_pair_ids)}.",
         context_correction_note(len(row.context_pair_ids)),
-        *(
-            [
-                "This packet has five Stage A clinical questions and zero Stage B ontology actions. Responses can inform #274 engineering repair but cannot change the projection in this review cycle."
-            ]
-            if row.code == "C102870"
-            else []
-        ),
         *(
             [
                 "**No answer changes the projection this cycle because this row has zero ontology-action pairs. Stage A still informs the owned engineering repair.**"
@@ -1501,9 +1627,12 @@ def _render_packet(  # noqa: C901, PLR0912
                 "## Return workflow",
                 "",
                 f"1. {ReturnChannel().instruction}",
-                f"2. {ReturnChannel().deadline}",
+                f"2. {ReturnChannel().fallback} {ReturnChannel().deadline}",
                 "3. Edit as UTF-8. Preserve the filename and every visible ONTOPRISM marker. Edit only the text inside response regions; paragraphs and the `|` character are allowed. Stage A is clinical classification; Stage B is ontology action; separately complete both role attestations if one person performs both.",
-                "4. Leave everything outside response regions unchanged. The OntoPrism project coordinator performs independent row validation after return.",
+                "4. Leave everything outside response regions unchanged, request receipt confirmation, and retain that confirmation. The OntoPrism project coordinator performs independent row validation after return.",
+                "",
+                f"Packet reference: {row.code} / NCIt 26.07d / {row_contract_identity[:12]}. This short contract reference is non-authoritative; the coordinator validates the full packet SHA-256 and manifest identity.",
+                f"Expected post-return output (not a current bundle file): {row.code}.validation.json.",
                 "",
             ]
             if dispatch.status == "dispatchable"
@@ -1562,10 +1691,10 @@ def _render_packet(  # noqa: C901, PLR0912
             "**Current metric identity/context:** pair precision, recall, and F1 over the bound current comparison; row-local potential changes are bounded to one TP/FP/FN contribution per pair. No predicted post-review values are rendered.",
             "",
             "**Current scoreable baseline partition:** "
-            + json.dumps(actual_partition, sort_keys=True),
+            + _render_partition(actual_partition, pair_id_by_key),
             "",
             "**Historical proposal warning and partition:** admitted historical witness only; not source-stated grouping or authority. "
-            + json.dumps(expected_partition, sort_keys=True),
+            + _render_partition(expected_partition, pair_id_by_key),
             "",
             "## Literature dossier",
             "",
@@ -1581,11 +1710,27 @@ def _render_packet(  # noqa: C901, PLR0912
     lines.extend(
         [
             "",
+            "### Limitations / does not support",
+            "",
+            *(
+                f"- **{citation.citation_id}:** Does not support: {citation.does_not_support} Limitations: {citation.limitations}"
+                for citation in dossier.citations
+            ),
+        ]
+    )
+    lines.extend(
+        [
+            "",
             "## Engineering blockers and consequences",
             "",
             *(
                 f"- **{pair_id}:** {blocker}. Consequence: no clinical response creates an ontology action; current projection and metrics remain unchanged and readiness remains false."
                 for pair_id, blocker in sorted(row.engineering_blockers.items())
+            ),
+            *(
+                ["None for this packet generation."]
+                if not row.engineering_blockers
+                else []
             ),
             "",
         ]
@@ -1622,9 +1767,6 @@ def _render_packet(  # noqa: C901, PLR0912
         ]
     )
     asked = set(row.asked_pair_ids)
-    pair_id_by_key = {
-        (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
-    }
     question_by_pair = {
         pair_id_by_key[(key.axis, key.filler)]: question
         for question in dossier.questions
@@ -1714,7 +1856,8 @@ def _render_packet(  # noqa: C901, PLR0912
             [
                 "## Independent partition disposition",
                 "The final groups must cover every post-action scoreable pair exactly once, including unchanged baseline context. Removed, non-scoreable, engineering-only, and context-only pairs are forbidden. EMPTY is allowed only when no scoreable pair remains. Partition choices have zero pair-metric deltas.",
-                "Partition modes: RETAIN-CURRENT, GROUP-SPECIFIED-PAIRS-TOGETHER, KEEP-SPECIFIED-PAIRS-SEPARATE, CUSTOM-CURRENT-MODEL, EMPTY.",
+                f"Partition modes: {', '.join(partition_modes)}",
+                "RETAIN-CURRENT appears only when every allowed pair action preserves the baseline scoreable set. If it is absent, choose one listed mode and provide an exact final total partition.",
                 "CUSTOM-CURRENT-MODEL response syntax: after `Groups`, write one complete group per line as semicolon-separated ending-scoreable pair IDs. Every ending-scoreable pair ID must occur exactly once across all lines.",
                 "Neutral syntax example using synthetic IDs only: `PX1; PX2` on one line and `PX3` on the next line.",
                 "[[ONTOPRISM:PARTITION-DISPOSITION:START]]",
@@ -1821,6 +1964,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         )
         wanted = {value for value in wanted if value.startswith(("C", "R"))}
         ncit_labels, ncit_definitions = _ncit_metadata(ncit_source_path, wanted)
+        validate_source_preferred_labels(context, ncit_labels)
         identities[_portable(ncit_source_path)] = _hash_file(ncit_source_path)
     rows, suppression, visible_registered = _build_rows(
         context, raw_inputs, registered, ncit_labels, ncit_definitions
@@ -1835,9 +1979,17 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         dossier = dossier_by_code[row.code]
         citations = {item.citation_id: item for item in dossier.citations}
         claims_by_key = {
-            (claim.pair_key.axis, claim.pair_key.filler): (question.question_id, claim)
-            for question in dossier.questions
-            for claim in question.claims
+            key: tuple(
+                (question.question_id, claim)
+                for question in dossier.questions
+                for claim in question.claims
+                if (claim.pair_key.axis, claim.pair_key.filler) == key
+            )
+            for key in {
+                (claim.pair_key.axis, claim.pair_key.filler)
+                for question in dossier.questions
+                for claim in question.claims
+            }
         }
         pair_id_by_key = {
             (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
@@ -1862,13 +2014,18 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             pair.pair_id
             for pair in row.pairs
             if pair.pair_id in row.asked_pair_ids
-            and (claim_record := claims_by_key.get((pair.key.axis, pair.key.filler)))
+            and (claim_records := claims_by_key.get((pair.key.axis, pair.key.filler)))
             is not None
-            and citation_supports_pair(
-                question_id=claim_record[0],
-                pair_key=LiteraturePairKey(axis=pair.key.axis, filler=pair.key.filler),
-                claim=claim_record[1],
-                citation=citations[claim_record[1].citation_id],
+            and any(
+                citation_supports_pair(
+                    question_id=question_id,
+                    pair_key=LiteraturePairKey(
+                        axis=pair.key.axis, filler=pair.key.filler
+                    ),
+                    claim=claim,
+                    citation=citations[claim.citation_id],
+                )
+                for question_id, claim in claim_records
             )
         )
         dispatch = derive_dispatch_decision(
@@ -1876,6 +2033,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             asked_pair_ids=row.asked_pair_ids,
             supported_pair_ids=supported_pair_ids,
         )
+        action_pairs = tuple(
+            pair for pair in row.pairs if pair.pair_id in row.action_pair_ids
+        )
+        partition_modes = allowed_partition_modes(action_pairs)
+        row_contract_identity = _sha(_canonical(row))
         payload = _render_packet(
             row,
             dossier,
@@ -1885,6 +2047,8 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             concept["expected_partition"],
             suppression[row.code],
             dispatch,
+            row_contract_identity,
+            partition_modes,
         )
         packet_payloads[name] = payload
         entries.append(
@@ -1892,7 +2056,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 code=row.code,
                 path=name,
                 row_sha256=_sha(payload),
-                row_contract_identity=_sha(_canonical(row)),
+                row_contract_identity=row_contract_identity,
                 asked_pair_ids=row.asked_pair_ids,
                 action_pair_ids=row.action_pair_ids,
                 clinical_only_pair_ids=row.clinical_only_pair_ids,
@@ -1906,13 +2070,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 ),
                 return_channel=ReturnChannel(),
                 grouping_contract=GroupingContract(
-                    allowed_dispositions=(
-                        "RETAIN-CURRENT",
-                        "GROUP-SPECIFIED-PAIRS-TOGETHER",
-                        "KEEP-SPECIFIED-PAIRS-SEPARATE",
-                        "CUSTOM-CURRENT-MODEL",
-                        "EMPTY",
-                    ),
+                    allowed_dispositions=partition_modes,
                     baseline_scoreable_pair_ids=baseline_scoreable,
                     baseline_partition=baseline_partition,
                 ),
@@ -1933,28 +2091,21 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                             else ()
                         ),
                         citation_ids=(
-                            (
-                                claims_by_key[(pair.key.axis, pair.key.filler)][
-                                    1
-                                ].citation_id,
+                            tuple(
+                                claim.citation_id
+                                for question_id, claim in claims_by_key[
+                                    (pair.key.axis, pair.key.filler)
+                                ]
+                                if citation_supports_pair(
+                                    question_id=question_id,
+                                    pair_key=LiteraturePairKey(
+                                        axis=pair.key.axis, filler=pair.key.filler
+                                    ),
+                                    claim=claim,
+                                    citation=citations[claim.citation_id],
+                                )
                             )
                             if (pair.key.axis, pair.key.filler) in claims_by_key
-                            and citation_supports_pair(
-                                question_id=claims_by_key[
-                                    (pair.key.axis, pair.key.filler)
-                                ][0],
-                                pair_key=LiteraturePairKey(
-                                    axis=pair.key.axis, filler=pair.key.filler
-                                ),
-                                claim=claims_by_key[(pair.key.axis, pair.key.filler)][
-                                    1
-                                ],
-                                citation=citations[
-                                    claims_by_key[(pair.key.axis, pair.key.filler)][
-                                        1
-                                    ].citation_id
-                                ],
-                            )
                             else ()
                         ),
                         consequence_by_action=(
@@ -2011,7 +2162,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
     all_mints = set(
         _MINT.findall(b"\n".join(payloads.values()).decode(errors="ignore"))
     )
-    suppressed_mints = all_mints - registered
+    suppressed_mints = (all_mints - registered) | {
+        candidate.generated_id
+        for row_candidates in suppression.values()
+        for candidate in row_candidates
+    }
     leaked = sorted(item for item in suppressed_mints if item.encode() in rendered)
     if leaked:
         findings.append("suppressed MINT identifiers leaked into rendered bytes")
@@ -2089,6 +2244,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         "ontology_writes": False,
         "runtime_mutated": False,
         "readiness": False,
+        "readiness_meaning": (
+            "ontology/publication readiness; separate from dispatch readiness"
+        ),
         "release_ready_codes": release_ready_codes,
         "withheld_codes": withheld_codes,
         "release_ready": not withheld_codes,
@@ -2163,6 +2321,7 @@ def validate_completion(  # noqa: C901, PLR0912
     engineering_only_pairs: tuple[str, ...] = (),
     allowed_actions_by_pair: dict[str, tuple[str, ...]] | None = None,
     baseline_scoreable_pairs: tuple[str, ...] = (),
+    allowed_partition_modes: tuple[str, ...] | None = None,
 ) -> bool:
     if action_pairs is None and stage_b.row_outcome == "DEFERRED":
         raise ValueError(
@@ -2213,6 +2372,13 @@ def validate_completion(  # noqa: C901, PLR0912
         partition = stage_b.partition
         if partition is None:
             raise ValueError("resolved Stage B requires a partition disposition")
+        if (
+            allowed_partition_modes is not None
+            and partition.mode not in allowed_partition_modes
+        ):
+            raise ValueError(
+                "partition mode is not allowed by the indexed row contract"
+            )
         covered = tuple(pair for group in partition.groups for pair in group)
         if partition.mode == "EMPTY" and final_scoreable:
             raise ValueError("EMPTY partition is valid only with no scoreable pairs")
@@ -2483,6 +2649,7 @@ def _validate_return_text(
             key: value.allowed_actions for key, value in contracts.items()
         },
         baseline_scoreable_pairs=entry.grouping_contract.baseline_scoreable_pair_ids,
+        allowed_partition_modes=entry.grouping_contract.allowed_dispositions,
     )
     return stage_a, stage_b
 
@@ -2501,6 +2668,12 @@ def validate_specialist_review_row(
         raise ValueError(f"code is not present in packet index: {code}")
     if return_path.name != f"{code}.md":
         raise ValueError("return file name must exactly match the indexed code")
+    if entry.dispatch_status == "dispatchable":
+        validate_dispatch_bundle(
+            dispatch_directory=index_path.parent.parent / "m1-6-specialist-dispatch",
+            packet_directory=index_path.parent,
+            index=index,
+        )
     canonical_path = index_path.parent / Path(entry.path).name
     canonical = canonical_path.read_bytes()
     returned = return_path.read_bytes()

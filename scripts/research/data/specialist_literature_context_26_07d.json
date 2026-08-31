@@ -3,12 +3,126 @@
   "ncit_version": "26.07d",
   "evidence_pass": "final",
   "oncology_accessible_evidence_records": [
-    {"source_id":"thomas-2019","code":"C6135","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC6821118/","checked_on":"2026-08-31","exact_short_passage":"A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma.","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C41457"},{"axis":"op:ClinicalFinding","filler":"C47804"},{"axis":"op:ClinicalFinding","filler":"C47807"},{"axis":"op:NormalTissueOrigin","filler":"C33782"}],"material_scope":"C-cell origin, poor delineation, serum calcitonin, and calcitonin immunohistochemistry."},
-    {"source_id":"xu-2021","code":"C6135","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC8683221/","checked_on":"2026-08-31","exact_short_passage":"Eighty-one (24.8%) MTCs were high-grade using this scheme.","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C155863"}],"material_scope":"High grade is a measured subset, not a universal property of medullary thyroid carcinoma."},
-    {"source_id":"okongwu-2025","code":"C4791","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC11905437/","checked_on":"2026-08-31","exact_short_passage":"The tumour is composed of mainly polygonal myxoma cells appearing as small stellate to plump spindle-shaped cells. Mitoses are rare, and there is no significant cytologic atypia as well as absence of necrosis.","pair_keys":[{"axis":"op:CellType","filler":"C36899"},{"axis":"op:CellType","filler":"C36954"},{"axis":"op:ClinicalFinding","filler":"C36122"},{"axis":"op:ClinicalFinding","filler":"C53583"}],"material_scope":"Stellate and spindle morphology, atypia, necrosis, and uncertain-differentiation question material."},
-    {"source_id":"woo-2014","code":"C198031","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC4063430/","checked_on":"2026-08-31","exact_short_passage":"ALL is a malignant clonal proliferation of lymphoid progenitor cells, most commonly of the B-cell lineage. ALL is a disease of the bone marrow.","pair_keys":[{"axis":"op:NormalTissueOrigin","filler":"C13049"},{"axis":"op:PrimarySite","filler":"C12431"}],"material_scope":"Lymphoid lineage and bone-marrow disease context for the engineering-pending clinical questions."},
-    {"source_id":"duffield-2023","code":"C198031","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC10646822/","checked_on":"2026-08-31","exact_short_passage":"Morphology plays little role in the diagnosis of ALL, beyond the simple recognition of blasts that need to be further characterized by lineage, most often by flow cytometry.","pair_keys":[{"axis":"op:Morphology","filler":"C4005"}],"material_scope":"Morphology is not a substitute for lineage classification in ALL."},
-    {"source_id":"mirsadraee-2012","code":"C35756","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC3351680/","checked_on":"2026-08-31","exact_short_passage":"M1a includes malignant pleural effusion. T4 (pleural effusion) was reclassified as M1a and stage IV in the seventh classification.","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C3331"},{"axis":"op:StageValue","filler":"C27978"},{"axis":"op:StageValue","filler":"C28064"}],"material_scope":"AJCC seventh-edition malignant-effusion M1a and stage-IV context, distinct from generic effusion."}
+    {
+      "source_id": "thomas-2019",
+      "code": "C6135",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6821118/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma.",
+      "pair_keys": [
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C41457"
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C47804"
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C47807"
+        },
+        {
+          "axis": "op:NormalTissueOrigin",
+          "filler": "C33782"
+        }
+      ],
+      "material_scope": "C-cell origin, poor delineation, serum calcitonin, and calcitonin immunohistochemistry."
+    },
+    {
+      "source_id": "xu-2021",
+      "code": "C6135",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8683221/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "Eighty-one (24.8%) MTCs were high-grade using this scheme.",
+      "pair_keys": [
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C155863"
+        }
+      ],
+      "material_scope": "High grade is a measured subset, not a universal property of medullary thyroid carcinoma."
+    },
+    {
+      "source_id": "okongwu-2025",
+      "code": "C4791",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11905437/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "The tumour is composed of mainly polygonal myxoma cells appearing as small stellate to plump spindle-shaped cells. Mitoses are rare, and there is no significant cytologic atypia as well as absence of necrosis.",
+      "pair_keys": [
+        {
+          "axis": "op:CellType",
+          "filler": "C36899"
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36954"
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C36122"
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C53583"
+        }
+      ],
+      "material_scope": "Stellate and spindle morphology, atypia, necrosis, and uncertain-differentiation question material."
+    },
+    {
+      "source_id": "woo-2014",
+      "code": "C198031",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4063430/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "ALL is a malignant clonal proliferation of lymphoid progenitor cells, most commonly of the B-cell lineage. ALL is a disease of the bone marrow.",
+      "pair_keys": [
+        {
+          "axis": "op:NormalTissueOrigin",
+          "filler": "C13049"
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12431"
+        }
+      ],
+      "material_scope": "Lymphoid lineage and bone-marrow disease context for the engineering-pending clinical questions."
+    },
+    {
+      "source_id": "duffield-2023",
+      "code": "C198031",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10646822/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "Morphology plays little role in the diagnosis of ALL, beyond the simple recognition of blasts that need to be further characterized by lineage, most often by flow cytometry.",
+      "pair_keys": [
+        {
+          "axis": "op:Morphology",
+          "filler": "C4005"
+        }
+      ],
+      "material_scope": "Morphology is not a substitute for lineage classification in ALL."
+    },
+    {
+      "source_id": "mirsadraee-2012",
+      "code": "C35756",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3351680/",
+      "checked_on": "2026-08-31",
+      "exact_short_passage": "M1a includes malignant pleural effusion. T4 (pleural effusion) was reclassified as M1a and stage IV in the seventh classification.",
+      "pair_keys": [
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C3331"
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27978"
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C28064"
+        }
+      ],
+      "material_scope": "AJCC seventh-edition malignant-effusion M1a and stage-IV context, distinct from generic effusion."
+    }
   ],
   "dossiers": [
     {
@@ -16,19 +130,194 @@
       "exact_label": "Myelodysplastic/Myeloproliferative Neoplasm",
       "exact_definition": "A category of clonal hematopoietic disorders that have both myelodysplastic and myeloproliferative features at the time of initial presentation.",
       "specialty": "hematopathology and myeloid-neoplasm classification",
-      "factual_context": ["WHO-HAEM5 and ICC use entity-specific matrices; blast, bone-marrow, system, and morphology findings cannot be generalized across every child entity.", "Lee 2024 studied MDS and is retained only as non-controlling context."],
+      "factual_context": [
+        "WHO-HAEM5 and ICC use entity-specific matrices; blast, bone-marrow, system, and morphology findings cannot be generalized across every child entity.",
+        "Lee 2024 studied MDS and is retained only as non-controlling context."
+      ],
       "citations": [
-        {"citation_id":"fontana-2023","status":"cited","authority_class":"peer-reviewed classification review","authority_order":1,"bibliography":"Fontana D, Elli EM, Pagni F, Piazza R. Myelodysplastic Syndromes/Myeloproliferative Overlap Neoplasms and Differential Diagnosis in the WHO and ICC 2022 Era: A Focused Review. Cancers. 2023;15:3175.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC10296742/","doi":"10.3390/cancers15123175","pmid":"37370799","verified_on":"2026-08-31","exact_locator":"Abstract and Table 4, Peripheral blood and bone marrow blasts row","exact_passage":"At the time of presentation, they possess features of both myelodysplastic syndromes and myeloproliferative neoplasms. | Peripheral blood and bone marrow blasts | <20% | <20% |","supports":"Overlap category and entity-specific WHO/ICC criteria, including the recorded blast boundary.","does_not_support":"No universal OntoPrism pair or relationship group.","limitations":"A focused review, not the controlling classification books.","conflicts_or_supersession":"Summarizes WHO-HAEM5 and ICC 2022 differences; neither classification is collapsed into the other."},
-        {"citation_id":"xiao-2024","status":"cited","authority_class":"peer-reviewed comparative classification review","authority_order":2,"bibliography":"Xiao W, Nardi V, Stein E, Hasserjian RP. A practical approach on the classifications of myeloid neoplasms and acute leukemia: WHO and ICC. J Hematol Oncol. 2024;17:56.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC11287910/","doi":"10.1186/s13045-024-01571-4","pmid":"39075565; PMCID PMC11287910","verified_on":"2026-08-31","exact_locator":"Abstract and Table 1, Summary of myeloid neoplasm entities","exact_passage":"there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.","supports":"Classification-dependent entity matrices and the mixed dysplastic/proliferative category.","does_not_support":"No ontology action or generic blast rule.","limitations":"Comparative review rather than either controlling classification volume.","conflicts_or_supersession":"Documents rather than resolves WHO/ICC divergences."}
+        {
+          "citation_id": "fontana-2023",
+          "status": "cited",
+          "authority_class": "peer-reviewed classification review",
+          "authority_order": 1,
+          "bibliography": "Fontana D, Elli EM, Pagni F, Piazza R. Myelodysplastic Syndromes/Myeloproliferative Overlap Neoplasms and Differential Diagnosis in the WHO and ICC 2022 Era: A Focused Review. Cancers. 2023;15:3175.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10296742/",
+          "doi": "10.3390/cancers15123175",
+          "pmid": "37370799",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract and Table 4, Peripheral blood and bone marrow blasts row",
+          "exact_passage": "At the time of presentation, they possess features of both myelodysplastic syndromes and myeloproliferative neoplasms. | Peripheral blood and bone marrow blasts | <20% | <20% |",
+          "supports": "Overlap category and entity-specific WHO/ICC criteria, including the recorded blast boundary.",
+          "does_not_support": "No universal OntoPrism pair or relationship group.",
+          "limitations": "A focused review, not the controlling classification books.",
+          "conflicts_or_supersession": "Summarizes WHO-HAEM5 and ICC 2022 differences; neither classification is collapsed into the other."
+        },
+        {
+          "citation_id": "xiao-2024",
+          "status": "cited",
+          "authority_class": "peer-reviewed comparative classification review",
+          "authority_order": 2,
+          "bibliography": "Xiao W, Nardi V, Stein E, Hasserjian RP. A practical approach on the classifications of myeloid neoplasms and acute leukemia: WHO and ICC. J Hematol Oncol. 2024;17:56.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11287910/",
+          "doi": "10.1186/s13045-024-01571-4",
+          "pmid": "39075565; PMCID PMC11287910",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract and Table 1, Summary of myeloid neoplasm entities",
+          "exact_passage": "there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.",
+          "supports": "Classification-dependent entity matrices and the mixed dysplastic/proliferative category.",
+          "does_not_support": "No ontology action or generic blast rule.",
+          "limitations": "Comparative review rather than either controlling classification volume.",
+          "conflicts_or_supersession": "Documents rather than resolves WHO/ICC divergences."
+        }
       ],
       "questions": [
-        {"question_id":"C27262-C41063","pair_keys":[{"axis":"op:CellType","filler":"C41063"}],"text":"Is Neoplastic Myeloid Cell clinically applicable across the full WHO-HAEM5/ICC MDS/MPN category, or only within named child entities?","claims":[{"question_id":"C27262-C41063","pair_key":{"axis":"op:CellType","filler":"C41063"},"citation_id":"xiao-2024","source_fact":"WHO-HAEM5 and ICC describe MDS/MPN as mixed dysplastic and proliferative myeloid-lineage entities while retaining entity-specific definitions."}]},
-        {"question_id":"C27262-C36220","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C36220"}],"text":"Is under-20-percent peripheral-blood blast status universal for every entity represented by this MDS/MPN category, or classification- and entity-dependent?","claims":[{"question_id":"C27262-C36220","pair_key":{"axis":"op:ClinicalFinding","filler":"C36220"},"citation_id":"fontana-2023","source_fact":"The reproduced WHO/ICC criteria table records peripheral-blood blasts below 20 percent in its entity-specific matrix."}]},
-        {"question_id":"C27262-C41397","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C41397"}],"text":"Is under-20-percent bone-marrow blast status universal for every entity represented by this MDS/MPN category, or classification- and entity-dependent?","claims":[{"question_id":"C27262-C41397","pair_key":{"axis":"op:ClinicalFinding","filler":"C41397"},"citation_id":"fontana-2023","source_fact":"The reproduced WHO/ICC criteria table separately records bone-marrow blasts below 20 percent."}]},
-        {"question_id":"C27262-C35501","pair_keys":[{"axis":"op:Morphology","filler":"C35501"}],"text":"Does Malignant Bone Marrow Neoplasm describe the defining morphology of the entire MDS/MPN category, or only a broader contextual parent?","claims":[{"question_id":"C27262-C35501","pair_key":{"axis":"op:Morphology","filler":"C35501"},"citation_id":"xiao-2024","source_fact":"The classification review describes MDS/MPN with mixed dysplastic and proliferative features and lists it within the broader myeloid-neoplasm classification."}]},
-        {"question_id":"C27262-C9290","pair_keys":[{"axis":"op:Morphology","filler":"C9290"}],"text":"Is Myeloid Neoplasm the defining morphology at this category level, or a broad classification parent that does not distinguish MDS/MPN?","claims":[{"question_id":"C27262-C9290","pair_key":{"axis":"op:Morphology","filler":"C9290"},"citation_id":"xiao-2024","source_fact":"The review places MDS/MPN within myeloid neoplasms but supplies mixed dysplastic/proliferative features for category specificity."}]},
-        {"question_id":"C27262-C13051","pair_keys":[{"axis":"op:NormalTissueOrigin","filler":"C13051"}],"text":"Is Hematopoietic Tissue clinically universal but non-defining for this MDS/MPN category, or does an entity-specific limitation apply?","claims":[{"question_id":"C27262-C13051","pair_key":{"axis":"op:NormalTissueOrigin","filler":"C13051"},"citation_id":"xiao-2024","source_fact":"The reviewed category consists of clonal myeloid-lineage neoplasms in the hematopoietic classification."}]},
-        {"question_id":"C27262-C12431","pair_keys":[{"axis":"op:PrimarySite","filler":"C12431"}],"text":"Is Bone Marrow the clinically universal primary site for every represented MDS/MPN entity, or should its scope be classification-dependent?","claims":[{"question_id":"C27262-C12431","pair_key":{"axis":"op:PrimarySite","filler":"C12431"},"citation_id":"fontana-2023","source_fact":"The review reports separate peripheral-blood and bone-marrow criteria in its entity matrix."}]}
+        {
+          "question_id": "C27262-C41063",
+          "pair_keys": [
+            {
+              "axis": "op:CellType",
+              "filler": "C41063"
+            }
+          ],
+          "text": "Is Neoplastic Myeloid Cell clinically applicable across the full WHO-HAEM5/ICC MDS/MPN category, or only within named child entities?",
+          "claims": [
+            {
+              "question_id": "C27262-C41063",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C41063"
+              },
+              "citation_id": "xiao-2024",
+              "source_fact": "WHO-HAEM5 and ICC describe MDS/MPN as mixed dysplastic and proliferative myeloid-lineage entities while retaining entity-specific definitions."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C36220",
+          "pair_keys": [
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36220"
+            }
+          ],
+          "text": "Is under-20-percent peripheral-blood blast status universal for every entity represented by this MDS/MPN category, or classification- and entity-dependent?",
+          "claims": [
+            {
+              "question_id": "C27262-C36220",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36220"
+              },
+              "citation_id": "fontana-2023",
+              "source_fact": "The reproduced WHO/ICC criteria table records peripheral-blood blasts below 20 percent in its entity-specific matrix."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C41397",
+          "pair_keys": [
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C41397"
+            }
+          ],
+          "text": "Is under-20-percent bone-marrow blast status universal for every entity represented by this MDS/MPN category, or classification- and entity-dependent?",
+          "claims": [
+            {
+              "question_id": "C27262-C41397",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C41397"
+              },
+              "citation_id": "fontana-2023",
+              "source_fact": "The reproduced WHO/ICC criteria table separately records bone-marrow blasts below 20 percent."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C35501",
+          "pair_keys": [
+            {
+              "axis": "op:Morphology",
+              "filler": "C35501"
+            }
+          ],
+          "text": "Does Malignant Bone Marrow Neoplasm describe the defining morphology of the entire MDS/MPN category, or only a broader contextual parent?",
+          "claims": [
+            {
+              "question_id": "C27262-C35501",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C35501"
+              },
+              "citation_id": "xiao-2024",
+              "source_fact": "The classification review describes MDS/MPN with mixed dysplastic and proliferative features and lists it within the broader myeloid-neoplasm classification."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C9290",
+          "pair_keys": [
+            {
+              "axis": "op:Morphology",
+              "filler": "C9290"
+            }
+          ],
+          "text": "Is Myeloid Neoplasm the defining morphology at this category level, or a broad classification parent that does not distinguish MDS/MPN?",
+          "claims": [
+            {
+              "question_id": "C27262-C9290",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C9290"
+              },
+              "citation_id": "xiao-2024",
+              "source_fact": "The review places MDS/MPN within myeloid neoplasms but supplies mixed dysplastic/proliferative features for category specificity."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C13051",
+          "pair_keys": [
+            {
+              "axis": "op:NormalTissueOrigin",
+              "filler": "C13051"
+            }
+          ],
+          "text": "Is Hematopoietic Tissue clinically universal but non-defining for this MDS/MPN category, or does an entity-specific limitation apply?",
+          "claims": [
+            {
+              "question_id": "C27262-C13051",
+              "pair_key": {
+                "axis": "op:NormalTissueOrigin",
+                "filler": "C13051"
+              },
+              "citation_id": "xiao-2024",
+              "source_fact": "The reviewed category consists of clonal myeloid-lineage neoplasms in the hematopoietic classification."
+            }
+          ]
+        },
+        {
+          "question_id": "C27262-C12431",
+          "pair_keys": [
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12431"
+            }
+          ],
+          "text": "How broadly does Bone Marrow apply as the clinically represented primary site across the named MDS/MPN entities and classification scopes?",
+          "claims": [
+            {
+              "question_id": "C27262-C12431",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12431"
+              },
+              "citation_id": "fontana-2023",
+              "source_fact": "The review reports separate peripheral-blood and bone-marrow criteria in its entity matrix."
+            }
+          ]
+        }
       ]
     },
     {
@@ -36,75 +325,1478 @@
       "exact_label": "Ovarian Non-Dysgerminomatous Germ Cell Tumor",
       "exact_definition": "A malignant germ cell tumor other than dysgerminoma that arises from the ovary.",
       "specialty": "gynecologic pathology, ovarian germ-cell oncology, and registry terminology",
-      "factual_context": ["C121619 is teratoma-inclusive; C39986 excludes a teratoma component. The exact scope must be reviewed separately.", "The official WHO book is access restricted; no passage from it is represented as independently observed."],
+      "factual_context": [
+        "C121619 is teratoma-inclusive; C39986 excludes a teratoma component. The exact scope must be reviewed separately.",
+        "The official WHO book is access restricted; no passage from it is represented as independently observed."
+      ],
       "citations": [
-        {"citation_id":"who-female-2020","status":"access-restricted","authority_class":"WHO classification","authority_order":1,"bibliography":"WHO Classification of Tumours Editorial Board. Female Genital Tumours. 5th ed. IARC; 2020.","url":"https://tumourclassification.iarc.who.int/chapters/34","doi":null,"pmid":null,"verified_on":"2026-08-31","exact_locator":"Ovarian germ cell tumour chapter/table","exact_passage":"Unavailable: official WHO chapter access was restricted in this evidence pass.","supports":"Controls exact histologic scope; accessible Table 1 reproduction is recorded separately.","does_not_support":"No NCIt pair, axis, or grouping action.","limitations":"No exact passage independently verified.","conflicts_or_supersession":"Controlling over secondary reproductions where wording differs."},
-        {"citation_id":"de-maria-2025","status":"cited","authority_class":"peer-reviewed review reproducing WHO table","authority_order":2,"bibliography":"De Maria F et al. Malignant germ cells tumor of the ovary. J Gynecol Oncol. 2025;36:e108.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC12099048/","doi":"10.3802/jgo.2025.36.e108","pmid":"40275685; PMCID PMC12099048","verified_on":"2026-08-31","exact_locator":"Table 1, WHO 2020 classification ovarian germ cell tumors","exact_passage":"Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor","supports":"Accessible WHO table reproduction demonstrates distinct teratoma, primitive malignant, and mixed-germ-cell categories.","does_not_support":"Does not define C121619 or C39986 conjunction semantics.","limitations":"Secondary reproduction of the access-restricted WHO table.","conflicts_or_supersession":"Defers to the official WHO text."},
-        {"citation_id":"skold-2024","status":"access-restricted","authority_class":"peer-reviewed clinical review","authority_order":3,"bibliography":"Sköld C et al. Ovarian germ cell tumours. J Intern Med. 2024.","url":"https://pubmed.ncbi.nlm.nih.gov/38468475/","doi":"10.1111/joim.13778","pmid":"38468475","verified_on":"2026-08-31","exact_locator":"Full text not independently accessible","exact_passage":"Unavailable: full text was access restricted in this evidence pass.","supports":"Potential corroboration of histologic heterogeneity.","does_not_support":"No ontology decision.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Does not supersede WHO."},
-        {"citation_id":"esgo-siope-2020","status":"access-restricted","authority_class":"clinical guideline","authority_order":4,"bibliography":"ESGO-SIOPE Guidelines for ovarian non-epithelial tumours. Lancet Oncol. 2020.","url":"https://pubmed.ncbi.nlm.nih.gov/32615119/","doi":"10.1016/S1470-2045(20)30091-7","pmid":"32615119","verified_on":"2026-08-31","exact_locator":"Full guideline text not independently accessible","exact_passage":"Unavailable: full text was access restricted in this evidence pass.","supports":"Potential clinical corroboration only.","does_not_support":"No NCIt semantics.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Clinical guidance does not replace WHO taxonomy."}
+        {
+          "citation_id": "who-female-2020",
+          "status": "access-restricted",
+          "authority_class": "WHO classification",
+          "authority_order": 1,
+          "bibliography": "WHO Classification of Tumours Editorial Board. Female Genital Tumours. 5th ed. IARC; 2020.",
+          "url": "https://tumourclassification.iarc.who.int/chapters/34",
+          "doi": null,
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Ovarian germ cell tumour chapter/table",
+          "exact_passage": "Unavailable: official WHO chapter access was restricted in this evidence pass.",
+          "supports": "Controls exact histologic scope; accessible Table 1 reproduction is recorded separately.",
+          "does_not_support": "No NCIt pair, axis, or grouping action.",
+          "limitations": "No exact passage independently verified.",
+          "conflicts_or_supersession": "Controlling over secondary reproductions where wording differs."
+        },
+        {
+          "citation_id": "de-maria-2025",
+          "status": "cited",
+          "authority_class": "peer-reviewed review reproducing WHO table",
+          "authority_order": 2,
+          "bibliography": "De Maria F et al. Malignant germ cells tumor of the ovary. J Gynecol Oncol. 2025;36:e108.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12099048/",
+          "doi": "10.3802/jgo.2025.36.e108",
+          "pmid": "40275685; PMCID PMC12099048",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Table 1, WHO 2020 classification ovarian germ cell tumors",
+          "exact_passage": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
+          "supports": "Accessible WHO table reproduction demonstrates distinct teratoma, primitive malignant, and mixed-germ-cell categories.",
+          "does_not_support": "Does not define C121619 or C39986 conjunction semantics.",
+          "limitations": "Secondary reproduction of the access-restricted WHO table.",
+          "conflicts_or_supersession": "Defers to the official WHO text."
+        },
+        {
+          "citation_id": "skold-2024",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed clinical review",
+          "authority_order": 3,
+          "bibliography": "Sköld C et al. Ovarian germ cell tumours. J Intern Med. 2024.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38468475/",
+          "doi": "10.1111/joim.13778",
+          "pmid": "38468475",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text not independently accessible",
+          "exact_passage": "Unavailable: full text was access restricted in this evidence pass.",
+          "supports": "Potential corroboration of histologic heterogeneity.",
+          "does_not_support": "No ontology decision.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Does not supersede WHO."
+        },
+        {
+          "citation_id": "esgo-siope-2020",
+          "status": "access-restricted",
+          "authority_class": "clinical guideline",
+          "authority_order": 4,
+          "bibliography": "ESGO-SIOPE Guidelines for ovarian non-epithelial tumours. Lancet Oncol. 2020.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32615119/",
+          "doi": "10.1016/S1470-2045(20)30091-7",
+          "pmid": "32615119",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full guideline text not independently accessible",
+          "exact_passage": "Unavailable: full text was access restricted in this evidence pass.",
+          "supports": "Potential clinical corroboration only.",
+          "does_not_support": "No NCIt semantics.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Clinical guidance does not replace WHO taxonomy."
+        }
       ],
       "questions": [
-        {"question_id":"C102870-ANATOMY-C12321","pair_keys":[{"axis":"op:AssociatedSite","filler":"C12321"}],"text":"Is Uterine Adnexa clinically applicable to this ovary-arising tumor as a broad anatomic context, without treating it as a source-stated primary-site role?","claims":[{"question_id":"C102870-ANATOMY-C12321","pair_key":{"axis":"op:AssociatedSite","filler":"C12321"},"citation_id":"de-maria-2025","source_fact":"The review concerns malignant ovarian germ-cell tumors, supporting adnexal clinical context but not a source role."}]},
-        {"question_id":"C102870-CELL-C36903","pair_keys":[{"axis":"op:CellType","filler":"C36903"}],"text":"Is Neoplastic Germ Cell universal and defining across the ovarian non-dysgerminomatous germ-cell tumor scope?","claims":[{"question_id":"C102870-CELL-C36903","pair_key":{"axis":"op:CellType","filler":"C36903"},"citation_id":"de-maria-2025","source_fact":"The reproduced WHO table classifies the relevant ovarian entities as germ-cell tumors."}]},
-        {"question_id":"C102870-FINDING-C156460","pair_keys":[{"axis":"op:ClinicalFinding","filler":"C156460"}],"text":"Is Malignant Primitive Cellular Infiltrate universal across this row, or limited to primitive malignant subtypes?","claims":[{"question_id":"C102870-FINDING-C156460","pair_key":{"axis":"op:ClinicalFinding","filler":"C156460"},"citation_id":"de-maria-2025","source_fact":"The WHO table reproduction separates primitive malignant entities from teratoma and mixed categories."}]},
-        {"question_id":"C102870-MORPHOLOGY-C121619","pair_keys":[{"axis":"op:Morphology","filler":"C121619"}],"text":"Does Nongerminomatous Germ Cell Tumor apply with its teratoma-inclusive scope to this exact ovarian category?","claims":[{"question_id":"C102870-MORPHOLOGY-C121619","pair_key":{"axis":"op:Morphology","filler":"C121619"},"citation_id":"de-maria-2025","source_fact":"The reproduced WHO table includes benign and immature teratoma among ovarian germ-cell categories."}]},
-        {"question_id":"C102870-MORPHOLOGY-C39986","pair_keys":[{"axis":"op:Morphology","filler":"C39986"}],"text":"Does Ovarian Primitive Germ Cell Tumor apply only when a teratoma component is absent, rather than to every non-dysgerminomatous tumor?","claims":[{"question_id":"C102870-MORPHOLOGY-C39986","pair_key":{"axis":"op:Morphology","filler":"C39986"},"citation_id":"de-maria-2025","source_fact":"The table separates teratoma from yolk-sac, embryonal, choriocarcinoma and mixed categories, supporting an exact scope distinction."}]}
+        {
+          "question_id": "C102870-ANATOMY-C12321",
+          "pair_keys": [
+            {
+              "axis": "op:AssociatedSite",
+              "filler": "C12321"
+            }
+          ],
+          "text": "Is Uterine Adnexa clinically applicable to this ovary-arising tumor as a broad anatomic context, without treating it as a source-stated primary-site role?",
+          "claims": [
+            {
+              "question_id": "C102870-ANATOMY-C12321",
+              "pair_key": {
+                "axis": "op:AssociatedSite",
+                "filler": "C12321"
+              },
+              "citation_id": "de-maria-2025",
+              "source_fact": "The review concerns malignant ovarian germ-cell tumors and describes adnexal clinical context."
+            }
+          ]
+        },
+        {
+          "question_id": "C102870-CELL-C36903",
+          "pair_keys": [
+            {
+              "axis": "op:CellType",
+              "filler": "C36903"
+            }
+          ],
+          "text": "How broadly does Neoplastic Germ Cell apply across the ovarian non-dysgerminomatous germ-cell tumor scope?",
+          "claims": [
+            {
+              "question_id": "C102870-CELL-C36903",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36903"
+              },
+              "citation_id": "de-maria-2025",
+              "source_fact": "The reproduced WHO table classifies the relevant ovarian entities as germ-cell tumors."
+            }
+          ]
+        },
+        {
+          "question_id": "C102870-FINDING-C156460",
+          "pair_keys": [
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C156460"
+            }
+          ],
+          "text": "Is Malignant Primitive Cellular Infiltrate universal across this row, or limited to primitive malignant subtypes?",
+          "claims": [
+            {
+              "question_id": "C102870-FINDING-C156460",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C156460"
+              },
+              "citation_id": "de-maria-2025",
+              "source_fact": "The WHO table reproduction separates primitive malignant entities from teratoma and mixed categories."
+            }
+          ]
+        },
+        {
+          "question_id": "C102870-MORPHOLOGY-C121619",
+          "pair_keys": [
+            {
+              "axis": "op:Morphology",
+              "filler": "C121619"
+            }
+          ],
+          "text": "Does Nongerminomatous Germ Cell Tumor apply with its teratoma-inclusive scope to this exact ovarian category?",
+          "claims": [
+            {
+              "question_id": "C102870-MORPHOLOGY-C121619",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C121619"
+              },
+              "citation_id": "de-maria-2025",
+              "source_fact": "The reproduced WHO table includes benign and immature teratoma among ovarian germ-cell categories."
+            }
+          ]
+        },
+        {
+          "question_id": "C102870-MORPHOLOGY-C39986",
+          "pair_keys": [
+            {
+              "axis": "op:Morphology",
+              "filler": "C39986"
+            }
+          ],
+          "text": "Does Ovarian Primitive Germ Cell Tumor apply only when a teratoma component is absent, rather than to every non-dysgerminomatous tumor?",
+          "claims": [
+            {
+              "question_id": "C102870-MORPHOLOGY-C39986",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C39986"
+              },
+              "citation_id": "de-maria-2025",
+              "source_fact": "The table separates teratoma from yolk-sac, embryonal, choriocarcinoma and mixed categories, supporting an exact scope distinction."
+            }
+          ]
+        }
       ]
     },
     {
-      "code":"C6135","exact_label":"Stage III Thyroid Gland Medullary Carcinoma AJCC v7","exact_definition":"Stage III includes: (T1, N1a, M0); (T2, N1a, M0); (T3, N1a, M0).","specialty":"endocrine pathology and thyroid-cancer staging",
-      "factual_context":["C36825 is Malignant Neuroendocrine Cell, while the cited lineage description names C cells; C33782 is Thyroid Gland Follicle and requires explicit review of human applicability.","The cited sources report measured frequencies and documented variation for RET, calcitonin expression, circumscription, and differentiation."],
-      "citations":[
-        {"citation_id":"baloch-2022","status":"access-restricted","authority_class":"WHO classification overview","authority_order":1,"bibliography":"Baloch ZW et al. Overview of the 2022 WHO Classification of Thyroid Neoplasms.","url":"https://pubmed.ncbi.nlm.nih.gov/35288841/","doi":null,"pmid":"35288841","verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full classification-overview text was access restricted in this evidence pass.","supports":"Potential controlling classification context.","does_not_support":"No pair or action.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Current WHO context does not rewrite AJCC-v7 stage history."},
-        {"citation_id":"kaliszewski-2022","status":"cited","authority_class":"peer-reviewed open-access review","authority_order":2,"bibliography":"Kaliszewski K et al. Update on the Diagnosis and Management of Medullary Thyroid Cancer: What Has Changed in Recent Years? Cancers. 2022;14:3643.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC9332800/","doi":"10.3390/cancers14153643","pmid":"35892901; PMCID PMC9332800","verified_on":"2026-08-31","exact_locator":"Abstract; sections 1.1 Definition, 1.2 Classification, and 1.5 Genetics","exact_passage":"MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43–65%) caused by a somatic mutation in the RET gene.","supports":"C-cell lineage and calcitonin production; it also shows that a RET mutation is common rather than universal in sporadic MTC.","does_not_support":"Does not support thyroid-follicle origin, universal RET mutation, universal increased serum calcitonin, or an ontology action.","limitations":"Peer-reviewed review rather than the controlling WHO volume; the lineage statement does not make every inherited generic neuroendocrine finding defining.","conflicts_or_supersession":"Does not supersede WHO or ATA."},
-        {"citation_id":"jung-2023","status":"access-restricted","authority_class":"peer-reviewed pathology review","authority_order":3,"bibliography":"Jung CK et al. Medullary thyroid carcinoma in the current WHO classification. Endocr Pathol. 2023.","url":"https://pubmed.ncbi.nlm.nih.gov/36890425/","doi":"10.1007/s12022-023-09753-5","pmid":"36890425","verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full pathology-review text was access restricted in this evidence pass.","supports":"Potential pathology corroboration.","does_not_support":"No pair admission.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"No supersession claim."},
-        {"citation_id":"ata-2015","status":"access-restricted","authority_class":"clinical guideline","authority_order":4,"bibliography":"Wells SA Jr et al. Revised American Thyroid Association Guidelines for Medullary Thyroid Carcinoma. Thyroid. 2015.","url":"https://doi.org/10.1089/thy.2014.0335","doi":"10.1089/thy.2014.0335","pmid":"25810047","verified_on":"2026-08-31","exact_locator":"Guideline full text not independently checked","exact_passage":"Unavailable: the guideline text was access restricted in this evidence pass.","supports":"Potential clinical management context.","does_not_support":"No universality or ontology grouping.","limitations":"Management guideline, not ontology authority.","conflicts_or_supersession":"Later classifications may alter terminology but not historical AJCC-v7 text."},
-        {"citation_id":"calcitonin-negative-2024","status":"cited","authority_class":"systematic review","authority_order":5,"bibliography":"Diagnostic challenges in calcitonin negative medullary thyroid carcinoma: a systematic review of 101 cases. Gland Surg. 2024.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC11558288/","doi":"10.21037/gs-24-292","pmid":null,"verified_on":"2026-08-31","exact_locator":"Results, cohort summary","exact_passage":"One hundred and one patients were identified","supports":"Calcitonin-negative disease is documented and calcitonin cannot be assumed universal.","does_not_support":"Does not establish frequency in every population or an ontology action.","limitations":"Heterogeneous reports assembled in a systematic review.","conflicts_or_supersession":"Corroborates, rather than supersedes, lineage classification."},
-        {"citation_id":"thomas-2019","status":"cited","authority_class":"peer-reviewed open-access guideline review","authority_order":6,"bibliography":"Thomas CM et al. Diagnosis and pathologic characteristics of medullary thyroid carcinoma—review of current guidelines. Curr Oncol. 2019;26:338-344.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC6821118/","doi":"10.3747/co.26.5539","pmid":"31708652; PMCID PMC6821118","verified_on":"2026-08-31","exact_locator":"Abstract, Results; Pathology Diagnosis; Figure 1 legend","exact_passage":"A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.","supports":"C-cell origin, usual poor delineation, calcitonin secretion, and calcitonin immunohistochemistry as distinct pair-specific facts.","does_not_support":"Does not support thyroid-follicle origin, universality of poor delineation, or an ontology action.","limitations":"Narrative review of guidelines and pathology; usual morphology is not universal morphology.","conflicts_or_supersession":"Corroborates C-cell lineage while retaining exceptions and diagnostic variation."},
-        {"citation_id":"xu-2021","status":"cited","authority_class":"peer-reviewed open-access multicenter study","authority_order":7,"bibliography":"Xu B et al. International Medullary Thyroid Carcinoma Grading System: A Validated Grading System for Medullary Thyroid Carcinoma. J Clin Oncol. 2022;40:96-104.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC8683221/","doi":"10.1200/JCO.21.01329","pmid":"34731032; PMCID PMC8683221","verified_on":"2026-08-31","exact_locator":"Abstract, Results","exact_passage":"Eighty-one (24.8%) MTCs were high-grade using this scheme.","supports":"High-grade medullary thyroid carcinoma is a measured subset rather than a universal property.","does_not_support":"Does not support universal high grade, AJCC-v7 staging, or an ontology action.","limitations":"Retrospective multicenter grading cohort of resected tumors.","conflicts_or_supersession":"Introduces a pathology grading system separate from AJCC stage grouping."}
+      "code": "C6135",
+      "exact_label": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7",
+      "exact_definition": "Stage III includes: (T1, N1a, M0); (T2, N1a, M0); (T3, N1a, M0).",
+      "specialty": "endocrine pathology and thyroid-cancer staging",
+      "factual_context": [
+        "C36825 is Malignant Neuroendocrine Cell, while the cited lineage description names C cells; C33782 is Thyroid Gland Follicle and requires explicit review of human applicability.",
+        "The cited sources report measured frequencies and documented variation for RET, calcitonin expression, circumscription, and differentiation."
       ],
-      "questions":[{"question_id":"C6135-REVIEWABLE-PAIRS","pair_keys":[{"axis":"op:AssociatedRegion","filler":"C13063"},{"axis":"op:CellType","filler":"C36825"},{"axis":"op:ClinicalFinding","filler":"C155863"},{"axis":"op:ClinicalFinding","filler":"C207031"},{"axis":"op:ClinicalFinding","filler":"C41457"},{"axis":"op:ClinicalFinding","filler":"C43574"},{"axis":"op:ClinicalFinding","filler":"C47804"},{"axis":"op:ClinicalFinding","filler":"C47807"},{"axis":"op:MolecularAbnormality","filler":"C129702"},{"axis":"op:Morphology","filler":"C3879"},{"axis":"op:NormalTissueOrigin","filler":"C33782"},{"axis":"op:PrimarySite","filler":"C12400"},{"axis":"op:StageSystem","filler":"C90530"},{"axis":"op:StageValue","filler":"C27970"}],"text":"For the named filler, determine its exact universality in Stage III medullary thyroid carcinoma: distinguish C-cell lineage from generic neuroendocrine cells and thyroid follicles; assess poor differentiation, marker expression, circumscription, calcitonin findings and RET independently; and keep the AJCC-v7 stage group distinct from tumor pathology.","claims":[{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:AssociatedRegion","filler":"C13063"},"citation_id":"kaliszewski-2022","source_fact":"The review addresses medullary thyroid carcinoma in the thyroid and neck clinical context."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C36825"},"citation_id":"kaliszewski-2022","source_fact":"The source classifies MTC as a C-cell-derived epithelial neuroendocrine neoplasm."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C155863"},"citation_id":"xu-2021","source_fact":"The study reports 81 of 327 MTCs, 24.8 percent, as high-grade under its grading scheme."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C207031"},"citation_id":"thomas-2019","source_fact":"The review reports calcitonin, chromogranin A, and carcinoembryonic-antigen staining in MTC tumor cells."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C41457"},"citation_id":"thomas-2019","source_fact":"The review describes MTC as usually poorly delineated and infiltrative."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C43574"},"citation_id":"thomas-2019","source_fact":"The review classifies MTC as a neuroendocrine tumor arising from parafollicular C cells."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C47804"},"citation_id":"thomas-2019","source_fact":"The review states that parafollicular C cells secrete calcitonin."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C47807"},"citation_id":"thomas-2019","source_fact":"The review reports calcitonin staining in MTC tumor cells."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:MolecularAbnormality","filler":"C129702"},"citation_id":"kaliszewski-2022","source_fact":"The review reports somatic RET mutation in 43–65 percent of sporadic MTC."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C3879"},"citation_id":"kaliszewski-2022","source_fact":"The review identifies MTC as the sole subgroup of thyroid C-cell-derived carcinomas."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:NormalTissueOrigin","filler":"C33782"},"citation_id":"kaliszewski-2022","source_fact":"The review states that MTC originates from parafollicular C cells."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySite","filler":"C12400"},"citation_id":"kaliszewski-2022","source_fact":"The reviewed entity is medullary thyroid carcinoma of the thyroid gland."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageSystem","filler":"C90530"},"citation_id":"kaliszewski-2022","source_fact":"The review concerns diagnosis and management of medullary thyroid carcinoma."},{"question_id":"C6135-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageValue","filler":"C27970"},"citation_id":"kaliszewski-2022","source_fact":"The review concerns diagnosis and management of medullary thyroid carcinoma."}]}]
+      "citations": [
+        {
+          "citation_id": "baloch-2022",
+          "status": "access-restricted",
+          "authority_class": "WHO classification overview",
+          "authority_order": 1,
+          "bibliography": "Baloch ZW et al. Overview of the 2022 WHO Classification of Thyroid Neoplasms.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35288841/",
+          "doi": null,
+          "pmid": "35288841",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full classification-overview text was access restricted in this evidence pass.",
+          "supports": "Potential controlling classification context.",
+          "does_not_support": "No pair or action.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Current WHO context does not rewrite AJCC-v7 stage history."
+        },
+        {
+          "citation_id": "kaliszewski-2022",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access review",
+          "authority_order": 2,
+          "bibliography": "Kaliszewski K et al. Update on the Diagnosis and Management of Medullary Thyroid Cancer: What Has Changed in Recent Years? Cancers. 2022;14:3643.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9332800/",
+          "doi": "10.3390/cancers14153643",
+          "pmid": "35892901; PMCID PMC9332800",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract; sections 1.1 Definition, 1.2 Classification, and 1.5 Genetics",
+          "exact_passage": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43–65%) caused by a somatic mutation in the RET gene.",
+          "supports": "C-cell lineage and calcitonin production; it also shows that a RET mutation is common rather than universal in sporadic MTC.",
+          "does_not_support": "Does not support thyroid-follicle origin, universal RET mutation, universal increased serum calcitonin, or an ontology action.",
+          "limitations": "Peer-reviewed review rather than the controlling WHO volume; the lineage statement does not make every inherited generic neuroendocrine finding defining.",
+          "conflicts_or_supersession": "Does not supersede WHO or ATA."
+        },
+        {
+          "citation_id": "jung-2023",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed pathology review",
+          "authority_order": 3,
+          "bibliography": "Jung CK et al. Medullary thyroid carcinoma in the current WHO classification. Endocr Pathol. 2023.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36890425/",
+          "doi": "10.1007/s12022-023-09753-5",
+          "pmid": "36890425",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full pathology-review text was access restricted in this evidence pass.",
+          "supports": "Potential pathology corroboration.",
+          "does_not_support": "No pair admission.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "No supersession claim."
+        },
+        {
+          "citation_id": "ata-2015",
+          "status": "access-restricted",
+          "authority_class": "clinical guideline",
+          "authority_order": 4,
+          "bibliography": "Wells SA Jr et al. Revised American Thyroid Association Guidelines for Medullary Thyroid Carcinoma. Thyroid. 2015.",
+          "url": "https://doi.org/10.1089/thy.2014.0335",
+          "doi": "10.1089/thy.2014.0335",
+          "pmid": "25810047",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Guideline full text not independently checked",
+          "exact_passage": "Unavailable: the guideline text was access restricted in this evidence pass.",
+          "supports": "Potential clinical management context.",
+          "does_not_support": "No universality or ontology grouping.",
+          "limitations": "Management guideline, not ontology authority.",
+          "conflicts_or_supersession": "Later classifications may alter terminology but not historical AJCC-v7 text."
+        },
+        {
+          "citation_id": "calcitonin-negative-2024",
+          "status": "cited",
+          "authority_class": "systematic review",
+          "authority_order": 5,
+          "bibliography": "Diagnostic challenges in calcitonin negative medullary thyroid carcinoma: a systematic review of 101 cases. Gland Surg. 2024.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11558288/",
+          "doi": "10.21037/gs-24-292",
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Results, cohort summary",
+          "exact_passage": "One hundred and one patients were identified",
+          "supports": "Calcitonin-negative disease is documented and calcitonin cannot be assumed universal.",
+          "does_not_support": "Does not establish frequency in every population or an ontology action.",
+          "limitations": "Heterogeneous reports assembled in a systematic review.",
+          "conflicts_or_supersession": "Corroborates, rather than supersedes, lineage classification."
+        },
+        {
+          "citation_id": "thomas-2019",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access guideline review",
+          "authority_order": 6,
+          "bibliography": "Thomas CM et al. Diagnosis and pathologic characteristics of medullary thyroid carcinoma—review of current guidelines. Curr Oncol. 2019;26:338-344.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6821118/",
+          "doi": "10.3747/co.26.5539",
+          "pmid": "31708652; PMCID PMC6821118",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract, Results; Pathology Diagnosis; Figure 1 legend",
+          "exact_passage": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
+          "supports": "C-cell origin, usual poor delineation, calcitonin secretion, and calcitonin immunohistochemistry as distinct pair-specific facts.",
+          "does_not_support": "Does not support thyroid-follicle origin, universality of poor delineation, or an ontology action.",
+          "limitations": "Narrative review of guidelines and pathology; usual morphology is not universal morphology.",
+          "conflicts_or_supersession": "Corroborates C-cell lineage while retaining exceptions and diagnostic variation."
+        },
+        {
+          "citation_id": "xu-2021",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access multicenter study",
+          "authority_order": 7,
+          "bibliography": "Xu B et al. International Medullary Thyroid Carcinoma Grading System: A Validated Grading System for Medullary Thyroid Carcinoma. J Clin Oncol. 2022;40:96-104.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8683221/",
+          "doi": "10.1200/JCO.21.01329",
+          "pmid": "34731032; PMCID PMC8683221",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract, Results",
+          "exact_passage": "Eighty-one (24.8%) MTCs were high-grade using this scheme.",
+          "supports": "High-grade medullary thyroid carcinoma is a measured subset rather than a universal property.",
+          "does_not_support": "Does not support universal high grade, AJCC-v7 staging, or an ontology action.",
+          "limitations": "Retrospective multicenter grading cohort of resected tumors.",
+          "conflicts_or_supersession": "Introduces a pathology grading system separate from AJCC stage grouping."
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "C6135-REVIEWABLE-PAIRS",
+          "pair_keys": [
+            {
+              "axis": "op:AssociatedRegion",
+              "filler": "C13063"
+            },
+            {
+              "axis": "op:CellType",
+              "filler": "C36825"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C155863"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C207031"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C41457"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C43574"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C47804"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C47807"
+            },
+            {
+              "axis": "op:MolecularAbnormality",
+              "filler": "C129702"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C3879"
+            },
+            {
+              "axis": "op:NormalTissueOrigin",
+              "filler": "C33782"
+            },
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12400"
+            },
+            {
+              "axis": "op:StageSystem",
+              "filler": "C90530"
+            },
+            {
+              "axis": "op:StageValue",
+              "filler": "C27970"
+            }
+          ],
+          "text": "For the named filler, determine its exact universality in Stage III medullary thyroid carcinoma: distinguish C-cell lineage from generic neuroendocrine cells and thyroid follicles; assess poor differentiation, marker expression, circumscription, calcitonin findings and RET independently; and keep the AJCC-v7 stage group distinct from tumor pathology.",
+          "claims": [
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:AssociatedRegion",
+                "filler": "C13063"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review addresses medullary thyroid carcinoma in the thyroid and neck clinical context."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36825"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The source classifies MTC as a C-cell-derived epithelial neuroendocrine neoplasm."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C155863"
+              },
+              "citation_id": "xu-2021",
+              "source_fact": "The study reports 81 of 327 MTCs, 24.8 percent, as high-grade under its grading scheme."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C207031"
+              },
+              "citation_id": "thomas-2019",
+              "source_fact": "The review reports calcitonin, chromogranin A, and carcinoembryonic-antigen staining in MTC tumor cells."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C41457"
+              },
+              "citation_id": "thomas-2019",
+              "source_fact": "The review describes MTC as usually poorly delineated and infiltrative."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C43574"
+              },
+              "citation_id": "thomas-2019",
+              "source_fact": "The review classifies MTC as a neuroendocrine tumor arising from parafollicular C cells."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C47804"
+              },
+              "citation_id": "thomas-2019",
+              "source_fact": "The review states that parafollicular C cells secrete calcitonin."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C47807"
+              },
+              "citation_id": "thomas-2019",
+              "source_fact": "The review reports calcitonin staining in MTC tumor cells."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:MolecularAbnormality",
+                "filler": "C129702"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review reports somatic RET mutation in 43–65 percent of sporadic MTC."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C3879"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review identifies MTC as the sole subgroup of thyroid C-cell-derived carcinomas."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:NormalTissueOrigin",
+                "filler": "C33782"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review states that MTC originates from parafollicular C cells."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12400"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The reviewed entity is medullary thyroid carcinoma of the thyroid gland."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageSystem",
+                "filler": "C90530"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review concerns diagnosis and management of medullary thyroid carcinoma."
+            },
+            {
+              "question_id": "C6135-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageValue",
+                "filler": "C27970"
+              },
+              "citation_id": "kaliszewski-2022",
+              "source_fact": "The review concerns diagnosis and management of medullary thyroid carcinoma."
+            }
+          ]
+        }
+      ]
     },
     {
-      "code":"C4791","exact_label":"Left Atrial Myxoma","exact_definition":"A cardiac myxoma arising from the left atrium.","specialty":"cardiovascular pathology and ontology routing","factual_context":["C13004 occurs on both AssociatedRegion and AssociatedSite; D23 permits same-code multi-axis representation.","R101/R88 routing ambiguity is an engineering blocker owned by #267."],
-      "citations":[
-        {"citation_id":"velez-torres-2020","status":"access-restricted","authority_class":"peer-reviewed pathology review","authority_order":1,"bibliography":"Velez Torres JM et al. Cardiac Myxoma: Review and Update. Adv Anat Pathol. 2020.","url":"https://pubmed.ncbi.nlm.nih.gov/32732585/","doi":"10.1097/PAP.0000000000000275","pmid":"32732585","verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full histogenesis review was access restricted in this evidence pass.","supports":"Potential pathology and histogenesis context.","does_not_support":"No routing or group decision.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"No supersession claim."},
-        {"citation_id":"islam-2022","status":"cited","authority_class":"peer-reviewed open-access clinical review","authority_order":2,"bibliography":"Islam AKMM. Cardiac myxomas: a narrative review. World J Cardiol. 2022;14:206-219.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC9048271/","doi":"10.4330/wjc.v14.i4.206","pmid":"35582466; PMCID PMC9048271","verified_on":"2026-08-31","exact_locator":"Abstract; section Location; Histopathology","exact_passage":"They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.","supports":"Left-atrium predominance, myxoid stroma, stellate-cell morphology, and continuing histogenesis uncertainty.","does_not_support":"Prevalence is not universality; it does not determine R101/R100 axis routing or require both cell-type pairs in every tumor.","limitations":"Narrative review; histogenesis remains explicitly controversial.","conflicts_or_supersession":"No supersession claim."},
-        {"citation_id":"okongwu-2025","status":"cited","authority_class":"peer-reviewed open-access contemporary review","authority_order":3,"bibliography":"Okongwu CC, Olaofe OO. Cardiac myxoma: a comprehensive review. J Cardiothorac Surg. 2025;20:151.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC11905437/","doi":"10.1186/s13019-024-03333-2","pmid":"40082903; PMCID PMC11905437","verified_on":"2026-08-31","exact_locator":"Gross pathology, microscopic description","exact_passage":"The tumour is composed of mainly polygonal myxoma cells appearing as small stellate to plump spindle-shaped cells. Mitoses are rare, and there is no significant cytologic atypia as well as absence of necrosis.","supports":"Stellate and spindle morphology, rare mitoses, lack of significant atypia, and absence of necrosis as separately reviewable pathology facts.","does_not_support":"Does not resolve histogenesis, ontology routing, or universality in every specimen.","limitations":"Contemporary narrative review; degenerative changes and morphologic variation are described elsewhere in the article.","conflicts_or_supersession":"Corroborates morphology without resolving the acknowledged histogenesis controversy."}
+      "code": "C4791",
+      "exact_label": "Left Atrial Myxoma",
+      "exact_definition": "A cardiac myxoma arising from the left atrium.",
+      "specialty": "cardiovascular pathology and ontology routing",
+      "factual_context": [
+        "C13004 occurs on both AssociatedRegion and AssociatedSite; D23 permits same-code multi-axis representation.",
+        "R101/R88 routing ambiguity is an engineering blocker owned by #267."
       ],
-      "questions":[{"question_id":"C4791-REVIEWABLE-PAIRS","pair_keys":[{"axis":"op:AssociatedRegion","filler":"C12905"},{"axis":"op:AssociatedRegion","filler":"C13004"},{"axis":"op:AssociatedSite","filler":"C13004"},{"axis":"op:CellType","filler":"C36899"},{"axis":"op:CellType","filler":"C36954"},{"axis":"op:ClinicalFinding","filler":"C35998"},{"axis":"op:ClinicalFinding","filler":"C36105"},{"axis":"op:ClinicalFinding","filler":"C36122"},{"axis":"op:ClinicalFinding","filler":"C53583"},{"axis":"op:Morphology","filler":"C3499"},{"axis":"op:PrimarySite","filler":"C12869"}],"text":"For the named filler, determine its exact universality in left atrial myxoma; assess stellate and spindle cells independently, distinguish myxoid stroma from uncertain differentiation or clinical course, and do not use clinical evidence to decide R101/R100 routing of Endocardium.","claims":[{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:AssociatedRegion","filler":"C12905"},"citation_id":"islam-2022","source_fact":"Cardiac myxoma occurs in heart chambers; this does not prove thoracic-cavity universality."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:AssociatedRegion","filler":"C13004"},"citation_id":"islam-2022","source_fact":"The review describes cardiac location but does not decide an AssociatedRegion route for Endocardium."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:AssociatedSite","filler":"C13004"},"citation_id":"islam-2022","source_fact":"The review describes cardiac location but does not decide an AssociatedSite route for Endocardium."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C36899"},"citation_id":"islam-2022","source_fact":"Histopathology includes scattered stellate cells in myxoid stroma."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C36954"},"citation_id":"islam-2022","source_fact":"The source describes round, polygonal or stellate cells and does not establish spindle cells in every tumor."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C35998"},"citation_id":"islam-2022","source_fact":"The review explicitly describes abundant loose myxoid stroma."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C36105"},"citation_id":"islam-2022","source_fact":"The review does not establish an indolent clinical course as universal."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C36122"},"citation_id":"islam-2022","source_fact":"The source describes histologic cells but does not establish a benign cellular infiltrate in every sample."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C53583"},"citation_id":"islam-2022","source_fact":"Histogenesis remains controversial, which is distinct from universal tissue differentiation uncertainty."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C3499"},"citation_id":"islam-2022","source_fact":"The review identifies cardiac myxoma and its myxoid histopathology."},{"question_id":"C4791-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySite","filler":"C12869"},"citation_id":"islam-2022","source_fact":"Cardiac myxomas arise most commonly from the left atrium, a predominance that must not be mistaken for universality across all cardiac myxoma."}]}]
+      "citations": [
+        {
+          "citation_id": "velez-torres-2020",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed pathology review",
+          "authority_order": 1,
+          "bibliography": "Velez Torres JM et al. Cardiac Myxoma: Review and Update. Adv Anat Pathol. 2020.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32732585/",
+          "doi": "10.1097/PAP.0000000000000275",
+          "pmid": "32732585",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full histogenesis review was access restricted in this evidence pass.",
+          "supports": "Potential pathology and histogenesis context.",
+          "does_not_support": "No routing or group decision.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "No supersession claim."
+        },
+        {
+          "citation_id": "islam-2022",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access clinical review",
+          "authority_order": 2,
+          "bibliography": "Islam AKMM. Cardiac myxomas: a narrative review. World J Cardiol. 2022;14:206-219.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9048271/",
+          "doi": "10.4330/wjc.v14.i4.206",
+          "pmid": "35582466; PMCID PMC9048271",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract; section Location; Histopathology",
+          "exact_passage": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
+          "supports": "Left-atrium predominance, myxoid stroma, stellate-cell morphology, and continuing histogenesis uncertainty.",
+          "does_not_support": "Prevalence is not universality; it does not determine R101/R100 axis routing or require both cell-type pairs in every tumor.",
+          "limitations": "Narrative review; histogenesis remains explicitly controversial.",
+          "conflicts_or_supersession": "No supersession claim."
+        },
+        {
+          "citation_id": "okongwu-2025",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access contemporary review",
+          "authority_order": 3,
+          "bibliography": "Okongwu CC, Olaofe OO. Cardiac myxoma: a comprehensive review. J Cardiothorac Surg. 2025;20:151.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11905437/",
+          "doi": "10.1186/s13019-024-03333-2",
+          "pmid": "40082903; PMCID PMC11905437",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Gross pathology, microscopic description",
+          "exact_passage": "The tumour is composed of mainly polygonal myxoma cells appearing as small stellate to plump spindle-shaped cells. Mitoses are rare, and there is no significant cytologic atypia as well as absence of necrosis.",
+          "supports": "Stellate and spindle morphology, rare mitoses, lack of significant atypia, and absence of necrosis as separately reviewable pathology facts.",
+          "does_not_support": "Does not resolve histogenesis, ontology routing, or universality in every specimen.",
+          "limitations": "Contemporary narrative review; degenerative changes and morphologic variation are described elsewhere in the article.",
+          "conflicts_or_supersession": "Corroborates morphology without resolving the acknowledged histogenesis controversy."
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "C4791-REVIEWABLE-PAIRS",
+          "pair_keys": [
+            {
+              "axis": "op:AssociatedRegion",
+              "filler": "C12905"
+            },
+            {
+              "axis": "op:AssociatedRegion",
+              "filler": "C13004"
+            },
+            {
+              "axis": "op:AssociatedSite",
+              "filler": "C13004"
+            },
+            {
+              "axis": "op:CellType",
+              "filler": "C36899"
+            },
+            {
+              "axis": "op:CellType",
+              "filler": "C36954"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C35998"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36105"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36122"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C53583"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C3499"
+            },
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12869"
+            }
+          ],
+          "text": "For the named filler, determine its exact universality in left atrial myxoma; assess stellate and spindle cells independently, distinguish myxoid stroma from uncertain differentiation or clinical course, and do not use clinical evidence to decide R101/R100 routing of Endocardium.",
+          "claims": [
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:AssociatedRegion",
+                "filler": "C12905"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "Cardiac myxoma occurs in heart chambers."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:AssociatedRegion",
+                "filler": "C13004"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The review describes cardiac and endocardial location."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:AssociatedSite",
+                "filler": "C13004"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The review describes cardiac and endocardial location."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36899"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "Histopathology includes scattered stellate cells in myxoid stroma."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36954"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The source describes round, polygonal, and stellate cells."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C35998"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The review explicitly describes abundant loose myxoid stroma."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36105"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The review reports clinical-course observations."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36122"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "Histopathological examination describes loose myxoid stroma with scattered round, polygonal, or stellate cells."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C53583"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "Histogenesis remains controversial, which is distinct from universal tissue differentiation uncertainty."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C3499"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "The review identifies cardiac myxoma and its myxoid histopathology."
+            },
+            {
+              "question_id": "C4791-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12869"
+              },
+              "citation_id": "islam-2022",
+              "source_fact": "Cardiac myxomas arise most commonly from the left atrium."
+            }
+          ]
+        }
+      ]
     },
     {
-      "code":"C100054","exact_label":"Conjunctival Melanocytic Intraepithelial Neoplasia","exact_definition":"A spectrum of neoplastic changes that occur in the conjunctiva and range from melanocytic hyperplasia through degrees of atypia to melanoma in situ.","specialty":"ocular pathology","factual_context":["WHO-EYE04 and WHO-EYE05 terminology must be temporally distinguished.","The source coordinates are C212119/R100/depth 4/[0,1] and C7058/R105/depth 2/[0,2]."],
-      "citations":[
-        {"citation_id":"milman-2023","status":"cited","authority_class":"WHO Classification Editorial Board open-access editorial","authority_order":1,"bibliography":"Milman T et al.; WHO Classification of Tumours Editorial Board. The 5th Edition of the World Health Organization Classification of Tumours of the Eye and Orbit. Ocul Oncol Pathol. 2023;9:71-95.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC10601864/","doi":"10.1159/000530730","pmid":"37900189; PMCID PMC10601864","verified_on":"2026-08-31","exact_locator":"Specific Changes, Tumors of the Conjunctiva and Caruncle, Table 5","exact_passage":"Low-grade CMIL | Predominantly basilar melanocytic proliferation with low-grade atypia. | High-grade CMIL | More confluent basilar and significant non-basilar proliferation of melanocytes with high-grade atypia. | Melanoma in situ | the most atypical high-grade CMILs involving close to full thickness of the epithelium.","supports":"Accessible Editorial Board classification material distinguishes low-grade and high-grade atypia and melanoma in situ while retaining a non-invasive intraepithelial spectrum.","does_not_support":"No automatic ontology action or universal cytologic atypia across every grade.","limitations":"Editorial-board overview of WHO Eye5 rather than the complete volume.","conflicts_or_supersession":"WHO Eye5 revises classification prospectively without erasing WHO Eye4 historical terminology."},
-        {"citation_id":"mudhar-2024","status":"cited","authority_class":"multicenter peer-reviewed open-access study","authority_order":2,"bibliography":"Mudhar HS et al. A Multicenter Study Validates the WHO 2022 Classification for Conjunctival Melanocytic Intraepithelial Lesions With Clinical and Prognostic Relevance. Lab Invest. 2024;104:100281.","url":"https://eprints.whiterose.ac.uk/id/eprint/230080/1/1-s2.0-S0023683723002246-main.pdf","doi":"10.1016/j.labinv.2023.100281","pmid":"37924948","verified_on":"2026-08-31","exact_locator":"Abstract; WHO-EYE04/WHO-EYE05 comparison; Table 1","exact_passage":"The fourth WHO Classification of Eye Tumors (WHO-EYE04) proposed a C-MIL classification, capturing the progression of noninvasive neoplastic melanocytes from low- to high-grade lesions, onto melanoma in situ (MIS), and then to invasive melanoma. This proposal was revised to the WHO-EYE05 C-MIL system, which simplified the high-grade C-MIL, whereby MIS was subsumed into high-grade C-MIL.","supports":"The exact temporal distinction between WHO-EYE04 and WHO-EYE05 and the noninvasive, atypia-graded C-MIL spectrum.","does_not_support":"No automatic ontology promotion, universal cytologic atypia across every grade, or retrospective erasure of WHO-EYE04 terminology.","limitations":"Validation study of classification reproducibility, not the WHO volume itself.","conflicts_or_supersession":"WHO-EYE05 revises prospective classification while WHO-EYE04 remains necessary for historical context."},
-        {"citation_id":"bresler-2021","status":"access-restricted","authority_class":"peer-reviewed terminology review","authority_order":3,"bibliography":"Bresler SC et al. Conjunctival melanocytic lesions: terminology and classification. Arch Pathol Lab Med. 2021.","url":"https://pubmed.ncbi.nlm.nih.gov/34424954/","doi":"10.5858/arpa.2021-0006-RA","pmid":"34424954","verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full terminology-review text was access restricted in this evidence pass.","supports":"Potential historical terminology context.","does_not_support":"No ontology action.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Predates the newest WHO-EYE05 framing."},
-        {"citation_id":"stagner-2026","status":"access-restricted","authority_class":"peer-reviewed current review","authority_order":4,"bibliography":"Stagner AM. Conjunctival melanocytic pathology. Surg Pathol Clin. 2026;19:63-71.","url":"https://pubmed.ncbi.nlm.nih.gov/41651613/","doi":"10.1016/j.path.2025.08.004","pmid":"41651613","verified_on":"2026-08-31","exact_locator":"Publication text unavailable","exact_passage":"Unavailable: the publication text was access restricted in this evidence pass.","supports":"Potential current corroboration.","does_not_support":"No retrospective relabeling by itself.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Newest review in the pass; not a classification authority."}
+      "code": "C100054",
+      "exact_label": "Conjunctival Melanocytic Intraepithelial Lesion",
+      "exact_definition": "A spectrum of neoplastic changes that occur in the conjunctiva and range from melanocytic hyperplasia through degrees of atypia to melanoma in situ.",
+      "specialty": "ocular pathology",
+      "factual_context": [
+        "WHO-EYE04 proposed a C-MIL progression from low- to high-grade lesions and melanoma in situ; WHO-EYE05 subsumed melanoma in situ into high-grade C-MIL.",
+        "The source coordinates are C212119/R100/depth 4/[0,1] and C7058/R105/depth 2/[0,2]."
       ],
-      "questions":[{"question_id":"C100054-REVIEWABLE-PAIRS","pair_keys":[{"axis":"op:AssociatedSite","filler":"C137974"},{"axis":"op:CellType","filler":"C36862"},{"axis":"op:ClinicalFinding","filler":"C36027"},{"axis":"op:ClinicalFinding","filler":"C8326"},{"axis":"op:Morphology","filler":"C204977"},{"axis":"op:NormalTissueOrigin","filler":"C32365"},{"axis":"op:PrimarySite","filler":"C12341"}],"text":"For the named filler, state the WHO-EYE04 or WHO-EYE05 scope; distinguish non-invasion from grade-dependent cytologic atypia and do not treat the WHO-EYE05 treatment of melanoma in situ as retrospective erasure of WHO-EYE04.","claims":[{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:AssociatedSite","filler":"C137974"},"citation_id":"milman-2023","source_fact":"WHO Eye5 organizes conjunctival tumors by anatomy and lineage; adnexa is context, not a universal correctness claim."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C36862"},"citation_id":"milman-2023","source_fact":"The classification table concerns melanocytic proliferation in conjunctival epithelium."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C36027"},"citation_id":"milman-2023","source_fact":"Table 5 classifies the lesions as intraepithelial and separately describes melanoma in situ."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C8326"},"citation_id":"milman-2023","source_fact":"Table 5 ranges from no/minimal atypia through low-grade and high-grade atypia, so atypia degree is classification-dependent."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C204977"},"citation_id":"milman-2023","source_fact":"WHO Eye5 places conjunctival melanocytic intraepithelial lesions in the melanocytic conjunctival tumor classification."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:NormalTissueOrigin","filler":"C32365"},"citation_id":"milman-2023","source_fact":"The lesions are classified within conjunctival epithelium; this does not by itself establish a defining tissue-origin relation."},{"question_id":"C100054-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySite","filler":"C12341"},"citation_id":"milman-2023","source_fact":"The Editorial Board material classifies these as tumors of the conjunctiva."}]}]
+      "citations": [
+        {
+          "citation_id": "milman-2023",
+          "status": "cited",
+          "authority_class": "WHO Classification Editorial Board open-access editorial",
+          "authority_order": 1,
+          "bibliography": "Milman T et al.; WHO Classification of Tumours Editorial Board. The 5th Edition of the World Health Organization Classification of Tumours of the Eye and Orbit. Ocul Oncol Pathol. 2023;9:71-95.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10601864/",
+          "doi": "10.1159/000530730",
+          "pmid": "37900189; PMCID PMC10601864",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Specific Changes, Tumors of the Conjunctiva and Caruncle, Table 5",
+          "exact_passage": "Low-grade CMIL | Predominantly basilar melanocytic proliferation with low-grade atypia. | High-grade CMIL | More confluent basilar and significant non-basilar proliferation of melanocytes with high-grade atypia. | Melanoma in situ | the most atypical high-grade CMILs involving close to full thickness of the epithelium.",
+          "supports": "Accessible Editorial Board classification material distinguishes low-grade and high-grade atypia and melanoma in situ while retaining a non-invasive intraepithelial spectrum.",
+          "does_not_support": "No automatic ontology action or universal cytologic atypia across every grade.",
+          "limitations": "Editorial-board overview of WHO Eye5 rather than the complete volume.",
+          "conflicts_or_supersession": "WHO Eye5 revises classification prospectively without erasing WHO Eye4 historical terminology."
+        },
+        {
+          "citation_id": "mudhar-2024",
+          "status": "cited",
+          "authority_class": "multicenter peer-reviewed open-access study",
+          "authority_order": 2,
+          "bibliography": "Mudhar HS et al. A Multicenter Study Validates the WHO 2022 Classification for Conjunctival Melanocytic Intraepithelial Lesions With Clinical and Prognostic Relevance. Lab Invest. 2024;104:100281.",
+          "url": "https://eprints.whiterose.ac.uk/id/eprint/230080/1/1-s2.0-S0023683723002246-main.pdf",
+          "doi": "10.1016/j.labinv.2023.100281",
+          "pmid": "37924948",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Abstract; WHO-EYE04/WHO-EYE05 comparison; Table 1",
+          "exact_passage": "The fourth WHO Classification of Eye Tumors (WHO-EYE04) proposed a C-MIL classification, capturing the progression of noninvasive neoplastic melanocytes from low- to high-grade lesions, onto melanoma in situ (MIS), and then to invasive melanoma. This proposal was revised to the WHO-EYE05 C-MIL system, which simplified the high-grade C-MIL, whereby MIS was subsumed into high-grade C-MIL.",
+          "supports": "The exact temporal distinction between WHO-EYE04 and WHO-EYE05 and the noninvasive, atypia-graded C-MIL spectrum.",
+          "does_not_support": "No automatic ontology promotion, universal cytologic atypia across every grade, or retrospective erasure of WHO-EYE04 terminology.",
+          "limitations": "Validation study of classification reproducibility, not the WHO volume itself.",
+          "conflicts_or_supersession": "WHO-EYE05 revises prospective classification while WHO-EYE04 remains necessary for historical context."
+        },
+        {
+          "citation_id": "bresler-2021",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed terminology review",
+          "authority_order": 3,
+          "bibliography": "Bresler SC et al. “Conjunctival Melanocytic Lesions.” Arch Pathol Lab Med. 2022;146(5):632-646.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34424954/",
+          "doi": "10.5858/arpa.2021-0006-RA",
+          "pmid": "34424954",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full terminology-review text was access restricted in this evidence pass.",
+          "supports": "Potential historical terminology context.",
+          "does_not_support": "No ontology action.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Predates the newest WHO-EYE05 framing."
+        },
+        {
+          "citation_id": "stagner-2026",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed current review",
+          "authority_order": 4,
+          "bibliography": "Stagner AM. Conjunctival melanocytic pathology. Surg Pathol Clin. 2026;19:63-71.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41651613/",
+          "doi": "10.1016/j.path.2025.08.004",
+          "pmid": "41651613",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Publication text unavailable",
+          "exact_passage": "Unavailable: the publication text was access restricted in this evidence pass.",
+          "supports": "Potential current corroboration.",
+          "does_not_support": "No retrospective relabeling by itself.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Newest review in the pass; not a classification authority."
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "C100054-REVIEWABLE-PAIRS",
+          "pair_keys": [
+            {
+              "axis": "op:AssociatedSite",
+              "filler": "C137974"
+            },
+            {
+              "axis": "op:CellType",
+              "filler": "C36862"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36027"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C8326"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C204977"
+            },
+            {
+              "axis": "op:NormalTissueOrigin",
+              "filler": "C32365"
+            },
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12341"
+            }
+          ],
+          "text": "For the named filler, state the WHO-EYE04 or WHO-EYE05 scope; distinguish non-invasion from grade-dependent cytologic atypia and do not treat the WHO-EYE05 treatment of melanoma in situ as retrospective erasure of WHO-EYE04.",
+          "claims": [
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:AssociatedSite",
+                "filler": "C137974"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "WHO Eye5 organizes conjunctival tumors by anatomy and lineage."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36862"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "The classification table concerns melanocytic proliferation in conjunctival epithelium."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36027"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "WHO Table 5 lists low-grade CMIL, high-grade CMIL, and melanoma in situ within the conjunctival melanocytic intraepithelial classification."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C8326"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "WHO Table 5 describes low-grade CMIL as predominantly basilar melanocytic proliferation with low-grade atypia and high-grade CMIL as more confluent basilar and significant non-basilar proliferation with high-grade atypia."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C204977"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "WHO Eye5 places conjunctival melanocytic intraepithelial lesions in the melanocytic conjunctival tumor classification."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:NormalTissueOrigin",
+                "filler": "C32365"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "WHO Table 5 describes basilar and non-basilar proliferation of melanocytes."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12341"
+              },
+              "citation_id": "milman-2023",
+              "source_fact": "The Editorial Board material classifies these as tumors of the conjunctiva."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36027"
+              },
+              "citation_id": "mudhar-2024",
+              "source_fact": "The WHO-EYE04 passage describes progression of noninvasive neoplastic melanocytes through C-MIL grades and melanoma in situ to invasive melanoma; WHO-EYE05 subsumed melanoma in situ into high-grade C-MIL."
+            },
+            {
+              "question_id": "C100054-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C8326"
+              },
+              "citation_id": "mudhar-2024",
+              "source_fact": "The WHO-EYE04 passage describes noninvasive neoplastic melanocytes from low- to high-grade lesions; WHO-EYE05 simplified high-grade C-MIL."
+            }
+          ]
+        }
+      ]
     },
     {
-      "code":"C198031","exact_label":"Childhood Acute Lymphoblastic Leukemia Toronto Guidelines v2, Tier 1","exact_definition":"A term that refers to the staging of childhood acute lymphoblastic leukemia according to the tier 1 Toronto childhood cancer staging guidelines v2.","specialty":"pediatric hematology-oncology and cancer-registry staging","factual_context":["The Toronto v2 ALL Tier 1 values are CNS-negative C198032 and CNS-positive C198034; C198022 is the schema and C198023 the Tier 1 profile.","Selection misses are clinical-only pending engineering repair #274; no filler substitution is offered."],
-      "citations":[
-        {"citation_id":"toronto-v2-manual","status":"cited","authority_class":"controlling registry manual","authority_order":1,"bibliography":"Cancer Council Queensland and Cancer Australia. Childhood cancer staging for population registries according to the Toronto Childhood Cancer Stage Guidelines, Version 2. Brisbane; 2021.","url":"https://cancerqld.blob.core.windows.net/content/docs/childhood-cancer-staging-for-population-registries.pdf","doi":null,"pmid":null,"verified_on":"2026-08-31","exact_locator":"Table 1 and Acute lymphoblastic leukaemia staging criteria, Tier 1","exact_passage":"Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.","supports":"The exact two-value ALL Tier 1 matrix represented by NCIt C198032 CNS-Negative and C198034 CNS-Positive.","does_not_support":"Does not make the generic Toronto v2 stage-system concept C198022 a Tier 1 stage value and does not support anatomy, morphology, or substitute ontology content.","limitations":"Registry staging manual; it does not determine non-stage semantic pairs.","conflicts_or_supersession":"Version 2 controls exact Tier 1 values over version 1 principles."},
-        {"citation_id":"gupta-2016","status":"access-restricted","authority_class":"peer-reviewed guideline principles","authority_order":2,"bibliography":"Gupta S et al. The Toronto Childhood Cancer Stage Guidelines. Lancet Oncol. 2016.","url":"https://pubmed.ncbi.nlm.nih.gov/27300676/","doi":"10.1016/S1470-2045(15)00539-2","pmid":"27300676","verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full guideline-principles text was access restricted in this evidence pass.","supports":"Potential rationale for tiered registry staging.","does_not_support":"Does not provide version 2 exact ALL codes.","limitations":"Version 1 principles, not the exact version 2 table.","conflicts_or_supersession":"Superseded for exact values by version 2."},
-        {"citation_id":"woo-2014","status":"cited","authority_class":"peer-reviewed open-access hematopathology review","authority_order":3,"bibliography":"Woo JS, Alberti MO, Tirado CA. Childhood B-acute lymphoblastic leukemia: a genetic update. Exp Hematol Oncol. 2014;3:16.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC4063430/","doi":"10.1186/2162-3619-3-16","pmid":"24949228; PMCID PMC4063430","verified_on":"2026-08-31","exact_locator":"Introduction; Clinical presentation","exact_passage":"ALL is a malignant clonal proliferation of lymphoid progenitor cells, most commonly of the B-cell lineage. ALL is a disease of the bone marrow.","supports":"Lymphoid lineage and bone-marrow disease context for childhood ALL.","does_not_support":"Does not make those pathology facts Toronto Tier 1 stage values or authorize an ontology action.","limitations":"B-ALL genetic review, not the Toronto staging manual and not all ALL lineages.","conflicts_or_supersession":"Complements rather than supersedes the Toronto stage matrix."},
-        {"citation_id":"duffield-2023","status":"cited","authority_class":"peer-reviewed open-access classification review","authority_order":4,"bibliography":"Duffield AS, Mullighan CG, Borowitz MJ. International Consensus Classification of Acute Lymphoblastic Leukemia/Lymphoma. Virchows Arch. 2023;482:11-26.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC10646822/","doi":"10.1007/s00428-022-03448-8","pmid":"36422706; PMCID PMC10646822","verified_on":"2026-08-31","exact_locator":"Diagnostic Approach to ALL","exact_passage":"Unlike most neoplasms, morphology plays little role in the diagnosis of ALL, beyond the simple recognition of blasts that need to be further characterized by lineage, most often by flow cytometry.","supports":"Blast morphology alone does not provide lineage classification for ALL.","does_not_support":"Does not deny blast morphology, provide Toronto stage values, or authorize an ontology action.","limitations":"ICC classification review; staging and lineage classification are separate concerns.","conflicts_or_supersession":"Current classification context complements the historical registry staging manual."}
+      "code": "C198031",
+      "exact_label": "Childhood Acute Lymphoblastic Leukemia Toronto Guidelines v2, Tier 1",
+      "exact_definition": "A term that refers to the staging of childhood acute lymphoblastic leukemia according to the tier 1 Toronto childhood cancer staging guidelines v2.",
+      "specialty": "pediatric hematology-oncology and cancer-registry staging",
+      "factual_context": [
+        "The Toronto v2 ALL Tier 1 values are CNS-negative C198032 and CNS-positive C198034; C198022 is the schema and C198023 the Tier 1 profile.",
+        "Selection misses are clinical-only pending engineering repair #274; no filler substitution is offered."
       ],
-      "questions":[{"question_id":"C198031-REVIEWABLE-PAIRS","pair_keys":[{"axis":"op:CellType","filler":"C12914"},{"axis":"op:ClinicalFinding","filler":"C60644"},{"axis":"op:Morphology","filler":"C3168"},{"axis":"op:NormalTissueOrigin","filler":"C13049"},{"axis":"op:PrimarySite","filler":"C12431"},{"axis":"op:StageSystem","filler":"C198023"},{"axis":"op:Morphology","filler":"C4005"},{"axis":"op:StageValue","filler":"C198022"}],"text":"For the named filler, determine its exact clinical applicability to childhood ALL or to Toronto v2 Tier 1 staging; keep non-stage pathology separate from the CNS-negative/CNS-positive matrix and do not substitute those values for the generic stage concept.","claims":[{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C12914"},"citation_id":"toronto-v2-manual","source_fact":"The manual's ALL row concerns acute lymphoblastic leukemia but does not establish a universal ontology cell-type relation."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C60644"},"citation_id":"toronto-v2-manual","source_fact":"The manual is explicitly for childhood cancer registry staging, supporting childhood context but not a defining lesion finding."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C3168"},"citation_id":"toronto-v2-manual","source_fact":"The Tier 1 row is specifically Acute lymphoblastic leukaemia in a childhood staging manual."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:NormalTissueOrigin","filler":"C13049"},"citation_id":"toronto-v2-manual","source_fact":"The manual supplies CNS staging values and does not establish lymphoid-tissue origin as a staging criterion."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySite","filler":"C12431"},"citation_id":"toronto-v2-manual","source_fact":"The manual supplies CNS staging values and does not make bone marrow a Toronto stage value."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageSystem","filler":"C198023"},"citation_id":"toronto-v2-manual","source_fact":"The manual identifies the less-detailed Tier 1 profile and its two ALL values."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C4005"},"citation_id":"toronto-v2-manual","source_fact":"The childhood staging manual does not establish broad Childhood Malignant Neoplasm as an ALL morphology."},{"question_id":"C198031-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageValue","filler":"C198022"},"citation_id":"toronto-v2-manual","source_fact":"The manual's exact ALL Tier 1 values are CNS negative and CNS positive, not the generic Toronto v2 stage-system concept."}]}]
+      "citations": [
+        {
+          "citation_id": "toronto-v2-manual",
+          "status": "cited",
+          "authority_class": "controlling registry manual",
+          "authority_order": 1,
+          "bibliography": "Cancer Council Queensland and Cancer Australia. Childhood cancer staging for population registries according to the Toronto Childhood Cancer Stage Guidelines, Version 2. Brisbane; 2021.",
+          "url": "https://cancerqld.blob.core.windows.net/content/docs/childhood-cancer-staging-for-population-registries.pdf",
+          "doi": null,
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Table 1 and Acute lymphoblastic leukaemia staging criteria, Tier 1",
+          "exact_passage": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
+          "supports": "The exact two-value ALL Tier 1 matrix represented by NCIt C198032 CNS-Negative and C198034 CNS-Positive.",
+          "does_not_support": "Does not make the generic Toronto v2 stage-system concept C198022 a Tier 1 stage value and does not support anatomy, morphology, or substitute ontology content.",
+          "limitations": "Registry staging manual; it does not determine non-stage semantic pairs.",
+          "conflicts_or_supersession": "Version 2 controls exact Tier 1 values over version 1 principles."
+        },
+        {
+          "citation_id": "gupta-2016",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed guideline principles",
+          "authority_order": 2,
+          "bibliography": "Gupta S et al. The Toronto Childhood Cancer Stage Guidelines. Lancet Oncol. 2016.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27300676/",
+          "doi": "10.1016/S1470-2045(15)00539-2",
+          "pmid": "27300676",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full guideline-principles text was access restricted in this evidence pass.",
+          "supports": "Potential rationale for tiered registry staging.",
+          "does_not_support": "Does not provide version 2 exact ALL codes.",
+          "limitations": "Version 1 principles, not the exact version 2 table.",
+          "conflicts_or_supersession": "Superseded for exact values by version 2."
+        },
+        {
+          "citation_id": "woo-2014",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access hematopathology review",
+          "authority_order": 3,
+          "bibliography": "Woo JS, Alberti MO, Tirado CA. Childhood B-acute lymphoblastic leukemia: a genetic update. Exp Hematol Oncol. 2014;3:16.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4063430/",
+          "doi": "10.1186/2162-3619-3-16",
+          "pmid": "24949228; PMCID PMC4063430",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Introduction; Clinical presentation",
+          "exact_passage": "ALL is a malignant clonal proliferation of lymphoid progenitor cells, most commonly of the B-cell lineage. ALL is a disease of the bone marrow.",
+          "supports": "Lymphoid lineage and bone-marrow disease context for childhood ALL.",
+          "does_not_support": "Does not make those pathology facts Toronto Tier 1 stage values or authorize an ontology action.",
+          "limitations": "B-ALL genetic review, not the Toronto staging manual and not all ALL lineages.",
+          "conflicts_or_supersession": "Complements rather than supersedes the Toronto stage matrix."
+        },
+        {
+          "citation_id": "duffield-2023",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access classification review",
+          "authority_order": 4,
+          "bibliography": "Duffield AS, Mullighan CG, Borowitz MJ. International Consensus Classification of Acute Lymphoblastic Leukemia/Lymphoma. Virchows Arch. 2023;482:11-26.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10646822/",
+          "doi": "10.1007/s00428-022-03448-8",
+          "pmid": "36422706; PMCID PMC10646822",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Diagnostic Approach to ALL",
+          "exact_passage": "Unlike most neoplasms, morphology plays little role in the diagnosis of ALL, beyond the simple recognition of blasts that need to be further characterized by lineage, most often by flow cytometry.",
+          "supports": "Blast morphology alone does not provide lineage classification for ALL.",
+          "does_not_support": "Does not deny blast morphology, provide Toronto stage values, or authorize an ontology action.",
+          "limitations": "ICC classification review; staging and lineage classification are separate concerns.",
+          "conflicts_or_supersession": "Current classification context complements the historical registry staging manual."
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "C198031-REVIEWABLE-PAIRS",
+          "pair_keys": [
+            {
+              "axis": "op:CellType",
+              "filler": "C12914"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C60644"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C3168"
+            },
+            {
+              "axis": "op:NormalTissueOrigin",
+              "filler": "C13049"
+            },
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12431"
+            },
+            {
+              "axis": "op:StageSystem",
+              "filler": "C198023"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C4005"
+            },
+            {
+              "axis": "op:StageValue",
+              "filler": "C198022"
+            }
+          ],
+          "text": "For the named filler, determine its exact clinical applicability to childhood ALL or to Toronto v2 Tier 1 staging; keep non-stage pathology separate from the CNS-negative/CNS-positive matrix and do not substitute those values for the generic stage concept.",
+          "claims": [
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C12914"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual's ALL row concerns acute lymphoblastic leukemia."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C60644"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual is explicitly for childhood cancer registry staging."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C3168"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The Tier 1 row is specifically Acute lymphoblastic leukaemia in a childhood staging manual."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:NormalTissueOrigin",
+                "filler": "C13049"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual supplies CNS-negative and CNS-positive staging values."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12431"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual supplies CNS-negative and CNS-positive staging values."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageSystem",
+                "filler": "C198023"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual identifies the less-detailed Tier 1 profile and its two ALL values."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C4005"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The childhood staging manual describes acute lymphoblastic leukemia staging."
+            },
+            {
+              "question_id": "C198031-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageValue",
+                "filler": "C198022"
+              },
+              "citation_id": "toronto-v2-manual",
+              "source_fact": "The manual's exact ALL Tier 1 values are CNS negative and CNS positive."
+            }
+          ]
+        }
+      ]
     },
     {
-      "code":"C35756","exact_label":"Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7","exact_definition":"Stage IIIB small cell lung carcinoma that has spread to the pleural fluid.","specialty":"thoracic pathology, thoracic oncology, and lung-cancer registry staging","factual_context":["AJCC v7 malignant pleural effusion is M1a/stage IV while IIIB is M0; generic C3331 does not establish malignant cytology.","NCIt C6681 and C6682, current AJCC staging, and the historical v7 conflict are separate evidence contexts.","StageSystem C141685 is engineering-only under #271 and cannot receive a human action."],
-      "citations":[
-        {"citation_id":"ajcc-v7","status":"cited","authority_class":"controlling historical staging manual","authority_order":1,"bibliography":"Edge SB et al., eds. AJCC Cancer Staging Manual. 7th ed. Springer; 2010. Lung chapter.","url":"https://www.facs.org/media/kwupoct5/ajcc-7th-ed-cancer-staging-manual.pdf","doi":"10.1007/978-0-387-88441-7","pmid":null,"verified_on":"2026-08-31","exact_locator":"Lung chapter, Distant Metastasis (M) table and Table 25.2 stage-grouping comparison","exact_passage":"M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.","supports":"Under AJCC v7, malignant pleural effusion is M1a and stage IV, conflicting with the row's Stage IIIB label/value.","does_not_support":"Generic pleural effusion C3331 alone does not establish malignancy, and the manual does not authorize an NCIt repair.","limitations":"Historical seventh-edition lung criteria; current editions are separate contexts.","conflicts_or_supersession":"Historical v7 must not be silently replaced by current AJCC, but its own M1a/stage-IV rule directly conflicts with this row."},
-        {"citation_id":"ncit-c6681","status":"cited","authority_class":"NCIt 26.07d source concept","authority_order":2,"bibliography":"NCI Thesaurus 26.07d, C6681 Stage IIIB Lung Cancer AJCC v7.","url":"https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code=C6681","doi":null,"pmid":null,"verified_on":"2026-08-31","exact_locator":"Preferred name/code","exact_passage":"Stage IIIB Lung Cancer AJCC v7","supports":"Exact NCIt historical stage concept identity.","does_not_support":"Does not establish malignant effusion criteria.","limitations":"Terminology concept, not the AJCC manual.","conflicts_or_supersession":"Distinct from C6682 and current AJCC concepts."},
-        {"citation_id":"ncit-c6682","status":"cited","authority_class":"NCIt 26.07d source concept","authority_order":3,"bibliography":"NCI Thesaurus 26.07d, C6682 Stage IV Lung Cancer AJCC v7.","url":"https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code=C6682","doi":null,"pmid":null,"verified_on":"2026-08-31","exact_locator":"Preferred name/code","exact_passage":"Stage IV Lung Cancer AJCC v7","supports":"Exact NCIt historical stage-IV concept identity.","does_not_support":"Does not prove this row belongs to stage IV.","limitations":"Terminology concept, not the AJCC manual.","conflicts_or_supersession":"Must remain distinct from C6681."},
-        {"citation_id":"rossi-2021","status":"access-restricted","authority_class":"peer-reviewed pathology review","authority_order":4,"bibliography":"Rossi G et al. Small cell lung cancer: pathology and molecular classification. Virchows Arch. 2021.","url":"https://doi.org/10.1007/s00428-020-03015-z","doi":"10.1007/s00428-020-03015-z","pmid":null,"verified_on":"2026-08-31","exact_locator":"Full text unavailable","exact_passage":"Unavailable: the full pathology-review text was access restricted in this evidence pass.","supports":"Potential morphology and marker context.","does_not_support":"No staging repair.","limitations":"Exact passage unavailable.","conflicts_or_supersession":"Current pathology does not rewrite historical AJCC v7."},
-        {"citation_id":"cancers-2021","status":"cited","authority_class":"peer-reviewed open-access pathology review","authority_order":5,"bibliography":"Raso MG, Bota-Rabassedas N, Wistuba II. Pathology and Classification of SCLC. Cancers. 2021;13:820.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC7919820/","doi":"10.3390/cancers13040820","pmid":"33669241; PMCID PMC7919820","verified_on":"2026-08-31","exact_locator":"Sections 4.1 Cytological Features, 4.2 Histopathological Features, and 4.3 Immunohistochemistry","exact_passage":"Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.","supports":"Accessible pair-specific pathology material for nuclear molding, necrosis, high mitotic activity, peripheral palisading, poor differentiation and non-universal neuroendocrine-marker expression.","does_not_support":"No AJCC-v7 stage assignment, pleural-effusion malignancy claim, ontology action, or universal marker expression.","limitations":"Current pathology review; it does not replace the historical staging manual.","conflicts_or_supersession":"Current pathology evidence and historical AJCC-v7 staging answer separate questions."},
-        {"citation_id":"mirsadraee-2012","status":"cited","authority_class":"peer-reviewed open-access staging review","authority_order":6,"bibliography":"Mirsadraee S et al. The 7th lung cancer TNM classification and staging system: Review of the changes and implications. World J Radiol. 2012;4:128-134.","url":"https://pmc.ncbi.nlm.nih.gov/articles/PMC3351680/","doi":"10.4329/wjr.v4.i4.128","pmid":"22590666; PMCID PMC3351680","verified_on":"2026-08-31","exact_locator":"Table 2; New metastasis staging; Table 3","exact_passage":"Malignant pleural effusion | T4 | M1a. M1a includes malignant pleural effusion. T4 (pleural effusion) was reclassified as M1a and stage IV in the seventh classification.","supports":"AJCC seventh-edition malignant pleural effusion is M1a and stage IV, distinct from a generic effusion observation.","does_not_support":"Does not establish that every pleural effusion is malignant or authorize an NCIt correction.","limitations":"Review of seventh-edition changes; the row's exact terminology remains separately bound to NCIt.","conflicts_or_supersession":"Corroborates the controlling AJCC-v7 conflict without replacing the historical concept identity."}
+      "code": "C35756",
+      "exact_label": "Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7",
+      "exact_definition": "Stage IIIB small cell lung carcinoma that has spread to the pleural fluid.",
+      "specialty": "thoracic pathology, thoracic oncology, and lung-cancer registry staging",
+      "factual_context": [
+        "AJCC v7 malignant pleural effusion is M1a/stage IV while IIIB is M0; generic C3331 does not establish malignant cytology.",
+        "NCIt C6681 and C6682, current AJCC staging, and the historical v7 conflict are separate evidence contexts.",
+        "StageSystem C141685 is engineering-only under #271 and cannot receive a human action."
       ],
-      "questions":[{"question_id":"C35756-REVIEWABLE-PAIRS","pair_keys":[{"axis":"op:CellType","filler":"C36820"},{"axis":"op:ClinicalFinding","filler":"C155863"},{"axis":"op:ClinicalFinding","filler":"C207031"},{"axis":"op:ClinicalFinding","filler":"C3331"},{"axis":"op:ClinicalFinding","filler":"C36129"},{"axis":"op:ClinicalFinding","filler":"C36184"},{"axis":"op:ClinicalFinding","filler":"C43574"},{"axis":"op:ClinicalFinding","filler":"C54209"},{"axis":"op:ClinicalFinding","filler":"C55817"},{"axis":"op:ClinicalFinding","filler":"C60308"},{"axis":"op:Morphology","filler":"C4917"},{"axis":"op:PrimarySite","filler":"C12468"},{"axis":"op:PrimarySubsite","filler":"C12683"},{"axis":"op:StageSystem","filler":"C90530"},{"axis":"op:StageValue","filler":"C27978"},{"axis":"op:StageValue","filler":"C28064"},{"axis":"op:Morphology","filler":"C4878"},{"axis":"op:Morphology","filler":"C9049"}],"text":"For the named filler, determine its exact clinical scope in small-cell lung carcinoma; use pathology evidence for morphology, distinguish generic from malignant pleural effusion, and treat the AJCC-v7 Stage IIIB versus M1a/stage-IV fact as context while answering the intended clinical scope neutrally.","claims":[{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:CellType","filler":"C36820"},"citation_id":"cancers-2021","source_fact":"SCLC is a poorly differentiated high-grade neuroendocrine carcinoma, but some tumors lack standard neuroendocrine markers."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C155863"},"citation_id":"cancers-2021","source_fact":"The review describes SCLC as poorly differentiated and high grade."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C207031"},"citation_id":"cancers-2021","source_fact":"A minority of SCLC is negative for all standard neuroendocrine markers."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C3331"},"citation_id":"ajcc-v7","source_fact":"AJCC v7 assigns malignant pleural effusion to M1a/stage IV; generic pleural effusion alone does not establish malignancy."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C36129"},"citation_id":"cancers-2021","source_fact":"SCLC is described as a high-grade carcinoma."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C36184"},"citation_id":"cancers-2021","source_fact":"Extensive intratumoral necrosis is often recognized, which does not mean universal."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C43574"},"citation_id":"cancers-2021","source_fact":"SCLC is neuroendocrine, while a minority lacks all standard neuroendocrine markers."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C54209"},"citation_id":"cancers-2021","source_fact":"Peripheral palisading is listed as one possible SCLC growth feature."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C55817"},"citation_id":"cancers-2021","source_fact":"Nuclear molding is described as well developed in tightly cohesive sheets."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:ClinicalFinding","filler":"C60308"},"citation_id":"cancers-2021","source_fact":"The review reports a usually very high mitotic rate of 10 mitoses per 10 high-power fields."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C4917"},"citation_id":"cancers-2021","source_fact":"The review's entity is small cell lung carcinoma and provides its histopathologic features."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySite","filler":"C12468"},"citation_id":"cancers-2021","source_fact":"The reviewed entity is a carcinoma arising in the lung."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:PrimarySubsite","filler":"C12683"},"citation_id":"cancers-2021","source_fact":"Most SCLC tumors are hilar or perihilar and spread along bronchial submucosa; this does not prove a universal bronchus subsite."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageSystem","filler":"C90530"},"citation_id":"ajcc-v7","source_fact":"The controlling historical source is the AJCC seventh-edition lung staging table."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageValue","filler":"C27978"},"citation_id":"ajcc-v7","source_fact":"AJCC v7 requires M0 for stage IIIB, while malignant pleural effusion is M1a."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:StageValue","filler":"C28064"},"citation_id":"ajcc-v7","source_fact":"AJCC v7 places malignant pleural effusion in stage IV; it does not define the separate VALG extensive-stage concept."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C4878"},"citation_id":"cancers-2021","source_fact":"SCLC is one subtype of lung carcinoma; the broad parent does not express stage intent."},{"question_id":"C35756-REVIEWABLE-PAIRS","pair_key":{"axis":"op:Morphology","filler":"C9049"},"citation_id":"cancers-2021","source_fact":"Pathology evidence identifies SCLC but does not by itself establish the separate extensive-stage morphology concept."}]}]
+      "citations": [
+        {
+          "citation_id": "ajcc-v7",
+          "status": "cited",
+          "authority_class": "controlling historical staging manual",
+          "authority_order": 1,
+          "bibliography": "Edge SB et al., eds. AJCC Cancer Staging Manual. 7th ed. Springer; 2010. Lung chapter.",
+          "url": "https://www.facs.org/media/kwupoct5/ajcc-7th-ed-cancer-staging-manual.pdf",
+          "doi": "10.1007/978-0-387-88441-7",
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Lung chapter, Distant Metastasis (M) table and Table 25.2 stage-grouping comparison",
+          "exact_passage": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
+          "supports": "Under AJCC v7, malignant pleural effusion is M1a and stage IV, conflicting with the row's Stage IIIB label/value.",
+          "does_not_support": "Generic pleural effusion C3331 alone does not establish malignancy, and the manual does not authorize an NCIt repair.",
+          "limitations": "Historical seventh-edition lung criteria; current editions are separate contexts.",
+          "conflicts_or_supersession": "Historical v7 must not be silently replaced by current AJCC, but its own M1a/stage-IV rule directly conflicts with this row."
+        },
+        {
+          "citation_id": "ncit-c6681",
+          "status": "cited",
+          "authority_class": "NCIt 26.07d source concept",
+          "authority_order": 2,
+          "bibliography": "NCI Thesaurus 26.07d, C6681 Stage IIIB Lung Cancer AJCC v7.",
+          "url": "https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code=C6681",
+          "doi": null,
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Preferred name/code",
+          "exact_passage": "Stage IIIB Lung Cancer AJCC v7",
+          "supports": "Exact NCIt historical stage concept identity.",
+          "does_not_support": "Does not establish malignant effusion criteria.",
+          "limitations": "Terminology concept, not the AJCC manual.",
+          "conflicts_or_supersession": "Distinct from C6682 and current AJCC concepts."
+        },
+        {
+          "citation_id": "ncit-c6682",
+          "status": "cited",
+          "authority_class": "NCIt 26.07d source concept",
+          "authority_order": 3,
+          "bibliography": "NCI Thesaurus 26.07d, C6682 Stage IV Lung Cancer AJCC v7.",
+          "url": "https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code=C6682",
+          "doi": null,
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Preferred name/code",
+          "exact_passage": "Stage IV Lung Cancer AJCC v7",
+          "supports": "Exact NCIt historical stage-IV concept identity.",
+          "does_not_support": "Does not prove this row belongs to stage IV.",
+          "limitations": "Terminology concept, not the AJCC manual.",
+          "conflicts_or_supersession": "Must remain distinct from C6681."
+        },
+        {
+          "citation_id": "rossi-2021",
+          "status": "access-restricted",
+          "authority_class": "peer-reviewed pathology review",
+          "authority_order": 4,
+          "bibliography": "Rossi G et al. Small cell lung cancer: pathology and molecular classification. Virchows Arch. 2021.",
+          "url": "https://doi.org/10.1007/s00428-020-03015-z",
+          "doi": "10.1007/s00428-020-03015-z",
+          "pmid": null,
+          "verified_on": "2026-08-31",
+          "exact_locator": "Full text unavailable",
+          "exact_passage": "Unavailable: the full pathology-review text was access restricted in this evidence pass.",
+          "supports": "Potential morphology and marker context.",
+          "does_not_support": "No staging repair.",
+          "limitations": "Exact passage unavailable.",
+          "conflicts_or_supersession": "Current pathology does not rewrite historical AJCC v7."
+        },
+        {
+          "citation_id": "cancers-2021",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access pathology review",
+          "authority_order": 5,
+          "bibliography": "Raso MG, Bota-Rabassedas N, Wistuba II. Pathology and Classification of SCLC. Cancers. 2021;13:820.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7919820/",
+          "doi": "10.3390/cancers13040820",
+          "pmid": "33669241; PMCID PMC7919820",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Sections 4.1 Cytological Features, 4.2 Histopathological Features, and 4.3 Immunohistochemistry",
+          "exact_passage": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
+          "supports": "Accessible pair-specific pathology material for nuclear molding, necrosis, high mitotic activity, peripheral palisading, poor differentiation and non-universal neuroendocrine-marker expression.",
+          "does_not_support": "No AJCC-v7 stage assignment, pleural-effusion malignancy claim, ontology action, or universal marker expression.",
+          "limitations": "Current pathology review; it does not replace the historical staging manual.",
+          "conflicts_or_supersession": "Current pathology evidence and historical AJCC-v7 staging answer separate questions."
+        },
+        {
+          "citation_id": "mirsadraee-2012",
+          "status": "cited",
+          "authority_class": "peer-reviewed open-access staging review",
+          "authority_order": 6,
+          "bibliography": "Mirsadraee S et al. The 7th lung cancer TNM classification and staging system: Review of the changes and implications. World J Radiol. 2012;4:128-134.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3351680/",
+          "doi": "10.4329/wjr.v4.i4.128",
+          "pmid": "22590666; PMCID PMC3351680",
+          "verified_on": "2026-08-31",
+          "exact_locator": "Table 2; New metastasis staging; Table 3",
+          "exact_passage": "Malignant pleural effusion | T4 | M1a. M1a includes malignant pleural effusion. T4 (pleural effusion) was reclassified as M1a and stage IV in the seventh classification.",
+          "supports": "AJCC seventh-edition malignant pleural effusion is M1a and stage IV, distinct from a generic effusion observation.",
+          "does_not_support": "Does not establish that every pleural effusion is malignant or authorize an NCIt correction.",
+          "limitations": "Review of seventh-edition changes; the row's exact terminology remains separately bound to NCIt.",
+          "conflicts_or_supersession": "Corroborates the controlling AJCC-v7 conflict without replacing the historical concept identity."
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "C35756-REVIEWABLE-PAIRS",
+          "pair_keys": [
+            {
+              "axis": "op:CellType",
+              "filler": "C36820"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C155863"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C207031"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C3331"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36129"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C36184"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C43574"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C54209"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C55817"
+            },
+            {
+              "axis": "op:ClinicalFinding",
+              "filler": "C60308"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C4917"
+            },
+            {
+              "axis": "op:PrimarySite",
+              "filler": "C12468"
+            },
+            {
+              "axis": "op:PrimarySubsite",
+              "filler": "C12683"
+            },
+            {
+              "axis": "op:StageSystem",
+              "filler": "C90530"
+            },
+            {
+              "axis": "op:StageValue",
+              "filler": "C27978"
+            },
+            {
+              "axis": "op:StageValue",
+              "filler": "C28064"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C4878"
+            },
+            {
+              "axis": "op:Morphology",
+              "filler": "C9049"
+            }
+          ],
+          "text": "For the named filler, determine its exact clinical scope in small-cell lung carcinoma; use pathology evidence for morphology, distinguish generic from malignant pleural effusion, and treat the AJCC-v7 Stage IIIB versus M1a/stage-IV fact as context while answering the intended clinical scope neutrally.",
+          "claims": [
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:CellType",
+                "filler": "C36820"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "SCLC is a poorly differentiated high-grade neuroendocrine carcinoma, but some tumors lack standard neuroendocrine markers."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C155863"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "The review describes SCLC as poorly differentiated and high grade."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C207031"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "A minority of SCLC is negative for all standard neuroendocrine markers."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C3331"
+              },
+              "citation_id": "ajcc-v7",
+              "source_fact": "AJCC v7 assigns malignant pleural effusion to M1a/stage IV."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36129"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "SCLC is described as a high-grade carcinoma."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C36184"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "Extensive intratumoral necrosis is often recognized."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C43574"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "SCLC is neuroendocrine, while a minority lacks all standard neuroendocrine markers."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C54209"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "Peripheral palisading is listed as one possible SCLC growth feature."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C55817"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "Nuclear molding is described as well developed in tightly cohesive sheets."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:ClinicalFinding",
+                "filler": "C60308"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "The review reports a usually very high mitotic rate of 10 mitoses per 10 high-power fields."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C4917"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "The review's entity is small cell lung carcinoma and provides its histopathologic features."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySite",
+                "filler": "C12468"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "The reviewed entity is a carcinoma arising in the lung."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:PrimarySubsite",
+                "filler": "C12683"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "Most SCLC tumors are hilar or perihilar and spread along bronchial submucosa."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageSystem",
+                "filler": "C90530"
+              },
+              "citation_id": "ajcc-v7",
+              "source_fact": "The controlling historical source is the AJCC seventh-edition lung staging table."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageValue",
+                "filler": "C27978"
+              },
+              "citation_id": "ajcc-v7",
+              "source_fact": "AJCC v7 requires M0 for stage IIIB, while malignant pleural effusion is M1a."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:StageValue",
+                "filler": "C28064"
+              },
+              "citation_id": "ajcc-v7",
+              "source_fact": "AJCC v7 places malignant pleural effusion in stage IV."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C4878"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "SCLC is one subtype of lung carcinoma."
+            },
+            {
+              "question_id": "C35756-REVIEWABLE-PAIRS",
+              "pair_key": {
+                "axis": "op:Morphology",
+                "filler": "C9049"
+              },
+              "citation_id": "cancers-2021",
+              "source_fact": "The pathology evidence identifies SCLC."
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -75,6 +75,7 @@ def test_resolved_completion_requires_exact_post_action_partition_cover() -> Non
         action_pairs=("P1",),
         allowed_actions_by_pair={"P1": ("PROMOTE-SCOREABLE",)},
         baseline_scoreable_pairs=("P2",),
+        allowed_partition_modes=("CUSTOM-CURRENT-MODEL",),
     )
     with pytest.raises(ValueError, match="exactly cover"):
         validate_completion(
@@ -84,6 +85,33 @@ def test_resolved_completion_requires_exact_post_action_partition_cover() -> Non
             action_pairs=("P1",),
             allowed_actions_by_pair={"P1": ("PROMOTE-SCOREABLE",)},
             baseline_scoreable_pairs=("P2",),
+            allowed_partition_modes=("CUSTOM-CURRENT-MODEL",),
+        )
+
+
+def test_retain_current_is_rejected_after_a_promoted_pair_requires_placement() -> None:
+    stage_b = _resolved(groups=(("P1", "P2"),)).model_copy(
+        update={
+            "partition": PartitionDisposition(
+                mode="RETAIN-CURRENT",
+                groups=(("P1", "P2"),),
+                rationale="Invalid after promotion.",
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="partition mode is not allowed"):
+        validate_completion(
+            _stage_a(),
+            stage_b,
+            clinically_asked_pairs=("P1",),
+            action_pairs=("P1",),
+            allowed_actions_by_pair={"P1": ("PROMOTE-SCOREABLE",)},
+            baseline_scoreable_pairs=("P2",),
+            allowed_partition_modes=(
+                "GROUP-SPECIFIED-PAIRS-TOGETHER",
+                "KEEP-SPECIFIED-PAIRS-SEPARATE",
+                "CUSTOM-CURRENT-MODEL",
+            ),
         )
 
 

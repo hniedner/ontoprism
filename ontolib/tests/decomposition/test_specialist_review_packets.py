@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -20,6 +21,7 @@ from scripts.research.specialist_review_packets import (
     GenerationValidation,
     PacketIndex,
     generate_specialist_review_packets,
+    validate_source_preferred_labels,
     validate_specialist_review_generation,
 )
 from scripts.validation.run_agent_replay import run_agent_replay
@@ -185,6 +187,42 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
     )
 
 
+def test_source_preferred_label_contract_rejects_a_synonym_substitution(
+    tmp_path: Path,
+) -> None:
+    context_path = tmp_path / "literature.json"
+    context = generate_specialist_literature_context(
+        Path("scripts/research/data/specialist_literature_context_26_07d.json"),
+        context_path,
+    )
+    labels = {row.code: row.exact_label for row in context.dossiers}
+    context = context.model_copy(
+        update={
+            "dossiers": tuple(
+                row.model_copy(
+                    update={
+                        "exact_label": (
+                            "Conjunctival Melanocytic Intraepithelial Neoplasia"
+                        )
+                    }
+                )
+                if row.code == "C100054"
+                else row
+                for row in context.dossiers
+            )
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "literature/context label does not match NCIt stated preferred label: "
+            "C100054"
+        ),
+    ):
+        validate_source_preferred_labels(context, labels)
+
+
 def test_generator_writes_schema_three_and_bound_validation_deterministically(  # noqa: PLR0915
     tmp_path: Path,
 ) -> None:
@@ -281,7 +319,7 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         packet = (output / entry.path).read_text(encoding="utf-8")
         if entry.dispatch_status == "dispatchable":
             workflow = packet.split("## Return workflow", 1)[1].split("## ", 1)[0]
-            assert workflow.count("OntoPrism project coordinator") == 2
+            assert workflow.count("OntoPrism project coordinator") == 3
             assert re.findall(r"(?m)^(\d+)\.", workflow) == ["1", "2", "3", "4"]
         else:
             assert "## Return workflow" not in packet
@@ -305,9 +343,46 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
     }
     assert manifest["release_ready_codes"] == list(generated_index.release_ready_codes)
     assert manifest["recipient"] == "OntoPrism project coordinator"
+    assert manifest["dispatch_ready"] is True
+    manifest_without_identity = {
+        key: value for key, value in manifest.items() if key != "manifest_identity"
+    }
+    recomputed_manifest_identity = hashlib.sha256(
+        (
+            json.dumps(manifest_without_identity, indent=2, sort_keys=True) + "\n"
+        ).encode()
+    ).hexdigest()
+    assert manifest["manifest_identity"] == recomputed_manifest_identity
+    assert all(
+        item["sha256"]
+        == hashlib.sha256((dispatch / item["path"]).read_bytes()).hexdigest()
+        for item in manifest["packets"]
+    )
     assert all(
         (dispatch / f"{code}.md").read_bytes() == (output / f"{code}.md").read_bytes()
         for code in generated_index.release_ready_codes
+    )
+
+    eye_entry = next(item for item in generated_index.packets if item.code == "C100054")
+    eye = (output / eye_entry.path).read_text(encoding="utf-8")
+    assert eye.startswith(
+        "# C100054 — Conjunctival Melanocytic Intraepithelial Lesion\n"
+    )
+    assert "**Exact label:** Conjunctival Melanocytic Intraepithelial Lesion" in eye
+    if eye_entry.dispatch_status == "dispatchable":
+        assert (
+            "Partition modes: "
+            + ", ".join(eye_entry.grouping_contract.allowed_dispositions)
+        ) in eye
+    assert eye.count("**Workload:**") == 1
+    workload_line = next(
+        line for line in eye.splitlines() if line.startswith("**Workload:**")
+    )
+    assert workload_line == (
+        f"**Workload:** asked={len(eye_entry.asked_pair_ids)}; "
+        f"action={len(eye_entry.action_pair_ids)}; "
+        f"engineering={len(eye_entry.engineering_pair_ids)}; "
+        f"context={len(eye_entry.context_pair_ids)}."
     )
 
 
