@@ -587,6 +587,7 @@ class PacketIndex(_StrictModel):
     cadsr_usage_identity: str = Field(pattern=_SHA256)
     suppressed_candidates_by_row: dict[str, tuple[SuppressedCandidate, ...]]
     packets: tuple[PacketIndexEntry, ...]
+    context_correction_note: str = Field(min_length=1)
     registered_mint_expected_set: tuple[str, ...]
     index_identity: str = Field(pattern=_SHA256)
 
@@ -601,6 +602,11 @@ class PacketIndex(_StrictModel):
             for entry in self.packets
         ):
             raise ValueError("row suppressions must match the packet entry")
+        context_count = sum(len(entry.context_pair_ids) for entry in self.packets)
+        if self.context_correction_note != context_correction_note(context_count):
+            raise ValueError(
+                "context-correction note must match indexed bundle liveness"
+            )
         return self
 
 
@@ -1251,6 +1257,28 @@ def pair_consequences(pair: SpecialistPair) -> dict[str, ActionConsequence]:
     }
 
 
+def context_correction_note(context_count: int) -> str:
+    """Report observed context-pair liveness without overstating schema support."""
+    if context_count < 0:
+        raise ValueError("context count cannot be negative")
+    if context_count == 0:
+        return (
+            "No context-only pairs occur in this seven-row generation; "
+            "context-correction support is schema-tested but not exercised by this bundle."
+        )
+    if context_count == 1:
+        return (
+            "This packet contains one context-only pair. Its optional context-correction "
+            "response region is schema-supported and does not request a clinical answer "
+            "or ontology action."
+        )
+    return (
+        f"This packet contains {context_count} context-only pairs. Their optional "
+        "context-correction response regions are schema-supported and do not request "
+        "clinical answers or ontology actions."
+    )
+
+
 def _render_packet(  # noqa: C901, PLR0912
     row: SpecialistRowPacket,
     dossier: LiteratureDossierSource,
@@ -1274,6 +1302,14 @@ def _render_packet(  # noqa: C901, PLR0912
         "",
         "**Blank specialist packet.** Current NCIt 26.07d baseline only. Historical proposals are warnings, not selected responses. This packet is write-free; readiness is false and it cannot authorize equivalence, adoption, or publication.",
         f"**Workload:** asked={len(row.asked_pair_ids)}; action={len(row.action_pair_ids)}; engineering={len(row.engineering_pair_ids)}; context={len(row.context_pair_ids)}.",
+        context_correction_note(len(row.context_pair_ids)),
+        *(
+            [
+                "This packet has five Stage A clinical questions and zero Stage B ontology actions. Responses can inform #274 engineering repair but cannot change the projection in this review cycle."
+            ]
+            if row.code == "C102870"
+            else []
+        ),
         *(
             [
                 "**No answer changes the projection this cycle because this row has zero ontology-action pairs. Stage A still informs the owned engineering repair.**"
@@ -1482,6 +1518,8 @@ def _render_packet(  # noqa: C901, PLR0912
                 "## Independent partition disposition",
                 "The final groups must cover every post-action scoreable pair exactly once, including unchanged baseline context. Removed, non-scoreable, engineering-only, and context-only pairs are forbidden. EMPTY is allowed only when no scoreable pair remains. Partition choices have zero pair-metric deltas.",
                 "Partition modes: RETAIN-CURRENT, GROUP-SPECIFIED-PAIRS-TOGETHER, KEEP-SPECIFIED-PAIRS-SEPARATE, CUSTOM-CURRENT-MODEL, EMPTY.",
+                "CUSTOM-CURRENT-MODEL response syntax: after `Groups`, write one complete group per line as semicolon-separated ending-scoreable pair IDs. Every ending-scoreable pair ID must occur exactly once across all lines.",
+                "Neutral syntax example using synthetic IDs only: `PX1; PX2` on one line and `PX3` on the next line.",
                 "[[ONTOPRISM:PARTITION-DISPOSITION:START]]",
                 "Mode:",
                 "Groups (one group per line; semicolon-separated pair IDs):",
@@ -1751,6 +1789,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         "cadsr_usage_identity": _sha(payloads[cadsr_usage_path]),
         "suppressed_candidates_by_row": suppression,
         "packets": tuple(entries),
+        "context_correction_note": context_correction_note(
+            sum(len(row.context_pair_ids) for row in rows)
+        ),
         "registered_mint_expected_set": visible_registered,
         "index_identity": "0" * 64,
     }

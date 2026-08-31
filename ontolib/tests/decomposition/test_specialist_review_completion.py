@@ -87,6 +87,30 @@ def test_resolved_completion_requires_exact_post_action_partition_cover() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    "groups",
+    [
+        (("P1", "P2", "P3"),),
+        (("P1", "P2", "P4"),),
+        (("P1", "P2"), ("P2",)),
+    ],
+    ids=("removed-pair", "engineering-pair", "duplicate-pair"),
+)
+def test_custom_partition_rejects_removed_engineering_and_duplicate_ids(
+    groups: tuple[tuple[str, ...], ...],
+) -> None:
+    with pytest.raises((ValueError, ValidationError)):
+        validate_completion(
+            _stage_a(),
+            _resolved(groups=groups),
+            clinically_asked_pairs=("P1",),
+            action_pairs=("P1",),
+            engineering_only_pairs=("P4",),
+            allowed_actions_by_pair={"P1": ("PROMOTE-SCOREABLE",)},
+            baseline_scoreable_pairs=("P2",),
+        )
+
+
 def test_stage_a_deferred_is_empty_and_stage_b_deferred_is_nonterminal() -> None:
     deferred_a = ClinicalStageA(
         attestation=_attestation("clinical"),

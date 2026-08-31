@@ -14,6 +14,19 @@ pytestmark = pytest.mark.unit
 SOURCE = Path("scripts/research/data/specialist_literature_context_26_07d.json")
 
 
+def test_c6135_source_facts_are_neutral_observations_without_answer_cues() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C6135")
+    source_facts = "\n".join(
+        claim.source_fact for question in dossier.questions for claim in question.claims
+    ).lower()
+
+    assert "not a generic malignant neuroendocrine-cell operand" not in source_facts
+    assert "without making poor differentiation universal" not in source_facts
+    assert "not a universal property" not in source_facts
+    assert "measured subset rather than a universal property" not in source_facts
+
+
 def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() -> None:
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
 
