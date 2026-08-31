@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from scripts.research.specialist_literature_context import (
+    LiteratureContextSource,
+    generate_specialist_literature_context,
+)
+
+pytestmark = pytest.mark.unit
+
+SOURCE = Path("scripts/research/data/specialist_literature_context_26_07d.json")
+
+
+def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+
+    assert tuple(row.code for row in source.dossiers) == (
+        "C27262",
+        "C102870",
+        "C6135",
+        "C4791",
+        "C100054",
+        "C198031",
+        "C35756",
+    )
+    assert all(
+        len({citation.citation_id for citation in row.citations}) == len(row.citations)
+        for row in source.dossiers
+    )
+    assert all(
+        citation.authority_class
+        and citation.bibliography
+        and citation.verified_on
+        and citation.exact_locator
+        and citation.exact_passage
+        and citation.supports
+        and citation.does_not_support
+        and citation.limitations
+        and citation.conflicts_or_supersession
+        for row in source.dossiers
+        for citation in row.citations
+    )
+    assert all(
+        question.pair_keys
+        and all(not key.axis.startswith("P") for key in question.pair_keys)
+        for row in source.dossiers
+        for question in row.questions
+    )
+    ovarian = next(row for row in source.dossiers if row.code == "C102870")
+    morphology = next(
+        question
+        for question in ovarian.questions
+        if question.question_id == "C102870-MORPHOLOGY"
+    )
+    assert {(key.axis, key.filler) for key in morphology.pair_keys} == {
+        ("op:Morphology", "C121619"),
+        ("op:Morphology", "C39986"),
+    }
+
+    rendered = SOURCE.read_text(encoding="utf-8")
+    assert "Kunikowska" not in rendered
+    assert "case report" not in rendered.lower()
+    assert "WHO-EYE04" in rendered
+    assert "WHO-EYE05" in rendered
+    assert "C198032" in rendered
+    assert "C198034" in rendered
+    assert "C6681" in rendered
+    assert "C6682" in rendered
+
+
+def test_literature_generator_is_deterministic_and_rejects_open_citations(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "literature.json"
+    first = generate_specialist_literature_context(SOURCE, output)
+    first_bytes = output.read_bytes()
+    second = generate_specialist_literature_context(SOURCE, output)
+    assert first == second
+    assert output.read_bytes() == first_bytes
+    assert json.loads(first_bytes)["schema_version"] == 2
+
+    payload = json.loads(SOURCE.read_bytes())
+    payload["dossiers"][0]["citations"][0]["status"] = "not-found"
+    payload["dossiers"][0]["citations"][0]["exact_passage"] = "fabricated quote"
+    broken = tmp_path / "broken.json"
+    broken.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="unavailable citation"):
+        generate_specialist_literature_context(broken, output)

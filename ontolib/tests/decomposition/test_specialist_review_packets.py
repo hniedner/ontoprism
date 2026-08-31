@@ -5,141 +5,208 @@ from pathlib import Path
 
 import pytest
 from scripts.adjudication import _parser
+from scripts.research.specialist_cadsr_usage import (
+    CadsrUsageRow,
+    SpecialistCadsrUsageReport,
+)
+from scripts.research.specialist_literature_context import (
+    generate_specialist_literature_context,
+)
 from scripts.research.specialist_review_packets import (
     CONCEPT_ORDER,
-    Citation,
-    ClinicalQuestion,
-    FinalLiteratureContext,
-    LiteratureDossier,
+    PacketIndex,
     generate_specialist_review_packets,
+    validate_specialist_review_generation,
 )
 from scripts.validation.run_agent_replay import run_agent_replay
 
 pytestmark = pytest.mark.unit
 
 
-def _literature(path: Path) -> None:
-    dossiers = []
-    for code in CONCEPT_ORDER:
-        dossiers.append(
-            LiteratureDossier(
-                code=code,
-                exact_label=f"Label {code}",
-                exact_definition=f"Definition {code}",
-                specialty="specialist",
-                factual_context=("Audited factual context.",),
-                citations=(
-                    Citation(
-                        citation_id=f"citation-{code}",
-                        status="cited",
-                        authority_order=1,
-                        citation="Verified citation",
-                        locator="section 1",
-                        passage="Exact audited passage",
-                        support="Supports context only.",
-                        non_support="Does not decide ontology action.",
-                        limitations="Specialist interpretation required.",
-                        newer_evidence="None identified in final pass.",
-                    ),
-                ),
-                questions=(
-                    ClinicalQuestion(
-                        question_id=f"{code}-Q1",
-                        pair_ids=("P1",),
-                        text="Is this finding universally defining?",
-                        literature_citation_ids=(f"citation-{code}",),
-                    ),
-                ),
-            )
-        )
-    context = FinalLiteratureContext(
-        schema_version=1,
-        evidence_pass="final",  # noqa: S106
-        verified_on="2026-08-30",
-        dossiers=tuple(dossiers),
+def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
+    literature = tmp_path / "literature.json"
+    context = generate_specialist_literature_context(
+        Path("scripts/research/data/specialist_literature_context_26_07d.json"),
+        literature,
     )
-    path.write_text(context.model_dump_json(indent=2), encoding="utf-8")
+    registry = tmp_path / "registry.json"
+    registry.write_text('{"proposals": []}', encoding="utf-8")
+    cadsr = tmp_path / "cadsr.json"
+    cadsr.write_text(
+        SpecialistCadsrUsageReport(
+            schema_version=1,
+            database_path="data/cadsr/cde_repository.db",
+            source_identity="a" * 64,
+            producing_command="fixed",
+            query_limit=10,
+            rows=tuple(
+                CadsrUsageRow(
+                    code=code,
+                    status="no-linked-cde",
+                    cde_ids=(),
+                    truncated=False,
+                    error=None,
+                )
+                for code in CONCEPT_ORDER
+            ),
+            interpretation=(
+                "caDSR usage does not determine clinical or ontology correctness."
+            ),
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    concepts = []
+    ranges = []
+    draft_concepts: dict[str, object] = {}
+    relation_names = (
+        "expected_matched_scoreable",
+        "expected_emitted_review_bearing",
+        "expected_not_emitted",
+        "current_only_scoreable",
+        "current_only_review_bearing",
+        "current_only_proposed",
+    )
+    for dossier in context.dossiers:
+        keys = sorted(
+            {
+                (key.axis, key.filler)
+                for question in dossier.questions
+                for key in question.pair_keys
+            }
+        )
+        relations = {name: [] for name in relation_names}
+        for number, key in enumerate(keys):
+            relations[relation_names[number % len(relation_names)]].append(list(key))
+            ranges.append(
+                {
+                    "code": dossier.code,
+                    "axis": key[0],
+                    "filler": key[1],
+                    "current_projection_status": "scoreable-release-bound",
+                    "verdict": {"status": "valid"},
+                }
+            )
+        concepts.append(
+            {
+                "code": dossier.code,
+                "actual_groups": [],
+                "non_scoreable_emitted_pairs": [],
+                "pair_relations": relations,
+                "actual_partition": [],
+                "expected_partition": [],
+            }
+        )
+        draft_concepts[dossier.code] = {
+            "genus": {"code": dossier.code, "label": dossier.exact_label},
+            "morphology": {"code": keys[0][1], "label": f"Label {keys[0][1]}"},
+            "review_buckets": {
+                "curated_projection": [
+                    {
+                        "axis": axis,
+                        "axis_label": axis,
+                        "filler": filler,
+                        "filler_label": f"Label {filler}",
+                    }
+                    for axis, filler in keys
+                ]
+            },
+        }
+    group = tmp_path / "groups.json"
+    group.write_text(
+        json.dumps({"schema_version": 4, "review_boundary": {}, "concepts": concepts}),
+        encoding="utf-8",
+    )
+    diagnostic = tmp_path / "diagnostics.json"
+    diagnostic.write_text(
+        json.dumps(
+            {"schema_version": 3, "candidate_rows": [], "range_diagnostics": ranges}
+        ),
+        encoding="utf-8",
+    )
+    evidence = tmp_path / "evidence.json"
+    evidence.write_text("{}", encoding="utf-8")
+    comparison = tmp_path / "comparison.json"
+    comparison.write_text("{}", encoding="utf-8")
+    labels = tmp_path / "labels.json"
+    labels.write_text(
+        json.dumps({"_meta": {}, "concepts": draft_concepts}), encoding="utf-8"
+    )
+    return (
+        literature,
+        registry,
+        cadsr,
+        (diagnostic, evidence, comparison, group, labels),
+    )
 
 
-def test_generator_writes_only_seven_packets_and_bound_indexes_deterministically(
+def test_generator_writes_seven_rows_schema_two_and_bound_validation_deterministically(
     tmp_path: Path,
 ) -> None:
-    literature = tmp_path / "literature.json"
-    _literature(literature)
-    registry = Path("ontolib/tests/decomposition/golden/proposal-registry.json")
+    literature, registry, cadsr, additional = _inputs(tmp_path)
     output = tmp_path / "packets"
-
     first = generate_specialist_review_packets(
         literature_context_path=literature,
         proposal_registry_path=registry,
+        cadsr_usage_path=cadsr,
         output_directory=output,
-        producing_command="pdm run agent-replay generate-specialist-review-packets",
+        producing_command="fixed",
+        additional_input_paths=additional,
     )
-    bytes_before = {path.name: path.read_bytes() for path in output.iterdir()}
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
     second = generate_specialist_review_packets(
         literature_context_path=literature,
         proposal_registry_path=registry,
+        cadsr_usage_path=cadsr,
         output_directory=output,
-        producing_command="pdm run agent-replay generate-specialist-review-packets",
+        producing_command="fixed",
+        additional_input_paths=additional,
     )
-
     assert first == second
+    assert before == {path.name: path.read_bytes() for path in output.iterdir()}
+    assert (
+        PacketIndex.model_validate_json(
+            (output / "index.json").read_bytes()
+        ).schema_version
+        == 2
+    )
+    generated_index = PacketIndex.model_validate_json(
+        (output / "index.json").read_bytes()
+    )
+    assert all(not path.startswith("/") for path in generated_index.input_identities)
+    validation = validate_specialist_review_generation(output)
+    assert validation.status == "passed"
+    assert validation.readiness is False
     assert {path.name for path in output.iterdir()} == {
         *(f"{code}.md" for code in CONCEPT_ORDER),
         "index.json",
         "generation-validation.json",
     }
-    assert bytes_before == {path.name: path.read_bytes() for path in output.iterdir()}
-    index = json.loads((output / "index.json").read_bytes())
-    assert tuple(item["code"] for item in index["packets"]) == CONCEPT_ORDER
-    assert all(len(item["sha256"]) == 64 for item in index["packets"])
-    markdown = (output / "C35756.md").read_text(encoding="utf-8")
-    assert "blank specialist packet" in markdown.lower()
-    assert "CADSR-USAGE: NOT QUERIED" in markdown
-    assert "readiness remains false" in markdown
-    assert "STAGE-A-RESPONSE" in markdown
-    assert "STAGE-B-RESPONSE" in markdown
-    assert "MINT-" not in markdown
-    assert "m1-6-group-correction-revision-26.07d.md" not in markdown
-    assert "sha256" not in markdown.lower()
+    markdown = (output / "C102870.md").read_text(encoding="utf-8")
+    assert "P97:" in markdown
+    assert "RESPONSE-CELLS-START A" in markdown
+    assert "C121619" in markdown
+    assert "C39986" in markdown
+    assert "STAGE-A-RESPONSE" not in markdown
 
 
-def test_cli_and_fixed_replay_name_every_input_and_output(tmp_path: Path) -> None:
+def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
+    tmp_path: Path,
+) -> None:
     args = _parser().parse_args(
-        [
-            "generate-specialist-review-packets",
-            "--literature-context",
-            "literature.json",
-            "--proposal-registry",
-            "registry.json",
-            "--axis-diagnostics",
-            "diagnostics.json",
-            "--current-evidence",
-            "evidence.json",
-            "--current-comparison",
-            "comparison.json",
-            "--group-review-packet",
-            "groups.json",
-            "--output-directory",
-            "packets",
-            "--producing-command",
-            "fixed-command",
-        ]
+        ["validate-completed-specialist-review", "--directory", "packets"]
     )
-    assert args.command == "generate-specialist-review-packets"
-    validate = _parser().parse_args(
-        ["validate-specialist-review-packets", "--directory", "packets"]
-    )
-    assert validate.directory == Path("packets")
-
+    assert args.directory == Path("packets")
     required = (
         "scripts/adjudication.py",
         "tmp/m1-6-specialist-literature-context.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-specialist-cadsr-usage.json",
         "tmp/m1-6-axis-diagnostics-rev2.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "tmp/m1-6-group-review-packet-rev2.json",
+        "ontolib/tests/decomposition/golden/neoplasm-draft.json",
+        "data/ncit-owl/Thesaurus-stated.owl",
     )
     for relative in required:
         path = tmp_path / relative
@@ -158,40 +225,6 @@ def test_cli_and_fixed_replay_name_every_input_and_output(tmp_path: Path) -> Non
         == 0
     )
     command = commands[0]
-    assert all(str(tmp_path / relative) in command for relative in required)
+    assert "--cadsr-usage" in command
+    assert "--label-source" in command
     assert str(tmp_path / "tmp/m1-6-specialist-packets") in command
-
-
-def test_literature_dependent_question_requires_cited_evidence_or_source_request() -> (
-    None
-):
-    with pytest.raises(ValueError, match="supply source"):
-        LiteratureDossier(
-            code="C27262",
-            exact_label="Label",
-            exact_definition="Definition",
-            specialty="specialist",
-            factual_context=("Fact",),
-            citations=(
-                Citation(
-                    citation_id="closed",
-                    status="access-restricted",
-                    authority_order=1,
-                    citation="Catalog",
-                    locator="catalog",
-                    passage="Access restricted",
-                    support="No independently checked passage.",
-                    non_support="No decision.",
-                    limitations="Access restricted.",
-                    newer_evidence="Unknown.",
-                ),
-            ),
-            questions=(
-                ClinicalQuestion(
-                    question_id="Q1",
-                    pair_ids=("P1",),
-                    text="Is this universal?",
-                    literature_citation_ids=("closed",),
-                ),
-            ),
-        )

@@ -46,6 +46,12 @@ def test_find_cdes_by_concept_is_the_ncit_join(cadsr_db_path) -> None:
 
 
 @pytest.mark.unit
+def test_find_cde_ids_by_concept_is_bounded(cadsr_db_path) -> None:
+    ids = CdeRepository(cadsr_db_path).find_cde_ids_by_concept("C3262", limit=1)
+    assert ids == ["100:2.0"]
+
+
+@pytest.mark.unit
 def test_list_cdes_browses_in_natural_numeric_order(cadsr_db_path) -> None:
     # No search term: list every CDE ordered by numeric public_id (100 < 2003771).
     page = CdeRepository(cadsr_db_path).list_cdes()

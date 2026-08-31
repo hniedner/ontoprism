@@ -1040,19 +1040,31 @@ def _generate_specialist_review_packets(
         raise AgentReplayInputError(
             "generate-specialist-review-packets accepts no arguments"
         )
-    script, literature, registry, diagnostics, evidence, comparison, groups = (
-        _require_files(
-            root,
-            (
-                "scripts/adjudication.py",
-                "tmp/m1-6-specialist-literature-context.json",
-                "ontolib/tests/decomposition/golden/proposal-registry.json",
-                "tmp/m1-6-axis-diagnostics-rev2.json",
-                "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
-                "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
-                "tmp/m1-6-group-review-packet-rev2.json",
-            ),
-        )
+    (
+        script,
+        literature,
+        registry,
+        cadsr,
+        diagnostics,
+        evidence,
+        comparison,
+        groups,
+        labels,
+        ncit,
+    ) = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "tmp/m1-6-specialist-literature-context.json",
+            "ontolib/tests/decomposition/golden/proposal-registry.json",
+            "tmp/m1-6-specialist-cadsr-usage.json",
+            "tmp/m1-6-axis-diagnostics-rev2.json",
+            "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+            "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+            "tmp/m1-6-group-review-packet-rev2.json",
+            "ontolib/tests/decomposition/golden/neoplasm-draft.json",
+            "data/ncit-owl/Thesaurus-stated.owl",
+        ),
     )
     return _run(
         [
@@ -1063,6 +1075,12 @@ def _generate_specialist_review_packets(
             literature,
             "--proposal-registry",
             registry,
+            "--cadsr-usage",
+            cadsr,
+            "--label-source",
+            labels,
+            "--ncit-source",
+            ncit,
             "--axis-diagnostics",
             diagnostics,
             "--current-evidence",
@@ -1075,6 +1093,115 @@ def _generate_specialist_review_packets(
             str(root / "tmp/m1-6-specialist-packets"),
             "--producing-command",
             "pdm run agent-replay generate-specialist-review-packets",
+        ],
+        root,
+        runner,
+    )
+
+
+def _generate_specialist_literature_context(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-specialist-literature-context accepts no arguments"
+        )
+    source, _script = _require_files(
+        root,
+        (
+            "scripts/research/data/specialist_literature_context_26_07d.json",
+            "scripts/research/specialist_literature_context.py",
+        ),
+    )
+    return _run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.research.specialist_literature_context",
+            "--source",
+            source,
+            "--output",
+            str(root / "tmp/m1-6-specialist-literature-context.json"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _generate_specialist_cadsr_usage(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-specialist-cadsr-usage accepts no arguments"
+        )
+    database, _script = _require_files(
+        root,
+        ("data/cadsr/cde_repository.db", "scripts/research/specialist_cadsr_usage.py"),
+    )
+    command = [
+        sys.executable,
+        "-m",
+        "scripts.research.specialist_cadsr_usage",
+        "--database",
+        database,
+        "--output",
+        str(root / "tmp/m1-6-specialist-cadsr-usage.json"),
+        "--limit",
+        "100",
+        "--producing-command",
+        "pdm run agent-replay generate-specialist-cadsr-usage",
+    ]
+    for code in ("C27262", "C102870", "C6135", "C4791", "C100054", "C198031", "C35756"):
+        command.extend(("--root-code", code))
+    return _run(command, root, runner)
+
+
+def _validate_specialist_review_generation(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "validate-specialist-review-generation accepts no arguments"
+        )
+    script, _index, _validation = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "tmp/m1-6-specialist-packets/index.json",
+            "tmp/m1-6-specialist-packets/generation-validation.json",
+        ),
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "validate-specialist-review-generation",
+            "--directory",
+            str(root / "tmp/m1-6-specialist-packets"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _validate_completed_specialist_review(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "validate-completed-specialist-review accepts no arguments"
+        )
+    script, _index = _require_files(
+        root, ("scripts/adjudication.py", "tmp/m1-6-specialist-packets/index.json")
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "validate-completed-specialist-review",
+            "--directory",
+            str(root / "tmp/m1-6-specialist-packets"),
         ],
         root,
         runner,
@@ -2387,7 +2514,11 @@ _OPERATIONS: dict[str, Operation] = {
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review-rev2": _generate_group_review_rev2,
+    "generate-specialist-literature-context": _generate_specialist_literature_context,
+    "generate-specialist-cadsr-usage": _generate_specialist_cadsr_usage,
     "generate-specialist-review-packets": _generate_specialist_review_packets,
+    "validate-specialist-review-generation": _validate_specialist_review_generation,
+    "validate-completed-specialist-review": _validate_completed_specialist_review,
     "generate-r103-review": _generate_r103_review,
     "validate-r101-current": _validate_r101_current,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,
