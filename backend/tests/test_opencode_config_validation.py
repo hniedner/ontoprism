@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).parents[2]
+FULL_STORE_TIMEOUT_PROMPTS = (
+    ".opencode/agent/implementer.md",
+    ".opencode/agent/ontoprism-team.md",
+    ".opencode/command/review-pr.md",
+)
 
 
 @pytest.fixture
@@ -52,6 +57,18 @@ def replace(root: Path, relative: str, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1))
 
 
+def replace_full_store_timeout_contract(
+    root: Path, relative: str, replacement: str
+) -> None:
+    path = root / relative
+    lines = [
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "podman-test-full-store" not in line
+    ]
+    path.write_text("\n".join([*lines, "", replacement, ""]), encoding="utf-8")
+
+
 def update_root_config(root: Path, update: Callable[[dict[str, object]], None]) -> None:
     path = root / "opencode.json"
     config = json.loads(path.read_text())
@@ -61,6 +78,69 @@ def update_root_config(root: Path, update: Callable[[dict[str, object]], None]) 
 
 def test_checked_out_opencode_configuration_is_valid(config_root: Path) -> None:
     assert validate(config_root) == []
+
+
+@pytest.mark.parametrize("relative", FULL_STORE_TIMEOUT_PROMPTS)
+def test_full_store_prompt_requires_outer_bash_timeout_on_first_attempt(
+    config_root: Path, relative: str
+) -> None:
+    prompt = (config_root / relative).read_text(encoding="utf-8").lower()
+
+    for semantic_token in (
+        "pdm run agent-replay podman-test-full-store",
+        "bash tool",
+        "outer",
+        "3600000",
+        "first attempt",
+        "internal timeout",
+        "never start",
+        "1200000",
+        "retry",
+    ):
+        assert semantic_token in prompt
+    assert "podman-test-full-store --timeout" not in prompt
+
+
+@pytest.mark.parametrize("relative", FULL_STORE_TIMEOUT_PROMPTS)
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        (
+            "The wrapper for `pdm run agent-replay podman-test-full-store` has an "
+            "internal timeout of 3600 seconds."
+        ),
+        (
+            "Invoke `pdm run agent-replay podman-test-full-store` through the Bash "
+            "tool with its outer timeout set to 1200000 milliseconds, then retry "
+            "with 3600000 milliseconds."
+        ),
+    ],
+)
+def test_full_store_timeout_gate_rejects_internal_or_retry_only_guidance(
+    config_root: Path, relative: str, replacement: str
+) -> None:
+    replace_full_store_timeout_contract(config_root, relative, replacement)
+
+    assert any(
+        error.startswith("FULL_STORE_TIMEOUT:") for error in validate(config_root)
+    )
+
+
+@pytest.mark.parametrize("relative", FULL_STORE_TIMEOUT_PROMPTS)
+def test_full_store_timeout_gate_rejects_fake_shell_timeout_flag(
+    config_root: Path, relative: str
+) -> None:
+    path = config_root / relative
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n`pdm run agent-replay podman-test-full-store --timeout 3600000`\n",
+        encoding="utf-8",
+    )
+
+    assert any(
+        error.startswith("FULL_STORE_TIMEOUT:") and "shell flag" in error
+        for error in validate(config_root)
+    )
 
 
 @pytest.mark.parametrize(

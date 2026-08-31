@@ -790,6 +790,37 @@ def require_terms(
         )
 
 
+def validate_full_store_timeout_contract(
+    validation: Validation, label: str, text: str
+) -> None:
+    normalized = re.sub(r"\s+", " ", text).lower()
+    required = (
+        "pdm run agent-replay podman-test-full-store",
+        "bash tool",
+        "tool call's timeout",
+        "3600000 milliseconds",
+        "first attempt",
+        "internal timeout",
+        "outer tool timeout",
+        "never start",
+        "1200000 ms",
+        "retry",
+    )
+    missing = [term for term in required if term not in normalized]
+    if missing:
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} missing required semantics: {', '.join(missing)}",
+        )
+    if re.search(
+        r"pdm run agent-replay podman-test-full-store\s+--?timeout\b", normalized
+    ):
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} must not encode the outer timeout as a shell flag",
+        )
+
+
 def validate_standard_permissions(
     validation: Validation, roles: dict[str, tuple[dict[str, Any], str]]
 ) -> None:
@@ -1015,6 +1046,9 @@ def validate_role_contracts(
     )
     if "fallback_models" in implementer[0]:
         validation.error("IMPLEMENTER_FALLBACK", "fallback_models must be absent")
+    validate_full_store_timeout_contract(
+        validation, "implementer prompt", implementer[1]
+    )
 
     orchestrator = roles.get("ontoprism-team", ({}, ""))[1]
     require_terms(
@@ -1049,6 +1083,9 @@ def validate_role_contracts(
             "never de" + "lete an issue or milestone",
             "silently rewrite unrelated issues",
         ),
+    )
+    validate_full_store_timeout_contract(
+        validation, "ontoprism-team prompt", orchestrator
     )
     validate_standard_permissions(validation, roles)
     for reserve in RESERVES:
@@ -1125,6 +1162,7 @@ def validate_command(validation: Validation) -> None:
             *tuple(sorted(REVIEWERS)),
         ),
     )
+    validate_full_store_timeout_contract(validation, "review-pr command", body)
     if "ready to merge" in body.lower() or "merge-ready" in body.lower():
         validation.error(
             "REVIEW_COMMAND", "review-pr must not make a merge-readiness claim"
