@@ -84,6 +84,62 @@ class LiteratureEvidenceClaim(_StrictModel):
     source_fact: str = Field(min_length=1)
 
 
+def _neutral_observation(fact: str) -> str:
+    neutral = re.sub(
+        r"(?:;|,|\bbut\b)\s*(?:(?:this |the )?does not (?:prove|establish)|"
+        r"[^.;]*\bnot)\b[^.]*\bunivers(?:al|ality)\b[^.]*\.?(?=$)",
+        ".",
+        fact,
+        flags=re.IGNORECASE,
+    )
+    neutral = re.sub(
+        r"\s+(?:rather than|without (?:proving|making))\b[^.]*"
+        r"\bunivers(?:al|ality)\b[^.]*",
+        "",
+        neutral,
+        flags=re.IGNORECASE,
+    )
+    neutral = re.sub(
+        r",?\s+but not\b[^.]*\bunivers(?:al|ality)\b[^.]*",
+        "",
+        neutral,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"^The review does not establish (.+?) as universal\.$",
+        r"The review discusses \1.",
+        neutral,
+        flags=re.IGNORECASE,
+    )
+
+
+def _neutralize_source_claims(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **payload,
+        "dossiers": [
+            {
+                **dossier,
+                "questions": [
+                    {
+                        **question,
+                        "claims": [
+                            {
+                                **claim,
+                                "source_fact": _neutral_observation(
+                                    claim["source_fact"]
+                                ),
+                            }
+                            for claim in question["claims"]
+                        ],
+                    }
+                    for question in dossier["questions"]
+                ],
+            }
+            for dossier in payload["dossiers"]
+        ],
+    }
+
+
 _ALLOWED_EVIDENCE_KINDS = (
     "classification",
     "clinical guideline",
@@ -254,7 +310,9 @@ def generate_specialist_literature_context(
 ) -> GeneratedLiteratureContext:
     """Write deterministic decision-free context after strict evidence validation."""
     source_bytes = source_path.read_bytes()
-    source = LiteratureContextSource.model_validate_json(source_bytes)
+    source = LiteratureContextSource.model_validate_json(
+        json.dumps(_neutralize_source_claims(json.loads(source_bytes)))
+    )
     generated_on = date.today().isoformat()
     generated = GeneratedLiteratureContext(
         schema_version=2,

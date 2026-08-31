@@ -122,6 +122,72 @@ class PairScopeVerdict(_StrictModel):
     engineering_blocker: str | None = None
 
 
+class DispatchDecision(_StrictModel):
+    status: Literal["dispatchable", "withheld"]
+    reasons: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _status_matches_reasons(self) -> Self:
+        if (self.status == "withheld") != bool(self.reasons):
+            raise ValueError("dispatch status and withholding reasons disagree")
+        return self
+
+
+def derive_dispatch_decision(
+    *,
+    engineering_blockers: dict[str, str],
+    asked_pair_ids: tuple[str, ...],
+    supported_pair_ids: tuple[str, ...],
+) -> DispatchDecision:
+    """Withhold exactly when prerequisites or pair-relevant evidence are incomplete."""
+    supported = set(supported_pair_ids)
+    reasons = tuple(
+        f"{pair_id} engineering prerequisite unresolved: {reason}"
+        for pair_id, reason in sorted(engineering_blockers.items())
+    ) + tuple(
+        f"{pair_id} lacks complete accessible pair-relevant evidence"
+        for pair_id in asked_pair_ids
+        if pair_id not in supported
+    )
+    return DispatchDecision(
+        status="withheld" if reasons else "dispatchable", reasons=reasons
+    )
+
+
+_SOURCE_CLINICAL_CUE = re.compile(
+    r"(?:\bnot through\b|\bbut not\b.{0,80}\buniversal\b|"
+    r"\bwithout (?:proving|making)\b.{0,80}\buniversal\b|"
+    r"\brather than (?:a )?universal\b|\bnot (?:a )?universal\b|"
+    r"\bnot presumed universal\b|\bdoes not (?:prove|establish)\b.{0,80}\buniversal)",
+    re.IGNORECASE,
+)
+_ONTOLOGY_ACTION_CUE = re.compile(
+    r"\b(?:should|must)(?:\s+\w+){0,6}\s+be (?:retained|removed|promoted)\b|"
+    r"\b(?:retain|remove|promote)(?:d)?[- ]scoreable\b",
+    re.IGNORECASE,
+)
+
+
+def semantic_answer_cue_findings(
+    records: tuple[tuple[str, str, str], ...],
+) -> tuple[str, ...]:
+    """Detect semantic conclusions in evidence slots and action-leading questions."""
+    findings: list[str] = []
+    for code, field, text in records:
+        if field != "question" and _SOURCE_CLINICAL_CUE.search(text):
+            findings.append(
+                f"{code} answer cue in {field}: pre-answered clinical status [{text}]"
+            )
+        if _ONTOLOGY_ACTION_CUE.search(text):
+            suffix = (
+                "requested ontology action instead of human applicability"
+                if field == "question"
+                else "pre-answered ontology action"
+            )
+            findings.append(f"{code} answer cue in {field}: {suffix} [{text}]")
+    return tuple(findings)
+
+
 def classify_pair_scope(scope_input: PairScopeInput) -> PairScopeVerdict:  # noqa: PLR0911
     """Classify every valid scope product with fail-closed precedence."""
     if scope_input.governance_status == "suppressed":
@@ -170,8 +236,7 @@ def classify_pair_scope(scope_input: PairScopeInput) -> PairScopeVerdict:  # noq
     ):
         return PairScopeVerdict(
             status="clinical-only",
-            reason="The pair has a material clinical scope question, but the evidence claim does not contest its current scoreable disposition.",
-            engineering_blocker="#274 no Stage B pair disposition is indexed; regenerate the packet after Stage A",
+            reason="The source-backed, range-valid pair has a material clinical applicability question and its current scoreable disposition requires no engineering repair.",
         )
     if not scope_input.action_representable:
         return PairScopeVerdict(
@@ -294,11 +359,22 @@ class SpecialistRowPacket(_StrictModel):
         )
 
     @property
+    def clinical_only_pair_ids(self) -> tuple[str, ...]:
+        return tuple(
+            pair.pair_id
+            for pair in self.pairs
+            if pair.review_scope == "stage-a-clinical-only"
+            and pair.pair_id not in self.engineering_blockers
+        )
+
+    @property
     def engineering_pair_ids(self) -> tuple[str, ...]:
         return tuple(
             pair.pair_id
             for pair in self.pairs
-            if pair.review_scope in {"stage-a-clinical-only", "engineering-only"}
+            if pair.review_scope == "engineering-only"
+            or pair.scope_verdict == "refused-invalid"
+            or pair.pair_id in self.engineering_blockers
         )
 
     @property
@@ -502,6 +578,7 @@ class PacketIndexEntry(_StrictModel):
     row_contract_identity: str = Field(pattern=_SHA256)
     asked_pair_ids: tuple[str, ...]
     action_pair_ids: tuple[str, ...]
+    clinical_only_pair_ids: tuple[str, ...]
     engineering_pair_ids: tuple[str, ...]
     context_pair_ids: tuple[str, ...]
     workload: PacketWorkload
@@ -517,13 +594,15 @@ class PacketIndexEntry(_StrictModel):
     )
     dispatch_status: Literal["dispatchable", "withheld"]
     withholding_reasons: tuple[str, ...]
-    row_validation_path: str
+    expected_return_validation_path: str
+    generated: Literal[False] = False
 
     @model_validator(mode="after")
     def _partitions_and_dispatch_are_exact(self) -> Self:
         pair_ids = {item.pair_id for item in self.pair_contracts}
         partitions = (
             set(self.action_pair_ids),
+            set(self.clinical_only_pair_ids),
             set(self.engineering_pair_ids),
             set(self.context_pair_ids),
         )
@@ -553,7 +632,7 @@ class PacketIndexEntry(_StrictModel):
             raise ValueError("dispatch status and withholding reasons disagree")
         if (
             Path(self.path).is_absolute()
-            or Path(self.row_validation_path).is_absolute()
+            or Path(self.expected_return_validation_path).is_absolute()
         ):
             raise ValueError("packet index paths must be repository-relative")
         expected_stage_b = (
@@ -589,6 +668,9 @@ class PacketIndex(_StrictModel):
     packets: tuple[PacketIndexEntry, ...]
     context_correction_note: str = Field(min_length=1)
     registered_mint_expected_set: tuple[str, ...]
+    release_ready_codes: tuple[str, ...]
+    withheld_codes: tuple[str, ...]
+    release_ready: bool
     index_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -607,6 +689,18 @@ class PacketIndex(_StrictModel):
             raise ValueError(
                 "context-correction note must match indexed bundle liveness"
             )
+        dispatchable = tuple(
+            entry.code
+            for entry in self.packets
+            if entry.dispatch_status == "dispatchable"
+        )
+        withheld = tuple(
+            entry.code for entry in self.packets if entry.dispatch_status == "withheld"
+        )
+        if self.release_ready_codes != dispatchable or self.withheld_codes != withheld:
+            raise ValueError("release subsets must derive from packet dispatch status")
+        if self.release_ready != (not withheld):
+            raise ValueError("release readiness must require every requested row")
         return self
 
 
@@ -622,8 +716,29 @@ class GenerationValidation(_StrictModel):
     ontology_writes: Literal[False]
     runtime_mutated: Literal[False]
     readiness: Literal[False]
+    release_ready_codes: tuple[str, ...]
+    withheld_codes: tuple[str, ...]
+    release_ready: bool
     publication: Literal[False]
     validation_identity: str = Field(pattern=_SHA256)
+
+
+class DispatchManifestEntry(_StrictModel):
+    code: str
+    path: str
+    sha256: str = Field(pattern=_SHA256)
+
+
+class DispatchManifest(_StrictModel):
+    schema_version: Literal[1] = 1
+    recipient: Literal["OntoPrism project coordinator"] = (
+        "OntoPrism project coordinator"
+    )
+    instruction: str
+    release_ready_codes: tuple[str, ...]
+    packets: tuple[DispatchManifestEntry, ...]
+    index_identity: str = Field(pattern=_SHA256)
+    manifest_identity: str = Field(pattern=_SHA256)
 
 
 class CompletionValidation(_StrictModel):
@@ -680,6 +795,62 @@ def _identity_without(payload: dict[str, object], field: str) -> str:
     return _sha(
         _canonical({key: value for key, value in payload.items() if key != field})
     )
+
+
+def _write_dispatch_bundle(
+    *,
+    packet_directory: Path,
+    index: PacketIndex,
+    packet_payloads: dict[str, bytes],
+) -> None:
+    dispatch_directory = packet_directory.parent / "m1-6-specialist-dispatch"
+    entries = tuple(
+        DispatchManifestEntry(
+            code=code,
+            path=f"{code}.md",
+            sha256=_sha(packet_payloads[f"{code}.md"]),
+        )
+        for code in index.release_ready_codes
+    )
+    values: dict[str, object] = {
+        "schema_version": 1,
+        "recipient": "OntoPrism project coordinator",
+        "instruction": ReturnChannel().instruction,
+        "release_ready_codes": index.release_ready_codes,
+        "packets": entries,
+        "index_identity": index.index_identity,
+        "manifest_identity": "0" * 64,
+    }
+    values["manifest_identity"] = _identity_without(values, "manifest_identity")
+    payloads = {
+        **{
+            f"{code}.md": packet_payloads[f"{code}.md"]
+            for code in index.release_ready_codes
+        },
+        "dispatch-manifest.json": _canonical(DispatchManifest.model_validate(values)),
+    }
+    dispatch_directory.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{dispatch_directory.name}.", dir=dispatch_directory.parent
+        )
+    )
+    backup = dispatch_directory.with_name(f".{dispatch_directory.name}.previous")
+    try:
+        for name, payload in payloads.items():
+            (temporary / name).write_bytes(payload)
+        if backup.exists():
+            shutil.rmtree(backup)
+        if dispatch_directory.exists():
+            os.replace(dispatch_directory, backup)
+        os.replace(temporary, dispatch_directory)
+        if backup.exists():
+            shutil.rmtree(backup)
+    except BaseException:
+        if not dispatch_directory.exists() and backup.exists():
+            os.replace(backup, dispatch_directory)
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
 
 
 def _labels(raw_inputs: tuple[Any, ...]) -> tuple[dict[str, str], dict[str, str]]:
@@ -1287,6 +1458,7 @@ def _render_packet(  # noqa: C901, PLR0912
     actual_partition: object,
     expected_partition: object,
     suppressed_candidates: tuple[SuppressedCandidate, ...],
+    dispatch: DispatchDecision,
 ) -> bytes:
     suppressed_axes: dict[str, int] = {}
     for candidate in suppressed_candidates:
@@ -1300,7 +1472,13 @@ def _render_packet(  # noqa: C901, PLR0912
     lines = [
         f"# {row.code} — {row.label}",
         "",
-        "**Blank specialist packet.** Current NCIt 26.07d baseline only. Historical proposals are warnings, not selected responses. This packet is write-free; readiness is false and it cannot authorize equivalence, adoption, or publication.",
+        (
+            "**Blank specialist packet.** Current NCIt 26.07d baseline only. Historical proposals are warnings, not selected responses. This packet is write-free; readiness is false and it cannot authorize equivalence, adoption, or publication."
+            if dispatch.status == "dispatchable"
+            else "**NOT FOR DISPATCH.** Read-only engineering-coordination dossier. It contains no attestation, response, return, or ontology-action request and must be regenerated after every withholding reason is resolved."
+        ),
+        f"**Dispatch status:** {dispatch.status}",
+        *(f"- **Withholding reason:** {reason}" for reason in dispatch.reasons),
         f"**Workload:** asked={len(row.asked_pair_ids)}; action={len(row.action_pair_ids)}; engineering={len(row.engineering_pair_ids)}; context={len(row.context_pair_ids)}.",
         context_correction_note(len(row.context_pair_ids)),
         *(
@@ -1318,14 +1496,19 @@ def _render_packet(  # noqa: C901, PLR0912
             else []
         ),
         "",
-        "## Return workflow",
-        "",
-        ReturnChannel().instruction,
-        ReturnChannel().deadline,
-        "2. Edit as UTF-8. Preserve the filename and every visible ONTOPRISM marker. Edit only the text inside response regions; paragraphs and the `|` character are allowed.",
-        "3. Stage A is clinical classification; Stage B is ontology action. One person may perform both only by separately signing both roles.",
-        "4. Leave everything outside response regions unchanged and return the completed file to the review orchestrator, who performs independent row validation.",
-        "",
+        *(
+            [
+                "## Return workflow",
+                "",
+                f"1. {ReturnChannel().instruction}",
+                f"2. {ReturnChannel().deadline}",
+                "3. Edit as UTF-8. Preserve the filename and every visible ONTOPRISM marker. Edit only the text inside response regions; paragraphs and the `|` character are allowed. Stage A is clinical classification; Stage B is ontology action; separately complete both role attestations if one person performs both.",
+                "4. Leave everything outside response regions unchanged. The OntoPrism project coordinator performs independent row validation after return.",
+                "",
+            ]
+            if dispatch.status == "dispatchable"
+            else []
+        ),
         "## Source-bound concept",
         "",
         f"**Exact label:** {row.label}",
@@ -1405,6 +1588,20 @@ def _render_packet(  # noqa: C901, PLR0912
                 for pair_id, blocker in sorted(row.engineering_blockers.items())
             ),
             "",
+        ]
+    )
+    if dispatch.status == "withheld":
+        lines.extend(
+            [
+                "## NOT FOR DISPATCH",
+                "",
+                "Clinical questions remain documented in the bound literature dossier for engineering coordination only. No Stage A or Stage B response, attestation, action, or return instruction is requested in this withheld packet.",
+                "",
+            ]
+        )
+        return "\n".join(lines).encode()
+    lines.extend(
+        [
             "## Stage A — Clinical review",
             "",
             f"Required specialty: {dossier.specialty}",
@@ -1634,17 +1831,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
     entries: list[PacketIndexEntry] = []
     for row in rows:
         concept = next(item for item in group["concepts"] if item["code"] == row.code)
-        payload = _render_packet(
-            row,
-            dossier_by_code[row.code],
-            cadsr_by_code[row.code],
-            cadsr,
-            concept["actual_partition"],
-            concept["expected_partition"],
-            suppression[row.code],
-        )
         name = f"{row.code}.md"
-        packet_payloads[name] = payload
         dossier = dossier_by_code[row.code]
         citations = {item.citation_id: item for item in dossier.citations}
         claims_by_key = {
@@ -1671,28 +1858,35 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         baseline_scoreable = tuple(
             pair_id for group_ids in baseline_partition for pair_id in group_ids
         )
-        withholding = tuple(
-            f"{pair.pair_id} lacks an accessible high-value source-specific passage"
+        supported_pair_ids = tuple(
+            pair.pair_id
             for pair in row.pairs
             if pair.pair_id in row.asked_pair_ids
-            and (
-                (claim_record := claims_by_key.get((pair.key.axis, pair.key.filler)))
-                is None
-                or not citation_supports_pair(
-                    question_id=claim_record[0],
-                    pair_key=LiteraturePairKey(
-                        axis=pair.key.axis, filler=pair.key.filler
-                    ),
-                    claim=claim_record[1],
-                    citation=citations[claim_record[1].citation_id],
-                )
+            and (claim_record := claims_by_key.get((pair.key.axis, pair.key.filler)))
+            is not None
+            and citation_supports_pair(
+                question_id=claim_record[0],
+                pair_key=LiteraturePairKey(axis=pair.key.axis, filler=pair.key.filler),
+                claim=claim_record[1],
+                citation=citations[claim_record[1].citation_id],
             )
         )
-        withholding += tuple(
-            f"{pair.pair_id} requires an unrepresentable pair action"
-            for pair in row.pairs
-            if pair.scope_verdict == "refused-invalid"
+        dispatch = derive_dispatch_decision(
+            engineering_blockers=row.engineering_blockers,
+            asked_pair_ids=row.asked_pair_ids,
+            supported_pair_ids=supported_pair_ids,
         )
+        payload = _render_packet(
+            row,
+            dossier,
+            cadsr_by_code[row.code],
+            cadsr,
+            concept["actual_partition"],
+            concept["expected_partition"],
+            suppression[row.code],
+            dispatch,
+        )
+        packet_payloads[name] = payload
         entries.append(
             PacketIndexEntry(
                 code=row.code,
@@ -1701,6 +1895,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 row_contract_identity=_sha(_canonical(row)),
                 asked_pair_ids=row.asked_pair_ids,
                 action_pair_ids=row.action_pair_ids,
+                clinical_only_pair_ids=row.clinical_only_pair_ids,
                 engineering_pair_ids=row.engineering_pair_ids,
                 context_pair_ids=row.context_pair_ids,
                 workload=PacketWorkload(
@@ -1776,11 +1971,18 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                     if row.action_pair_ids
                     else "not-applicable-pending-engineering"
                 ),
-                dispatch_status="withheld" if withholding else "dispatchable",
-                withholding_reasons=withholding,
-                row_validation_path=f"{row.code}.validation.json",
+                dispatch_status=dispatch.status,
+                withholding_reasons=dispatch.reasons,
+                expected_return_validation_path=f"{row.code}.validation.json",
+                generated=False,
             )
         )
+    release_ready_codes = tuple(
+        entry.code for entry in entries if entry.dispatch_status == "dispatchable"
+    )
+    withheld_codes = tuple(
+        entry.code for entry in entries if entry.dispatch_status == "withheld"
+    )
     index_values: dict[str, object] = {
         "schema_version": 3,
         "ncit_version": "26.07d",
@@ -1793,6 +1995,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             sum(len(row.context_pair_ids) for row in rows)
         ),
         "registered_mint_expected_set": visible_registered,
+        "release_ready_codes": release_ready_codes,
+        "withheld_codes": withheld_codes,
+        "release_ready": not withheld_codes,
         "index_identity": "0" * 64,
     }
     index_values["index_identity"] = _identity_without(index_values, "index_identity")
@@ -1812,13 +2017,28 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         findings.append("suppressed MINT identifiers leaked into rendered bytes")
     if any(row.status == "error" for row in cadsr.rows):
         findings.append("caDSR report contains an error row")
-    withheld_codes = [
-        entry.code for entry in entries if entry.dispatch_status == "withheld"
-    ]
-    if withheld_codes:
-        findings.append(
-            "release bundle contains withheld rows: " + ", ".join(withheld_codes)
+    cue_records = (
+        tuple(
+            (dossier.code, "factual_context", text)
+            for dossier in context.dossiers
+            for text in dossier.factual_context
         )
+        + tuple(
+            (dossier.code, "question", question.text)
+            for dossier in context.dossiers
+            for question in dossier.questions
+        )
+        + tuple(
+            (dossier.code, "source_fact", claim.source_fact)
+            for dossier in context.dossiers
+            for question in dossier.questions
+            for claim in question.claims
+        )
+    )
+    findings.extend(semantic_answer_cue_findings(cue_records))
+    evidence_text = "\n".join(text for _code, _field, text in cue_records)
+    if any(item in evidence_text for item in suppressed_mints):
+        findings.append("suppressed MINT identifiers leaked into rendered bytes")
     for row in rows:
         dossier = dossier_by_code[row.code]
         if not any(
@@ -1837,10 +2057,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 f"{row.code} has an actionable pair without source provenance"
             )
     rendered_text = rendered.decode(errors="replace")
-    if "<!-- QUESTION" in rendered_text or "<!-- Allowed actions" in rendered_text:
+    audited_text = rendered_text + "\n" + evidence_text
+    if "<!-- QUESTION" in audited_text or "<!-- Allowed actions" in audited_text:
         findings.append("critical review content is hidden in HTML comments")
     if any(
-        token in rendered_text
+        token in audited_text
         for token in ("/Users/", "\\Users\\", "pdm run", "python ", "git ")
     ):
         findings.append("rendered packets contain a local path or repository command")
@@ -1868,6 +2089,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         "ontology_writes": False,
         "runtime_mutated": False,
         "readiness": False,
+        "release_ready_codes": release_ready_codes,
+        "withheld_codes": withheld_codes,
+        "release_ready": not withheld_codes,
         "publication": False,
         "validation_identity": "0" * 64,
     }
@@ -1890,6 +2114,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             raise ValueError(
                 "specialist packet generation validation failed: " + "; ".join(findings)
             )
+        _write_dispatch_bundle(
+            packet_directory=output_directory,
+            index=index,
+            packet_payloads=packet_payloads,
+        )
         return index
     output_directory.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
@@ -1917,6 +2146,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         raise ValueError(
             "specialist packet generation validation failed: " + "; ".join(findings)
         )
+    _write_dispatch_bundle(
+        packet_directory=output_directory,
+        index=index,
+        packet_payloads=packet_payloads,
+    )
     return index
 
 

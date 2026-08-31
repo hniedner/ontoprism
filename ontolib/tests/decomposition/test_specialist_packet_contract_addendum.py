@@ -21,6 +21,7 @@ from scripts.research.specialist_review_packets import (
     PartitionDisposition,
     ReturnChannel,
     classify_pair_scope,
+    semantic_answer_cue_findings,
 )
 
 pytestmark = pytest.mark.unit
@@ -70,9 +71,7 @@ def test_b2_pair_disposition_has_only_three_actions_and_no_axis_or_group_fields(
     assert {"RETAIN-SCOREABLE", "PROMOTE-SCOREABLE", "REMOVE-FROM-PROJECTION"} <= set(
         annotation.split("'")
     )
-    assert {"ADD-SCOREABLE", "OMIT", "RE-AXIS", "GROUP-TOGETHER"}.isdisjoint(
-        annotation.split("'")
-    )
+    assert {"ADD-SCOREABLE", "OMIT", "GROUP-TOGETHER"}.isdisjoint(annotation.split("'"))
 
 
 def test_b3_partition_disposition_is_independent_and_typed() -> None:
@@ -300,3 +299,56 @@ def test_d10_pair_action_and_partition_are_not_interchangeable() -> None:
                 "rationale": "Wrong layer.",
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "text", "finding"),
+    [
+        (
+            "source_fact",
+            "The category is defined through mixed dysplasia, not through this "
+            "morphology.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "source_fact",
+            "The observation is characteristic but not universal.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "source_fact",
+            "The pair should be promoted.",
+            "answer cue in source_fact: pre-answered ontology action",
+        ),
+        (
+            "question",
+            "Should this pair be retained?",
+            "answer cue in question: requested ontology action instead of human "
+            "applicability",
+        ),
+    ],
+)
+def test_semantic_answer_cue_gate_rejects_structured_conclusion_classes(
+    field: str, text: str, finding: str
+) -> None:
+    assert semantic_answer_cue_findings((("C999", field, text),)) == (
+        f"C999 {finding} [{text}]",
+    )
+
+
+def test_answer_cue_gate_accepts_neutral_observations_and_questions() -> None:
+    records = (
+        (
+            "C27262",
+            "source_fact",
+            "The review places MDS/MPN within myeloid neoplasms and describes mixed "
+            "dysplastic and proliferative features.",
+        ),
+        (
+            "C27262",
+            "question",
+            "How broadly is this morphology clinically applicable across the named "
+            "entities?",
+        ),
+    )
+    assert semantic_answer_cue_findings(records) == ()

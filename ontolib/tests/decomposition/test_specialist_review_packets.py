@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -16,6 +17,7 @@ from scripts.research.specialist_literature_context import (
 )
 from scripts.research.specialist_review_packets import (
     CONCEPT_ORDER,
+    GenerationValidation,
     PacketIndex,
     generate_specialist_review_packets,
     validate_specialist_review_generation,
@@ -23,6 +25,14 @@ from scripts.research.specialist_review_packets import (
 from scripts.validation.run_agent_replay import run_agent_replay
 
 pytestmark = pytest.mark.unit
+
+
+def _response_regions(text: str) -> tuple[tuple[int, int], ...]:
+    starts = [
+        match.start() for match in re.finditer(r"\[\[ONTOPRISM:[^\]]+:START\]\]", text)
+    ]
+    ends = [match.end() for match in re.finditer(r"\[\[ONTOPRISM:[^\]]+:END\]\]", text)]
+    return tuple(zip(starts, ends, strict=True))
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
@@ -175,7 +185,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
     )
 
 
-def test_generator_writes_schema_three_and_bound_validation_deterministically(
+def test_generator_writes_schema_three_and_bound_validation_deterministically(  # noqa: PLR0915
     tmp_path: Path,
 ) -> None:
     literature, registry, cadsr, additional = _inputs(tmp_path)
@@ -218,6 +228,8 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     validation = validate_specialist_review_generation(output)
     assert validation.status == "passed"
     assert validation.readiness is False
+    assert validation.release_ready is False
+    assert validation.withheld_codes
     assert {path.name for path in output.iterdir()} == {
         *(f"{code}.md" for code in CONCEPT_ORDER),
         "index.json",
@@ -225,23 +237,15 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     }
     markdown = (output / "C102870.md").read_text(encoding="utf-8")
     assert "P97:" in markdown
-    assert "[[ONTOPRISM:STAGE-A:START]]" in markdown
+    assert "[[ONTOPRISM:STAGE-A:START]]" not in markdown
     assert "C121619" in markdown
     assert "C39986" in markdown
     assert "STAGE-A-RESPONSE" not in markdown
     assert "pdm run" not in markdown
     assert "git " not in markdown.lower()
-    assert (
-        "Return the completed file, with the same filename, as a file attachment"
-        in markdown
-    )
-    assert "No deadline assigned; coordinator will communicate changes." in markdown
+    assert "## Return workflow" not in markdown
     assert context_note in markdown
-    assert (
-        "This packet has five Stage A clinical questions and zero Stage B ontology "
-        "actions. Responses can inform #274 engineering repair but cannot change the "
-        "projection in this review cycle." in markdown
-    )
+    assert "NOT FOR DISPATCH" in markdown
     if not next(
         entry for entry in generated_index.packets if entry.code == "C102870"
     ).action_pair_ids:
@@ -254,7 +258,7 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     )
     assert all_markdown.count(context_note) == len(CONCEPT_ORDER)
     for entry in generated_index.packets:
-        if not entry.action_pair_ids:
+        if not entry.action_pair_ids or entry.dispatch_status == "withheld":
             continue
         packet = (output / entry.path).read_text(encoding="utf-8")
         assert (
@@ -273,6 +277,38 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     )
     assert "<!-- QUESTION" not in all_markdown
     assert "<!-- Allowed actions" not in all_markdown
+    for entry in generated_index.packets:
+        packet = (output / entry.path).read_text(encoding="utf-8")
+        if entry.dispatch_status == "dispatchable":
+            workflow = packet.split("## Return workflow", 1)[1].split("## ", 1)[0]
+            assert workflow.count("OntoPrism project coordinator") == 2
+            assert re.findall(r"(?m)^(\d+)\.", workflow) == ["1", "2", "3", "4"]
+        else:
+            assert "## Return workflow" not in packet
+            assert "NOT FOR DISPATCH" in packet
+        for line in packet.splitlines():
+            if re.search(r"(?i)(signature|attester|attestation).*(?:___|:$)", line):
+                assert any(
+                    start < packet.index(line) < end
+                    for start, end in _response_regions(packet)
+                )
+    assert all(entry.generated is False for entry in generated_index.packets)
+    assert all(
+        entry.expected_return_validation_path == f"{entry.code}.validation.json"
+        for entry in generated_index.packets
+    )
+    dispatch = output.parent / "m1-6-specialist-dispatch"
+    manifest = json.loads((dispatch / "dispatch-manifest.json").read_bytes())
+    assert {path.name for path in dispatch.iterdir()} == {
+        "dispatch-manifest.json",
+        *(f"{code}.md" for code in generated_index.release_ready_codes),
+    }
+    assert manifest["release_ready_codes"] == list(generated_index.release_ready_codes)
+    assert manifest["recipient"] == "OntoPrism project coordinator"
+    assert all(
+        (dispatch / f"{code}.md").read_bytes() == (output / f"{code}.md").read_bytes()
+        for code in generated_index.release_ready_codes
+    )
 
 
 def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
@@ -336,3 +372,51 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
     assert "--cadsr-usage" in command
     assert "--label-source" in command
     assert str(tmp_path / "tmp/m1-6-specialist-packets") in command
+
+
+@pytest.mark.parametrize(
+    ("injected", "finding"),
+    [
+        (
+            "The pair should be promoted.",
+            "C100054 answer cue in source_fact: pre-answered ontology action "
+            "[The pair should be promoted.]",
+        ),
+        (
+            "<!-- QUESTION hidden critical content -->",
+            "critical review content is hidden in HTML comments",
+        ),
+        (
+            "Run pdm run verify in /Users/reviewer/repo.",
+            "rendered packets contain a local path or repository command",
+        ),
+        (
+            "Observed MINT-deadbeef1234 candidate.",
+            "suppressed MINT identifiers leaked into rendered bytes",
+        ),
+    ],
+)
+def test_generation_gates_fail_closed_on_production_shaped_primed_evidence(
+    tmp_path: Path, injected: str, finding: str
+) -> None:
+    literature, registry, cadsr, additional = _inputs(tmp_path)
+    payload = json.loads(literature.read_bytes())
+    payload["dossiers"][4]["questions"][0]["claims"][0]["source_fact"] = injected
+    literature.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "packets"
+
+    with pytest.raises(ValueError, match=re.escape(finding)):
+        generate_specialist_review_packets(
+            literature_context_path=literature,
+            proposal_registry_path=registry,
+            cadsr_usage_path=cadsr,
+            output_directory=output,
+            producing_command="fixed",
+            additional_input_paths=additional,
+        )
+
+    validation = GenerationValidation.model_validate_json(
+        (output / "generation-validation.json").read_bytes()
+    )
+    assert validation.status == "failed"
+    assert finding in validation.findings

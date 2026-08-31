@@ -133,7 +133,7 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
                 re.MULTILINE,
             )
         )
-        == len(entry.asked_pair_ids)
+        == (len(entry.asked_pair_ids) if entry.dispatch_status == "dispatchable" else 0)
         for entry in index.packets
     )
     assert all(
@@ -147,7 +147,30 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         for entry in index.packets
         for contract in entry.pair_contracts
     )
-    assert all(entry.dispatch_status == "dispatchable" for entry in index.packets)
+    assert index.release_ready_codes == ("C100054",)
+    assert index.withheld_codes == (
+        "C27262",
+        "C102870",
+        "C6135",
+        "C4791",
+        "C198031",
+        "C35756",
+    )
+    assert index.release_ready is False
+    assert {entry.code: entry.dispatch_status for entry in index.packets} == {
+        "C27262": "withheld",
+        "C102870": "withheld",
+        "C6135": "withheld",
+        "C4791": "withheld",
+        "C100054": "dispatchable",
+        "C198031": "withheld",
+        "C35756": "withheld",
+    }
+    assert all(
+        entry.withholding_reasons
+        for entry in index.packets
+        if entry.dispatch_status == "withheld"
+    )
     assert all(
         contract.citation_ids
         for entry in index.packets
@@ -170,16 +193,31 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert ovarian_entry.stage_b_mode == "not-applicable-pending-engineering"
     assert "[[ONTOPRISM:STAGE-B:START]]" not in ovarian
     assert "Stage B signature" not in ovarian
-    assert (
-        "This packet has five Stage A clinical questions and zero Stage B ontology "
-        "actions. Responses can inform #274 engineering repair but cannot change the "
-        "projection in this review cycle." in ovarian
-    )
+    assert "NOT FOR DISPATCH" in ovarian
+    assert "## Return workflow" not in ovarian
     thyroid = (_PACKETS / "C6135.md").read_text(encoding="utf-8")
     assert "not a generic malignant neuroendocrine-cell operand" not in thyroid
     assert "without making poor differentiation universal" not in thyroid
     for entry in index.packets:
-        if entry.action_pair_ids:
+        if entry.action_pair_ids and entry.dispatch_status == "dispatchable":
             packet = (_PACKETS / entry.path).read_text(encoding="utf-8")
             assert "CUSTOM-CURRENT-MODEL response syntax" in packet
             assert "synthetic IDs only: `PX1; PX2`" in packet
+    eye = (_PACKETS / "C100054.md").read_text(encoding="utf-8")
+    assert "WHO-EYE04" in eye
+    assert "WHO-EYE05" in eye
+    assert "### Clinical question for P3" in eye
+    assert "### Clinical question for P4" in eye
+    assert "**Current scoreable baseline partition:**" in eye
+    assert "**Historical proposal warning and partition:**" in eye
+    assert "[[ONTOPRISM:STAGE-A:START]]" in eye
+    assert "[[ONTOPRISM:STAGE-B:START]]" in eye
+    assert "OntoPrism project coordinator" in eye
+    dispatch = Path("tmp/m1-6-specialist-dispatch")
+    assert {path.name for path in dispatch.iterdir()} == {
+        "C100054.md",
+        "dispatch-manifest.json",
+    }
+    assert (dispatch / "C100054.md").read_bytes() == (
+        _PACKETS / "C100054.md"
+    ).read_bytes()
