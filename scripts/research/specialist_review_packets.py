@@ -42,6 +42,7 @@ except ModuleNotFoundError:  # direct ``python scripts/adjudication.py`` entry p
     )
 
 CONCEPT_ORDER = ("C27262", "C102870", "C6135", "C4791", "C100054", "C198031", "C35756")
+COORDINATOR = "R. Hannes Niedner, M.D., OntoPrism project coordinator"
 _SHA256 = r"^[0-9a-f]{64}$"
 _MINT = re.compile(r"MINT-[0-9a-f]{12}")
 _GROUP_PACKET_SCHEMA = 4
@@ -83,14 +84,14 @@ class PairKey(_StrictModel):
 
 class ReturnChannel(_StrictModel):
     instruction: Literal[
-        "Return the completed file, with the same filename, as a file attachment to the OntoPrism project coordinator through the same secure channel by which this packet was received."
-    ] = "Return the completed file, with the same filename, as a file attachment to the OntoPrism project coordinator through the same secure channel by which this packet was received."
+        "Return the completed file, with the same filename, as a file attachment to R. Hannes Niedner, M.D., OntoPrism project coordinator through the same secure delivery channel by which this packet was received."
+    ] = "Return the completed file, with the same filename, as a file attachment to R. Hannes Niedner, M.D., OntoPrism project coordinator through the same secure delivery channel by which this packet was received."
     deadline: Literal["No deadline assigned; coordinator will communicate changes."] = (
         "No deadline assigned; coordinator will communicate changes."
     )
     fallback: Literal[
-        "If that channel is unavailable, contact the OntoPrism project coordinator before transmitting review material."
-    ] = "If that channel is unavailable, contact the OntoPrism project coordinator before transmitting review material."
+        "If the secure delivery channel is unavailable, contact R. Hannes Niedner, M.D., OntoPrism project coordinator before transmitting review material."
+    ] = "If the secure delivery channel is unavailable, contact R. Hannes Niedner, M.D., OntoPrism project coordinator before transmitting review material."
 
 
 class PairScopeInput(_StrictModel):
@@ -465,22 +466,14 @@ class PairDisposition(_StrictModel):
 
 
 class PartitionDisposition(_StrictModel):
-    mode: Literal[
-        "RETAIN-CURRENT",
-        "GROUP-SPECIFIED-PAIRS-TOGETHER",
-        "KEEP-SPECIFIED-PAIRS-SEPARATE",
-        "CUSTOM-CURRENT-MODEL",
-        "EMPTY",
-    ]
+    mode: Literal["CUSTOM-CURRENT-MODEL"]
     groups: tuple[tuple[str, ...], ...]
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _shape(self) -> Self:
-        if self.mode == "EMPTY" and self.groups:
-            raise ValueError("EMPTY partition cannot contain groups")
-        if self.mode != "EMPTY" and not self.groups:
-            raise ValueError("non-EMPTY partition requires groups")
+        if not self.groups:
+            raise ValueError("CUSTOM-CURRENT-MODEL partition requires groups")
         if any(not group for group in self.groups):
             raise ValueError("partition groups cannot be empty")
         flattened = tuple(pair for group in self.groups for pair in group)
@@ -556,16 +549,7 @@ class PacketWorkload(_StrictModel):
 
 
 class GroupingContract(_StrictModel):
-    allowed_dispositions: tuple[
-        Literal[
-            "RETAIN-CURRENT",
-            "GROUP-SPECIFIED-PAIRS-TOGETHER",
-            "KEEP-SPECIFIED-PAIRS-SEPARATE",
-            "CUSTOM-CURRENT-MODEL",
-            "EMPTY",
-        ],
-        ...,
-    ]
+    allowed_dispositions: tuple[Literal["CUSTOM-CURRENT-MODEL"], ...]
     baseline_scoreable_pair_ids: tuple[str, ...]
     baseline_partition: tuple[tuple[str, ...], ...]
 
@@ -722,7 +706,7 @@ class GenerationValidation(_StrictModel):
     runtime_mutated: Literal[False]
     readiness: Literal[False]
     readiness_meaning: Literal[
-        "ontology/publication readiness; separate from dispatch readiness"
+        "ontology/publication readiness; generation validation status is structural readiness; dispatch readiness is separate"
     ]
     release_ready_codes: tuple[str, ...]
     withheld_codes: tuple[str, ...]
@@ -739,10 +723,11 @@ class DispatchManifestEntry(_StrictModel):
 
 class DispatchManifest(_StrictModel):
     schema_version: Literal[1] = 1
-    recipient: Literal["OntoPrism project coordinator"] = (
-        "OntoPrism project coordinator"
+    recipient: Literal["R. Hannes Niedner, M.D., OntoPrism project coordinator"] = (
+        COORDINATOR
     )
     instruction: str
+    contact_instruction: str
     dispatch_ready: Literal[True] = True
     release_ready_codes: tuple[str, ...]
     packets: tuple[DispatchManifestEntry, ...]
@@ -831,8 +816,9 @@ def _write_dispatch_bundle(
     )
     values: dict[str, object] = {
         "schema_version": 1,
-        "recipient": "OntoPrism project coordinator",
+        "recipient": COORDINATOR,
         "instruction": ReturnChannel().instruction,
+        "contact_instruction": ReturnChannel().fallback,
         "dispatch_ready": True,
         "release_ready_codes": index.release_ready_codes,
         "packets": entries,
@@ -1510,36 +1496,9 @@ def pair_consequences(pair: SpecialistPair) -> dict[str, ActionConsequence]:
 
 def allowed_partition_modes(
     action_pairs: tuple[SpecialistPair, ...],
-) -> tuple[
-    Literal[
-        "RETAIN-CURRENT",
-        "GROUP-SPECIFIED-PAIRS-TOGETHER",
-        "KEEP-SPECIFIED-PAIRS-SEPARATE",
-        "CUSTOM-CURRENT-MODEL",
-        "EMPTY",
-    ],
-    ...,
-]:
+) -> tuple[Literal["CUSTOM-CURRENT-MODEL"], ...]:
     """Derive partition modes from possible indexed pair actions."""
-    modes: tuple[
-        Literal[
-            "RETAIN-CURRENT",
-            "GROUP-SPECIFIED-PAIRS-TOGETHER",
-            "KEEP-SPECIFIED-PAIRS-SEPARATE",
-            "CUSTOM-CURRENT-MODEL",
-            "EMPTY",
-        ],
-        ...,
-    ] = (
-        "RETAIN-CURRENT",
-        "GROUP-SPECIFIED-PAIRS-TOGETHER",
-        "KEEP-SPECIFIED-PAIRS-SEPARATE",
-        "CUSTOM-CURRENT-MODEL",
-        "EMPTY",
-    )
-    if any("PROMOTE-SCOREABLE" in _allowed_actions(pair) for pair in action_pairs):
-        return tuple(mode for mode in modes if mode != "RETAIN-CURRENT")
-    return modes
+    return ("CUSTOM-CURRENT-MODEL",) if action_pairs else ()
 
 
 def context_correction_note(context_count: int) -> str:
@@ -1565,13 +1524,18 @@ def context_correction_note(context_count: int) -> str:
 
 
 def _render_partition(
-    partition: object, pair_id_by_key: dict[tuple[str, str], str]
+    partition: object,
+    pair_by_key: dict[tuple[str, str], SpecialistPair],
 ) -> str:
     groups = cast("list[list[list[str]]]", partition)
     rendered = []
     for number, group in enumerate(groups, start=1):
         members = "; ".join(
-            f"{pair_id_by_key.get((axis, filler), 'UNINDEXED')} {axis} {filler}"
+            (
+                f"{pair.pair_id} {axis} {filler} — {pair.filler_label}"
+                if (pair := pair_by_key.get((axis, filler))) is not None
+                else f"UNINDEXED {axis} {filler} — label unavailable"
+            )
             for axis, filler in group
         )
         rendered.append(f"G{number}={{{members}}}")
@@ -1602,6 +1566,26 @@ def _render_packet(  # noqa: C901, PLR0912
     pair_id_by_key = {
         (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
     }
+    pair_by_key = {(pair.key.axis, pair.key.filler): pair for pair in row.pairs}
+    baseline_group_ids = tuple(
+        tuple(
+            pair_id_by_key[(axis, filler)]
+            for axis, filler in group
+            if (axis, filler) in pair_id_by_key
+        )
+        for group in cast("list[list[list[str]]]", actual_partition)
+    )
+    baseline_syntax = "; ".join(
+        f"G{number}={{{'; '.join(group)}}}"
+        for number, group in enumerate(baseline_group_ids, start=1)
+        if group
+    )
+    promoted_pair_ids = tuple(
+        pair.pair_id
+        for pair in row.pairs
+        if pair.pair_id in row.action_pair_ids
+        and "PROMOTE-SCOREABLE" in _allowed_actions(pair)
+    )
     lines = [
         f"# {row.code} — {row.label}",
         "",
@@ -1629,9 +1613,9 @@ def _render_packet(  # noqa: C901, PLR0912
                 f"1. {ReturnChannel().instruction}",
                 f"2. {ReturnChannel().fallback} {ReturnChannel().deadline}",
                 "3. Edit as UTF-8. Preserve the filename and every visible ONTOPRISM marker. Edit only the text inside response regions; paragraphs and the `|` character are allowed. Stage A is clinical classification; Stage B is ontology action; separately complete both role attestations if one person performs both.",
-                "4. Leave everything outside response regions unchanged, request receipt confirmation, and retain that confirmation. The OntoPrism project coordinator performs independent row validation after return.",
+                f"4. Leave everything outside response regions unchanged, request receipt confirmation, and retain that confirmation. {COORDINATOR} performs independent row validation after return.",
                 "",
-                f"Packet reference: {row.code} / NCIt 26.07d / {row_contract_identity[:12]}. This short contract reference is non-authoritative; the coordinator validates the full packet SHA-256 and manifest identity.",
+                f"Packet reference: {row.code} / NCIt 26.07d / full row contract SHA-256: {row_contract_identity}. The dispatch manifest binds the full packet SHA-256, this contract identity, and the packet-index identity; the reviewer does not type or return a hash.",
                 f"Expected post-return output (not a current bundle file): {row.code}.validation.json.",
                 "",
             ]
@@ -1691,10 +1675,10 @@ def _render_packet(  # noqa: C901, PLR0912
             "**Current metric identity/context:** pair precision, recall, and F1 over the bound current comparison; row-local potential changes are bounded to one TP/FP/FN contribution per pair. No predicted post-review values are rendered.",
             "",
             "**Current scoreable baseline partition:** "
-            + _render_partition(actual_partition, pair_id_by_key),
+            + _render_partition(actual_partition, pair_by_key),
             "",
             "**Historical proposal warning and partition:** admitted historical witness only; not source-stated grouping or authority. "
-            + _render_partition(expected_partition, pair_id_by_key),
+            + _render_partition(expected_partition, pair_by_key),
             "",
             "## Literature dossier",
             "",
@@ -1776,6 +1760,18 @@ def _render_packet(  # noqa: C901, PLR0912
     for pair in row.pairs:
         if pair.pair_id in asked:
             question = question_by_pair[pair.pair_id]
+            source_heading = (
+                "Supporting source facts:"
+                if pair.pair_id in row.action_pair_ids
+                else "Context evidence / does not support ontology action:"
+            )
+            coordinate_text = (
+                "; ".join(
+                    f"{item.anchor_code} {item.anchor_label}, depth={item.depth}, path={list(item.structural_path)}, member={item.member_position}"
+                    for item in pair.source_occurrences
+                )
+                or "Unavailable in the bound source coordinates."
+            )
             lines.extend(
                 [
                     "",
@@ -1783,13 +1779,15 @@ def _render_packet(  # noqa: C901, PLR0912
                     "",
                     f"Within **{row.label}**, how broadly does **{pair.filler_label}** apply in the clinical meaning represented by `{pair.key.axis} {pair.key.filler}`? Evaluate the cited pair-specific evidence for this exact concept scope.",
                     "",
-                    "Supporting source facts:",
+                    source_heading,
+                    "Clinical source:",
                     *(
                         f"- **{claim.citation_id}:** {claim.source_fact}"
                         for claim in question.claims
                         if (claim.pair_key.axis, claim.pair_key.filler)
                         == (pair.key.axis, pair.key.filler)
                     ),
+                    f"Source occurrence coordinates: {coordinate_text}",
                     "",
                     f"[[ONTOPRISM:STAGE-A-PAIR:{pair.pair_id}:START]]",
                     "Status:",
@@ -1855,9 +1853,10 @@ def _render_packet(  # noqa: C901, PLR0912
         lines.extend(
             [
                 "## Independent partition disposition",
-                "The final groups must cover every post-action scoreable pair exactly once, including unchanged baseline context. Removed, non-scoreable, engineering-only, and context-only pairs are forbidden. EMPTY is allowed only when no scoreable pair remains. Partition choices have zero pair-metric deltas.",
+                "The final groups must cover every post-action scoreable pair exactly once, including unchanged baseline context. Removed, non-scoreable, engineering-only, and context-only pairs are forbidden. Partition choices have zero pair-metric deltas.",
                 f"Partition modes: {', '.join(partition_modes)}",
-                "RETAIN-CURRENT appears only when every allowed pair action preserves the baseline scoreable set. If it is absent, choose one listed mode and provide an exact final total partition.",
+                f"If both {' and '.join(promoted_pair_ids)} are removed, reproduce the baseline exactly: {baseline_syntax}.",
+                f"If {' or '.join(promoted_pair_ids)} is promoted, place each promoted pair ID explicitly in the complete final groups.",
                 "CUSTOM-CURRENT-MODEL response syntax: after `Groups`, write one complete group per line as semicolon-separated ending-scoreable pair IDs. Every ending-scoreable pair ID must occur exactly once across all lines.",
                 "Neutral syntax example using synthetic IDs only: `PX1; PX2` on one line and `PX3` on the next line.",
                 "[[ONTOPRISM:PARTITION-DISPOSITION:START]]",
@@ -1867,6 +1866,7 @@ def _render_packet(  # noqa: C901, PLR0912
                 "[[ONTOPRISM:PARTITION-DISPOSITION:END]]",
                 "",
                 "The same individual may attest both only after separately completing both human role blocks.",
+                f"Packet contract digest footer (SHA-256): {row_contract_identity}",
             ]
         )
     else:
@@ -2245,7 +2245,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         "runtime_mutated": False,
         "readiness": False,
         "readiness_meaning": (
-            "ontology/publication readiness; separate from dispatch readiness"
+            "ontology/publication readiness; generation validation status is structural readiness; dispatch readiness is separate"
         ),
         "release_ready_codes": release_ready_codes,
         "withheld_codes": withheld_codes,
@@ -2380,8 +2380,6 @@ def validate_completion(  # noqa: C901, PLR0912
                 "partition mode is not allowed by the indexed row contract"
             )
         covered = tuple(pair for group in partition.groups for pair in group)
-        if partition.mode == "EMPTY" and final_scoreable:
-            raise ValueError("EMPTY partition is valid only with no scoreable pairs")
         if set(covered) != final_scoreable or len(covered) != len(final_scoreable):
             raise ValueError(
                 "final partition must exactly cover all post-action scoreable pairs"

@@ -256,11 +256,12 @@ def test_pair_consequences_render_only_relation_valid_actions(
     )
 
 
-def test_promotable_action_suppresses_retain_current_partition_mode() -> None:
+def test_action_pairs_offer_only_the_total_custom_partition_mode() -> None:
     promotable = _pair("P1", "stage-a-and-stage-b").model_copy(
         update={"relation": "expected-emitted-review-bearing"}
     )
     retained = _pair("P2", "stage-a-and-stage-b")
 
-    assert "RETAIN-CURRENT" not in module.allowed_partition_modes((promotable,))
-    assert "RETAIN-CURRENT" in module.allowed_partition_modes((retained,))
+    assert module.allowed_partition_modes((promotable,)) == ("CUSTOM-CURRENT-MODEL",)
+    assert module.allowed_partition_modes((retained,)) == ("CUSTOM-CURRENT-MODEL",)
+    assert module.allowed_partition_modes(()) == ()

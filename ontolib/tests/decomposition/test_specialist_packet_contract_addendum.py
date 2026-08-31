@@ -108,7 +108,11 @@ def test_b5_stage_b_defer_rejects_every_pair_and_partition_response() -> None:
                 "attestation": _attestation("ontology"),
                 "row_outcome": "DEFERRED",
                 "dispositions": (),
-                "partition": {"mode": "EMPTY", "groups": (), "rationale": "No pairs."},
+                "partition": {
+                    "mode": "CUSTOM-CURRENT-MODEL",
+                    "groups": (("P1",),),
+                    "rationale": "Impermissible deferred response.",
+                },
                 "blocker": "Blocked.",
                 "blocker_source": "Stage A",
                 "next_action": "Resolve evidence.",
@@ -121,16 +125,16 @@ def test_b6_return_channel_has_exact_instruction_and_deadline() -> None:
     assert (
         channel.instruction
         == "Return the completed file, with the same filename, as a file attachment "
-        "to the OntoPrism project coordinator through the same secure channel by "
-        "which this packet was received."
+        "to R. Hannes Niedner, M.D., OntoPrism project coordinator through the same "
+        "secure delivery channel by which this packet was received."
     )
     assert (
         channel.deadline
         == "No deadline assigned; coordinator will communicate changes."
     )
     assert channel.fallback == (
-        "If that channel is unavailable, contact the OntoPrism project coordinator "
-        "before transmitting review material."
+        "If the secure delivery channel is unavailable, contact R. Hannes Niedner, "
+        "M.D., OntoPrism project coordinator before transmitting review material."
     )
 
 
@@ -257,9 +261,11 @@ def test_d4_shared_citation_predicate_rejects_contradiction() -> None:
     )
 
 
-def test_d5_empty_partition_is_only_for_no_scoreable_pairs() -> None:
-    with pytest.raises(ValidationError, match="EMPTY"):
-        PartitionDisposition(mode="EMPTY", groups=(("P1",),), rationale="Wrong.")
+def test_d5_empty_partition_mode_is_not_in_the_response_contract() -> None:
+    with pytest.raises(ValidationError, match="CUSTOM-CURRENT-MODEL"):
+        PartitionDisposition.model_validate(
+            {"mode": "EMPTY", "groups": (), "rationale": "Wrong."}
+        )
 
 
 def test_d6_custom_partition_requires_an_exact_nonempty_cover() -> None:

@@ -45,7 +45,17 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
     p4_facts = " ".join(
         item.source_fact for item in by_pair[("op:ClinicalFinding", "C8326")]
     )
-    assert "classification-dependent" not in p4_facts.lower()
+    allowed_statuses = {
+        "universal-defining",
+        "universal-nondefining",
+        "characteristic-nonuniversal",
+        "classification-dependent",
+        "inapplicable",
+        "unresolved",
+    }
+    all_source_facts = " ".join(item.source_fact for item in claims).lower()
+    assert not any(status in all_source_facts for status in allowed_statuses)
+    assert "so atypia degree is classification-dependent" not in p4_facts.lower()
     assert "low-grade atypia" in p4_facts
     assert "high-grade atypia" in p4_facts
     p6_facts = " ".join(
@@ -62,11 +72,11 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
     } == {"milman-2023", "mudhar-2024"}
 
 
-def test_c100054_bresler_bibliography_is_exact_and_access_is_honest() -> None:
+def test_c100054_bresler_2022_metadata_is_exact_and_access_is_honest() -> None:
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
     dossier = next(row for row in source.dossiers if row.code == "C100054")
     citation = next(
-        item for item in dossier.citations if item.citation_id == "bresler-2021"
+        item for item in dossier.citations if item.citation_id == "bresler-2022"
     )
 
     assert citation.bibliography == (
@@ -77,6 +87,36 @@ def test_c100054_bresler_bibliography_is_exact_and_access_is_honest() -> None:
     assert citation.pmid == "34424954"
     assert citation.status == "access-restricted"
     assert citation.verified_on is None
+    assert "bresler-2021" not in SOURCE.read_text(encoding="utf-8")
+
+
+def test_c100054_milman_table_five_passage_is_exact_and_newer_sources_are_bound() -> (
+    None
+):
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    citations = {item.citation_id: item for item in dossier.citations}
+
+    milman = citations["milman-2023"]
+    assert milman.url == "https://pmc.ncbi.nlm.nih.gov/articles/PMC10601864/"
+    assert "Table 5" in milman.exact_locator
+    assert milman.exact_passage == (
+        "The term melanoma in situ may be used for (1) the most atypical high-grade "
+        "CMILs involving close to full thickness of the epithelium, (2) histologically "
+        "obvious melanomas without documented evidence of subepithelial invasion."
+    )
+
+    wang = citations["wang-2025"]
+    assert wang.status == "cited"
+    assert wang.pmid == "40213303; PMCID PMC11981567"
+    assert wang.doi == "10.4103/tjo.TJO-D-24-00109"
+    assert "nomenclature" in wang.exact_passage.lower()
+
+    kastelan = citations["kastelan-2025"]
+    assert kastelan.status == "cited"
+    assert kastelan.doi == "10.3389/pore.2025.1612085"
+    assert kastelan.pmid == "40831998; PMCID PMC12358323"
+    assert "melanoma in situ is now included" in kastelan.exact_passage
 
 
 def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() -> None:

@@ -28,7 +28,8 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
 
     assert validation.status == "passed"
     assert validation.readiness_meaning == (
-        "ontology/publication readiness; separate from dispatch readiness"
+        "ontology/publication readiness; generation validation status is structural "
+        "readiness; dispatch readiness is separate"
     )
     assert len(index.packets) == 7
     assert tuple(row.status for row in cadsr.rows) == (
@@ -224,30 +225,68 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert "**Historical proposal warning and partition:**" in eye
     assert "[[ONTOPRISM:STAGE-A:START]]" in eye
     assert "[[ONTOPRISM:STAGE-B:START]]" in eye
-    assert "OntoPrism project coordinator" in eye
-    assert "Packet reference: C100054 / NCIt 26.07d / " in eye
-    assert "coordinator validates the full packet SHA-256 and manifest identity" in eye
+    recipient = "R. Hannes Niedner, M.D., OntoPrism project coordinator"
+    assert recipient in eye
     assert (
-        "If that channel is unavailable, contact the OntoPrism project coordinator "
-        "before transmitting review material."
+        f"Packet reference: C100054 / NCIt 26.07d / full row contract SHA-256: "
+        f"{eye_entry.row_contract_identity}"
+    ) in eye
+    assert "manifest binds the full packet SHA-256" in eye
+    assert (
+        "If the secure delivery channel is unavailable, contact R. Hannes Niedner, "
+        "M.D., OntoPrism project coordinator before transmitting review material."
     ) in eye
     assert "request receipt confirmation" in eye.lower()
     assert (
         "## Engineering blockers and consequences\n\nNone for this packet generation."
         in eye
     )
-    assert "**Current scoreable baseline partition:** G1={" in eye
+    baseline = "G1={P1}; G2={P2}; G3={P5}; G4={P6}; G5={P7}"
+    assert "**Current scoreable baseline partition:** G1={P1 " in eye
     assert "**Historical proposal warning and partition:**" in eye
-    assert " op:" in eye.split("**Current scoreable baseline partition:**", 1)[1]
-    assert "RETAIN-CURRENT" not in eye_entry.grouping_contract.allowed_dispositions
+    assert "op:" in eye.split("**Current scoreable baseline partition:**", 1)[1]
+    assert " — " in eye.split("**Current scoreable baseline partition:**", 1)[1]
+    assert eye_entry.grouping_contract.allowed_dispositions == ("CUSTOM-CURRENT-MODEL",)
+    assert "Partition modes: CUSTOM-CURRENT-MODEL" in eye
     assert (
-        "Partition modes: "
-        + ", ".join(eye_entry.grouping_contract.allowed_dispositions)
-    ) in eye
+        "If both P3 and P4 are removed, reproduce the baseline exactly: " + baseline
+        in eye
+    )
+    assert "If P3 or P4 is promoted, place each promoted pair ID explicitly" in eye
+    assert all(
+        forbidden not in eye
+        for forbidden in (
+            "RETAIN-CURRENT",
+            "GROUP-SPECIFIED-PAIRS-TOGETHER",
+            "KEEP-SPECIFIED-PAIRS-SEPARATE",
+            "EMPTY",
+        )
+    )
     assert eye_entry.pair_contracts[2].citation_ids == ("milman-2023", "mudhar-2024")
     assert eye_entry.pair_contracts[3].citation_ids == ("milman-2023", "mudhar-2024")
     assert "so atypia degree is classification-dependent" not in eye
     assert "does not by itself establish" not in eye
+    for pair_id in ("P3", "P4"):
+        question = eye.split(f"### Clinical question for {pair_id}", 1)[1].split(
+            "[[ONTOPRISM:STAGE-A-PAIR", 1
+        )[0]
+        assert "**milman-2023:**" in question
+        assert "**mudhar-2024:**" in question
+        assert "Supporting source facts:" in question
+    for pair_id in ("P1", "P2", "P6"):
+        question = eye.split(f"### Clinical question for {pair_id}", 1)[1].split(
+            "[[ONTOPRISM:STAGE-A-PAIR", 1
+        )[0]
+        assert "Context evidence / does not support ontology action:" in question
+        assert "Supporting source facts:" not in question
+        assert "Clinical source:" in question
+        assert "Source occurrence coordinates:" in question
+    assert "Context evidence / does not support ontology action" in eye
+    assert "### Clinical question for P1" in eye
+    assert "### Clinical question for P2" in eye
+    assert "### Clinical question for P6" in eye
+    assert "Clinical source:" in eye
+    assert "Source occurrence coordinates:" in eye
     dispatch = Path("tmp/m1-6-specialist-dispatch")
     assert {path.name for path in dispatch.iterdir()} == {
         "C100054.md",
@@ -259,6 +298,8 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     manifest_payload = (dispatch / "dispatch-manifest.json").read_bytes()
     manifest = DispatchManifest.model_validate_json(manifest_payload)
     assert manifest.dispatch_ready is True
+    assert manifest.recipient == recipient
+    assert "R. Hannes Niedner, M.D." in manifest.contact_instruction
     assert manifest.release_ready_codes == ("C100054",)
     assert (
         validate_dispatch_bundle(

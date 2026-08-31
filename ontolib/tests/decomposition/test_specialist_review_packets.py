@@ -319,7 +319,10 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         packet = (output / entry.path).read_text(encoding="utf-8")
         if entry.dispatch_status == "dispatchable":
             workflow = packet.split("## Return workflow", 1)[1].split("## ", 1)[0]
-            assert workflow.count("OntoPrism project coordinator") == 3
+            assert (
+                workflow.count("R. Hannes Niedner, M.D., OntoPrism project coordinator")
+                == 3
+            )
             assert re.findall(r"(?m)^(\d+)\.", workflow) == ["1", "2", "3", "4"]
         else:
             assert "## Return workflow" not in packet
@@ -342,7 +345,12 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         *(f"{code}.md" for code in generated_index.release_ready_codes),
     }
     assert manifest["release_ready_codes"] == list(generated_index.release_ready_codes)
-    assert manifest["recipient"] == "OntoPrism project coordinator"
+    recipient = "R. Hannes Niedner, M.D., OntoPrism project coordinator"
+    assert manifest["recipient"] == recipient
+    assert manifest["contact_instruction"] == (
+        "If the secure delivery channel is unavailable, contact R. Hannes Niedner, "
+        "M.D., OntoPrism project coordinator before transmitting review material."
+    )
     assert manifest["dispatch_ready"] is True
     manifest_without_identity = {
         key: value for key, value in manifest.items() if key != "manifest_identity"
@@ -375,6 +383,18 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
             + ", ".join(eye_entry.grouping_contract.allowed_dispositions)
         ) in eye
     assert eye.count("**Workload:**") == 1
+    assert eye_entry.grouping_contract.allowed_dispositions == ("CUSTOM-CURRENT-MODEL",)
+    if eye_entry.dispatch_status == "dispatchable":
+        assert "Partition modes: CUSTOM-CURRENT-MODEL" in eye
+        assert "RETAIN-CURRENT" not in eye
+        assert "GROUP-SPECIFIED-PAIRS-TOGETHER" not in eye
+        assert "KEEP-SPECIFIED-PAIRS-SEPARATE" not in eye
+        assert "EMPTY" not in eye
+        assert "R. Hannes Niedner, M.D., OntoPrism project coordinator" in eye
+        workflow = eye.split("## Return workflow", 1)[1].split("## ", 1)[0]
+        assert re.findall(r"(?m)^(\d+)\.", workflow) == ["1", "2", "3", "4"]
+        assert f"full row contract SHA-256: {eye_entry.row_contract_identity}" in eye
+        assert "Expected post-return output (not a current bundle file)" in eye
     workload_line = next(
         line for line in eye.splitlines() if line.startswith("**Workload:**")
     )
@@ -458,6 +478,15 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
             "[The pair should be promoted.]",
         ),
         (
+            "Observed CLASSIFICATION-DEPENDENT category.",
+            "C100054 answer cue in source_fact: pre-answered clinical status ",
+        ),
+        (
+            "Observed low- and high-grade atypia, so atypia degree is "
+            "classification-dependent.",
+            "C100054 answer cue in source_fact: pre-answered clinical status ",
+        ),
+        (
             "<!-- QUESTION hidden critical content -->",
             "critical review content is hidden in HTML comments",
         ),
@@ -494,4 +523,4 @@ def test_generation_gates_fail_closed_on_production_shaped_primed_evidence(
         (output / "generation-validation.json").read_bytes()
     )
     assert validation.status == "failed"
-    assert finding in validation.findings
+    assert any(item.startswith(finding) for item in validation.findings)
