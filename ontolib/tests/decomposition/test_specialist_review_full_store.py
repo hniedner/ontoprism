@@ -82,7 +82,37 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         for entry in index.packets
     )
     assert index.registered_mint_expected_set == ()
-    assert set(index.unavailable_action_classes) == {"ADD-SCOREABLE", "OMIT"}
+    assert {entry.code: entry.action_pair_ids for entry in index.packets} == {
+        "C27262": ("P3", "P4"),
+        "C102870": (),
+        "C6135": ("P6", "P8", "P9", "P12"),
+        "C4791": ("P5", "P6"),
+        "C100054": ("P3", "P4"),
+        "C198031": ("P8", "P9"),
+        "C35756": (
+            "P4",
+            "P6",
+            "P7",
+            "P8",
+            "P10",
+            "P11",
+            "P12",
+            "P18",
+            "P19",
+            "P20",
+            "P21",
+        ),
+    }
+    assert all(
+        set(contract.allowed_actions)
+        <= {
+            "RETAIN-SCOREABLE",
+            "PROMOTE-SCOREABLE",
+            "REMOVE-FROM-PROJECTION",
+        }
+        for entry in index.packets
+        for contract in entry.pair_contracts
+    )
     assert all(
         entry.dispatch_status == "dispatchable" or entry.withholding_reasons
         for entry in index.packets
@@ -111,6 +141,14 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         for contract in entry.pair_contracts
     )
     assert all(entry.dispatch_status == "dispatchable" for entry in index.packets)
+    assert {
+        "PMC6821118",
+        "PMC8683221",
+        "PMC11905437",
+        "PMC4063430",
+        "PMC10646822",
+        "PMC3351680",
+    } <= set(re.findall(r"PMC[0-9]+", rendered))
     assert all("/Users/" not in key for key in index.input_identities)
     assert "pdm run" not in rendered
     assert "<!-- QUESTION" not in rendered

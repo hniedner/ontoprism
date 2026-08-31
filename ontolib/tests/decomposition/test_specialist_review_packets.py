@@ -225,7 +225,11 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     assert "STAGE-A-RESPONSE" not in markdown
     assert "pdm run" not in markdown
     assert "git " not in markdown.lower()
-    assert "Return the completed file with this same filename" in markdown
+    assert (
+        "Return the completed file, with the same filename, as a file attachment"
+        in markdown
+    )
+    assert "No deadline assigned; coordinator will communicate changes." in markdown
     if not next(
         entry for entry in generated_index.packets if entry.code == "C102870"
     ).action_pair_ids:
@@ -236,7 +240,10 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     all_markdown = "\n".join(
         (output / f"{code}.md").read_text(encoding="utf-8") for code in CONCEPT_ORDER
     )
-    assert "No ADD-SCOREABLE or OMIT action is currently eligible" in all_markdown
+    assert (
+        "no human action that creates or silently ignores an absent pair"
+        in all_markdown
+    )
     assert "<!-- QUESTION" not in all_markdown
     assert "<!-- Allowed actions" not in all_markdown
 

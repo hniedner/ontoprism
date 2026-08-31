@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -83,6 +84,49 @@ class LiteratureEvidenceClaim(_StrictModel):
     source_fact: str = Field(min_length=1)
 
 
+_ALLOWED_EVIDENCE_KINDS = (
+    "classification",
+    "clinical guideline",
+    "manual",
+    "government",
+    "ncit",
+    "open-access",
+    "peer-reviewed",
+    "systematic review",
+)
+
+
+def citation_supports_pair(
+    *,
+    question_id: str,
+    pair_key: LiteraturePairKey,
+    claim: LiteratureEvidenceClaim,
+    citation: LiteratureCitation,
+) -> bool:
+    """Return whether one accessible source record supports this exact pair claim."""
+    if (
+        claim.question_id != question_id
+        or claim.pair_key != pair_key
+        or claim.citation_id != citation.citation_id
+        or citation.status != "cited"
+        or citation.verified_on is None
+        or citation.exact_passage == "NOT VERIFIED"
+        or not citation.exact_passage.strip()
+        or not any(
+            kind in citation.authority_class.lower() for kind in _ALLOWED_EVIDENCE_KINDS
+        )
+    ):
+        return False
+    fact = " ".join(re.findall(r"[a-z0-9]+", claim.source_fact.lower()))
+    contradiction = citation.does_not_support.lower().strip().rstrip(".")
+    prefix = "does not support "
+    if contradiction.startswith(prefix):
+        unsupported = " ".join(re.findall(r"[a-z0-9]+", contradiction[len(prefix) :]))
+        if unsupported and unsupported in fact:
+            return False
+    return True
+
+
 class LiteratureQuestion(_StrictModel):
     question_id: str = Field(min_length=1)
     pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
@@ -129,11 +173,19 @@ class LiteratureDossierSource(_StrictModel):
             selected = [citations.get(claim.citation_id) for claim in question.claims]
             if None in selected:
                 raise ValueError("question references an unknown citation")
-            if not any(
-                item is not None and item.status == "cited" for item in selected
+            if not all(
+                item is not None
+                and citation_supports_pair(
+                    question_id=question.question_id,
+                    pair_key=claim.pair_key,
+                    claim=claim,
+                    citation=item,
+                )
+                for claim, item in zip(question.claims, selected, strict=True)
             ):
                 raise ValueError(
-                    "question requires at least one accessible passage-bearing citation"
+                    "every pair claim requires its exact accessible "
+                    "passage-bearing citation"
                 )
             if "supply" in question.text.lower():
                 raise ValueError(
@@ -142,10 +194,28 @@ class LiteratureDossierSource(_StrictModel):
         return self
 
 
+class OncologyAccessibleEvidenceRecord(_StrictModel):
+    source_id: str = Field(min_length=1)
+    code: str = Field(pattern=r"^C[0-9]+$")
+    url: str = Field(pattern=r"^https://")
+    checked_on: str
+    exact_short_passage: str = Field(min_length=1, max_length=700)
+    pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
+    material_scope: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _checked_date_is_real_date(self) -> Self:
+        date.fromisoformat(self.checked_on)
+        return self
+
+
 class LiteratureContextSource(_StrictModel):
     schema_version: Literal[2]
     ncit_version: Literal["26.07d"]
     evidence_pass: Literal["final"]
+    oncology_accessible_evidence_records: tuple[
+        OncologyAccessibleEvidenceRecord, ...
+    ] = Field(min_length=6, max_length=6)
     dossiers: tuple[LiteratureDossierSource, ...] = Field(min_length=7, max_length=7)
 
     @model_validator(mode="after")
@@ -164,6 +234,7 @@ class GeneratedLiteratureContext(_StrictModel):
     source_path: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     generated_on: str
+    oncology_accessible_evidence_records: tuple[OncologyAccessibleEvidenceRecord, ...]
     dossiers: tuple[LiteratureDossierSource, ...]
 
 
@@ -192,6 +263,7 @@ def generate_specialist_literature_context(
         source_path=_portable_source_path(source_path),
         source_identity=hashlib.sha256(source_bytes).hexdigest(),
         generated_on=generated_on,
+        oncology_accessible_evidence_records=source.oncology_accessible_evidence_records,
         dossiers=source.dossiers,
     )
     payload = _canonical(generated.model_dump(mode="json"))
