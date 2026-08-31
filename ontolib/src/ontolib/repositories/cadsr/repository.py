@@ -170,6 +170,18 @@ class CdeRepository:
             ).fetchall()
         return [_to_summary(r) for r in rows]
 
+    def find_cde_ids_by_concept(
+        self, concept_code: str, *, limit: int = 50
+    ) -> list[str]:
+        """Return bounded CDE document IDs linked to an NCIt concept code."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT public_id, version FROM cde_concepts "
+                "WHERE concept_code = ? ORDER BY public_id, version LIMIT ?",
+                (concept_code, limit),
+            ).fetchall()
+        return [f"{row['public_id']}:{row['version']}" for row in rows]
+
     def count(self) -> int:
         """Total number of CDE rows (used by the refresh/status report)."""
         with self._connect() as conn:

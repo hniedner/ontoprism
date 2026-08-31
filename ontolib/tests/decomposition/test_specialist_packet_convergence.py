@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from importlib import import_module
+
+import pytest
+from scripts.research.specialist_review_packets import (
+    PacketIndex,
+    PacketIndexEntry,
+    PairKey,
+    ReviewScope,
+    SpecialistPair,
+    SpecialistRowPacket,
+    filter_governed_pairs,
+)
+
+pytestmark = pytest.mark.unit
+module = import_module("scripts.research.specialist_review_packets")
+
+
+def _pair(identifier: str, scope: ReviewScope) -> SpecialistPair:
+    return SpecialistPair(
+        pair_id=identifier,
+        key=PairKey(axis="op:Morphology", filler=f"C{identifier[1:] or '1'}"),
+        relation="expected-matched-scoreable",
+        review_scope=scope,
+        scope_reason="Explicit contract reason.",
+        contested=True,
+        filler_label="Exact filler label",
+        filler_definition="Exact P97 definition",
+        source_role_code="R105",
+        source_role_label="Disease Has Normal Cell Origin",
+        source_role_definition="Exact role definition",
+        source_occurrences=(),
+        current_projection_status="scoreable-release-bound",
+        axis_range_verdict="valid",
+        modality="inherited",
+        governance="active axis contract",
+        fallback="No fallback used.",
+        allowed_reaxis_targets=(),
+    )
+
+
+def test_row_contract_partitions_every_pair_once_and_resolves_semantic_questions() -> (
+    None
+):
+    row = SpecialistRowPacket(
+        code="C102870",
+        label="Ovarian Non-Dysgerminomatous Germ Cell Tumor",
+        definition="Definition",
+        pairs=(
+            _pair("P1", "stage-a-clinical-only"),
+            _pair("P2", "stage-a-and-stage-b"),
+            _pair("P3", "engineering-only"),
+            _pair("P4", "context-not-under-review"),
+        ),
+        question_pair_keys=((PairKey(axis="op:Morphology", filler="C2"),),),
+        engineering_blockers={
+            "P1": "#274 selector owner; queued; regenerate after repair",
+            "P3": "#271 range owner; blocked; rerun range gate",
+        },
+    )
+    assert row.asked_pair_ids == ("P1", "P2")
+    assert row.action_pair_ids == ("P2",)
+    assert row.engineering_pair_ids == ("P1", "P3")
+    assert row.context_pair_ids == ("P4",)
+    assert row.resolved_question_pair_ids == (("P2",),)
+
+    with pytest.raises(ValueError, match="unknown semantic pair"):
+        row.model_copy(
+            update={
+                "question_pair_keys": ((PairKey(axis="op:StageValue", filler="C999"),),)
+            }
+        ).model_validate(
+            row.model_copy(
+                update={
+                    "question_pair_keys": (
+                        (PairKey(axis="op:StageValue", filler="C999"),),
+                    )
+                }
+            ).model_dump()
+        )
+
+
+def test_index_schema_two_binds_contract_sets_portable_paths_and_row_digests() -> None:
+    assert PacketIndex.model_fields["schema_version"].default == 2
+    assert {
+        "row_contract_identity",
+        "asked_pair_ids",
+        "action_pair_ids",
+        "engineering_pair_ids",
+        "context_pair_ids",
+        "row_sha256",
+    } <= set(PacketIndexEntry.model_fields)
+    assert "index_identity" in PacketIndex.model_fields
+    assert "cadsr_usage_identity" in PacketIndex.model_fields
+
+
+def test_no_legacy_dead_packet_models_remain() -> None:
+    assert not hasattr(module, "RowPacket")
+    assert not hasattr(module, "PairEvidence")
+
+
+def test_mint_gate_suppresses_unregistered_and_ineligible_before_numbering() -> None:
+    relations = (
+        (("op:Morphology", "MINT-111111111111"), "current-only-proposed"),
+        (("op:Morphology", "MINT-222222222222"), "current-only-proposed"),
+        (("op:Morphology", "MINT-333333333333"), "current-only-proposed"),
+        (("op:Morphology", "C39986"), "expected-matched-scoreable"),
+    )
+    visible, suppressed, registered_visible = filter_governed_pairs(
+        relations=relations,
+        registered_mints={"MINT-222222222222", "MINT-333333333333"},
+        range_status={
+            ("op:Morphology", "MINT-222222222222"): "valid",
+            ("op:Morphology", "MINT-333333333333"): "invalid",
+        },
+    )
+    assert tuple(pair for pair, _relation in visible) == (
+        ("op:Morphology", "MINT-222222222222"),
+        ("op:Morphology", "C39986"),
+    )
+    assert suppressed == 2
+    assert registered_visible == ("MINT-222222222222",)

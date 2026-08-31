@@ -128,11 +128,13 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
 try:
     from scripts.research.specialist_review_packets import (
         generate_specialist_review_packets,
+        validate_specialist_review_generation,
         validate_specialist_review_packet_directory,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.specialist_review_packets import (
         generate_specialist_review_packets,
+        validate_specialist_review_generation,
         validate_specialist_review_packet_directory,
     )
 
@@ -223,6 +225,9 @@ class _AxisDiagnosticArgs(Protocol):
 class _GenerateSpecialistPacketsArgs(Protocol):
     literature_context: Path
     proposal_registry: Path
+    cadsr_usage: Path
+    label_source: Path
+    ncit_source: Path
     axis_diagnostics: Path
     current_evidence: Path
     current_comparison: Path
@@ -519,6 +524,8 @@ def _generate_specialist_packets(args: _GenerateSpecialistPacketsArgs) -> None:
     generate_specialist_review_packets(
         literature_context_path=args.literature_context,
         proposal_registry_path=args.proposal_registry,
+        cadsr_usage_path=args.cadsr_usage,
+        ncit_source_path=args.ncit_source,
         output_directory=args.output_directory,
         producing_command=args.producing_command,
         additional_input_paths=(
@@ -526,6 +533,7 @@ def _generate_specialist_packets(args: _GenerateSpecialistPacketsArgs) -> None:
             args.current_evidence,
             args.current_comparison,
             args.group_review_packet,
+            args.label_source,
         ),
     )
 
@@ -1053,13 +1061,18 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     specialist = subparsers.add_parser("generate-specialist-review-packets")
     specialist.add_argument("--literature-context", required=True, type=Path)
     specialist.add_argument("--proposal-registry", required=True, type=Path)
+    specialist.add_argument("--cadsr-usage", required=True, type=Path)
+    specialist.add_argument("--label-source", required=True, type=Path)
+    specialist.add_argument("--ncit-source", required=True, type=Path)
     specialist.add_argument("--axis-diagnostics", required=True, type=Path)
     specialist.add_argument("--current-evidence", required=True, type=Path)
     specialist.add_argument("--current-comparison", required=True, type=Path)
     specialist.add_argument("--group-review-packet", required=True, type=Path)
     specialist.add_argument("--output-directory", required=True, type=Path)
     specialist.add_argument("--producing-command", required=True)
-    validate_specialist = subparsers.add_parser("validate-specialist-review-packets")
+    validate_generation = subparsers.add_parser("validate-specialist-review-generation")
+    validate_generation.add_argument("--directory", required=True, type=Path)
+    validate_specialist = subparsers.add_parser("validate-completed-specialist-review")
     validate_specialist.add_argument("--directory", required=True, type=Path)
     _add_group_review_parser(subparsers)
     _add_r103_review_parser(subparsers)
@@ -1100,7 +1113,11 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
     if args.command == "generate-specialist-review-packets":
         _generate_specialist_packets(cast("_GenerateSpecialistPacketsArgs", args))
         return
-    if args.command == "validate-specialist-review-packets":
+    if args.command == "validate-specialist-review-generation":
+        validation_args = cast("_ValidateSpecialistPacketsArgs", args)
+        validate_specialist_review_generation(validation_args.directory)
+        return
+    if args.command == "validate-completed-specialist-review":
         validation_args = cast("_ValidateSpecialistPacketsArgs", args)
         validate_specialist_review_packet_directory(validation_args.directory)
         return
