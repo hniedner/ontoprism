@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import cast
 
 import pytest
 from scripts.research.specialist_review_packets import (
@@ -9,6 +10,7 @@ from scripts.research.specialist_review_packets import (
     PacketIndex,
     PacketIndexEntry,
     PairKey,
+    PairScopeStatus,
     Relation,
     ReviewScope,
     SpecialistPair,
@@ -21,10 +23,17 @@ module = import_module("scripts.research.specialist_review_packets")
 
 
 def _pair(identifier: str, scope: ReviewScope) -> SpecialistPair:
+    verdict = {
+        "stage-a-clinical-only": "clinical-only",
+        "stage-a-and-stage-b": "actionable",
+        "engineering-only": "engineering-only",
+        "context-not-under-review": "context",
+    }[scope]
     return SpecialistPair(
         pair_id=identifier,
         key=PairKey(axis="op:Morphology", filler=f"C{identifier[1:] or '1'}"),
         relation="expected-matched-scoreable",
+        scope_verdict=cast("PairScopeStatus", verdict),
         review_scope=scope,
         scope_reason="Explicit contract reason.",
         contested=True,
@@ -39,7 +48,6 @@ def _pair(identifier: str, scope: ReviewScope) -> SpecialistPair:
         modality="inherited",
         governance="active axis contract",
         fallback="No fallback used.",
-        allowed_reaxis_targets=(),
     )
 
 
@@ -112,24 +120,27 @@ def test_index_schema_three_binds_complete_pair_contracts_and_dispatch() -> None
         "source_evidence_status",
         "axis_range_verdict",
         "allowed_actions",
-        "allowed_reaxis_targets",
+        "citation_ids",
         "consequence_by_action",
     } <= set(IndexedPairContract.model_fields)
     assert {
-        "tp_delta",
-        "fp_delta",
-        "fn_delta",
-        "emitted_scoreable_delta",
+        "comparison_tp_delta",
+        "comparison_fp_delta",
+        "comparison_fn_delta",
+        "scoreable_emitted_delta",
         "source_preserved",
         "pair_after",
         "needs_review_after",
         "group_effect",
+        "row_readiness",
+        "publication",
     } <= set(ActionConsequence.model_fields)
 
 
 def test_no_legacy_dead_packet_models_remain() -> None:
     assert not hasattr(module, "RowPacket")
     assert not hasattr(module, "PairEvidence")
+    assert not hasattr(module, "OntologyPairDecision")
 
 
 def test_mint_gate_suppresses_unregistered_and_ineligible_before_numbering() -> None:
@@ -178,12 +189,12 @@ def test_row_rejects_an_asked_pair_without_a_curated_question() -> None:
     [
         (
             "expected-not-emitted",
-            {"ADD-SCOREABLE", "OMIT", "GROUP-TOGETHER", "KEEP-SEPARATE"},
+            set(),
             {"RETAIN-SCOREABLE", "PROMOTE-SCOREABLE"},
         ),
         (
             "expected-emitted-review-bearing",
-            {"PROMOTE-SCOREABLE", "REMOVE-FROM-PROJECTION", "KEEP-SEPARATE"},
+            {"PROMOTE-SCOREABLE", "REMOVE-FROM-PROJECTION"},
             {"ADD-SCOREABLE", "OMIT", "RETAIN-SCOREABLE"},
         ),
     ],
@@ -196,4 +207,6 @@ def test_pair_consequences_render_only_relation_valid_actions(
     assert expected_actions <= set(rendered)
     assert forbidden.isdisjoint(rendered)
     assert all(value.source_preserved for value in rendered.values())
-    assert all(isinstance(value.tp_delta, int) for value in rendered.values())
+    assert all(
+        isinstance(value.comparison_tp_delta, int) for value in rendered.values()
+    )

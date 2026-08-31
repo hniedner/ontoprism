@@ -151,6 +151,61 @@ def test_access_restricted_source_has_no_verification_or_quote_surface() -> None
     assert all(citation.exact_passage == "NOT VERIFIED" for citation in restricted)
 
 
+def test_final_oncology_pass_binds_requested_accessible_passages_to_exact_pairs() -> (
+    None
+):
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    expected = {
+        "C6135": {
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC6821118/": {
+                ("op:ClinicalFinding", "C41457"),
+                ("op:ClinicalFinding", "C47804"),
+                ("op:ClinicalFinding", "C47807"),
+                ("op:NormalTissueOrigin", "C33782"),
+            },
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC8683221/": {
+                ("op:ClinicalFinding", "C155863"),
+            },
+        },
+        "C4791": {
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC11905437/": {
+                ("op:CellType", "C36899"),
+                ("op:CellType", "C36954"),
+                ("op:ClinicalFinding", "C36122"),
+                ("op:ClinicalFinding", "C53583"),
+            },
+        },
+        "C198031": {
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC4063430/": {
+                ("op:NormalTissueOrigin", "C13049"),
+                ("op:PrimarySite", "C12431"),
+            },
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC10646822/": {
+                ("op:Morphology", "C4005"),
+            },
+        },
+        "C35756": {
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC3351680/": {
+                ("op:ClinicalFinding", "C3331"),
+                ("op:StageValue", "C27978"),
+                ("op:StageValue", "C28064"),
+            },
+        },
+    }
+
+    records = {
+        (record.code, record.url): record
+        for record in source.oncology_accessible_evidence_records
+    }
+    assert len(records) == 6
+    for code, sources in expected.items():
+        for url, pair_keys in sources.items():
+            record = records[code, url]
+            assert record.checked_on == "2026-08-31"
+            assert record.exact_short_passage
+            assert pair_keys <= {(pair.axis, pair.filler) for pair in record.pair_keys}
+
+
 def test_literature_generator_normalizes_an_absolute_external_source_path(
     tmp_path: Path,
 ) -> None:
