@@ -15,11 +15,26 @@ from scripts.research.specialist_review_packets import (
     ReviewScope,
     SpecialistPair,
     SpecialistRowPacket,
+    context_correction_note,
     filter_governed_pairs,
 )
 
 pytestmark = pytest.mark.unit
 module = import_module("scripts.research.specialist_review_packets")
+
+
+def test_context_correction_note_distinguishes_bundle_absence_from_schema_support() -> (
+    None
+):
+    assert context_correction_note(0) == (
+        "No context-only pairs occur in this seven-row generation; "
+        "context-correction support is schema-tested but not exercised by this bundle."
+    )
+    assert context_correction_note(1) == (
+        "This packet contains one context-only pair. Its optional context-correction "
+        "response region is schema-supported and does not request a clinical answer or "
+        "ontology action."
+    )
 
 
 def _pair(identifier: str, scope: ReviewScope) -> SpecialistPair:

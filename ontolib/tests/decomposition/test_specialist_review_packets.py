@@ -208,6 +208,12 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     generated_index = PacketIndex.model_validate_json(
         (output / "index.json").read_bytes()
     )
+    context_note = (
+        "No context-only pairs occur in this seven-row generation; "
+        "context-correction support is schema-tested but not exercised by this bundle."
+    )
+    assert generated_index.context_correction_note == context_note
+    assert all(not entry.context_pair_ids for entry in generated_index.packets)
     assert all(not path.startswith("/") for path in generated_index.input_identities)
     validation = validate_specialist_review_generation(output)
     assert validation.status == "passed"
@@ -230,6 +236,12 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
         in markdown
     )
     assert "No deadline assigned; coordinator will communicate changes." in markdown
+    assert context_note in markdown
+    assert (
+        "This packet has five Stage A clinical questions and zero Stage B ontology "
+        "actions. Responses can inform #274 engineering repair but cannot change the "
+        "projection in this review cycle." in markdown
+    )
     if not next(
         entry for entry in generated_index.packets if entry.code == "C102870"
     ).action_pair_ids:
@@ -240,6 +252,21 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     all_markdown = "\n".join(
         (output / f"{code}.md").read_text(encoding="utf-8") for code in CONCEPT_ORDER
     )
+    assert all_markdown.count(context_note) == len(CONCEPT_ORDER)
+    for entry in generated_index.packets:
+        if not entry.action_pair_ids:
+            continue
+        packet = (output / entry.path).read_text(encoding="utf-8")
+        assert (
+            "CUSTOM-CURRENT-MODEL response syntax: after `Groups`, write one complete "
+            "group per line as semicolon-separated ending-scoreable pair IDs. Every "
+            "ending-scoreable pair ID must occur exactly once across all lines."
+            in packet
+        )
+        assert (
+            "Neutral syntax example using synthetic IDs only: `PX1; PX2` on one line "
+            "and `PX3` on the next line." in packet
+        )
     assert (
         "no human action that creates or silently ignores an absent pair"
         in all_markdown

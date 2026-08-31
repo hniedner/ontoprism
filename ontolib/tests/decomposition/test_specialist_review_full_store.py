@@ -44,6 +44,13 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     rendered = "\n".join(
         (_PACKETS / entry.path).read_text(encoding="utf-8") for entry in index.packets
     )
+    context_note = (
+        "No context-only pairs occur in this seven-row generation; "
+        "context-correction support is schema-tested but not exercised by this bundle."
+    )
+    assert index.context_correction_note == context_note
+    assert all(not entry.context_pair_ids for entry in index.packets)
+    assert rendered.count(context_note) == len(index.packets)
     assert "Label unavailable" not in rendered
     assert "MINT-" not in rendered
     assert "P97:" in rendered
@@ -141,6 +148,12 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         for contract in entry.pair_contracts
     )
     assert all(entry.dispatch_status == "dispatchable" for entry in index.packets)
+    assert all(
+        contract.citation_ids
+        for entry in index.packets
+        for contract in entry.pair_contracts
+        if contract.pair_id in entry.asked_pair_ids
+    )
     assert {
         "PMC6821118",
         "PMC8683221",
@@ -157,3 +170,16 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert ovarian_entry.stage_b_mode == "not-applicable-pending-engineering"
     assert "[[ONTOPRISM:STAGE-B:START]]" not in ovarian
     assert "Stage B signature" not in ovarian
+    assert (
+        "This packet has five Stage A clinical questions and zero Stage B ontology "
+        "actions. Responses can inform #274 engineering repair but cannot change the "
+        "projection in this review cycle." in ovarian
+    )
+    thyroid = (_PACKETS / "C6135.md").read_text(encoding="utf-8")
+    assert "not a generic malignant neuroendocrine-cell operand" not in thyroid
+    assert "without making poor differentiation universal" not in thyroid
+    for entry in index.packets:
+        if entry.action_pair_ids:
+            packet = (_PACKETS / entry.path).read_text(encoding="utf-8")
+            assert "CUSTOM-CURRENT-MODEL response syntax" in packet
+            assert "synthetic IDs only: `PX1; PX2`" in packet
