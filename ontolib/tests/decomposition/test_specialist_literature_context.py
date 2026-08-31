@@ -44,18 +44,21 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
         for citation in row.citations
     )
     assert all(
-        question.pair_keys
+        question.claims
+        and {(claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims}
+        == {(key.axis, key.filler) for key in question.pair_keys}
+        and all(claim.question_id == question.question_id for claim in question.claims)
         and all(not key.axis.startswith("P") for key in question.pair_keys)
         for row in source.dossiers
         for question in row.questions
     )
     ovarian = next(row for row in source.dossiers if row.code == "C102870")
-    morphology = next(
-        question
+    morphology = {
+        (question.pair_keys[0].axis, question.pair_keys[0].filler)
         for question in ovarian.questions
-        if question.question_id == "C102870-MORPHOLOGY"
-    )
-    assert {(key.axis, key.filler) for key in morphology.pair_keys} == {
+        if question.question_id.startswith("C102870-MORPHOLOGY-")
+    }
+    assert morphology == {
         ("op:Morphology", "C121619"),
         ("op:Morphology", "C39986"),
     }
@@ -85,6 +88,23 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
         )
         for row in source.dossiers
     )
+    assert all(
+        len({(claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims})
+        == len(question.pair_keys)
+        for row in source.dossiers
+        for question in row.questions
+    )
+
+
+def test_question_claim_must_bind_its_exact_pair_and_accessible_source() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    question = payload["dossiers"][0]["questions"][0]
+    question["claims"][0]["pair_key"] = {
+        "axis": "op:Morphology",
+        "filler": "C999999",
+    }
+    with pytest.raises(ValueError, match="claim must bind the question's exact pair"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
 
 
 def test_literature_generator_is_deterministic_and_rejects_open_citations(
@@ -129,3 +149,15 @@ def test_access_restricted_source_has_no_verification_or_quote_surface() -> None
     assert all(citation.verified_on is None for citation in restricted)
     assert all(citation.exact_locator == "ACCESS RESTRICTED" for citation in restricted)
     assert all(citation.exact_passage == "NOT VERIFIED" for citation in restricted)
+
+
+def test_literature_generator_normalizes_an_absolute_external_source_path(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "specialist-literature.json"
+    source.write_bytes(SOURCE.read_bytes())
+    generated = generate_specialist_literature_context(
+        source.resolve(), tmp_path / "generated.json"
+    )
+    assert generated.source_path == "external/specialist-literature.json"
+    assert not Path(generated.source_path).is_absolute()

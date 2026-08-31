@@ -219,10 +219,26 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(
     }
     markdown = (output / "C102870.md").read_text(encoding="utf-8")
     assert "P97:" in markdown
-    assert "RESPONSE-CELLS-START A" in markdown
+    assert "[[ONTOPRISM:STAGE-A:START]]" in markdown
     assert "C121619" in markdown
     assert "C39986" in markdown
     assert "STAGE-A-RESPONSE" not in markdown
+    assert "pdm run" not in markdown
+    assert "git " not in markdown.lower()
+    assert "Return the completed file with this same filename" in markdown
+    if not next(
+        entry for entry in generated_index.packets if entry.code == "C102870"
+    ).action_pair_ids:
+        assert "[[ONTOPRISM:STAGE-B:START]]" not in markdown
+        assert "Stage B signature" not in markdown
+        assert "not-applicable-pending-engineering" in markdown
+
+    all_markdown = "\n".join(
+        (output / f"{code}.md").read_text(encoding="utf-8") for code in CONCEPT_ORDER
+    )
+    assert "No ADD-SCOREABLE or OMIT action is currently eligible" in all_markdown
+    assert "<!-- QUESTION" not in all_markdown
+    assert "<!-- Allowed actions" not in all_markdown
 
 
 def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(

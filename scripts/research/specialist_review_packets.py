@@ -222,7 +222,11 @@ class ClinicalStageA(_StrictModel):
     conflict_of_interest: str = Field(min_length=1)
     source_confirmation: str = Field(min_length=1)
     assessments: tuple[ClinicalPairAssessment, ...]
-    clinical_stage: Literal["SUFFICIENT-FOR-ONTOLOGY-REVIEW", "DEFERRED"]
+    clinical_stage: Literal[
+        "SUFFICIENT-FOR-ONTOLOGY-REVIEW",
+        "CLINICAL-COMPLETE-ENGINEERING-PENDING",
+        "DEFERRED",
+    ]
     blocker: str | None
 
     @model_validator(mode="after")
@@ -323,12 +327,19 @@ class OntologyStageB(_StrictModel):
     row_outcome: Literal["RESOLVED", "DEFERRED"]
     decisions: tuple[OntologyPairDecision, ...]
     blocker: str | None
+    blocker_source: str | None = None
+    next_action: str | None = None
 
     @model_validator(mode="after")
     def _outcome(self) -> Self:
         date.fromisoformat(self.review_date)
-        if (self.row_outcome == "DEFERRED") != (self.blocker is not None):
-            raise ValueError("DEFERRED Stage B requires exactly one blocker")
+        deferred_fields = (self.blocker, self.blocker_source, self.next_action)
+        if self.row_outcome == "DEFERRED" and not all(deferred_fields):
+            raise ValueError(
+                "DEFERRED Stage B requires blocker, source, and next action"
+            )
+        if self.row_outcome == "RESOLVED" and any(deferred_fields):
+            raise ValueError("RESOLVED Stage B cannot carry deferred fields")
         return self
 
 
@@ -366,6 +377,10 @@ class PacketIndexEntry(_StrictModel):
     engineering_pair_ids: tuple[str, ...]
     context_pair_ids: tuple[str, ...]
     pair_contracts: tuple[IndexedPairContract, ...]
+    stage_a_mode: Literal["clinical-review"] = "clinical-review"
+    stage_b_mode: Literal["ontology-review", "not-applicable-pending-engineering"] = (
+        "ontology-review"
+    )
     dispatch_status: Literal["dispatchable", "withheld"]
     withholding_reasons: tuple[str, ...]
     row_validation_path: str
@@ -400,6 +415,13 @@ class PacketIndexEntry(_StrictModel):
             or Path(self.row_validation_path).is_absolute()
         ):
             raise ValueError("packet index paths must be repository-relative")
+        expected_stage_b = (
+            "ontology-review"
+            if self.action_pair_ids
+            else "not-applicable-pending-engineering"
+        )
+        if self.stage_b_mode != expected_stage_b:
+            raise ValueError("Stage B mode must derive from the indexed action set")
         return self
 
 
@@ -598,6 +620,24 @@ def _scope(  # noqa: PLR0911
     diagnostic_classification: str | None,
     source_status: str,
 ) -> tuple[ReviewScope, str, str | None]:
+    if code == "C102870" and key.filler in {
+        "C12321",
+        "C36903",
+        "C156460",
+        "C121619",
+        "C39986",
+    }:
+        return (
+            "stage-a-clinical-only",
+            "The exact clinical scope is reviewable, but this row has no indexed Stage B action; ontology disposition remains pending engineering repair.",
+            "#274 row action inventory blocked; regenerate packets and rerun the release gate after repair",
+        )
+    if code == "C6135" and key.filler in {"C129702", "C33782"}:
+        return (
+            "stage-a-and-stage-b",
+            "The pair is source-backed and range-valid, but its clinical universality is disputed and requires separate clinical and ontology review.",
+            None,
+        )
     if diagnostic_classification == "selection-miss":
         return (
             "stage-a-clinical-only",
@@ -1132,14 +1172,7 @@ def pair_consequences(pair: SpecialistPair) -> dict[str, ActionConsequence]:
     }
 
 
-def _consequence(pair: SpecialistPair) -> str:
-    return " ".join(
-        f"{action}: TP={value.tp_delta:+d}, FP={value.fp_delta:+d}, FN={value.fn_delta:+d}, emitted-scoreable={value.emitted_scoreable_delta:+d}; source preserved={str(value.source_preserved).lower()}; pair after={value.pair_after}; needsReview={str(value.needs_review_after).lower()}; group effect={value.group_effect}"
-        for action, value in pair_consequences(pair).items()
-    )
-
-
-def _render_packet(
+def _render_packet(  # noqa: C901, PLR0912
     row: SpecialistRowPacket,
     dossier: LiteratureDossierSource,
     cadsr: CadsrUsageRow,
@@ -1164,10 +1197,10 @@ def _render_packet(
         "",
         "## Return workflow",
         "",
-        f"1. Save the returned file exactly at `tmp/m1-6-specialist-returns/{row.code}.md` and return it to the OntoPrism milestone orchestrator. No deadline has been supplied.",
-        "2. Edit only blank response cells in the Stage A and Stage B Markdown tables. Do not edit JSON (there is no human JSON response surface).",
+        f"1. Return the completed file with this same filename, `{row.code}.md`, to the review orchestrator. No deadline has been supplied.",
+        "2. Edit as UTF-8. Preserve the filename and every visible ONTOPRISM marker. Edit only the text inside response regions; paragraphs and the `|` character are allowed.",
         "3. Stage A is clinical classification; Stage B is ontology action. One person may perform both only by separately signing both roles.",
-        f"4. Validate only this row with `pdm run python scripts/adjudication.py validate-completed-specialist-review-row --code {row.code} --return-file tmp/m1-6-specialist-returns/{row.code}.md --index tmp/m1-6-specialist-packets/index.json --validation-output tmp/m1-6-specialist-returns/{row.code}.validation.json`. The aggregate set validator is run only after all seven independently validated returns exist.",
+        "4. Leave everything outside response regions unchanged and return the completed file to the review orchestrator, who performs independent row validation.",
         "",
         "Neutral syntactic format example (angle-bracket tokens are not valid responses): `<PAIR-ID> | <ALLOWED-STATUS> | <CITATION-ID> | <RATIONALE>`.",
         "",
@@ -1186,7 +1219,7 @@ def _render_packet(
         ),
         f"**Truncated:** {str(cadsr.truncated).lower()}  ",
         f"**Bound report source identity:** {cadsr_report.source_identity}  ",
-        f"**Bound database provenance:** {cadsr_report.database_path}; {cadsr_report.source_provenance}; query limit={cadsr_report.query_limit}; command={cadsr_report.producing_command}  ",
+        f"**Bound database provenance:** database={cadsr_report.database_path}; database SHA-256={cadsr_report.database_sha256}; source identity={cadsr_report.source_identity}; source={cadsr_report.source_provenance}; query identity={cadsr_report.query_identity}; report identity={cadsr_report.report_identity}; query limit={cadsr_report.query_limit}  ",
         "caDSR usage does not determine clinical or ontology correctness.",
         "",
         "## Audited factual context",
@@ -1212,12 +1245,14 @@ def _render_packet(
             or "explicitly unavailable"
         )
         lines.append(
-            f"| {pair.pair_id} | `{pair.key.axis} {pair.key.filler}` — {_escape(pair.filler_label)}; P97: {_escape(pair.filler_definition)} | {pair.relation}; **{pair.review_scope}**; reason={_escape(pair.scope_reason)}; contested={str(pair.contested).lower()} | {pair.source_role_code} {_escape(pair.source_role_label)}; definition={_escape(pair.source_role_definition)}; evidence={pair.source_evidence_status}; reason={_escape(pair.source_evidence_reason)}; source_definition_ids={','.join(pair.source_definition_ids) or 'none'}; {coordinates} | {pair.current_projection_status}; {pair.axis_range_verdict}; RE-AXIS targets={', '.join(pair.allowed_reaxis_targets) or 'none'} | modality={pair.modality}; derivation={pair.derivation}; governance={pair.governance}; fallback={pair.fallback} |"
+            f"| {pair.pair_id} | `{pair.key.axis} {pair.key.filler}` — {_escape(pair.filler_label)}; P97: {_escape(pair.filler_definition)} | {pair.relation}; **{pair.review_scope}**; reason={_escape(pair.scope_reason)}; contested={str(pair.contested).lower()} | {pair.source_role_code} {_escape(pair.source_role_label)}; definition={_escape(pair.source_role_definition)}; evidence={pair.source_evidence_status}; reason={_escape(pair.source_evidence_reason)}; source_definition_ids={','.join(pair.source_definition_ids) or 'none'}; {coordinates} | {pair.current_projection_status}; {pair.axis_range_verdict} | modality={pair.modality}; derivation={pair.derivation}; governance={pair.governance}; fallback={pair.fallback} |"
         )
     lines.extend(
         [
             "",
             f"Suppression disclosure: the complete machine inventory included {len(suppressed_candidates)} withheld unregistered or range-ineligible generated candidate(s) ({', '.join(f'{axis}={count}' for axis, count in sorted(suppressed_axes.items())) or 'no affected axis'}); the reviewer action inventory excludes them and identifiers are intentionally absent from this human packet.",
+            "",
+            "**No ADD-SCOREABLE or OMIT action is currently eligible in this seven-row release because every absent expected pair is blocked for engineering repair. Decorative action rows are intentionally omitted.**",
             "",
             "**Current metric identity/context:** pair precision, recall, and F1 over the bound current comparison; row-local potential changes are bounded to one TP/FP/FN contribution per pair. No predicted post-review values are rendered.",
             "",
@@ -1241,88 +1276,136 @@ def _render_packet(
     lines.extend(
         [
             "",
+            "## Engineering blockers and consequences",
+            "",
+            *(
+                f"- **{pair_id}:** {blocker}. Consequence: no clinical response creates an ontology action; current projection and metrics remain unchanged and readiness remains false."
+                for pair_id, blocker in sorted(row.engineering_blockers.items())
+            ),
+            "",
             "## Stage A — Clinical review",
             "",
             f"Required specialty: {dossier.specialty}",
             "Allowed statuses: UNIVERSAL-DEFINING (part of every definition); UNIVERSAL-NONDEFINING (present in every case but not defining); CHARACTERISTIC-NONUNIVERSAL (frequent, not universal); CLASSIFICATION-DEPENDENT (varies by named system/version/entity); INAPPLICABLE; UNRESOLVED.",
             "Stage A records clinical evidence only and performs no ontology action.",
             "",
-            "<!-- RESPONSE-CELLS-START A -->",
-            "| Field | Response |",
-            "|---|---|",
-            "| Reviewer name |  |",
-            "| Specialty |  |",
-            "| Review date (YYYY-MM-DD) |  |",
-            "| Conflict of interest |  |",
-            "| Source confirmation |  |",
-            "| Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW or DEFERRED) |  |",
-            "| Whole-row blocker if DEFERRED |  |",
-            "",
-            "| Pair | Status | Citations | Rationale |",
-            "|---|---|---|---|",
+            "[[ONTOPRISM:STAGE-A:START]]",
+            "Reviewer name:",
+            "Specialty:",
+            "Review date (YYYY-MM-DD):",
+            "Conflict of interest:",
+            "Source confirmation:",
+            "Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW, CLINICAL-COMPLETE-ENGINEERING-PENDING, or DEFERRED):",
+            "Whole-row blocker if DEFERRED:",
+            "[[ONTOPRISM:STAGE-A:END]]",
         ]
     )
     asked = set(row.asked_pair_ids)
     pair_id_by_key = {
         (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
     }
-    question_text = {
-        pair_id_by_key[(key.axis, key.filler)]: question.text
+    question_by_pair = {
+        pair_id_by_key[(key.axis, key.filler)]: question
         for question in dossier.questions
         for key in question.pair_keys
         if pair_id_by_key.get((key.axis, key.filler)) in asked
     }
     for pair in row.pairs:
         if pair.pair_id in asked:
-            lines.append(f"| {pair.pair_id} |  |  |  |")
-            lines.append(
-                f"<!-- QUESTION {pair.pair_id}: {_escape(question_text[pair.pair_id])} -->"
+            question = question_by_pair[pair.pair_id]
+            lines.extend(
+                [
+                    "",
+                    f"### Clinical question for {pair.pair_id}",
+                    "",
+                    f"For **{pair.filler_label}** (`{pair.key.axis} {pair.key.filler}`): {question.text}",
+                    "",
+                    "Supporting source facts:",
+                    *(
+                        f"- **{claim.citation_id}:** {claim.source_fact}"
+                        for claim in question.claims
+                        if (claim.pair_key.axis, claim.pair_key.filler)
+                        == (pair.key.axis, pair.key.filler)
+                    ),
+                    "",
+                    f"[[ONTOPRISM:STAGE-A-PAIR:{pair.pair_id}:START]]",
+                    "Status:",
+                    "Citations:",
+                    "Rationale:",
+                    f"[[ONTOPRISM:STAGE-A-PAIR:{pair.pair_id}:END]]",
+                ]
             )
-    lines.extend(
-        [
-            "<!-- RESPONSE-CELLS-END A -->",
-            "",
-            "## Stage B — Ontology review",
-            "",
-            "Requires sufficient Stage A. Action definitions: RETAIN-SCOREABLE keeps a scoreable pair; REMOVE-FROM-PROJECTION preserves its source fact but removes projection; PROMOTE-SCOREABLE promotes review-bearing evidence; ADD-SCOREABLE adds an expected absent pair; OMIT leaves it absent; RE-AXIS changes only the normalized axis while the source role remains unchanged; GROUP-TOGETHER or KEEP-SEPARATE controls normalized partition only. No action asserts adoption or equivalence.",
-            "Whole-row DEFER retains nonterminal pair evidence but emits no terminal delta or final partition. Readiness remains false; there is no partial-ready state.",
-            "",
-            "<!-- RESPONSE-CELLS-START B -->",
-            "| Field | Response |",
-            "|---|---|",
-            "| Reviewer name |  |",
-            "| Review date (YYYY-MM-DD) |  |",
-            "| Conflict of interest |  |",
-            "| Row outcome (RESOLVED or DEFERRED) |  |",
-            "| Whole-row blocker if DEFERRED |  |",
-            "",
-            "| Pair | Relation | Action | Target axis | Group | Rationale |",
-            "|---|---|---|---|---|---|",
-        ]
-    )
-    for pair in row.pairs:
-        if pair.pair_id in set(row.action_pair_ids):
-            lines.append(
-                f"<!-- Allowed actions: {pair.pair_id} = {', '.join(_allowed_actions(pair))} -->"
+    if row.context_pair_ids:
+        lines.extend(["", "## Context pairs not under review", ""])
+        for pair_id in row.context_pair_ids:
+            lines.extend(
+                [
+                    f"- **{pair_id}: context-not-under-review.** No clinical answer or ontology action is requested. A factual correction is optional.",
+                    f"[[ONTOPRISM:CONTEXT-CORRECTION:{pair_id}:START]]",
+                    "",
+                    f"[[ONTOPRISM:CONTEXT-CORRECTION:{pair_id}:END]]",
+                ]
             )
-            lines.append(f"| {pair.pair_id} | {pair.relation} |  |  |  |  |")
-    lines.extend(
-        [
-            "<!-- RESPONSE-CELLS-END B -->",
-            "",
-            "## Per-action consequences",
-            "",
-            *[
-                f"- **{pair.pair_id}:** {_consequence(pair)}"
-                for pair in row.pairs
-                if pair.pair_id in set(row.action_pair_ids)
-            ],
-            "",
-            "Stage A signature: ______  Stage B signature: ______",
-            "The same individual may sign both only after separately completing both role blocks.",
-            "",
-        ]
-    )
+    lines.extend(["", "Stage A signature: ______", ""])
+    action_ids = set(row.action_pair_ids)
+    if action_ids:
+        lines.extend(
+            [
+                "## Stage B — Ontology review",
+                "",
+                "Stage B mode: ontology-review.",
+                "Requires sufficient Stage A. Exact actions below are the complete allowed set for each pair. REMOVE preserves the source fact; RE-AXIS changes only normalization; grouping changes only partition. No action asserts adoption or equivalence.",
+                "Whole-row DEFER applies no changes to the current projection, final partition, or TP/FP/FN/emitted-scoreable metrics; readiness remains false.",
+                "",
+                "[[ONTOPRISM:STAGE-B:START]]",
+                "Reviewer name:",
+                "Review date (YYYY-MM-DD):",
+                "Conflict of interest:",
+                "ROW-OUTCOME (RESOLVED or DEFERRED):",
+                "Whole-row blocker if DEFERRED:",
+                "Blocker source if DEFERRED:",
+                "Next action if DEFERRED:",
+                "[[ONTOPRISM:STAGE-B:END]]",
+            ]
+        )
+        for pair in row.pairs:
+            if pair.pair_id not in action_ids:
+                continue
+            lines.extend(["", f"### Ontology action for {pair.pair_id}"])
+            lines.append(f"Allowed actions: {', '.join(_allowed_actions(pair))}")
+            for action, value in pair_consequences(pair).items():
+                lines.append(
+                    f"- **{action}:** TP={value.tp_delta:+d}; FP={value.fp_delta:+d}; FN={value.fn_delta:+d}; emitted-scoreable={value.emitted_scoreable_delta:+d}; source-preserved=true; pair-after={value.pair_after}; needsReview={str(value.needs_review_after).lower()}; group-effect={value.group_effect}; readiness=false; adoption/equivalence=not asserted."
+                )
+            lines.extend(
+                [
+                    f"[[ONTOPRISM:STAGE-B-PAIR:{pair.pair_id}:START]]",
+                    "Action:",
+                    "Target axis:",
+                    "Group:",
+                    "Rationale:",
+                    f"[[ONTOPRISM:STAGE-B-PAIR:{pair.pair_id}:END]]",
+                ]
+            )
+        lines.extend(
+            [
+                "[[ONTOPRISM:FINAL-PARTITION:START]]",
+                "",
+                "[[ONTOPRISM:FINAL-PARTITION:END]]",
+                "",
+                "Stage B signature: ______",
+                "The same individual may sign both only after separately completing both role blocks.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "## Stage B — not applicable pending engineering",
+                "",
+                "Stage B mode: not-applicable-pending-engineering. This row has no indexed Stage B action. Stage A may return CLINICAL-COMPLETE-ENGINEERING-PENDING. No second attestation is requested.",
+            ]
+        )
+    lines.append("")
     return "\n".join(lines).encode()
 
 
@@ -1442,7 +1525,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 and any(
                     citations[citation_id].status == "cited"
                     and citations[citation_id].exact_passage != "NOT VERIFIED"
-                    for citation_id in question.citation_ids
+                    for citation_id in {claim.citation_id for claim in question.claims}
                 )
                 for question in dossier.questions
             )
@@ -1482,9 +1565,15 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                     )
                     for pair in row.pairs
                 ),
+                stage_a_mode="clinical-review",
+                stage_b_mode=(
+                    "ontology-review"
+                    if row.action_pair_ids
+                    else "not-applicable-pending-engineering"
+                ),
                 dispatch_status="withheld" if withholding else "dispatchable",
                 withholding_reasons=withholding,
-                row_validation_path=f"tmp/m1-6-specialist-returns/{row.code}.validation.json",
+                row_validation_path=f"{row.code}.validation.json",
             )
         )
     index_values: dict[str, object] = {
@@ -1519,6 +1608,13 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         findings.append("suppressed MINT identifiers leaked into rendered bytes")
     if any(row.status == "error" for row in cadsr.rows):
         findings.append("caDSR report contains an error row")
+    withheld_codes = [
+        entry.code for entry in entries if entry.dispatch_status == "withheld"
+    ]
+    if withheld_codes:
+        findings.append(
+            "release bundle contains withheld rows: " + ", ".join(withheld_codes)
+        )
     for row in rows:
         dossier = dossier_by_code[row.code]
         if not any(
@@ -1537,6 +1633,13 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                 f"{row.code} has an actionable pair without source provenance"
             )
     rendered_text = rendered.decode(errors="replace")
+    if "<!-- QUESTION" in rendered_text or "<!-- Allowed actions" in rendered_text:
+        findings.append("critical review content is hidden in HTML comments")
+    if any(
+        token in rendered_text
+        for token in ("/Users/", "\\Users\\", "pdm run", "python ", "git ")
+    ):
+        findings.append("rendered packets contain a local path or repository command")
     for marker in (
         "Classify this exact semantic pair",
         "specialist must supply",
@@ -1671,59 +1774,116 @@ def validate_completion(  # noqa: C901
     return True
 
 
-def _response_normalized(text: str) -> str:
-    def blank_block(match: re.Match[str]) -> str:
-        block = match.group(0)
-        lines = []
-        for line in block.splitlines():
-            if line.startswith("|") and "---" not in line:
-                cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-                if cells and cells[0] not in {"Field", "Pair"}:
-                    keep = 2 if len(cells) == _STAGE_B_DECISION_WIDTH else 1
-                    cells = cells[:keep] + [""] * (len(cells) - keep)
-                    normalized_line = "| " + " | ".join(cells) + " |"
-                else:
-                    normalized_line = line
-            else:
-                normalized_line = line
-            lines.append(normalized_line)
-        return "\n".join(lines)
-
-    return re.sub(
-        r"<!-- RESPONSE-CELLS-START [AB] -->.*?<!-- RESPONSE-CELLS-END [AB] -->",
-        blank_block,
-        text,
-        flags=re.DOTALL,
-    )
+_REGION_MARKER = re.compile(
+    r"^\[\[ONTOPRISM:(?P<name>[A-Z0-9:-]+):(?P<edge>START|END)\]\]$"
+)
 
 
-def _table_rows(block: str, width: int) -> list[list[str]]:
-    result = []
-    for line in block.splitlines():
-        if not line.startswith("|") or "---" in line:
+def _normalized_utf8(payload: bytes) -> str:
+    """Strictly decode a returned packet and normalize only BOM/newline form."""
+    text = payload.decode("utf-8-sig")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _response_regions(text: str) -> dict[str, str]:
+    regions: dict[str, str] = {}
+    active: tuple[str, int] | None = None
+    lines = text.splitlines(keepends=True)
+    position = 0
+    for line in lines:
+        stripped = line.rstrip("\n")
+        match = _REGION_MARKER.fullmatch(stripped)
+        next_position = position + len(line)
+        if match is None:
+            position = next_position
             continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) == width and cells[0] not in {"Field", "Pair"}:
-            result.append(cells)
+        name, edge = match.group("name"), match.group("edge")
+        if edge == "START":
+            if active is not None:
+                raise ValueError("response regions cannot be nested")
+            if name in regions:
+                raise ValueError(f"duplicate response region: {name}")
+            active = (name, next_position)
+        else:
+            if active is None or active[0] != name:
+                raise ValueError("malformed or mismatched response region marker")
+            regions[name] = text[active[1] : position]
+            active = None
+        position = next_position
+    if active is not None:
+        raise ValueError("unterminated response region")
+    return regions
+
+
+def _immutable_normalized(text: str, canonical_regions: dict[str, str]) -> str:
+    returned_regions = _response_regions(text)
+    if tuple(returned_regions) != tuple(canonical_regions):
+        raise ValueError(
+            "returned packet response regions are missing, duplicated, or reordered"
+        )
+    result = text
+    for name, returned_content in returned_regions.items():
+        start = f"[[ONTOPRISM:{name}:START]]\n"
+        end = f"[[ONTOPRISM:{name}:END]]"
+        old = start + returned_content + end
+        new = start + canonical_regions[name] + end
+        if result.count(old) != 1:
+            raise ValueError(f"malformed response region: {name}")
+        result = result.replace(old, new, 1)
     return result
+
+
+def _region_fields(block: str, field_names: tuple[str, ...]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    current: str | None = None
+    for line in block.splitlines():
+        matched = next(
+            (name for name in field_names if line.startswith(f"{name}:")), None
+        )
+        if matched is not None:
+            if matched in fields:
+                raise ValueError(f"duplicate response field: {matched}")
+            fields[matched] = line[len(matched) + 1 :].strip()
+            current = matched
+        elif current is not None:
+            fields[current] = (fields[current] + "\n" + line).strip()
+        elif line.strip():
+            raise ValueError("response text precedes its field label")
+    missing = set(field_names) - set(fields)
+    if missing:
+        raise ValueError(f"response region lacks fields: {sorted(missing)}")
+    return fields
 
 
 def _validate_return_text(
     *, text: str, canonical: bytes, entry: PacketIndexEntry
-) -> tuple[ClinicalStageA, OntologyStageB]:
-    if _sha(_response_normalized(text).encode()) != _sha(canonical):
+) -> tuple[ClinicalStageA, OntologyStageB | None]:
+    canonical_text = _normalized_utf8(canonical)
+    canonical_regions = _response_regions(canonical_text)
+    if _immutable_normalized(text, canonical_regions) != canonical_text:
         raise ValueError(
-            f"returned packet has edits outside response cells: {entry.path}"
+            f"returned packet has edits outside response regions: {entry.path}"
         )
-    blocks = re.findall(
-        r"<!-- RESPONSE-CELLS-START ([AB]) -->(.*?)<!-- RESPONSE-CELLS-END \1 -->",
-        text,
-        re.DOTALL,
+    blocks = _response_regions(text)
+    a_values = _region_fields(
+        blocks["STAGE-A"],
+        (
+            "Reviewer name",
+            "Specialty",
+            "Review date (YYYY-MM-DD)",
+            "Conflict of interest",
+            "Source confirmation",
+            "Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW, CLINICAL-COMPLETE-ENGINEERING-PENDING, or DEFERRED)",
+            "Whole-row blocker if DEFERRED",
+        ),
     )
-    if tuple(kind for kind, _ in blocks) != ("A", "B"):
-        raise ValueError(f"returned packet response tables are missing: {entry.path}")
-    a_values = dict(_table_rows(blocks[0][1], 2)[:7])
-    assessment_rows = _table_rows(blocks[0][1], 4)
+    assessment_values = {
+        pair_id: _region_fields(
+            blocks[f"STAGE-A-PAIR:{pair_id}"],
+            ("Status", "Citations", "Rationale"),
+        )
+        for pair_id in entry.asked_pair_ids
+    }
     stage_a = ClinicalStageA.model_validate(
         {
             "reviewer_name": a_values["Reviewer name"],
@@ -1733,44 +1893,77 @@ def _validate_return_text(
             "source_confirmation": a_values["Source confirmation"],
             "assessments": tuple(
                 {
-                    "pair_id": pair,
-                    "status": status,
+                    "pair_id": pair_id,
+                    "status": values["Status"],
                     "citations": tuple(
-                        item.strip() for item in citations.split(";") if item.strip()
+                        item.strip()
+                        for item in values["Citations"].split(";")
+                        if item.strip()
                     ),
-                    "rationale": rationale,
+                    "rationale": values["Rationale"],
                 }
-                for pair, status, citations, rationale in assessment_rows
+                for pair_id, values in assessment_values.items()
             ),
             "clinical_stage": a_values[
-                "Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW or DEFERRED)"
+                "Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW, CLINICAL-COMPLETE-ENGINEERING-PENDING, or DEFERRED)"
             ],
             "blocker": a_values["Whole-row blocker if DEFERRED"] or None,
         }
     )
-    b_values = dict(_table_rows(blocks[1][1], 2)[:5])
-    decision_rows = _table_rows(blocks[1][1], _STAGE_B_DECISION_WIDTH)
+    if entry.stage_b_mode == "not-applicable-pending-engineering":
+        if "STAGE-B" in blocks or any(
+            name.startswith("STAGE-B-PAIR:") for name in blocks
+        ):
+            raise ValueError("not-applicable Stage B cannot expose response regions")
+        if stage_a.clinical_stage == "SUFFICIENT-FOR-ONTOLOGY-REVIEW":
+            raise ValueError(
+                "row without Stage B actions must use CLINICAL-COMPLETE-ENGINEERING-PENDING"
+            )
+        return stage_a, None
+    b_values = _region_fields(
+        blocks["STAGE-B"],
+        (
+            "Reviewer name",
+            "Review date (YYYY-MM-DD)",
+            "Conflict of interest",
+            "ROW-OUTCOME (RESOLVED or DEFERRED)",
+            "Whole-row blocker if DEFERRED",
+            "Blocker source if DEFERRED",
+            "Next action if DEFERRED",
+        ),
+    )
+    row_outcome = b_values["ROW-OUTCOME (RESOLVED or DEFERRED)"]
+    contracts = {item.pair_id: item for item in entry.pair_contracts}
+    decision_values = {
+        pair_id: _region_fields(
+            blocks[f"STAGE-B-PAIR:{pair_id}"],
+            ("Action", "Target axis", "Group", "Rationale"),
+        )
+        for pair_id in entry.action_pair_ids
+    }
     stage_b = OntologyStageB.model_validate(
         {
             "reviewer_name": b_values["Reviewer name"],
             "review_date": b_values["Review date (YYYY-MM-DD)"],
             "conflict_of_interest": b_values["Conflict of interest"],
-            "row_outcome": b_values["Row outcome (RESOLVED or DEFERRED)"],
+            "row_outcome": row_outcome,
             "decisions": tuple(
                 {
-                    "pair_id": pair,
-                    "relation": relation,
-                    "action": action,
-                    "target_axis": target or None,
-                    "group_assignment": group or None,
-                    "rationale": rationale,
+                    "pair_id": pair_id,
+                    "relation": contracts[pair_id].relation,
+                    "action": values["Action"],
+                    "target_axis": values["Target axis"] or None,
+                    "group_assignment": values["Group"] or None,
+                    "rationale": values["Rationale"],
                 }
-                for pair, relation, action, target, group, rationale in decision_rows
+                for pair_id, values in decision_values.items()
+                if row_outcome == "RESOLVED"
             ),
             "blocker": b_values["Whole-row blocker if DEFERRED"] or None,
+            "blocker_source": b_values["Blocker source if DEFERRED"] or None,
+            "next_action": b_values["Next action if DEFERRED"] or None,
         }
     )
-    contracts = {item.pair_id: item for item in entry.pair_contracts}
     validate_completion(
         stage_a,
         stage_b,
@@ -1785,6 +1978,8 @@ def _validate_return_text(
         },
         relations_by_pair={key: value.relation for key, value in contracts.items()},
     )
+    if row_outcome == "RESOLVED" and not blocks["FINAL-PARTITION"].strip():
+        raise ValueError("resolved Stage B requires a final partition response")
     return stage_a, stage_b
 
 
@@ -1806,7 +2001,7 @@ def validate_specialist_review_row(
     canonical = canonical_path.read_bytes()
     returned = return_path.read_bytes()
     stage_a, stage_b = _validate_return_text(
-        text=returned.decode("utf-8"), canonical=canonical, entry=entry
+        text=_normalized_utf8(returned), canonical=canonical, entry=entry
     )
     values: dict[str, object] = {
         "schema_version": 1,
@@ -1815,8 +2010,9 @@ def validate_specialist_review_row(
         "index_identity": index.index_identity,
         "canonical_sha256": _sha(canonical),
         "return_sha256": _sha(returned),
-        "deferred_valid": stage_a.clinical_stage == "DEFERRED"
-        or stage_b.row_outcome == "DEFERRED",
+        "deferred_valid": stage_a.clinical_stage
+        in {"DEFERRED", "CLINICAL-COMPLETE-ENGINEERING-PENDING"}
+        or (stage_b is not None and stage_b.row_outcome == "DEFERRED"),
         "ontology_writes": False,
         "readiness": False,
         "validation_identity": "0" * 64,
@@ -1861,7 +2057,9 @@ def validate_specialist_review_packet_directory(
             != validation.validation_identity
         ):
             raise ValueError(f"row validation identity mismatch: {entry.code}")
-        _validate_return_text(text=returned.decode(), canonical=canonical, entry=entry)
+        _validate_return_text(
+            text=_normalized_utf8(returned), canonical=canonical, entry=entry
+        )
         completed.append(entry.code)
     return CompletionValidation(
         status="passed",

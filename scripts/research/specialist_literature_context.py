@@ -76,11 +76,18 @@ class LiteratureCitation(_StrictModel):
         return self
 
 
+class LiteratureEvidenceClaim(_StrictModel):
+    question_id: str = Field(min_length=1)
+    pair_key: LiteraturePairKey
+    citation_id: str = Field(min_length=1)
+    source_fact: str = Field(min_length=1)
+
+
 class LiteratureQuestion(_StrictModel):
     question_id: str = Field(min_length=1)
     pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
     text: str = Field(min_length=1)
-    citation_ids: tuple[str, ...] = Field(min_length=1)
+    claims: tuple[LiteratureEvidenceClaim, ...] = Field(min_length=1)
 
 
 class LiteratureDossierSource(_StrictModel):
@@ -108,7 +115,18 @@ class LiteratureDossierSource(_StrictModel):
         ):
             raise ValueError("row requires a passage-bearing controlling citation")
         for question in self.questions:
-            selected = [citations.get(item) for item in question.citation_ids]
+            keys = {(key.axis, key.filler) for key in question.pair_keys}
+            claim_keys = {
+                (claim.pair_key.axis, claim.pair_key.filler)
+                for claim in question.claims
+            }
+            if claim_keys != keys or any(
+                claim.question_id != question.question_id for claim in question.claims
+            ):
+                raise ValueError(
+                    "claim must bind the question's exact pair and identity"
+                )
+            selected = [citations.get(claim.citation_id) for claim in question.claims]
             if None in selected:
                 raise ValueError("question references an unknown citation")
             if not any(
@@ -153,6 +171,13 @@ def _canonical(payload: object) -> bytes:
     return json.dumps(payload, indent=2, sort_keys=True).encode() + b"\n"
 
 
+def _portable_source_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return f"external/{path.name}"
+
+
 def generate_specialist_literature_context(
     source_path: Path, output_path: Path
 ) -> GeneratedLiteratureContext:
@@ -164,7 +189,7 @@ def generate_specialist_literature_context(
         schema_version=2,
         ncit_version=source.ncit_version,
         evidence_pass=source.evidence_pass,
-        source_path=source_path.as_posix(),
+        source_path=_portable_source_path(source_path),
         source_identity=hashlib.sha256(source_bytes).hexdigest(),
         generated_on=generated_on,
         dossiers=source.dossiers,

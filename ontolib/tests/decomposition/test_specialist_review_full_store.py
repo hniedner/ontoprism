@@ -15,7 +15,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.full_store]
 _PACKETS = Path("tmp/m1-6-specialist-packets")
 
 
-def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -> None:
+def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -> None:  # noqa: PLR0915
     validation = validate_specialist_review_generation(_PACKETS)
     index = PacketIndex.model_validate_json((_PACKETS / "index.json").read_bytes())
     cadsr = SpecialistCadsrUsageReport.model_validate_json(
@@ -55,6 +55,9 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     lung = (_PACKETS / "C35756.md").read_text(encoding="utf-8")
     assert "P16 | `op:StageSystem C141685`" in lung
     assert "P16 | expected-not-emitted" not in lung
+    p16_section = next(line for line in lung.splitlines() if "P16 | `" in line)
+    assert "engineering-only" in p16_section
+    assert "QUESTION P16" not in lung
     assert "P19 | `op:StageValue C28064`" in lung
     primary_site = next(
         line for line in lung.splitlines() if "`op:PrimarySite C12468`" in line
@@ -86,7 +89,13 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     )
     assert all(not Path(entry.path).is_absolute() for entry in index.packets)
     assert all(
-        len(re.findall(r"<!-- QUESTION P[0-9]+:", (_PACKETS / entry.path).read_text()))
+        len(
+            re.findall(
+                r"^### Clinical question for P[0-9]+$",
+                (_PACKETS / entry.path).read_text(),
+                re.MULTILINE,
+            )
+        )
         == len(entry.asked_pair_ids)
         for entry in index.packets
     )
@@ -101,3 +110,12 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         for entry in index.packets
         for contract in entry.pair_contracts
     )
+    assert all(entry.dispatch_status == "dispatchable" for entry in index.packets)
+    assert all("/Users/" not in key for key in index.input_identities)
+    assert "pdm run" not in rendered
+    assert "<!-- QUESTION" not in rendered
+    assert "<!-- Allowed actions" not in rendered
+    ovarian_entry = next(entry for entry in index.packets if entry.code == "C102870")
+    assert ovarian_entry.stage_b_mode == "not-applicable-pending-engineering"
+    assert "[[ONTOPRISM:STAGE-B:START]]" not in ovarian
+    assert "Stage B signature" not in ovarian
