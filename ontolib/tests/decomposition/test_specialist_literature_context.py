@@ -33,7 +33,7 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
     assert all(
         citation.authority_class
         and citation.bibliography
-        and citation.verified_on
+        and (citation.verified_on if citation.status == "cited" else True)
         and citation.exact_locator
         and citation.exact_passage
         and citation.supports
@@ -92,6 +92,16 @@ def test_literature_generator_is_deterministic_and_rejects_open_citations(
 ) -> None:
     output = tmp_path / "literature.json"
     first = generate_specialist_literature_context(SOURCE, output)
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    assert tuple(
+        citation.verified_on
+        for dossier in first.dossiers
+        for citation in dossier.citations
+    ) == tuple(
+        citation.verified_on
+        for dossier in source.dossiers
+        for citation in dossier.citations
+    )
     first_bytes = output.read_bytes()
     second = generate_specialist_literature_context(SOURCE, output)
     assert first == second
@@ -103,5 +113,19 @@ def test_literature_generator_is_deterministic_and_rejects_open_citations(
     payload["dossiers"][0]["citations"][0]["exact_passage"] = "fabricated quote"
     broken = tmp_path / "broken.json"
     broken.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="unavailable citation"):
+    with pytest.raises(ValueError, match="not-found citations are not dispatchable"):
         generate_specialist_literature_context(broken, output)
+
+
+def test_access_restricted_source_has_no_verification_or_quote_surface() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    restricted = [
+        citation
+        for dossier in source.dossiers
+        for citation in dossier.citations
+        if citation.status == "access-restricted"
+    ]
+    assert restricted
+    assert all(citation.verified_on is None for citation in restricted)
+    assert all(citation.exact_locator == "ACCESS RESTRICTED" for citation in restricted)
+    assert all(citation.exact_passage == "NOT VERIFIED" for citation in restricted)

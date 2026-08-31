@@ -9,12 +9,13 @@ from pydantic import ValidationError
 from scripts.research.specialist_review_packets import (
     ClinicalPairAssessment,
     ClinicalStageA,
+    IndexedPairContract,
     OntologyPairDecision,
     OntologyStageB,
     PacketIndex,
     PacketIndexEntry,
     validate_completion,
-    validate_specialist_review_packet_directory,
+    validate_specialist_review_row,
 )
 
 if TYPE_CHECKING:
@@ -62,15 +63,17 @@ def test_stage_b_rejects_range_invalid_actions_and_requires_group_for_addition()
     None
 ):
     stage_a = _stage_a()
-    with pytest.raises(ValidationError, match="range verdict"):
-        OntologyPairDecision(
-            pair_id="P1",
-            relation="expected-not-emitted",
-            action="RE-AXIS",
-            target_axis="op:StageSystem",
-            target_range_verdict="invalid",
-            group_assignment="G1",
-            rationale="Not representable.",
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        OntologyPairDecision.model_validate(
+            {
+                "pair_id": "P1",
+                "relation": "expected-not-emitted",
+                "action": "RE-AXIS",
+                "target_axis": "op:StageSystem",
+                "target_range_verdict": "invalid",
+                "group_assignment": "G1",
+                "rationale": "Not representable.",
+            }
         )
     with pytest.raises(ValidationError, match="group assignment"):
         OntologyPairDecision(
@@ -78,7 +81,6 @@ def test_stage_b_rejects_range_invalid_actions_and_requires_group_for_addition()
             relation="expected-not-emitted",
             action="ADD-SCOREABLE",
             target_axis=None,
-            target_range_verdict=None,
             group_assignment=None,
             rationale="Would alter the projection.",
         )
@@ -93,7 +95,6 @@ def test_stage_b_rejects_range_invalid_actions_and_requires_group_for_addition()
                 relation="expected-matched-scoreable",
                 action="RETAIN-SCOREABLE",
                 target_axis=None,
-                target_range_verdict=None,
                 group_assignment=None,
                 rationale="Retain current projection.",
             ),
@@ -171,7 +172,6 @@ def test_completion_rejects_missing_asked_pair_and_action_on_engineering_pair() 
                 relation="expected-matched-scoreable",
                 action="RETAIN-SCOREABLE",
                 target_axis=None,
-                target_range_verdict=None,
                 group_assignment=None,
                 rationale="Retain current projection.",
             ),
@@ -195,7 +195,7 @@ def test_completion_rejects_missing_asked_pair_and_action_on_engineering_pair() 
         )
 
 
-def test_completed_validator_allows_only_response_blocks_to_change(
+def test_one_row_validator_allows_only_response_blocks_and_writes_identity(
     tmp_path: Path,
 ) -> None:
     blank = b"""# packet
@@ -221,14 +221,17 @@ def test_completed_validator_allows_only_response_blocks_to_change(
 | Conflict of interest |  |
 | Row outcome (RESOLVED or DEFERRED) |  |
 | Whole-row blocker if DEFERRED |  |
-| Pair | Relation | Action | Target axis | Target range | Group | Rationale |
-|---|---|---|---|---|---|---|
-| P1 | expected-matched-scoreable |  |  |  |  |  |
+| Pair | Relation | Action | Target axis | Group | Rationale |
+|---|---|---|---|---|---|
+| P1 | expected-matched-scoreable |  |  |  |  |
 <!-- RESPONSE-CELLS-END B -->"""
-    packet = tmp_path / "C27262.md"
-    packet.write_bytes(blank)
+    canonical = tmp_path / "packets"
+    returns = tmp_path / "returns"
+    canonical.mkdir()
+    returns.mkdir()
+    (canonical / "C27262.md").write_bytes(blank)
     index = PacketIndex(
-        schema_version=2,
+        schema_version=3,
         ncit_version="26.07d",
         literature_context_identity="a" * 64,
         cadsr_usage_identity="b" * 64,
@@ -244,11 +247,31 @@ def test_completed_validator_allows_only_response_blocks_to_change(
                 action_pair_ids=("P1",),
                 engineering_pair_ids=(),
                 context_pair_ids=(),
+                pair_contracts=(
+                    IndexedPairContract(
+                        pair_id="P1",
+                        relation="expected-matched-scoreable",
+                        review_scope="stage-a-and-stage-b",
+                        source_evidence_status="available",
+                        axis_range_verdict="valid",
+                        allowed_actions=("RETAIN-SCOREABLE",),
+                        allowed_reaxis_targets=(),
+                        consequence_by_action={},
+                    ),
+                ),
+                dispatch_status="dispatchable",
+                withholding_reasons=(),
+                row_validation_path="tmp/m1-6-specialist-returns/C27262.validation.json",
             ),
         ),
+        unavailable_action_classes={
+            "ADD-SCOREABLE": "engineering regeneration required",
+            "OMIT": "engineering regeneration required",
+        },
+        registered_mint_expected_set=(),
         index_identity="d" * 64,
     )
-    (tmp_path / "index.json").write_text(index.model_dump_json(), encoding="utf-8")
+    (canonical / "index.json").write_text(index.model_dump_json(), encoding="utf-8")
     completed = blank.decode()
     replacements = {
         "| Reviewer name |  |": "| Reviewer name | Human Reviewer |",
@@ -259,23 +282,55 @@ def test_completed_validator_allows_only_response_blocks_to_change(
         "| Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW or DEFERRED) |  |": "| Clinical stage (SUFFICIENT-FOR-ONTOLOGY-REVIEW or DEFERRED) | SUFFICIENT-FOR-ONTOLOGY-REVIEW |",
         "| Row outcome (RESOLVED or DEFERRED) |  |": "| Row outcome (RESOLVED or DEFERRED) | RESOLVED |",
         "| P1 |  |  |  |": "| P1 | UNIVERSAL-DEFINING | PMID:1 | Independent clinical rationale. |",
-        "| P1 | expected-matched-scoreable |  |  |  |  |  |": "| P1 | expected-matched-scoreable | RETAIN-SCOREABLE |  |  |  | Retain current projection. |",
+        "| P1 | expected-matched-scoreable |  |  |  |  |": "| P1 | expected-matched-scoreable | RETAIN-SCOREABLE |  |  | Retain current projection. |",
     }
     for old, new in replacements.items():
         completed = completed.replace(old, new)
-    packet.write_text(completed, encoding="utf-8")
+    returned = returns / "C27262.md"
+    returned.write_text(completed, encoding="utf-8")
+    validation = validate_specialist_review_row(
+        code="C27262",
+        return_path=returned,
+        index_path=canonical / "index.json",
+        validation_output=returns / "C27262.validation.json",
+    )
+    assert validation.status == "passed"
+    assert (returns / "C27262.validation.json").is_file()
 
-    validation = validate_specialist_review_packet_directory(tmp_path)
-
-    assert validation.model_dump() == {
-        "status": "passed",
-        "completed_codes": ("C27262",),
-        "ontology_writes": False,
-        "readiness": False,
-    }
-
-    packet.write_text(
+    returned.write_text(
         completed.replace("# packet", "# altered context"), encoding="utf-8"
     )
     with pytest.raises(ValueError, match="outside response cells"):
-        validate_specialist_review_packet_directory(tmp_path)
+        validate_specialist_review_row(
+            code="C27262",
+            return_path=returned,
+            index_path=canonical / "index.json",
+            validation_output=returns / "C27262.validation.json",
+        )
+
+
+def test_indexed_reaxis_contract_rejects_reviewer_range_and_disallowed_target() -> None:
+    decision = OntologyPairDecision(
+        pair_id="P1",
+        relation="expected-matched-scoreable",
+        action="RE-AXIS",
+        target_axis="op:StageSystem",
+        group_assignment="G1",
+        rationale="Stored target requested.",
+    )
+    with pytest.raises(ValueError, match="indexed allowed re-axis target"):
+        validate_completion(
+            _stage_a(),
+            OntologyStageB(
+                reviewer_name="Ontology Reviewer",
+                review_date="2026-08-31",
+                conflict_of_interest="None",
+                row_outcome="RESOLVED",
+                decisions=(decision,),
+                blocker=None,
+            ),
+            clinically_asked_pairs=("P1",),
+            action_pairs=("P1",),
+            allowed_actions_by_pair={"P1": ("RE-AXIS",)},
+            allowed_reaxis_targets_by_pair={"P1": ()},
+        )

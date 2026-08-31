@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ontolib.repositories.cadsr.models import CdeSummary  # noqa: TC001
 from ontolib.repositories.cadsr.repository import CdeRepository
 
 
@@ -23,14 +24,18 @@ class CadsrUsageRow(_StrictModel):
     code: str
     status: Literal["usage-found", "no-linked-cde", "error"]
     cde_ids: tuple[str, ...]
+    cdes: tuple[CdeSummary, ...]
     truncated: bool
     error: str | None
 
 
 class SpecialistCadsrUsageReport(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     database_path: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    database_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    query_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    report_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     source_provenance: str = Field(min_length=1)
     producing_command: str
     query_limit: int = Field(ge=1)
@@ -59,6 +64,7 @@ def generate_specialist_cadsr_usage(
     if limit <= 0:
         raise ValueError("caDSR usage limit must be positive")
     database_bytes = database_path.read_bytes()
+    database_sha256 = hashlib.sha256(database_bytes).hexdigest()
     repository = CdeRepository(database_path)
     rows: list[CadsrUsageRow] = []
     try:
@@ -68,13 +74,14 @@ def generate_specialist_cadsr_usage(
         provenance = "source-row-unavailable"
     for code in root_codes:
         try:
-            found = repository.find_cde_ids_by_concept(code, limit=limit + 1)
+            found = repository.find_cdes_by_concept(code, limit=limit + 1)
         except sqlite3.Error as exc:
             rows.append(
                 CadsrUsageRow(
                     code=code,
                     status="error",
                     cde_ids=(),
+                    cdes=(),
                     truncated=False,
                     error=f"{type(exc).__name__}: {exc}",
                 )
@@ -84,7 +91,10 @@ def generate_specialist_cadsr_usage(
             CadsrUsageRow(
                 code=code,
                 status="usage-found" if found else "no-linked-cde",
-                cde_ids=tuple(found[:limit]),
+                cde_ids=tuple(
+                    f"{item.public_id}:{item.version}" for item in found[:limit]
+                ),
+                cdes=tuple(found[:limit]),
                 truncated=len(found) > limit,
                 error=None,
             )
@@ -92,18 +102,39 @@ def generate_specialist_cadsr_usage(
     if rows and all(row.status == "error" for row in rows):
         provenance = "database-error"
     identity_payload = database_bytes + b"\0" + provenance.encode()
-    report = SpecialistCadsrUsageReport(
-        schema_version=1,
-        database_path=database_path.as_posix(),
-        source_identity=hashlib.sha256(identity_payload).hexdigest(),
-        source_provenance=provenance,
-        producing_command=producing_command,
-        query_limit=limit,
-        rows=tuple(rows),
-        interpretation=(
+    query_identity = hashlib.sha256(
+        json.dumps(
+            {
+                "root_codes": root_codes,
+                "limit": limit,
+                "query": "find_cdes_by_concept-limit-plus-one",
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    values = {
+        "schema_version": 2,
+        "database_path": "data/cadsr/cde_repository.db",
+        "source_identity": hashlib.sha256(identity_payload).hexdigest(),
+        "database_sha256": database_sha256,
+        "query_identity": query_identity,
+        "report_identity": "0" * 64,
+        "source_provenance": provenance,
+        "producing_command": producing_command,
+        "query_limit": limit,
+        "rows": tuple(rows),
+        "interpretation": (
             "caDSR usage does not determine clinical or ontology correctness."
         ),
-    )
+    }
+    values["report_identity"] = hashlib.sha256(
+        json.dumps(
+            {key: value for key, value in values.items() if key != "report_identity"},
+            sort_keys=True,
+            default=lambda item: item.model_dump(mode="json"),
+        ).encode()
+    ).hexdigest()
+    report = SpecialistCadsrUsageReport.model_validate(values)
     payload = _canonical(report)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not output_path.exists() or output_path.read_bytes() != payload:
