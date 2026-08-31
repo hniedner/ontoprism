@@ -130,12 +130,14 @@ try:
         generate_specialist_review_packets,
         validate_specialist_review_generation,
         validate_specialist_review_packet_directory,
+        validate_specialist_review_row,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.specialist_review_packets import (
         generate_specialist_review_packets,
         validate_specialist_review_generation,
         validate_specialist_review_packet_directory,
+        validate_specialist_review_row,
     )
 
 try:
@@ -1072,8 +1074,14 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     specialist.add_argument("--producing-command", required=True)
     validate_generation = subparsers.add_parser("validate-specialist-review-generation")
     validate_generation.add_argument("--directory", required=True, type=Path)
-    validate_specialist = subparsers.add_parser("validate-completed-specialist-review")
-    validate_specialist.add_argument("--directory", required=True, type=Path)
+    validate_row = subparsers.add_parser("validate-completed-specialist-review-row")
+    validate_row.add_argument("--code", required=True)
+    validate_row.add_argument("--return-file", required=True, type=Path)
+    validate_row.add_argument("--index", required=True, type=Path)
+    validate_row.add_argument("--validation-output", required=True, type=Path)
+    validate_set = subparsers.add_parser("validate-completed-specialist-review-set")
+    validate_set.add_argument("--returns-directory", required=True, type=Path)
+    validate_set.add_argument("--index", required=True, type=Path)
     _add_group_review_parser(subparsers)
     _add_r103_review_parser(subparsers)
     corpus_parser = subparsers.add_parser("generate-corpus-baseline")
@@ -1117,9 +1125,18 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         validation_args = cast("_ValidateSpecialistPacketsArgs", args)
         validate_specialist_review_generation(validation_args.directory)
         return
-    if args.command == "validate-completed-specialist-review":
-        validation_args = cast("_ValidateSpecialistPacketsArgs", args)
-        validate_specialist_review_packet_directory(validation_args.directory)
+    if args.command == "validate-completed-specialist-review-row":
+        validate_specialist_review_row(
+            code=args.code,
+            return_path=args.return_file,
+            index_path=args.index,
+            validation_output=args.validation_output,
+        )
+        return
+    if args.command == "validate-completed-specialist-review-set":
+        validate_specialist_review_packet_directory(
+            args.returns_directory, index_path=args.index
+        )
         return
     if args.command == "generate-group-review-packet":
         _generate_group_review(cast("_GroupReviewArgs", args))

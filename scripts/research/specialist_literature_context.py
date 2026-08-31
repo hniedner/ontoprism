@@ -7,7 +7,7 @@ import hashlib
 import json
 from datetime import date
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -33,7 +33,7 @@ class LiteratureCitation(_StrictModel):
     url: str = Field(min_length=1)
     doi: str | None
     pmid: str | None
-    verified_on: str = Field(pattern=r"^20[0-9]{2}-[0-9]{2}-[0-9]{2}$")
+    verified_on: str | None
     exact_locator: str = Field(min_length=1)
     exact_passage: str = Field(min_length=1)
     supports: str = Field(min_length=1)
@@ -41,16 +41,33 @@ class LiteratureCitation(_StrictModel):
     limitations: str = Field(min_length=1)
     conflicts_or_supersession: str = Field(min_length=1)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _restricted_rendering_is_canonical(cls, value: Any) -> Any:
+        if isinstance(value, dict) and value.get("status") == "access-restricted":
+            return {
+                **value,
+                "verified_on": None,
+                "exact_locator": "ACCESS RESTRICTED",
+                "exact_passage": "NOT VERIFIED",
+            }
+        return value
+
     @model_validator(mode="after")
     def _unavailable_sources_cannot_claim_a_quote(self) -> Self:
-        if self.status != "cited" and not self.exact_passage.startswith("Unavailable:"):
+        if self.status == "access-restricted" and (
+            self.verified_on is not None
+            or self.exact_locator != "ACCESS RESTRICTED"
+            or self.exact_passage != "NOT VERIFIED"
+        ):
             raise ValueError(
-                "unavailable citation cannot contain a claimed exact passage"
+                "access-restricted citation must render NOT VERIFIED/ACCESS RESTRICTED"
             )
         if self.status == "not-found":
             raise ValueError("research-gap/not-found citations are not dispatchable")
         if self.status == "cited" and (
-            self.exact_passage.startswith("Unavailable:")
+            self.verified_on is None
+            or self.exact_passage == "NOT VERIFIED"
             or not self.url.startswith("https://")
         ):
             raise ValueError(
@@ -150,17 +167,7 @@ def generate_specialist_literature_context(
         source_path=source_path.as_posix(),
         source_identity=hashlib.sha256(source_bytes).hexdigest(),
         generated_on=generated_on,
-        dossiers=tuple(
-            dossier.model_copy(
-                update={
-                    "citations": tuple(
-                        citation.model_copy(update={"verified_on": generated_on})
-                        for citation in dossier.citations
-                    )
-                }
-            )
-            for dossier in source.dossiers
-        ),
+        dossiers=source.dossiers,
     )
     payload = _canonical(generated.model_dump(mode="json"))
     output_path.parent.mkdir(parents=True, exist_ok=True)

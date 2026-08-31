@@ -4,6 +4,8 @@ from importlib import import_module
 
 import pytest
 from scripts.research.specialist_review_packets import (
+    ActionConsequence,
+    IndexedPairContract,
     PacketIndex,
     PacketIndexEntry,
     PairKey,
@@ -85,8 +87,8 @@ def test_row_contract_partitions_every_pair_once_and_resolves_semantic_questions
         )
 
 
-def test_index_schema_two_binds_contract_sets_portable_paths_and_row_digests() -> None:
-    assert PacketIndex.model_fields["schema_version"].default == 2
+def test_index_schema_three_binds_complete_pair_contracts_and_dispatch() -> None:
+    assert PacketIndex.model_fields["schema_version"].default == 3
     assert {
         "row_contract_identity",
         "asked_pair_ids",
@@ -97,6 +99,32 @@ def test_index_schema_two_binds_contract_sets_portable_paths_and_row_digests() -
     } <= set(PacketIndexEntry.model_fields)
     assert "index_identity" in PacketIndex.model_fields
     assert "cadsr_usage_identity" in PacketIndex.model_fields
+    assert {
+        "pair_contracts",
+        "dispatch_status",
+        "withholding_reasons",
+        "row_validation_path",
+    } <= set(PacketIndexEntry.model_fields)
+    assert {
+        "pair_id",
+        "relation",
+        "review_scope",
+        "source_evidence_status",
+        "axis_range_verdict",
+        "allowed_actions",
+        "allowed_reaxis_targets",
+        "consequence_by_action",
+    } <= set(IndexedPairContract.model_fields)
+    assert {
+        "tp_delta",
+        "fp_delta",
+        "fn_delta",
+        "emitted_scoreable_delta",
+        "source_preserved",
+        "pair_after",
+        "needs_review_after",
+        "group_effect",
+    } <= set(ActionConsequence.model_fields)
 
 
 def test_no_legacy_dead_packet_models_remain() -> None:
@@ -167,5 +195,5 @@ def test_pair_consequences_render_only_relation_valid_actions(
     rendered = module.pair_consequences(pair)
     assert expected_actions <= set(rendered)
     assert forbidden.isdisjoint(rendered)
-    assert all("source facts unchanged" in text for text in rendered.values())
-    assert all("adoption or equivalence" in text for text in rendered.values())
+    assert all(value.source_preserved for value in rendered.values())
+    assert all(isinstance(value.tp_delta, int) for value in rendered.values())

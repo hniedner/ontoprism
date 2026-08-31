@@ -54,10 +54,16 @@ def test_cadsr_usage_distinguishes_found_empty_error_and_truncation(
     found, empty = report.rows
     assert found.status == "usage-found"
     assert found.cde_ids == ("1:1.0", "2:1.0")
+    assert tuple(item.public_id for item in found.cdes) == ("1", "2")
+    assert found.cdes[0].long_name == "First"
     assert found.truncated is True
     assert empty.status == "no-linked-cde"
     assert empty.cde_ids == ()
     assert report.source_identity
+    assert report.database_path == "data/cadsr/cde_repository.db"
+    assert report.database_sha256
+    assert report.query_identity
+    assert report.report_identity
     assert "does not determine" in report.interpretation
 
     database.write_bytes(b"not sqlite")
@@ -103,9 +109,22 @@ def test_cadsr_usage_reads_through_repository_api(
         def source_provenance(self) -> Source:
             return Source("abc")
 
-        def find_cde_ids_by_concept(self, code: str, *, limit: int) -> list[str]:
+        def find_cdes_by_concept(self, code: str, *, limit: int) -> list[object]:
             calls.append((code, limit))
-            return ["3:1.0", "4:2.0"]
+            return [
+                specialist_cadsr_usage.CdeSummary(
+                    public_id="3",
+                    version="1.0",
+                    short_name="Three",
+                    long_name="Third",
+                ),
+                specialist_cadsr_usage.CdeSummary(
+                    public_id="4",
+                    version="2.0",
+                    short_name="Four",
+                    long_name="Fourth",
+                ),
+            ]
 
     monkeypatch.setattr(specialist_cadsr_usage, "CdeRepository", Repository)
     report = generate_specialist_cadsr_usage(

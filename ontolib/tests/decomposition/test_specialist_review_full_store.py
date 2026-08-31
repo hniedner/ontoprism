@@ -33,11 +33,13 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         "no-linked-cde",
         "no-linked-cde",
     )
-    assert cadsr.rows[0].cde_ids[:3] == (
-        "2494565:3",
-        "2677021:3",
-        "2794346:1",
-    )
+    assert cadsr.database_path == "data/cadsr/cde_repository.db"
+    assert not Path(cadsr.database_path).is_absolute()
+    assert cadsr.database_sha256
+    assert cadsr.query_identity
+    assert cadsr.report_identity
+    assert cadsr.rows[0].cdes
+    assert all(item.long_name and item.short_name for item in cadsr.rows[0].cdes)
 
     rendered = "\n".join(
         (_PACKETS / entry.path).read_text(encoding="utf-8") for entry in index.packets
@@ -75,4 +77,27 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert all(
         set(entry.engineering_pair_ids).isdisjoint(entry.action_pair_ids)
         for entry in index.packets
+    )
+    assert index.registered_mint_expected_set == ()
+    assert set(index.unavailable_action_classes) == {"ADD-SCOREABLE", "OMIT"}
+    assert all(
+        entry.dispatch_status == "dispatchable" or entry.withholding_reasons
+        for entry in index.packets
+    )
+    assert all(not Path(entry.path).is_absolute() for entry in index.packets)
+    assert all(
+        len(re.findall(r"<!-- QUESTION P[0-9]+:", (_PACKETS / entry.path).read_text()))
+        == len(entry.asked_pair_ids)
+        for entry in index.packets
+    )
+    assert all(
+        contract.source_evidence_status != "unavailable"
+        for entry in index.packets
+        for contract in entry.pair_contracts
+        if contract.allowed_actions
+    )
+    assert all(
+        set(contract.allowed_actions) == set(contract.consequence_by_action)
+        for entry in index.packets
+        for contract in entry.pair_contracts
     )

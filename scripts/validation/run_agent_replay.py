@@ -1185,29 +1185,6 @@ def _validate_specialist_review_generation(
     )
 
 
-def _validate_completed_specialist_review(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if values:
-        raise AgentReplayInputError(
-            "validate-completed-specialist-review accepts no arguments"
-        )
-    script, _index = _require_files(
-        root, ("scripts/adjudication.py", "tmp/m1-6-specialist-packets/index.json")
-    )
-    return _run(
-        [
-            sys.executable,
-            script,
-            "validate-completed-specialist-review",
-            "--directory",
-            str(root / "tmp/m1-6-specialist-packets"),
-        ],
-        root,
-        runner,
-    )
-
-
 def _generate_r103_review(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("generate-r103-review accepts no arguments")
@@ -2518,7 +2495,6 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-specialist-cadsr-usage": _generate_specialist_cadsr_usage,
     "generate-specialist-review-packets": _generate_specialist_review_packets,
     "validate-specialist-review-generation": _validate_specialist_review_generation,
-    "validate-completed-specialist-review": _validate_completed_specialist_review,
     "generate-r103-review": _generate_r103_review,
     "validate-r101-current": _validate_r101_current,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,

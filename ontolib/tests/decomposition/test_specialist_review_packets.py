@@ -36,9 +36,12 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
     cadsr = tmp_path / "cadsr.json"
     cadsr.write_text(
         SpecialistCadsrUsageReport(
-            schema_version=1,
+            schema_version=2,
             database_path="data/cadsr/cde_repository.db",
             source_identity="a" * 64,
+            database_sha256="b" * 64,
+            query_identity="c" * 64,
+            report_identity="d" * 64,
             source_provenance="fixture provenance",
             producing_command="fixed",
             query_limit=10,
@@ -47,6 +50,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
                     code=code,
                     status="no-linked-cde",
                     cde_ids=(),
+                    cdes=(),
                     truncated=False,
                     error=None,
                 )
@@ -171,7 +175,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
     )
 
 
-def test_generator_writes_seven_rows_schema_two_and_bound_validation_deterministically(
+def test_generator_writes_schema_three_and_bound_validation_deterministically(
     tmp_path: Path,
 ) -> None:
     literature, registry, cadsr, additional = _inputs(tmp_path)
@@ -199,7 +203,7 @@ def test_generator_writes_seven_rows_schema_two_and_bound_validation_determinist
         PacketIndex.model_validate_json(
             (output / "index.json").read_bytes()
         ).schema_version
-        == 2
+        == 3
     )
     generated_index = PacketIndex.model_validate_json(
         (output / "index.json").read_bytes()
@@ -225,9 +229,20 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
     tmp_path: Path,
 ) -> None:
     args = _parser().parse_args(
-        ["validate-completed-specialist-review", "--directory", "packets"]
+        [
+            "validate-completed-specialist-review-row",
+            "--code",
+            "C27262",
+            "--return-file",
+            "returns/C27262.md",
+            "--index",
+            "packets/index.json",
+            "--validation-output",
+            "returns/C27262.validation.json",
+        ]
     )
-    assert args.directory == Path("packets")
+    assert args.code == "C27262"
+    assert args.return_file == Path("returns/C27262.md")
     required = (
         "scripts/adjudication.py",
         "tmp/m1-6-specialist-literature-context.json",
