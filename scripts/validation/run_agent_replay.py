@@ -9,6 +9,7 @@ operation failure.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib
 import json
@@ -1397,6 +1398,57 @@ def _generate_pre_sme_readiness(
     return 0
 
 
+def _run_showcase_operator(root: Path, runner: CommandRunner, *, activate: bool) -> int:
+    settings = importlib.import_module("backend.config").Settings()
+    client_factory = importlib.import_module(
+        "ontolib.terminologies.ncit.client"
+    ).ncit_sparql_client
+    readiness = importlib.import_module("ontolib.decomposition.showcase_readiness")
+    git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    operation = (
+        "activate-enhanced-ncit-showcase"
+        if activate
+        else "verify-enhanced-ncit-showcase"
+    )
+
+    async def execute() -> None:
+        async with client_factory(settings.ncit_sparql_url) as client:
+            function = (
+                readiness.activate_showcase_readiness
+                if activate
+                else readiness.verify_showcase_readiness
+            )
+            await function(
+                client,
+                output=root / "tmp/m1-6-enhanced-showcase-readiness.json",
+                git_head=git_head,
+                producing_command=f"pdm run agent-replay {operation}",
+            )
+
+    asyncio.run(execute())
+    return 0
+
+
+def _activate_enhanced_ncit_showcase(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "activate-enhanced-ncit-showcase accepts no arguments"
+        )
+    return _run_showcase_operator(root, runner, activate=True)
+
+
+def _verify_enhanced_ncit_showcase(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "verify-enhanced-ncit-showcase accepts no arguments"
+        )
+    return _run_showcase_operator(root, runner, activate=False)
+
+
 def _refresh_sparql_inventory(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -2484,6 +2536,7 @@ def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> i
 
 
 _OPERATIONS: dict[str, Operation] = {
+    "activate-enhanced-ncit-showcase": _activate_enhanced_ncit_showcase,
     "consolidate-obsolete": _consolidate_obsolete,
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
@@ -2497,6 +2550,7 @@ _OPERATIONS: dict[str, Operation] = {
     "validate-specialist-review-generation": _validate_specialist_review_generation,
     "generate-r103-review": _generate_r103_review,
     "validate-r101-current": _validate_r101_current,
+    "verify-enhanced-ncit-showcase": _verify_enhanced_ncit_showcase,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,
     "report-r101-current-reuse": _report_r101_current_reuse,
     "audit-primary-sites": _audit_primary_sites,

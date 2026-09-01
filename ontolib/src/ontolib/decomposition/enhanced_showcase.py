@@ -17,6 +17,7 @@ from ontolib.decomposition.collapse_policy import (
     load_packaged_collapse_veto_policy,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_transport import safe_iri
 
 
@@ -76,6 +77,8 @@ class ShowcasePolicyError(ValueError):
 
 
 class _ShowcaseGraphClient(Protocol):
+    async def select(self, query: str) -> list[dict[str, str]]: ...
+
     async def load(
         self,
         data: bytes,
@@ -570,14 +573,44 @@ def build_showcase_replacement_update(staging_graph: str) -> str:
 async def activate_showcase_decision_graph(
     client: _ShowcaseGraphClient, *, run_id: str
 ) -> ShowcaseDecisionSet:
-    """Replace only the isolated showcase graph from its validated package."""
+    """Replace only the isolated showcase graph and require a complete readback."""
     policy = load_packaged_showcase_decision_set()
     staging = showcase_staging_graph_iri(run_id)
-    await client.load(
-        serialize_showcase_decision_graph(policy).encode("utf-8"),
-        content_type="text/turtle",
-        graph_iri=staging,
-        replace=True,
-    )
-    await client.update(build_showcase_replacement_update(staging))
+    try:
+        await client.load(
+            serialize_showcase_decision_graph(policy).encode("utf-8"),
+            content_type="text/turtle",
+            graph_iri=staging,
+            replace=True,
+        )
+        await client.update(build_showcase_replacement_update(staging))
+    except Exception as exc:
+        try:
+            await client.update(f"DROP SILENT GRAPH <{staging}>")
+        except Exception as cleanup_error:
+            exc.add_note(f"showcase staging cleanup failed: {cleanup_error}")
+        raise
+    await require_complete_active_showcase(client, policy=policy)
     return policy
+
+
+async def require_complete_active_showcase(
+    client: _ShowcaseGraphClient,
+    *,
+    policy: ShowcaseDecisionSet | None = None,
+) -> ShowcaseDecisionSet:
+    """Read each showcase concept once and require its exact packaged decisions."""
+    authority = policy or load_packaged_showcase_decision_set()
+    versions = await client.select(
+        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+        f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+        "?ontology a owl:Ontology ; owl:versionInfo ?version . } } LIMIT 2"
+    )
+    if versions != [{"version": str(authority.source_release)}]:
+        raise ShowcasePolicyError(
+            "configured NCIt source release differs from showcase authority"
+        )
+    for concept in authority.concepts:
+        rows = await client.select(build_showcase_decision_query(concept.code))
+        require_active_showcase_decisions(rows, concept.decisions)
+    return authority

@@ -153,6 +153,19 @@ pdm run agent-replay podman-compose-down
 pdm run agent-replay podman-app-smoke
 ```
 
+The enhanced-NCIt showcase has two fixed local operator commands:
+
+```bash
+pdm run agent-replay activate-enhanced-ncit-showcase
+pdm run agent-replay verify-enhanced-ncit-showcase
+```
+
+Activation replaces only the isolated showcase graph at the configured NCIt endpoint;
+verification is read-only. Both require exact packaged-decision readback and write ignored
+local evidence to `tmp/m1-6-enhanced-showcase-readiness.json`. This is local graph
+activation evidence, not production readiness, scientific publication, equivalence, or
+NCI adoption.
+
 To make an unwrapped, literal `pdm run verify` use Podman, activate the dedicated Docker
 context first:
 
