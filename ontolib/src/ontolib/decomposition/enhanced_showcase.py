@@ -563,7 +563,7 @@ def require_exact_showcase_graph(
     ):
         raise ShowcasePolicyError("stored showcase graph exceeds closure budgets")
     stored = _stored_showcase_graph_rows(rows)
-    if len(stored) != len(rows) or stored != expected:
+    if stored != expected:
         raise ShowcasePolicyError(
             "stored showcase graph differs from the exact packaged graph"
         )
