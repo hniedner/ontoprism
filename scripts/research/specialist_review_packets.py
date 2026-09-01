@@ -180,7 +180,7 @@ def semantic_answer_cue_findings(
     """Detect semantic conclusions in evidence slots and action-leading questions."""
     findings: list[str] = []
     for code, field, text in records:
-        if field != "question" and _SOURCE_CLINICAL_CUE.search(text):
+        if _SOURCE_CLINICAL_CUE.search(text):
             findings.append(
                 f"{code} answer cue in {field}: pre-answered clinical status [{text}]"
             )
@@ -1782,7 +1782,8 @@ def _render_packet(  # noqa: C901, PLR0912
                     source_heading,
                     "Clinical source:",
                     *(
-                        f"- **{claim.citation_id}:** {claim.source_fact}"
+                        f"- **{claim.citation_id}:** {claim.supported_claim} "
+                        f"Exact support: “{claim.support_excerpt}”"
                         for claim in question.claims
                         if (claim.pair_key.axis, claim.pair_key.filler)
                         == (pair.key.axis, pair.key.filler)
@@ -2184,7 +2185,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             for question in dossier.questions
         )
         + tuple(
-            (dossier.code, "source_fact", claim.source_fact)
+            (dossier.code, "source_fact", claim.supported_claim)
             for dossier in context.dossiers
             for question in dossier.questions
             for claim in question.claims

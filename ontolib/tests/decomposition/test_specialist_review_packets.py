@@ -92,6 +92,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
                 for question in dossier.questions
                 for key in question.pair_keys
             }
+            | {(key.axis, key.filler) for key in dossier.context_pair_keys}
         )
         relations = {name: [] for name in relation_names}
         for number, key in enumerate(keys):
@@ -163,6 +164,10 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, tuple[Path, ...]]:
                                     (key.axis, key.filler)
                                     for question in dossier.questions
                                     for key in question.pair_keys
+                                }
+                                | {
+                                    (key.axis, key.filler)
+                                    for key in dossier.context_pair_keys
                                 }
                             )
                         ],
@@ -257,11 +262,20 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         (output / "index.json").read_bytes()
     )
     context_note = (
-        "No context-only pairs occur in this seven-row generation; "
-        "context-correction support is schema-tested but not exercised by this bundle."
+        "This packet contains 5 context-only pairs. Their optional context-correction "
+        "response regions are schema-supported and do not request clinical answers or "
+        "ontology actions."
     )
     assert generated_index.context_correction_note == context_note
-    assert all(not entry.context_pair_ids for entry in generated_index.packets)
+    eye_entry = next(item for item in generated_index.packets if item.code == "C100054")
+    assert len(eye_entry.asked_pair_ids) == 2
+    assert len(eye_entry.context_pair_ids) == 5
+    assert eye_entry.workload.model_dump() == {
+        "asked": 2,
+        "action": len(eye_entry.action_pair_ids),
+        "engineering": len(eye_entry.engineering_pair_ids),
+        "context": 5,
+    }
     assert all(not path.startswith("/") for path in generated_index.input_identities)
     validation = validate_specialist_review_generation(output)
     assert validation.status == "passed"
@@ -282,7 +296,6 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
     assert "pdm run" not in markdown
     assert "git " not in markdown.lower()
     assert "## Return workflow" not in markdown
-    assert context_note in markdown
     assert "NOT FOR DISPATCH" in markdown
     if not next(
         entry for entry in generated_index.packets if entry.code == "C102870"
@@ -294,7 +307,7 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
     all_markdown = "\n".join(
         (output / f"{code}.md").read_text(encoding="utf-8") for code in CONCEPT_ORDER
     )
-    assert all_markdown.count(context_note) == len(CONCEPT_ORDER)
+    assert all_markdown.count(context_note) == 1
     for entry in generated_index.packets:
         if not entry.action_pair_ids or entry.dispatch_status == "withheld":
             continue
@@ -371,7 +384,6 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         for code in generated_index.release_ready_codes
     )
 
-    eye_entry = next(item for item in generated_index.packets if item.code == "C100054")
     eye = (output / eye_entry.path).read_text(encoding="utf-8")
     assert eye.startswith(
         "# C100054 — Conjunctival Melanocytic Intraepithelial Lesion\n"
@@ -474,8 +486,7 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
     [
         (
             "The pair should be promoted.",
-            "C100054 answer cue in source_fact: pre-answered ontology action "
-            "[The pair should be promoted.]",
+            "C100054 answer cue in source_fact: pre-answered ontology action",
         ),
         (
             "Observed CLASSIFICATION-DEPENDENT category.",
@@ -505,7 +516,8 @@ def test_generation_gates_fail_closed_on_production_shaped_primed_evidence(
 ) -> None:
     literature, registry, cadsr, additional = _inputs(tmp_path)
     payload = json.loads(literature.read_bytes())
-    payload["dossiers"][4]["questions"][0]["claims"][0]["source_fact"] = injected
+    claim = payload["dossiers"][4]["questions"][0]["claims"][0]
+    claim["supported_claim"] = f"{injected} {claim['supported_claim']}"
     literature.write_text(json.dumps(payload), encoding="utf-8")
     output = tmp_path / "packets"
 

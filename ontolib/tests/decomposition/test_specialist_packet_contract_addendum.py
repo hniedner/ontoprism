@@ -221,7 +221,9 @@ def _claim(*, filler: str = "C1", citation_id: str = "S1") -> LiteratureEvidence
         question_id="Q1",
         pair_key=LiteraturePairKey(axis="op:CellType", filler=filler),
         citation_id=citation_id,
-        source_fact="The passage describes spindle cells.",
+        support_excerpt="contains spindle cells",
+        supported_claim="The lesion contains spindle cells.",
+        evidence_terms=("contains spindle cells",),
     )
 
 
@@ -258,6 +260,30 @@ def test_d4_shared_citation_predicate_rejects_contradiction() -> None:
         pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
         claim=_claim(),
         citation=_citation(does_not="Does not support spindle cells."),
+    )
+
+
+def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
+    claim = _claim().model_copy(
+        update={
+            "supported_claim": "The lesion contains spindle cells and is metastatic.",
+            "evidence_terms": ("contains spindle cells", "metastatic"),
+        }
+    )
+    assert not citation_supports_pair(
+        question_id="Q1",
+        pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        claim=claim,
+        citation=_citation(),
+    )
+
+
+def test_d4b_shared_citation_predicate_rejects_wrong_pair_with_same_citation() -> None:
+    assert not citation_supports_pair(
+        question_id="Q1",
+        pair_key=LiteraturePairKey(axis="op:CellType", filler="C2"),
+        claim=_claim(filler="C1"),
+        citation=_citation(),
     )
 
 
@@ -345,6 +371,11 @@ def test_d10_pair_action_and_partition_are_not_interchangeable() -> None:
             "factual_context",
             "The finding is universal and defining.",
             "answer cue in factual_context: pre-answered clinical status",
+        ),
+        (
+            "question",
+            "Is this finding not universal?",
+            "answer cue in question: pre-answered clinical status",
         ),
     ],
 )

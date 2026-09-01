@@ -53,12 +53,13 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         (_PACKETS / entry.path).read_text(encoding="utf-8") for entry in index.packets
     )
     context_note = (
-        "No context-only pairs occur in this seven-row generation; "
-        "context-correction support is schema-tested but not exercised by this bundle."
+        "This packet contains 5 context-only pairs. Their optional context-correction "
+        "response regions are schema-supported and do not request clinical answers or "
+        "ontology actions."
     )
     assert index.context_correction_note == context_note
-    assert all(not entry.context_pair_ids for entry in index.packets)
-    assert rendered.count(context_note) == len(index.packets)
+    assert sum(len(entry.context_pair_ids) for entry in index.packets) == 5
+    assert rendered.count(context_note) == 1
     assert "Label unavailable" not in rendered
     assert "MINT-" not in rendered
     assert "P97:" in rendered
@@ -213,6 +214,16 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
             assert "synthetic IDs only: `PX1; PX2`" in packet
     eye = (_PACKETS / "C100054.md").read_text(encoding="utf-8")
     eye_entry = next(entry for entry in index.packets if entry.code == "C100054")
+    assert eye_entry.asked_pair_ids == ("P3", "P4")
+    assert eye_entry.action_pair_ids == ("P3", "P4")
+    assert eye_entry.engineering_pair_ids == ()
+    assert eye_entry.context_pair_ids == ("P1", "P2", "P5", "P6", "P7")
+    assert eye_entry.workload.model_dump() == {
+        "asked": 2,
+        "action": 2,
+        "engineering": 0,
+        "context": 5,
+    }
     assert eye.startswith(
         "# C100054 — Conjunctival Melanocytic Intraepithelial Lesion\n"
     )
@@ -263,30 +274,28 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         )
     )
     assert eye_entry.pair_contracts[2].citation_ids == ("milman-2023", "mudhar-2024")
-    assert eye_entry.pair_contracts[3].citation_ids == ("milman-2023", "mudhar-2024")
+    assert eye_entry.pair_contracts[3].citation_ids == (
+        "milman-2023-low-grade",
+        "milman-2023-high-grade",
+        "mudhar-2024",
+    )
     assert "so atypia degree is classification-dependent" not in eye
     assert "does not by itself establish" not in eye
     for pair_id in ("P3", "P4"):
         question = eye.split(f"### Clinical question for {pair_id}", 1)[1].split(
             "[[ONTOPRISM:STAGE-A-PAIR", 1
         )[0]
-        assert "**milman-2023:**" in question
         assert "**mudhar-2024:**" in question
         assert "Supporting source facts:" in question
-    for pair_id in ("P1", "P2", "P6"):
-        question = eye.split(f"### Clinical question for {pair_id}", 1)[1].split(
-            "[[ONTOPRISM:STAGE-A-PAIR", 1
-        )[0]
-        assert "Context evidence / does not support ontology action:" in question
-        assert "Supporting source facts:" not in question
-        assert "Clinical source:" in question
-        assert "Source occurrence coordinates:" in question
-    assert "Context evidence / does not support ontology action" in eye
-    assert "### Clinical question for P1" in eye
-    assert "### Clinical question for P2" in eye
-    assert "### Clinical question for P6" in eye
-    assert "Clinical source:" in eye
-    assert "Source occurrence coordinates:" in eye
+        if pair_id == "P3":
+            assert "**milman-2023:**" in question
+        else:
+            assert "**milman-2023-low-grade:**" in question
+            assert "**milman-2023-high-grade:**" in question
+    for pair_id in ("P1", "P2", "P5", "P6", "P7"):
+        assert f"{pair_id}: context-not-under-review." in eye
+        assert f"### Clinical question for {pair_id}" not in eye
+    assert "A factual correction is optional." in eye
     dispatch = Path("tmp/m1-6-specialist-dispatch")
     assert {path.name for path in dispatch.iterdir()} == {
         "C100054.md",

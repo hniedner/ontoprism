@@ -81,7 +81,9 @@ class LiteratureEvidenceClaim(_StrictModel):
     question_id: str = Field(min_length=1)
     pair_key: LiteraturePairKey
     citation_id: str = Field(min_length=1)
-    source_fact: str = Field(min_length=1)
+    support_excerpt: str = Field(min_length=1)
+    supported_claim: str = Field(min_length=1)
+    evidence_terms: tuple[str, ...] = Field(min_length=1)
 
 
 _ALLOWED_EVIDENCE_KINDS = (
@@ -94,6 +96,10 @@ _ALLOWED_EVIDENCE_KINDS = (
     "peer-reviewed",
     "systematic review",
 )
+
+
+def _normalized_evidence_text(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
 
 
 def citation_supports_pair(
@@ -117,12 +123,24 @@ def citation_supports_pair(
         )
     ):
         return False
-    fact = " ".join(re.findall(r"[a-z0-9]+", claim.source_fact.lower()))
+    if claim.support_excerpt not in citation.exact_passage:
+        return False
+    passage = _normalized_evidence_text(citation.exact_passage)
+    supported_claim = _normalized_evidence_text(claim.supported_claim)
+    normalized_terms = tuple(
+        _normalized_evidence_text(term) for term in claim.evidence_terms
+    )
+    if (
+        any(not term for term in normalized_terms)
+        or any(term not in passage for term in normalized_terms)
+        or any(term not in supported_claim for term in normalized_terms)
+    ):
+        return False
     contradiction = citation.does_not_support.lower().strip().rstrip(".")
     prefix = "does not support "
     if contradiction.startswith(prefix):
         unsupported = " ".join(re.findall(r"[a-z0-9]+", contradiction[len(prefix) :]))
-        if unsupported and unsupported in fact:
+        if unsupported and unsupported in supported_claim:
             return False
     return True
 
@@ -142,6 +160,7 @@ class LiteratureDossierSource(_StrictModel):
     factual_context: tuple[str, ...] = Field(min_length=1)
     citations: tuple[LiteratureCitation, ...] = Field(min_length=1)
     questions: tuple[LiteratureQuestion, ...] = Field(min_length=1)
+    context_pair_keys: tuple[LiteraturePairKey, ...] = ()
 
     @model_validator(mode="after")
     def _references_are_closed(self) -> Self:
@@ -158,6 +177,17 @@ class LiteratureDossierSource(_StrictModel):
             for citation in self.citations
         ):
             raise ValueError("row requires a passage-bearing controlling citation")
+        asked_keys = {
+            (key.axis, key.filler)
+            for question in self.questions
+            for key in question.pair_keys
+        }
+        context_keys = {(key.axis, key.filler) for key in self.context_pair_keys}
+        if (
+            len(context_keys) != len(self.context_pair_keys)
+            or asked_keys & context_keys
+        ):
+            raise ValueError("asked and context pair keys must be unique and disjoint")
         for question in self.questions:
             keys = {(key.axis, key.filler) for key in question.pair_keys}
             claim_keys = {
