@@ -282,8 +282,8 @@ complete both `Pair Decision` and `Decision` with the same closed value; for gro
 copy, import it and run the write-free impact preview with these exact commands:
 
 ```bash
-pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet.json --reviewed-xlsx tmp/m1-6-group-review-workbook-reviewed.xlsx --output tmp/m1-6-group-review-decisions.json
-pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet.json --registry tmp/m1-6-group-review-decisions.json --output tmp/m1-6-group-review-dry-run.json
+pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output tmp/m1-6-group-review-decisions-rev2.json
+pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet-rev2.json --registry tmp/m1-6-group-review-decisions-rev2.json --output tmp/m1-6-group-review-dry-run-rev2.json
 ```
 
 The evidence is intentionally asymmetric: actual normalized groups cite current stated-source
@@ -430,8 +430,8 @@ The operation observes the clean Git HEAD before and after running the literal
 selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
 local machine evidence and performs no ontology or store publication.
 
-After the current comparison, R101 reuse validation, primary-site audit, group-review
-packet, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
+After the current comparison, R101 reuse validation, primary-site audit, schema-4
+`tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
 source manifest, and current-HEAD verify evidence all exist, generate the pending-human
 report from a clean worktree:
 
