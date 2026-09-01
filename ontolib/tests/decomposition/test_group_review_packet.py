@@ -27,6 +27,7 @@ from ontolib.decomposition.r101_conservation import load_r101_conservation_repor
 
 pytestmark = pytest.mark.unit
 
+_ROOT = Path(__file__).parents[3]
 _GOLDEN = Path(__file__).with_name("golden")
 _EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
@@ -309,6 +310,19 @@ def test_generator_writes_canonical_identity_checked_json(tmp_path: Path) -> Non
     output.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match=r"packet identity|pair relations"):
         load_group_review_packet(output)
+
+
+def test_current_loader_accepts_schema_4_and_rejects_historical_schema_3(
+    tmp_path: Path,
+) -> None:
+    current = tmp_path / "current.json"
+    current.write_text(_packet().model_dump_json(), encoding="utf-8")
+
+    assert load_group_review_packet(current).schema_version == 4
+    with pytest.raises(ValidationError, match="schema_version"):
+        load_group_review_packet(
+            _ROOT / "evidence/group-review-packet-26.07d-schema3.json"
+        )
 
 
 def test_strict_boundary_rejects_coercion_and_unknown_fields() -> None:
@@ -850,13 +864,13 @@ def test_readme_gives_exact_group_post_sme_import_and_dry_run_commands() -> None
     readme = (_GOLDEN / "README.md").read_text(encoding="utf-8")
     assert (
         "pdm run adjudication import-group-review --packet "
-        "tmp/m1-6-group-review-packet.json --reviewed-xlsx "
-        "tmp/m1-6-group-review-workbook-reviewed.xlsx --output "
-        "tmp/m1-6-group-review-decisions.json"
+        "tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx "
+        "tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output "
+        "tmp/m1-6-group-review-decisions-rev2.json"
     ) in readme
     assert (
         "pdm run adjudication dry-run-group-review --packet "
-        "tmp/m1-6-group-review-packet.json --registry "
-        "tmp/m1-6-group-review-decisions.json --output "
-        "tmp/m1-6-group-review-dry-run.json"
+        "tmp/m1-6-group-review-packet-rev2.json --registry "
+        "tmp/m1-6-group-review-decisions-rev2.json --output "
+        "tmp/m1-6-group-review-dry-run-rev2.json"
     ) in readme

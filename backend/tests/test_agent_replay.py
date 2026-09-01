@@ -456,7 +456,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "tmp/m1-6-verify-evidence.json",
     )
@@ -508,6 +508,10 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     assert calls[1]["r101_validation"] == (
         tmp_path / "tmp/r101-review-reuse-validation.json"
     )
+    assert calls[1]["group_packet"] == (
+        tmp_path / "tmp/m1-6-group-review-packet-rev2.json"
+    )
+    assert calls[1]["group_packet"] != (tmp_path / "tmp/m1-6-group-review-packet.json")
     assert calls[1]["r103_review_state"] == (
         tmp_path
         / "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json"
@@ -563,7 +567,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "tmp/m1-6-verify-evidence.json",
     )
@@ -602,7 +606,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
 
 
 @pytest.mark.unit
-def test_pre_sme_readiness_refuses_old_packet_without_tracked_state(
+def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
     tmp_path: Path,
 ) -> None:
     for relative in (
@@ -615,7 +619,7 @@ def test_pre_sme_readiness_refuses_old_packet_without_tracked_state(
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-group-review-packet-rev2.json",
         "tmp/m1-6-r103-review-packet.json",
         "tmp/m1-6-verify-evidence.json",
     ):
