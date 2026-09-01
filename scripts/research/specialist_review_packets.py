@@ -26,7 +26,6 @@ try:
     from scripts.research.specialist_literature_context import (
         GeneratedLiteratureContext,
         LiteratureDossierSource,
-        LiteraturePairKey,
         citation_supports_pair,
     )
 except ModuleNotFoundError:  # direct ``python scripts/adjudication.py`` entry point
@@ -37,7 +36,6 @@ except ModuleNotFoundError:  # direct ``python scripts/adjudication.py`` entry p
     from research.specialist_literature_context import (
         GeneratedLiteratureContext,
         LiteratureDossierSource,
-        LiteraturePairKey,
         citation_supports_pair,
     )
 
@@ -1009,6 +1007,26 @@ def validate_source_preferred_labels(
         )
 
 
+def validate_literature_source_concepts(
+    context: GeneratedLiteratureContext,
+    source_labels: dict[str, str],
+    source_definitions: dict[str, str],
+) -> None:
+    """Reject claim bindings that do not reproduce pinned NCIt source metadata."""
+    mismatches = tuple(
+        source.code
+        for dossier in context.dossiers
+        for source in dossier.source_concepts
+        if source_labels.get(source.code) != source.exact_label
+        or source_definitions.get(source.code) != source.exact_definition
+    )
+    if mismatches:
+        raise ValueError(
+            "literature source concept does not match NCIt stated metadata: "
+            + ", ".join(mismatches)
+        )
+
+
 def filter_governed_pairs(
     *,
     relations: tuple[tuple[tuple[str, str], Relation], ...],
@@ -1966,6 +1984,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         wanted = {value for value in wanted if value.startswith(("C", "R"))}
         ncit_labels, ncit_definitions = _ncit_metadata(ncit_source_path, wanted)
         validate_source_preferred_labels(context, ncit_labels)
+        validate_literature_source_concepts(context, ncit_labels, ncit_definitions)
         identities[_portable(ncit_source_path)] = _hash_file(ncit_source_path)
     rows, suppression, visible_registered = _build_rows(
         context, raw_inputs, registered, ncit_labels, ncit_definitions
@@ -1980,17 +1999,17 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         dossier = dossier_by_code[row.code]
         citations = {item.citation_id: item for item in dossier.citations}
         claims_by_key = {
-            key: tuple(
-                (question.question_id, claim)
-                for question in dossier.questions
+            (target.axis, target.filler): tuple(
+                (target, question, claim)
                 for claim in question.claims
-                if (claim.pair_key.axis, claim.pair_key.filler) == key
+                if (
+                    claim.source_concept_code == target.filler
+                    if claim.source_concept_code is not None
+                    else claim.pair_key == target
+                )
             )
-            for key in {
-                (claim.pair_key.axis, claim.pair_key.filler)
-                for question in dossier.questions
-                for claim in question.claims
-            }
+            for question in dossier.questions
+            for target in question.pair_keys
         }
         pair_id_by_key = {
             (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
@@ -2019,14 +2038,12 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             is not None
             and any(
                 citation_supports_pair(
-                    question_id=question_id,
-                    pair_key=LiteraturePairKey(
-                        axis=pair.key.axis, filler=pair.key.filler
-                    ),
+                    target=target,
+                    question=question,
                     claim=claim,
                     citation=citations[claim.citation_id],
                 )
-                for question_id, claim in claim_records
+                for target, question, claim in claim_records
             )
         )
         dispatch = derive_dispatch_decision(
@@ -2094,14 +2111,12 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                         citation_ids=(
                             tuple(
                                 claim.citation_id
-                                for question_id, claim in claims_by_key[
+                                for target, question, claim in claims_by_key[
                                     (pair.key.axis, pair.key.filler)
                                 ]
                                 if citation_supports_pair(
-                                    question_id=question_id,
-                                    pair_key=LiteraturePairKey(
-                                        axis=pair.key.axis, filler=pair.key.filler
-                                    ),
+                                    target=target,
+                                    question=question,
                                     claim=claim,
                                     citation=citations[claim.citation_id],
                                 )

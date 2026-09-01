@@ -8,7 +8,7 @@ import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -42,18 +42,6 @@ class LiteratureCitation(_StrictModel):
     limitations: str = Field(min_length=1)
     conflicts_or_supersession: str = Field(min_length=1)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _restricted_rendering_is_canonical(cls, value: Any) -> Any:
-        if isinstance(value, dict) and value.get("status") == "access-restricted":
-            return {
-                **value,
-                "verified_on": None,
-                "exact_locator": "ACCESS RESTRICTED",
-                "exact_passage": "NOT VERIFIED",
-            }
-        return value
-
     @model_validator(mode="after")
     def _unavailable_sources_cannot_claim_a_quote(self) -> Self:
         if self.status == "access-restricted" and (
@@ -62,7 +50,8 @@ class LiteratureCitation(_StrictModel):
             or self.exact_passage != "NOT VERIFIED"
         ):
             raise ValueError(
-                "access-restricted citation must render NOT VERIFIED/ACCESS RESTRICTED"
+                "access-restricted citation must have no verified date and must use "
+                "ACCESS RESTRICTED/NOT VERIFIED"
             )
         if self.status == "not-found":
             raise ValueError("research-gap/not-found citations are not dispatchable")
@@ -74,6 +63,11 @@ class LiteratureCitation(_StrictModel):
             raise ValueError(
                 "cited source requires an accessible exact passage and URL"
             )
+        if self.status == "cited" and self.verified_on is not None:
+            try:
+                date.fromisoformat(self.verified_on)
+            except ValueError as exc:
+                raise ValueError("cited source requires an ISO verified date") from exc
         return self
 
 
@@ -84,6 +78,28 @@ class LiteratureEvidenceClaim(_StrictModel):
     support_excerpt: str = Field(min_length=1)
     supported_claim: str = Field(min_length=1)
     evidence_terms: tuple[str, ...] = Field(min_length=1)
+    target_axis: str | None = None
+    source_concept_code: str | None = Field(default=None, pattern=r"^C[0-9]+$")
+    source_concept_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class LiteratureSourceConcept(_StrictModel):
+    code: str = Field(pattern=r"^C[0-9]+$")
+    exact_label: str = Field(min_length=1)
+    exact_definition: str = Field(min_length=1)
+    source_concept_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _identity_binds_exact_source_metadata(self) -> Self:
+        expected = source_concept_identity(
+            self.code, self.exact_label, self.exact_definition
+        )
+        if self.source_concept_identity != expected:
+            raise ValueError(
+                "source concept identity does not bind its exact metadata; "
+                f"expected {expected}"
+            )
+        return self
 
 
 _ALLOWED_EVIDENCE_KINDS = (
@@ -102,25 +118,52 @@ def _normalized_evidence_text(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
 
 
+def source_concept_identity(code: str, label: str, definition: str) -> str:
+    """Bind an NCIt code to its exact stated preferred label and P97 definition."""
+    payload = json.dumps(
+        {"code": code, "exact_definition": definition, "exact_label": label},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+class LiteratureQuestion(_StrictModel):
+    question_id: str = Field(min_length=1)
+    pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
+    text: str = Field(min_length=1)
+    claims: tuple[LiteratureEvidenceClaim, ...] = Field(min_length=1)
+    source_concept_binding_required: bool = False
+
+
 def citation_supports_pair(
     *,
-    question_id: str,
-    pair_key: LiteraturePairKey,
+    target: LiteraturePairKey,
+    question: LiteratureQuestion,
     claim: LiteratureEvidenceClaim,
     citation: LiteratureCitation,
 ) -> bool:
-    """Return whether one accessible source record supports this exact pair claim."""
+    """Check exact source/excerpt binding, not automated clinical entailment."""
     if (
-        claim.question_id != question_id
-        or claim.pair_key != pair_key
+        target not in question.pair_keys
+        or claim not in question.claims
+        or claim.question_id != question.question_id
+        or claim.pair_key != target
         or claim.citation_id != citation.citation_id
         or citation.status != "cited"
         or citation.verified_on is None
         or citation.exact_passage == "NOT VERIFIED"
+        or not citation.exact_locator.strip()
         or not citation.exact_passage.strip()
         or not any(
             kind in citation.authority_class.lower() for kind in _ALLOWED_EVIDENCE_KINDS
         )
+    ):
+        return False
+    if question.source_concept_binding_required and (
+        claim.target_axis != target.axis
+        or claim.source_concept_code != target.filler
+        or claim.source_concept_identity is None
     ):
         return False
     if claim.support_excerpt not in citation.exact_passage:
@@ -145,11 +188,52 @@ def citation_supports_pair(
     return True
 
 
-class LiteratureQuestion(_StrictModel):
-    question_id: str = Field(min_length=1)
-    pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
-    text: str = Field(min_length=1)
-    claims: tuple[LiteratureEvidenceClaim, ...] = Field(min_length=1)
+def _validate_question_bindings(
+    question: LiteratureQuestion,
+    citations: dict[str, LiteratureCitation],
+    source_concepts: dict[str, LiteratureSourceConcept],
+) -> None:
+    keys = {(key.axis, key.filler) for key in question.pair_keys}
+    claim_keys = {
+        (claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims
+    }
+    if claim_keys != keys or any(
+        claim.question_id != question.question_id for claim in question.claims
+    ):
+        raise ValueError("claim must bind the question's exact pair and identity")
+    for claim in question.claims:
+        if question.source_concept_binding_required:
+            source = source_concepts.get(claim.source_concept_code or "")
+            if (
+                source is None
+                or claim.source_concept_code != claim.pair_key.filler
+                or claim.target_axis != claim.pair_key.axis
+                or claim.source_concept_identity != source.source_concept_identity
+            ):
+                raise ValueError(
+                    "claim source concept must bind the exact question pair"
+                )
+        citation = citations.get(claim.citation_id)
+        if citation is None:
+            raise ValueError("question references an unknown citation")
+        target = (
+            next(
+                key
+                for key in question.pair_keys
+                if key.filler == claim.source_concept_code
+            )
+            if claim.source_concept_code is not None
+            else claim.pair_key
+        )
+        if not citation_supports_pair(
+            target=target, question=question, claim=claim, citation=citation
+        ):
+            raise ValueError(
+                "every pair claim requires its exact accessible "
+                "passage-bearing citation"
+            )
+    if "supply" in question.text.lower():
+        raise ValueError("researchable evidence cannot be delegated to the specialist")
 
 
 class LiteratureDossierSource(_StrictModel):
@@ -161,6 +245,7 @@ class LiteratureDossierSource(_StrictModel):
     citations: tuple[LiteratureCitation, ...] = Field(min_length=1)
     questions: tuple[LiteratureQuestion, ...] = Field(min_length=1)
     context_pair_keys: tuple[LiteraturePairKey, ...] = ()
+    source_concepts: tuple[LiteratureSourceConcept, ...] = ()
 
     @model_validator(mode="after")
     def _references_are_closed(self) -> Self:
@@ -188,39 +273,11 @@ class LiteratureDossierSource(_StrictModel):
             or asked_keys & context_keys
         ):
             raise ValueError("asked and context pair keys must be unique and disjoint")
+        source_concepts = {item.code: item for item in self.source_concepts}
+        if len(source_concepts) != len(self.source_concepts):
+            raise ValueError("source concept codes must be unique")
         for question in self.questions:
-            keys = {(key.axis, key.filler) for key in question.pair_keys}
-            claim_keys = {
-                (claim.pair_key.axis, claim.pair_key.filler)
-                for claim in question.claims
-            }
-            if claim_keys != keys or any(
-                claim.question_id != question.question_id for claim in question.claims
-            ):
-                raise ValueError(
-                    "claim must bind the question's exact pair and identity"
-                )
-            selected = [citations.get(claim.citation_id) for claim in question.claims]
-            if None in selected:
-                raise ValueError("question references an unknown citation")
-            if not all(
-                item is not None
-                and citation_supports_pair(
-                    question_id=question.question_id,
-                    pair_key=claim.pair_key,
-                    claim=claim,
-                    citation=item,
-                )
-                for claim, item in zip(question.claims, selected, strict=True)
-            ):
-                raise ValueError(
-                    "every pair claim requires its exact accessible "
-                    "passage-bearing citation"
-                )
-            if "supply" in question.text.lower():
-                raise ValueError(
-                    "researchable evidence cannot be delegated to the specialist"
-                )
+            _validate_question_bindings(question, citations, source_concepts)
         return self
 
 

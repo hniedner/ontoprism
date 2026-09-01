@@ -367,9 +367,9 @@
           "url": "https://tumourclassification.iarc.who.int/chapters/34",
           "doi": null,
           "pmid": null,
-          "verified_on": "2026-08-31",
-          "exact_locator": "Ovarian germ cell tumour chapter/table",
-          "exact_passage": "Unavailable: official WHO chapter access was restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Controls exact histologic scope; accessible Table 1 reproduction is recorded separately.",
           "does_not_support": "No NCIt pair, axis, or grouping action.",
           "limitations": "No exact passage independently verified.",
@@ -401,9 +401,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/38468475/",
           "doi": "10.1111/joim.13778",
           "pmid": "38468475",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text not independently accessible",
-          "exact_passage": "Unavailable: full text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential corroboration of histologic heterogeneity.",
           "does_not_support": "No ontology decision.",
           "limitations": "Exact passage unavailable.",
@@ -418,9 +418,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/32615119/",
           "doi": "10.1016/S1470-2045(20)30091-7",
           "pmid": "32615119",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full guideline text not independently accessible",
-          "exact_passage": "Unavailable: full text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential clinical corroboration only.",
           "does_not_support": "No NCIt semantics.",
           "limitations": "Exact passage unavailable.",
@@ -574,9 +574,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/35288841/",
           "doi": null,
           "pmid": "35288841",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full classification-overview text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential controlling classification context.",
           "does_not_support": "No pair or action.",
           "limitations": "Exact passage unavailable.",
@@ -608,9 +608,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/36890425/",
           "doi": "10.1007/s12022-023-09753-5",
           "pmid": "36890425",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full pathology-review text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential pathology corroboration.",
           "does_not_support": "No pair admission.",
           "limitations": "Exact passage unavailable.",
@@ -625,9 +625,9 @@
           "url": "https://doi.org/10.1089/thy.2014.0335",
           "doi": "10.1089/thy.2014.0335",
           "pmid": "25810047",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Guideline full text not independently checked",
-          "exact_passage": "Unavailable: the guideline text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential clinical management context.",
           "does_not_support": "No universality or ontology grouping.",
           "limitations": "Management guideline, not ontology authority.",
@@ -953,9 +953,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/32732585/",
           "doi": "10.1097/PAP.0000000000000275",
           "pmid": "32732585",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full histogenesis review was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential pathology and histogenesis context.",
           "does_not_support": "No routing or group decision.",
           "limitations": "Exact passage unavailable.",
@@ -1281,9 +1281,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/34424954/",
           "doi": "10.5858/arpa.2021-0006-RA",
           "pmid": "34424954",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full terminology-review text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential historical terminology context.",
           "does_not_support": "No ontology action.",
           "limitations": "Exact passage unavailable.",
@@ -1332,9 +1332,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/41651613/",
           "doi": "10.1016/j.path.2025.08.004",
           "pmid": "41651613",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Publication text unavailable",
-          "exact_passage": "Unavailable: the publication text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential current corroboration.",
           "does_not_support": "No retrospective relabeling by itself.",
           "limitations": "Exact passage unavailable.",
@@ -1344,6 +1344,7 @@
       "questions": [
         {
           "question_id": "C100054-REVIEWABLE-PAIRS",
+          "source_concept_binding_required": true,
           "pair_keys": [
             {
               "axis": "op:ClinicalFinding",
@@ -1365,6 +1366,9 @@
               "citation_id": "milman-2023",
               "support_excerpt": "without documented evidence of subepithelial invasion",
               "supported_claim": "The named melanoma-in-situ criterion is described without documented evidence of subepithelial invasion.",
+              "target_axis": "op:ClinicalFinding",
+              "source_concept_code": "C36027",
+              "source_concept_identity": "dc1c1349cd2780fcd9f536c37ba6419980e90306eb858ef1a6a793814866e907",
               "evidence_terms": [
                 "without documented evidence of subepithelial invasion"
               ]
@@ -1378,6 +1382,9 @@
               "citation_id": "milman-2023-low-grade",
               "support_excerpt": "Predominantly basilar melanocytic proliferation with low-grade atypia",
               "supported_claim": "The low-grade CMIL row describes predominantly basilar melanocytic proliferation with low-grade atypia.",
+              "target_axis": "op:ClinicalFinding",
+              "source_concept_code": "C8326",
+              "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
               "evidence_terms": [
                 "predominantly basilar melanocytic proliferation with low-grade atypia"
               ]
@@ -1391,6 +1398,9 @@
               "citation_id": "milman-2023-high-grade",
               "support_excerpt": "significant non-basilar proliferation of melanocytes with high-grade atypia",
               "supported_claim": "The high-grade CMIL row describes significant non-basilar proliferation of melanocytes with high-grade atypia.",
+              "target_axis": "op:ClinicalFinding",
+              "source_concept_code": "C8326",
+              "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
               "evidence_terms": [
                 "significant non-basilar proliferation of melanocytes with high-grade atypia"
               ]
@@ -1404,6 +1414,9 @@
               "citation_id": "mudhar-2024",
               "support_excerpt": "progression of noninvasive neoplastic melanocytes from low- to high-grade lesions, onto melanoma in situ (MIS)",
               "supported_claim": "WHO-EYE04 describes noninvasive neoplastic melanocytes progressing from low- to high-grade lesions and melanoma in situ.",
+              "target_axis": "op:ClinicalFinding",
+              "source_concept_code": "C36027",
+              "source_concept_identity": "dc1c1349cd2780fcd9f536c37ba6419980e90306eb858ef1a6a793814866e907",
               "evidence_terms": [
                 "noninvasive neoplastic melanocytes",
                 "low- to high-grade lesions",
@@ -1419,12 +1432,29 @@
               "citation_id": "mudhar-2024",
               "support_excerpt": "noninvasive neoplastic melanocytes from low- to high-grade lesions",
               "supported_claim": "WHO-EYE04 distinguishes low- to high-grade lesions among noninvasive neoplastic melanocytes.",
+              "target_axis": "op:ClinicalFinding",
+              "source_concept_code": "C8326",
+              "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
               "evidence_terms": [
                 "noninvasive neoplastic melanocytes",
                 "low- to high-grade lesions"
               ]
             }
           ]
+        }
+      ],
+      "source_concepts": [
+        {
+          "code": "C36027",
+          "exact_label": "Non-Invasive Lesion",
+          "exact_definition": "A neoplastic process that is confined to the site of origin without morphologic evidence of cellular infiltration of the surrounding tissues.",
+          "source_concept_identity": "dc1c1349cd2780fcd9f536c37ba6419980e90306eb858ef1a6a793814866e907"
+        },
+        {
+          "code": "C8326",
+          "exact_label": "Cytologic Atypia",
+          "exact_definition": "The presence of irregularly shaped or sized cells as compared to the cells that are normally present.",
+          "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1"
         }
       ],
       "context_pair_keys": [
@@ -1486,9 +1516,9 @@
           "url": "https://pubmed.ncbi.nlm.nih.gov/27300676/",
           "doi": "10.1016/S1470-2045(15)00539-2",
           "pmid": "27300676",
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full guideline-principles text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential rationale for tiered registry staging.",
           "does_not_support": "Does not provide version 2 exact ALL codes.",
           "limitations": "Version 1 principles, not the exact version 2 table.",
@@ -1747,9 +1777,9 @@
           "url": "https://doi.org/10.1007/s00428-020-03015-z",
           "doi": "10.1007/s00428-020-03015-z",
           "pmid": null,
-          "verified_on": "2026-08-31",
-          "exact_locator": "Full text unavailable",
-          "exact_passage": "Unavailable: the full pathology-review text was access restricted in this evidence pass.",
+          "verified_on": null,
+          "exact_locator": "ACCESS RESTRICTED",
+          "exact_passage": "NOT VERIFIED",
           "supports": "Potential morphology and marker context.",
           "does_not_support": "No staging repair.",
           "limitations": "Exact passage unavailable.",
