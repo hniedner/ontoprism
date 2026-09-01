@@ -8,6 +8,7 @@ from scripts.research.specialist_literature_context import (
     LiteratureCitation,
     LiteratureEvidenceClaim,
     LiteraturePairKey,
+    LiteratureQuestion,
     citation_supports_pair,
 )
 from scripts.research.specialist_review_packets import (
@@ -195,6 +196,7 @@ def _citation(
     passage: str = "The tumor contains spindle cells.",
     does_not: str = "No ontology action.",
 ) -> LiteratureCitation:
+    restricted = status == "access-restricted"
     return LiteratureCitation.model_validate(
         {
             "citation_id": "S1",
@@ -205,9 +207,9 @@ def _citation(
             "url": "https://example.test/source",
             "doi": None,
             "pmid": None,
-            "verified_on": "2026-08-31",
-            "exact_locator": "Results",
-            "exact_passage": passage,
+            "verified_on": None if restricted else "2026-08-31",
+            "exact_locator": "ACCESS RESTRICTED" if restricted else "Results",
+            "exact_passage": "NOT VERIFIED" if restricted else passage,
             "supports": "Spindle-cell morphology is described.",
             "does_not_support": does_not,
             "limitations": "Review.",
@@ -227,38 +229,52 @@ def _claim(*, filler: str = "C1", citation_id: str = "S1") -> LiteratureEvidence
     )
 
 
-def test_d1_shared_citation_predicate_accepts_exact_accessible_pair_claim() -> None:
-    assert citation_supports_pair(
+def _question(claim: LiteratureEvidenceClaim | None = None) -> LiteratureQuestion:
+    selected = claim or _claim()
+    return LiteratureQuestion(
         question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
-        claim=_claim(),
+        pair_keys=(LiteraturePairKey(axis="op:CellType", filler="C1"),),
+        text="Assess the source-bound pair.",
+        claims=(selected,),
+    )
+
+
+def test_d1_shared_citation_predicate_accepts_exact_accessible_pair_claim() -> None:
+    question = _question()
+    assert citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
         citation=_citation(),
     )
 
 
 def test_d2_shared_citation_predicate_rejects_wrong_pair() -> None:
+    question = _question()
     assert not citation_supports_pair(
-        question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C2"),
-        claim=_claim(),
+        target=LiteraturePairKey(axis="op:CellType", filler="C2"),
+        question=question,
+        claim=question.claims[0],
         citation=_citation(),
     )
 
 
 def test_d3_shared_citation_predicate_rejects_restricted_source() -> None:
+    question = _question()
     assert not citation_supports_pair(
-        question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
-        claim=_claim(),
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
         citation=_citation(status="access-restricted"),
     )
 
 
 def test_d4_shared_citation_predicate_rejects_contradiction() -> None:
+    question = _question()
     assert not citation_supports_pair(
-        question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
-        claim=_claim(),
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
         citation=_citation(does_not="Does not support spindle cells."),
     )
 
@@ -270,19 +286,21 @@ def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
             "evidence_terms": ("contains spindle cells", "metastatic"),
         }
     )
+    question = _question(claim)
     assert not citation_supports_pair(
-        question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
         claim=claim,
         citation=_citation(),
     )
 
 
 def test_d4b_shared_citation_predicate_rejects_wrong_pair_with_same_citation() -> None:
+    question = _question()
     assert not citation_supports_pair(
-        question_id="Q1",
-        pair_key=LiteraturePairKey(axis="op:CellType", filler="C2"),
-        claim=_claim(filler="C1"),
+        target=LiteraturePairKey(axis="op:CellType", filler="C2"),
+        question=question,
+        claim=question.claims[0],
         citation=_citation(),
     )
 

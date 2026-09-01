@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from scripts.research.specialist_literature_context import (
     LiteratureContextSource,
+    citation_supports_pair,
     generate_specialist_literature_context,
 )
 
@@ -93,6 +94,42 @@ def test_c100054_claim_excerpts_and_terms_are_exactly_passage_bound() -> None:
             passage = citations[claim.citation_id].exact_passage
             assert claim.support_excerpt in passage
             assert all(term.lower() in passage.lower() for term in claim.evidence_terms)
+
+
+def test_c100054_actual_claims_bind_source_metadata_and_exact_targets() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    question = dossier.questions[0]
+    citations = {item.citation_id: item for item in dossier.citations}
+    concepts = {item.code: item for item in dossier.source_concepts}
+
+    assert question.source_concept_binding_required is True
+    assert set(concepts) == {"C36027", "C8326"}
+    for target in question.pair_keys:
+        matching = [
+            claim
+            for claim in question.claims
+            if claim.source_concept_code == target.filler
+        ]
+        assert matching
+        assert all(
+            claim.source_concept_identity
+            == concepts[target.filler].source_concept_identity
+            for claim in matching
+        )
+
+    p3 = next(
+        claim
+        for claim in question.claims
+        if claim.citation_id == "mudhar-2024" and claim.source_concept_code == "C36027"
+    )
+    p4 = next(key for key in question.pair_keys if key.filler == "C8326")
+    assert not citation_supports_pair(
+        target=p4,
+        question=question,
+        claim=p3,
+        citation=citations[p3.citation_id],
+    )
 
 
 def test_c100054_bresler_2022_metadata_is_exact_and_access_is_honest() -> None:
@@ -235,6 +272,29 @@ def test_question_claim_must_bind_its_exact_pair_and_accessible_source() -> None
         LiteratureContextSource.model_validate_json(json.dumps(payload))
 
 
+def test_c100054_swapped_claim_pair_keys_are_rejected_with_same_key_set() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claims = dossier["questions"][0]["claims"]
+    non_invasive = next(
+        claim for claim in claims if claim["pair_key"]["filler"] == "C36027"
+    )
+    atypia = next(claim for claim in claims if claim["pair_key"]["filler"] == "C8326")
+    non_invasive["pair_key"], atypia["pair_key"] = (
+        atypia["pair_key"],
+        non_invasive["pair_key"],
+    )
+
+    assert {
+        (claim["pair_key"]["axis"], claim["pair_key"]["filler"]) for claim in claims
+    } == {
+        ("op:ClinicalFinding", "C36027"),
+        ("op:ClinicalFinding", "C8326"),
+    }
+    with pytest.raises(ValueError, match=r"source concept.*exact question pair"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
 def test_literature_generator_is_deterministic_and_rejects_open_citations(
     tmp_path: Path,
 ) -> None:
@@ -265,6 +325,16 @@ def test_literature_generator_is_deterministic_and_rejects_open_citations(
         generate_specialist_literature_context(broken, output)
 
 
+def test_cited_source_requires_an_iso_verified_date() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    citation = payload["dossiers"][0]["citations"][0]
+    assert citation["status"] == "cited"
+    citation["verified_on"] = "not-a-date"
+
+    with pytest.raises(ValueError, match="verified date"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
 def test_access_restricted_source_has_no_verification_or_quote_surface() -> None:
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
     restricted = [
@@ -277,6 +347,35 @@ def test_access_restricted_source_has_no_verification_or_quote_surface() -> None
     assert all(citation.verified_on is None for citation in restricted)
     assert all(citation.exact_locator == "ACCESS RESTRICTED" for citation in restricted)
     assert all(citation.exact_passage == "NOT VERIFIED" for citation in restricted)
+
+
+@pytest.mark.parametrize(
+    "citation_id",
+    ["bresler-2022", "stagner-2026", "gupta-2016"],
+)
+def test_access_restricted_source_rejects_a_date_and_quote_without_normalizing(
+    citation_id: str,
+) -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    citation = next(
+        citation
+        for dossier in payload["dossiers"]
+        for citation in dossier["citations"]
+        if citation["citation_id"] == citation_id
+    )
+    citation.update(
+        {
+            "verified_on": "2026-08-31",
+            "exact_locator": "Page 1",
+            "exact_passage": "A quote that was not actually verified.",
+        }
+    )
+
+    with pytest.raises(ValueError, match="access-restricted citation must have no"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+    assert citation["verified_on"] == "2026-08-31"
+    assert citation["exact_locator"] == "Page 1"
+    assert citation["exact_passage"] == "A quote that was not actually verified."
 
 
 def test_final_oncology_pass_binds_requested_accessible_passages_to_exact_pairs() -> (
