@@ -9,6 +9,7 @@ from backend.dependencies import get_decomposition_reader, get_ncit_store
 from backend.main import create_app
 from ontolib.decomposition import vocab
 from ontolib.decomposition.enhanced_showcase import (
+    ShowcasePolicyError,
     load_packaged_showcase_decision_set,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -109,3 +110,22 @@ def test_showcase_refuses_unknown_concepts_and_malformed_stored_rows() -> None:
     assert unknown.status_code == 404
     assert malformed.status_code == 503
     assert missing.status_code == 503
+
+
+@pytest.mark.api
+def test_corrupt_packaged_showcase_is_service_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def corrupt_loader() -> None:
+        raise ShowcasePolicyError("packaged showcase decision set is invalid")
+
+    monkeypatch.setattr(
+        "backend.api.v1.ncit.load_packaged_showcase_decision_set", corrupt_loader
+    )
+
+    response = next(_client(_CountingReader())).get(
+        "/api/v1/ncit/concepts/C6135/enhanced-ncit-showcase"
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "packaged showcase decision set is invalid"

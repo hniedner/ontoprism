@@ -264,6 +264,8 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         return (
             ("cp source target", "allow"),
             ("git status --porcelain", "allow"),
+            ("git diff --no-ext-diff main...HEAD", "allow"),
+            ("git diff --name-only main...HEAD", "allow"),
             (
                 "pdm run agent-test backend/tests/test_opencode_config_validation.py",
                 "allow",

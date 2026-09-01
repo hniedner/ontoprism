@@ -194,6 +194,8 @@ R3_BASH_ALLOWS = (
     "git status --porcelain",
     "git status --short --branch",
     "git rev-parse HEAD",
+    "git diff --no-ext-diff main...HEAD",
+    "git diff --name-only main...HEAD",
     "pdm run agent-test *",
     GITHUB_READ_WRAPPER,
 )
@@ -1017,6 +1019,8 @@ def validate_r3_contract(
         "git status --porcelain",
         "git status --short --branch",
         "git rev-parse HEAD",
+        "git diff --no-ext-diff main...HEAD",
+        "git diff --name-only main...HEAD",
         "pdm run agent-test *",
         GITHUB_READ_WRAPPER,
     ):

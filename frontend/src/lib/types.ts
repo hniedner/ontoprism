@@ -339,7 +339,7 @@ export interface ConceptDecomposition {
 }
 
 export type ShowcaseDisposition = 'include' | 'exclude' | 'unresolved-visible';
-export type ShowcaseAuthority = 'source-stated' | 'project-provisional' | 'locally-approved' | 'nci-adopted';
+export type ShowcaseAuthority = 'source-stated' | 'project-provisional' | 'locally-approved';
 export type ShowcaseSupport = 'source-stated' | 'peer-reviewed-supported' | 'project-inference' | 'peer-reviewed-not-found';
 
 export interface ShowcaseConstituent {

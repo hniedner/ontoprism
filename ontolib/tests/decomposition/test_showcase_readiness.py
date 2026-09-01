@@ -7,6 +7,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from rdflib import Graph
 
 from ontolib.decomposition.enhanced_showcase import (
     SHOWCASE_GRAPH_IRI,
@@ -29,6 +30,7 @@ class _StoredShowcaseClient:
         *,
         corrupt_code: str | None = None,
         source_versions: list[dict[str, str]] | None = None,
+        foreign_triple: bool = False,
     ) -> None:
         policy = load_packaged_showcase_decision_set()
         self.rows = {
@@ -52,11 +54,33 @@ class _StoredShowcaseClient:
         self.source_versions = (
             [{"version": "26.07d"}] if source_versions is None else source_versions
         )
+        graph = Graph().parse(
+            data=serialize_showcase_decision_graph(policy), format="turtle"
+        )
+        self.graph_rows = [
+            {"s": str(subject), "p": str(predicate), "o": str(value)}
+            for subject, predicate, value in graph
+        ]
+        if corrupt_code is not None:
+            corrupt_subject = next(
+                row["s"]
+                for row in self.graph_rows
+                if f"/decision/{corrupt_code}-" in row["s"]
+            )
+            self.graph_rows = [
+                row for row in self.graph_rows if row["s"] != corrupt_subject
+            ]
+        if foreign_triple:
+            self.graph_rows.append(
+                {"s": "urn:foreign", "p": "urn:predicate", "o": "urn:value"}
+            )
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
         if "owl:versionInfo" in query:
             return self.source_versions
+        if "SELECT ?s ?p ?o" in query:
+            return self.graph_rows
         code = next(code for code in self.rows if code in query)
         return self.rows[code]
 
@@ -76,7 +100,7 @@ class _StoredShowcaseClient:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_verification_reads_every_concept_once_and_writes_bound_report(
+async def test_verification_reads_exact_graph_once_and_writes_bound_report(
     tmp_path: Path,
 ) -> None:
     client = _StoredShowcaseClient()
@@ -91,9 +115,11 @@ async def test_verification_reads_every_concept_once_and_writes_bound_report(
     policy = load_packaged_showcase_decision_set()
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload == report.model_dump(mode="json")
-    decision_queries = [query for query in client.select_calls if "?payload" in query]
-    assert len(decision_queries) == 7
-    assert len(set(decision_queries)) == 7
+    closure_queries = [
+        query for query in client.select_calls if "SELECT ?s ?p ?o" in query
+    ]
+    assert len(closure_queries) == 1
+    assert "LIMIT 396" in closure_queries[0]
     assert sum("owl:versionInfo" in query for query in client.select_calls) == 1
     assert client.loads == []
     assert client.updates == []
@@ -164,9 +190,31 @@ async def test_partial_storage_fails_closed_without_a_report(tmp_path: Path) -> 
     output.parent.mkdir(parents=True)
     output.write_text('{"stale":true}\n', encoding="utf-8")
 
-    with pytest.raises(ShowcasePolicyError, match="packaged authority"):
+    with pytest.raises(ShowcasePolicyError, match="exact packaged graph"):
         await verify_showcase_readiness(
             _StoredShowcaseClient(corrupt_code="C35756"),
+            output=output,
+            git_head="a" * 40,
+            producing_command="pdm run agent-replay verify-enhanced-ncit-showcase",
+        )
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_foreign_graph_content_fails_closed_without_a_report(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "tmp/m1-6-enhanced-showcase-readiness.json"
+    output.parent.mkdir(parents=True)
+    output.write_text('{"stale":true}\n', encoding="utf-8")
+
+    with pytest.raises(
+        ShowcasePolicyError, match=r"closure budgets|exact packaged graph"
+    ):
+        await verify_showcase_readiness(
+            _StoredShowcaseClient(foreign_triple=True),
             output=output,
             git_head="a" * 40,
             producing_command="pdm run agent-replay verify-enhanced-ncit-showcase",
@@ -182,15 +230,13 @@ async def test_invalid_storage_rows_fail_closed_without_a_report(
     tmp_path: Path, corruption: str
 ) -> None:
     client = _StoredShowcaseClient()
-    rows = client.rows["C35756"]
+    rows = client.graph_rows
     if corruption == "duplicate":
         rows.append(rows[0].copy())
     elif corruption == "malformed":
-        rows[0] = {"payload": "not-json"}
+        rows[0] = {"unexpected": "not-a-triple"}
     else:
-        payload = json.loads(rows[0]["payload"])
-        payload["rationale"] = "Stale stored rationale."
-        rows[0] = {"payload": json.dumps(payload)}
+        rows[0] = {**rows[0], "o": "stale stored value"}
     output = tmp_path / "tmp/m1-6-enhanced-showcase-readiness.json"
 
     with pytest.raises(ShowcasePolicyError, match="stored showcase"):
@@ -255,7 +301,9 @@ async def test_activation_uses_one_scoped_load_and_update_then_complete_readback
         not in client.updates[0]
     )
     assert "Thesaurus-stated.owl" not in client.updates[0]
-    assert len([query for query in client.select_calls if "?payload" in query]) == 7
+    assert (
+        len([query for query in client.select_calls if "SELECT ?s ?p ?o" in query]) == 1
+    )
     assert sum("owl:versionInfo" in query for query in client.select_calls) == 1
 
 

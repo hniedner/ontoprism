@@ -661,6 +661,26 @@ def test_each_role_class_rejects_every_extra_bash_allow(
     )
 
 
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "git diff --no-ext-diff main...HEAD",
+        "git diff --name-only main...HEAD",
+    ],
+)
+def test_r3_requires_exact_committed_diff_scope_allows(
+    config_root: Path, pattern: str
+) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-test-analyzer.md",
+        f'    "{pattern}": allow\n',
+        "",
+    )
+
+    assert f"R3_PERMISSION: R3 must allow {pattern}" in validate(config_root)
+
+
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
     shutil.copy2(
         config_root / ".opencode/agent/architect.md",

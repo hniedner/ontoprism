@@ -31,7 +31,6 @@ class DecisionAuthority(StrEnum):
     SOURCE_STATED = "source-stated"
     PROJECT_PROVISIONAL = "project-provisional"
     LOCALLY_APPROVED = "locally-approved"
-    NCI_ADOPTED = "nci-adopted"
 
 
 class EvidenceSupport(StrEnum):
@@ -69,11 +68,16 @@ _EXPECTED_CODES = {
     "C198031",
     "C35756",
 }
+_SHOWCASE_GRAPH_BYTE_BUDGET = 262_144
 _OP = Namespace(vocab.ONTOPRISM_NS)
 
 
 class ShowcasePolicyError(ValueError):
     """The showcase policy or its isolated graph is unsafe to activate."""
+
+
+class ShowcaseConceptNotInCohortError(ShowcasePolicyError):
+    """A valid user-supplied NCIt code is outside the explicit showcase cohort."""
 
 
 class _ShowcaseGraphClient(Protocol):
@@ -140,6 +144,9 @@ def _validate_authority(decision: ShowcaseDecision) -> None:
         return
     if decision.authority == DecisionAuthority.PROJECT_PROVISIONAL:
         _validate_project_authority(decision)
+        return
+    if decision.authority == DecisionAuthority.LOCALLY_APPROVED:
+        _validate_locally_approved_authority(decision)
 
 
 def _validate_source_authority(decision: ShowcaseDecision) -> None:
@@ -155,6 +162,18 @@ def _validate_project_authority(decision: ShowcaseDecision) -> None:
     if missing_inference or not decision.limitations.strip():
         raise ValueError(
             "project-provisional include requires project-inference and limitations"
+        )
+
+
+def _validate_locally_approved_authority(decision: ShowcaseDecision) -> None:
+    required = {
+        EvidenceSupport.SOURCE_STATED,
+        EvidenceSupport.PEER_REVIEWED_SUPPORTED,
+    }
+    if not required.issubset(decision.support) or not decision.source_occurrence_ids:
+        raise ValueError(
+            "locally-approved authority requires source support and binding plus "
+            "peer-reviewed-supported evidence"
         )
 
 
@@ -227,7 +246,9 @@ class ShowcaseDecisionSet(_StrictModel):
         for concept in self.concepts:
             if concept.code == code:
                 return concept
-        raise ShowcasePolicyError(f"{code} is outside the enhanced-NCIt showcase")
+        raise ShowcaseConceptNotInCohortError(
+            f"{code} is outside the enhanced-NCIt showcase"
+        )
 
 
 class EnhancedNcitShowcaseView(_StrictModel):
@@ -501,20 +522,6 @@ def serialize_showcase_decision_graph(policy: ShowcaseDecisionSet) -> str:
     return graph.serialize(format="turtle")
 
 
-def parse_showcase_decision_graph(turtle: str) -> tuple[ShowcaseDecision, ...]:
-    try:
-        graph = Graph().parse(data=turtle, format="turtle")
-        rows = [
-            ShowcaseDecision.model_validate_json(str(payload))
-            for payload in graph.objects(None, _OP.payload)
-        ]
-        if len(rows) != len({row.candidate_id for row in rows}):
-            raise ValueError("duplicate showcase decision")
-        return tuple(sorted(rows, key=lambda row: row.candidate_id))
-    except Exception as exc:
-        raise ValueError("stored showcase decision graph is invalid") from exc
-
-
 def build_showcase_decision_query(concept_code: str) -> str:
     """Read decision payloads separately, preventing base/overlay cross products."""
     concept = safe_iri(concept_code, NCIT_NS)
@@ -523,6 +530,55 @@ def build_showcase_decision_query(concept_code: str) -> str:
         f"?decision <{_OP.concept}> <{concept}> ; "
         f"<{_OP.payload}> ?payload . }} }}"
     )
+
+
+def _expected_showcase_graph_rows(
+    policy: ShowcaseDecisionSet,
+) -> set[tuple[str, str, str]]:
+    graph = Graph().parse(
+        data=serialize_showcase_decision_graph(policy), format="turtle"
+    )
+    return {
+        (str(subject), str(predicate), str(value))
+        for subject, predicate, value in graph
+    }
+
+
+def build_showcase_closure_query(policy: ShowcaseDecisionSet) -> str:
+    """Read the complete graph with a one-row overflow sentinel."""
+    limit = len(_expected_showcase_graph_rows(policy)) + 1
+    return (
+        f"SELECT ?s ?p ?o WHERE {{ GRAPH <{SHOWCASE_GRAPH_IRI}> {{ ?s ?p ?o }} }} "
+        f"ORDER BY ?s ?p ?o LIMIT {limit}"
+    )
+
+
+def require_exact_showcase_graph(
+    rows: list[dict[str, str]], policy: ShowcaseDecisionSet
+) -> None:
+    """Require every stored triple, bounded by generated package authority."""
+    expected = _expected_showcase_graph_rows(policy)
+    if len(rows) > len(expected) or _showcase_graph_bytes(rows) > (
+        _SHOWCASE_GRAPH_BYTE_BUDGET
+    ):
+        raise ShowcasePolicyError("stored showcase graph exceeds closure budgets")
+    stored = _stored_showcase_graph_rows(rows)
+    if len(stored) != len(rows) or stored != expected:
+        raise ShowcasePolicyError(
+            "stored showcase graph differs from the exact packaged graph"
+        )
+
+
+def _showcase_graph_bytes(rows: list[dict[str, str]]) -> int:
+    return sum(len(value.encode("utf-8")) for row in rows for value in row.values())
+
+
+def _stored_showcase_graph_rows(
+    rows: list[dict[str, str]],
+) -> set[tuple[str, str, str]]:
+    if any(set(row) != {"s", "p", "o"} for row in rows):
+        raise ShowcasePolicyError("stored showcase graph has an invalid projection")
+    return {(row["s"], row["p"], row["o"]) for row in rows}
 
 
 def validate_showcase_rows(
@@ -599,7 +655,7 @@ async def require_complete_active_showcase(
     *,
     policy: ShowcaseDecisionSet | None = None,
 ) -> ShowcaseDecisionSet:
-    """Read each showcase concept once and require its exact packaged decisions."""
+    """Require the source release and exact bounded contents of the active graph."""
     authority = policy or load_packaged_showcase_decision_set()
     versions = await client.select(
         "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
@@ -610,7 +666,6 @@ async def require_complete_active_showcase(
         raise ShowcasePolicyError(
             "configured NCIt source release differs from showcase authority"
         )
-    for concept in authority.concepts:
-        rows = await client.select(build_showcase_decision_query(concept.code))
-        require_active_showcase_decisions(rows, concept.decisions)
+    rows = await client.select(build_showcase_closure_query(authority))
+    require_exact_showcase_graph(rows, authority)
     return authority
