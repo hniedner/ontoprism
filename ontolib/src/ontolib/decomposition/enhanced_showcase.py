@@ -264,12 +264,6 @@ class EnhancedNcitShowcaseView(_StrictModel):
     decisions: tuple[ShowcaseDecision, ...]
 
 
-class ShowcaseOrthogonality(_StrictModel):
-    concept_roots: tuple[str, ...]
-    source_occurrences: tuple[str, ...]
-    runtime_keys: tuple[str, ...]
-
-
 def _expand_resource(payload: dict[str, Any]) -> dict[str, Any]:
     if set(payload) != {
         "schema_version",
@@ -432,7 +426,7 @@ def qualify_showcase_orthogonality(
     *,
     collapse_concept_roots: set[str] | None = None,
     collapse_runtime_keys: set[tuple[str, str, str]] | None = None,
-) -> ShowcaseOrthogonality:
+) -> None:
     collapse = load_packaged_collapse_veto_policy()
     roots = _collapse_roots(collapse, collapse_concept_roots)
     overlap_roots = tuple(sorted(_EXPECTED_CODES & roots))
@@ -448,9 +442,6 @@ def qualify_showcase_orthogonality(
         raise ShowcasePolicyError(
             "enhanced showcase overlaps R101 collapse-veto policy"
         )
-    return ShowcaseOrthogonality(
-        concept_roots=(), source_occurrences=(), runtime_keys=()
-    )
 
 
 def _collapse_roots(

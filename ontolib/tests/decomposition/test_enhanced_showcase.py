@@ -191,12 +191,12 @@ def test_decision_graph_serialization_and_scoped_recoverable_replacement() -> No
 @pytest.mark.unit
 def test_showcase_and_packaged_r101_policy_are_provably_orthogonal() -> None:
     module = _showcase()
-    report = module.qualify_showcase_orthogonality(
-        module.load_packaged_showcase_decision_set()
+    assert (
+        module.qualify_showcase_orthogonality(
+            module.load_packaged_showcase_decision_set()
+        )
+        is None
     )
-    assert report.concept_roots == ()
-    assert report.source_occurrences == ()
-    assert report.runtime_keys == ()
 
     policy = module.load_packaged_showcase_decision_set()
     with pytest.raises(module.ShowcasePolicyError, match="overlaps R101 collapse-veto"):
