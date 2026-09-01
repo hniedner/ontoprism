@@ -101,7 +101,7 @@ these separately.
 
 Candidate rows have 63 `include` labels but 64 kept constituents because one `revise` row is
 also kept. Its revised pair for Stage I Endometrial Cancer FIGO 2023 (`C206219`),
-`op:PrimarySite` Uterus (`C12316`), is absent from the recorded engine
+`op:PrimarySite` Corpus Uteri (`C12316`), is absent from the recorded engine
 evidence
 (`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
 2026-08-09).

@@ -7,6 +7,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 from rdflib import Graph
 
 from ontolib.decomposition.enhanced_showcase import (
@@ -16,6 +17,7 @@ from ontolib.decomposition.enhanced_showcase import (
     serialize_showcase_decision_graph,
 )
 from ontolib.decomposition.showcase_readiness import (
+    ShowcaseReadinessReport,
     activate_showcase_readiness,
     verify_showcase_readiness,
 )
@@ -165,11 +167,7 @@ async def test_verification_reads_exact_graph_once_and_writes_bound_report(
         "project-inference": 23,
         "source-stated": 70,
     }
-    assert payload["collapse_policy_overlaps"] == {
-        "concept_roots": 0,
-        "runtime_keys": 0,
-        "source_occurrences": 0,
-    }
+    assert "collapse_policy_overlaps" not in payload
     identity_payload = {
         key: value for key, value in payload.items() if key != "report_identity"
     }
@@ -181,6 +179,43 @@ async def test_verification_reads_exact_graph_once_and_writes_bound_report(
             )
         ).hexdigest()
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("showcase_complete", False),
+        ("local_graph_activated", False),
+        ("api_ready", False),
+        ("production_ready", True),
+        ("scientific_publication_ready", True),
+        ("equivalence_established", True),
+        ("nci_adoption_asserted", True),
+        ("representation", "unknown-representation"),
+        ("overlay_algorithm", "unknown-overlay"),
+        ("graph_iri", "urn:wrong-graph"),
+        ("source_release", "99.99z"),
+    ],
+)
+async def test_self_consistent_false_readiness_claims_fail_model_validation(
+    tmp_path: Path, field: str, invalid_value: object
+) -> None:
+    report = await verify_showcase_readiness(
+        _StoredShowcaseClient(),
+        output=tmp_path / "readiness.json",
+        git_head="a" * 40,
+        producing_command="pdm run agent-replay verify-enhanced-ncit-showcase",
+    )
+    payload = report.model_dump(mode="json", exclude={"report_identity"})
+    payload[field] = invalid_value
+    payload["report_identity"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+
+    with pytest.raises(ValidationError):
+        ShowcaseReadinessReport.model_validate_json(json.dumps(payload))
 
 
 @pytest.mark.unit
