@@ -5,14 +5,204 @@ from pathlib import Path
 
 import pytest
 from scripts.research.specialist_literature_context import (
+    LEXICAL_EVIDENCE_STOPWORDS,
     LiteratureContextSource,
     citation_supports_pair,
     generate_specialist_literature_context,
+    normalize_lexical_evidence,
+    source_concept_identity,
 )
 
 pytestmark = pytest.mark.unit
 
 SOURCE = Path("scripts/research/data/specialist_literature_context_26_07d.json")
+
+
+def test_lexical_evidence_normalizer_canonicalizes_unicode_and_hyphen_joins() -> None:
+    assert normalize_lexical_evidence("  NON\u2011INVASIVE, Straße; low-grade  ") == (
+        "noninvasive strasse lowgrade"
+    )
+    assert normalize_lexical_evidence("Non-Invasive") == "noninvasive"
+    assert {"the", "and", "of", "in"} <= LEXICAL_EVIDENCE_STOPWORDS
+
+
+@pytest.mark.parametrize("feature", ["the", "of", "in", "a", "xy", "---"])
+def test_actual_source_rejects_vacuous_or_stopword_only_features(feature: str) -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    dossier["questions"][0]["claims"][0]["evidence_signature"][
+        "required_source_features"
+    ] = [feature]
+
+    with pytest.raises(ValueError, match="non-vacuous"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    "surface",
+    ["source_concept", "support_excerpt", "supported_claim", "exact_passage"],
+)
+def test_actual_source_requires_every_feature_on_every_exact_surface(
+    surface: str,
+) -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claim = dossier["questions"][0]["claims"][0]
+    if surface == "source_concept":
+        concept = next(
+            item
+            for item in dossier["source_concepts"]
+            if item["code"] == claim["source_concept_code"]
+        )
+        concept["exact_label"] = "Unrelated label"
+        concept["exact_definition"] = "Unrelated definition."
+        concept["source_concept_identity"] = source_concept_identity(
+            concept["code"], concept["exact_label"], concept["exact_definition"]
+        )
+        claim["source_concept_identity"] = concept["source_concept_identity"]
+    elif surface == "exact_passage":
+        citation = next(
+            item
+            for item in dossier["citations"]
+            if item["citation_id"] == claim["citation_id"]
+        )
+        citation["exact_passage"] = "Unrelated passage."
+    else:
+        claim[surface] = "Unrelated text."
+
+    with pytest.raises(ValueError, match="feature"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+def test_actual_c100054_rejects_full_target_triple_and_signature_swap() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claims = dossier["questions"][0]["claims"]
+    p3 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C36027")
+    p4 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C8326")
+    fields = (
+        "pair_key",
+        "source_concept_code",
+        "source_concept_identity",
+        "evidence_signature",
+    )
+    for field in fields:
+        p3[field], p4[field] = p4[field], p3[field]
+
+    assert {claim["pair_key"]["filler"] for claim in claims} == {"C36027", "C8326"}
+    with pytest.raises(ValueError, match="feature"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+def test_actual_c100054_rejects_signature_only_swap() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claims = dossier["questions"][0]["claims"]
+    p3 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C36027")
+    p4 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C8326")
+    p3["evidence_signature"], p4["evidence_signature"] = (
+        p4["evidence_signature"],
+        p3["evidence_signature"],
+    )
+
+    with pytest.raises(ValueError, match="feature"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+def test_actual_c100054_has_only_honest_pair_specific_claims() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    claims = dossier.questions[0].claims
+    assert {
+        (
+            claim.pair_key.filler,
+            claim.citation_id,
+            claim.evidence_signature.required_source_features,
+        )
+        for claim in claims
+    } == {
+        ("C36027", "mudhar-2024", ("noninvasive",)),
+        ("C8326", "milman-2023-low-grade", ("atypia",)),
+        ("C8326", "milman-2023-high-grade", ("atypia",)),
+    }
+    assert all(
+        claim.evidence_signature.passage_scope == "exclusive" for claim in claims
+    )
+
+
+def test_c27262_and_c6135_stopword_only_claims_are_honestly_withheld() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    for code in ("C27262", "C6135"):
+        dossier = next(row for row in source.dossiers if row.code == code)
+        assert all(not question.claims for question in dossier.questions)
+        assert all(question.withheld_pairs for question in dossier.questions)
+
+
+def test_claimed_and_withheld_pairs_must_be_an_exact_disjoint_cover() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    question = next(row for row in payload["dossiers"] if row["code"] == "C27262")[
+        "questions"
+    ][0]
+    question["withheld_pairs"] = []
+
+    with pytest.raises(ValueError, match="exact disjoint cover"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+def test_duplicate_exclusive_evidence_cannot_support_distinct_pairs() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claims = dossier["questions"][0]["claims"]
+    p3 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C36027")
+    p4 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C8326")
+    p4["citation_id"] = p3["citation_id"]
+    p4["support_excerpt"] = p3["support_excerpt"]
+    p4["supported_claim"] = p3["supported_claim"]
+    p4["evidence_signature"] = p3["evidence_signature"]
+    concept = next(
+        item for item in dossier["source_concepts"] if item["code"] == "C8326"
+    )
+    concept["exact_definition"] += " A noninvasive finding is included for this test."
+    concept["source_concept_identity"] = source_concept_identity(
+        concept["code"], concept["exact_label"], concept["exact_definition"]
+    )
+    for claim in claims:
+        if claim["source_concept_code"] == "C8326":
+            claim["source_concept_identity"] = concept["source_concept_identity"]
+
+    with pytest.raises(ValueError, match="exclusive evidence"):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
+
+
+def test_shared_context_requires_distinct_signatures_and_claims() -> None:
+    payload = json.loads(SOURCE.read_bytes())
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    claims = dossier["questions"][0]["claims"]
+    p3 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C36027")
+    p4 = next(claim for claim in claims if claim["pair_key"]["filler"] == "C8326")
+    p3["evidence_signature"]["passage_scope"] = "shared-context"
+    p4["citation_id"] = p3["citation_id"]
+    p4["support_excerpt"] = p3["support_excerpt"]
+    p4["supported_claim"] = p3["supported_claim"]
+    p4["evidence_signature"] = {
+        **p3["evidence_signature"],
+        "passage_scope": "shared-context",
+    }
+    concept = next(
+        item for item in dossier["source_concepts"] if item["code"] == "C8326"
+    )
+    concept["exact_definition"] += " A noninvasive finding is included for this test."
+    concept["source_concept_identity"] = source_concept_identity(
+        concept["code"], concept["exact_label"], concept["exact_definition"]
+    )
+    for claim in claims:
+        if claim["source_concept_code"] == "C8326":
+            claim["source_concept_identity"] = concept["source_concept_identity"]
+
+    with pytest.raises(
+        ValueError, match="distinct valid signatures and distinct claims"
+    ):
+        LiteratureContextSource.model_validate_json(json.dumps(payload))
 
 
 def test_c6135_source_facts_are_neutral_observations_without_answer_cues() -> None:
@@ -73,14 +263,13 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
         )
         for item in by_pair[pair]
     } == {
-        "milman-2023",
         "milman-2023-low-grade",
         "milman-2023-high-grade",
         "mudhar-2024",
     }
 
 
-def test_c100054_claim_excerpts_and_terms_are_exactly_passage_bound() -> None:
+def test_c100054_claim_excerpts_and_signatures_are_exactly_passage_bound() -> None:
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
     dossier = next(row for row in source.dossiers if row.code == "C100054")
     citations = {item.citation_id: item for item in dossier.citations}
@@ -93,7 +282,11 @@ def test_c100054_claim_excerpts_and_terms_are_exactly_passage_bound() -> None:
         for claim in question.claims:
             passage = citations[claim.citation_id].exact_passage
             assert claim.support_excerpt in passage
-            assert all(term.lower() in passage.lower() for term in claim.evidence_terms)
+            assert all(
+                normalize_lexical_evidence(feature)
+                in normalize_lexical_evidence(passage)
+                for feature in claim.evidence_signature.required_source_features
+            )
 
 
 def test_c100054_actual_claims_bind_source_metadata_and_exact_targets() -> None:
@@ -103,7 +296,6 @@ def test_c100054_actual_claims_bind_source_metadata_and_exact_targets() -> None:
     citations = {item.citation_id: item for item in dossier.citations}
     concepts = {item.code: item for item in dossier.source_concepts}
 
-    assert question.source_concept_binding_required is True
     assert set(concepts) == {"C36027", "C8326"}
     for target in question.pair_keys:
         matching = [
@@ -129,6 +321,7 @@ def test_c100054_actual_claims_bind_source_metadata_and_exact_targets() -> None:
         question=question,
         claim=p3,
         citation=citations[p3.citation_id],
+        source_concept=concepts[p3.source_concept_code],
     )
 
 
@@ -209,8 +402,19 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
         for citation in row.citations
     )
     assert all(
-        question.claims
+        {
+            (claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims
+        }.isdisjoint(
+            {
+                (withheld.pair_key.axis, withheld.pair_key.filler)
+                for withheld in question.withheld_pairs
+            }
+        )
         and {(claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims}
+        | {
+            (withheld.pair_key.axis, withheld.pair_key.filler)
+            for withheld in question.withheld_pairs
+        }
         == {(key.axis, key.filler) for key in question.pair_keys}
         and all(claim.question_id == question.question_id for claim in question.claims)
         and all(not key.axis.startswith("P") for key in question.pair_keys)
@@ -253,22 +457,15 @@ def test_tracked_literature_source_is_closed_per_citation_and_semantic_pair() ->
         )
         for row in source.dossiers
     )
-    assert all(
-        len({(claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims})
-        == len(question.pair_keys)
-        for row in source.dossiers
-        for question in row.questions
-    )
 
 
 def test_question_claim_must_bind_its_exact_pair_and_accessible_source() -> None:
     payload = json.loads(SOURCE.read_bytes())
-    question = payload["dossiers"][0]["questions"][0]
-    question["claims"][0]["pair_key"] = {
-        "axis": "op:Morphology",
-        "filler": "C999999",
-    }
-    with pytest.raises(ValueError, match="claim must bind the question's exact pair"):
+    dossier = next(row for row in payload["dossiers"] if row["code"] == "C100054")
+    dossier["questions"][0]["claims"][0]["source_concept_code"] = "C999999"
+    with pytest.raises(
+        ValueError, match="source concept must bind the exact question pair"
+    ):
         LiteratureContextSource.model_validate_json(json.dumps(payload))
 
 
@@ -314,7 +511,7 @@ def test_literature_generator_is_deterministic_and_rejects_open_citations(
     second = generate_specialist_literature_context(SOURCE, output)
     assert first == second
     assert output.read_bytes() == first_bytes
-    assert json.loads(first_bytes)["schema_version"] == 2
+    assert json.loads(first_bytes)["schema_version"] == 3
 
     payload = json.loads(SOURCE.read_bytes())
     payload["dossiers"][0]["citations"][0]["status"] = "not-found"

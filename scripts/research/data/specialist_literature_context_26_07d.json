@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "ncit_version": "26.07d",
   "evidence_pass": "final",
   "oncology_accessible_evidence_records": [
@@ -180,19 +180,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C41063",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C41063"
               },
-              "citation_id": "xiao-2024",
-              "support_excerpt": "there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.",
-              "supported_claim": "WHO-HAEM5 and ICC describe MDS/MPN as mixed dysplastic and proliferative myeloid-lineage entities while retaining entity-specific definitions.",
-              "evidence_terms": [
-                "who haem5 and icc"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -205,19 +200,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C36220",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C36220"
               },
-              "citation_id": "fontana-2023",
-              "support_excerpt": "At the time of presentation, they possess features of both myelodysplastic syndromes and myeloproliferative neoplasms. | Peripheral blood and bone marrow blasts | <20% | <20% |",
-              "supported_claim": "The reproduced WHO/ICC criteria table records peripheral-blood blasts below 20 percent in its entity-specific matrix.",
-              "evidence_terms": [
-                "peripheral blood"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -230,19 +220,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C41397",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C41397"
               },
-              "citation_id": "fontana-2023",
-              "support_excerpt": "At the time of presentation, they possess features of both myelodysplastic syndromes and myeloproliferative neoplasms. | Peripheral blood and bone marrow blasts | <20% | <20% |",
-              "supported_claim": "The reproduced WHO/ICC criteria table separately records bone-marrow blasts below 20 percent.",
-              "evidence_terms": [
-                "bone marrow blasts"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -255,19 +240,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C35501",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C35501"
               },
-              "citation_id": "xiao-2024",
-              "support_excerpt": "there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.",
-              "supported_claim": "The classification review describes MDS/MPN with mixed dysplastic and proliferative features and lists it within the broader myeloid-neoplasm classification.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -280,19 +260,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C9290",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C9290"
               },
-              "citation_id": "xiao-2024",
-              "support_excerpt": "there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.",
-              "supported_claim": "The review places MDS/MPN within myeloid neoplasms but supplies mixed dysplastic/proliferative features for category specificity.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -305,19 +280,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C13051",
               "pair_key": {
                 "axis": "op:NormalTissueOrigin",
                 "filler": "C13051"
               },
-              "citation_id": "xiao-2024",
-              "support_excerpt": "there are several divergences in how WHO-HAEM5 and ICC define specific entities as well as differences in nomenclature of certain diseases. | Myelodysplastic/myeloproliferative neoplasms | Mixed features of cytopenia, morphologic dysplasia, and proliferation of one or more myeloid lineages.",
-              "supported_claim": "The reviewed category consists of clonal myeloid-lineage neoplasms in the hematopoietic classification.",
-              "evidence_terms": [
-                "myeloid lineage"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -330,19 +300,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Myelodysplastic/Myeloproliferative Neoplasm using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C27262-C12431",
               "pair_key": {
                 "axis": "op:PrimarySite",
                 "filler": "C12431"
               },
-              "citation_id": "fontana-2023",
-              "support_excerpt": "At the time of presentation, they possess features of both myelodysplastic syndromes and myeloproliferative neoplasms. | Peripheral blood and bone marrow blasts | <20% | <20% |",
-              "supported_claim": "The review reports separate peripheral-blood and bone-marrow criteria in its entity matrix.",
-              "evidence_terms": [
-                "peripheral blood and bone marrow"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }
@@ -437,19 +402,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Ovarian Non-Dysgerminomatous Germ Cell Tumor using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C102870-ANATOMY-C12321",
               "pair_key": {
                 "axis": "op:AssociatedSite",
                 "filler": "C12321"
               },
-              "citation_id": "de-maria-2025",
-              "support_excerpt": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
-              "supported_claim": "The review concerns malignant ovarian germ-cell tumors and describes adnexal clinical context.",
-              "evidence_terms": [
-                "germ cell"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -462,19 +422,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Ovarian Non-Dysgerminomatous Germ Cell Tumor using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C102870-CELL-C36903",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C36903"
               },
-              "citation_id": "de-maria-2025",
-              "support_excerpt": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
-              "supported_claim": "The reproduced WHO table classifies the relevant ovarian entities as germ-cell tumors.",
-              "evidence_terms": [
-                "germ cell"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -487,19 +442,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Ovarian Non-Dysgerminomatous Germ Cell Tumor using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C102870-FINDING-C156460",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C156460"
               },
-              "citation_id": "de-maria-2025",
-              "support_excerpt": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
-              "supported_claim": "The WHO table reproduction separates primitive malignant entities from teratoma and mixed categories.",
-              "evidence_terms": [
-                "teratoma"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -512,19 +462,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Ovarian Non-Dysgerminomatous Germ Cell Tumor using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C102870-MORPHOLOGY-C121619",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C121619"
               },
-              "citation_id": "de-maria-2025",
-              "support_excerpt": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
-              "supported_claim": "The reproduced WHO table includes benign and immature teratoma among ovarian germ-cell categories.",
-              "evidence_terms": [
-                "immature teratoma"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         },
@@ -537,19 +482,14 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Ovarian Non-Dysgerminomatous Germ Cell Tumor using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C102870-MORPHOLOGY-C39986",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C39986"
               },
-              "citation_id": "de-maria-2025",
-              "support_excerpt": "Dysgerminoma | Yolk sac tumor | Embryonal carcinoma | Choriocarcinoma, NOS | Teratoma, benign | Immature teratoma | Mixed germ cell tumor",
-              "supported_claim": "The table separates teratoma from yolk-sac, embryonal, choriocarcinoma and mixed categories, supporting an exact scope distinction.",
-              "evidence_terms": [
-                "yolk sac"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }
@@ -747,188 +687,105 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Stage III Thyroid Gland Medullary Carcinoma AJCC v7 using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:AssociatedRegion",
                 "filler": "C13063"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review addresses medullary thyroid carcinoma in the thyroid and neck clinical context.",
-              "evidence_terms": [
-                "in the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C36825"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The source classifies MTC as a C-cell-derived epithelial neuroendocrine neoplasm.",
-              "evidence_terms": [
-                "c cell derived"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C155863"
               },
-              "citation_id": "xu-2021",
-              "support_excerpt": "Eighty-one (24.8%) MTCs were high-grade using this scheme.",
-              "supported_claim": "The study reports 81 of 327 MTCs, 24.8 percent, as high-grade under its grading scheme.",
-              "evidence_terms": [
-                "24 8"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C207031"
               },
-              "citation_id": "thomas-2019",
-              "support_excerpt": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
-              "supported_claim": "The review reports calcitonin, chromogranin A, and carcinoembryonic-antigen staining in MTC tumor cells.",
-              "evidence_terms": [
-                "chromogranin a and carcinoembryonic antigen"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C41457"
               },
-              "citation_id": "thomas-2019",
-              "support_excerpt": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
-              "supported_claim": "The review describes MTC as usually poorly delineated and infiltrative.",
-              "evidence_terms": [
-                "usually poorly delineated and infiltrative"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C43574"
               },
-              "citation_id": "thomas-2019",
-              "support_excerpt": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
-              "supported_claim": "The review classifies MTC as a neuroendocrine tumor arising from parafollicular C cells.",
-              "evidence_terms": [
-                "from parafollicular c"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C47804"
               },
-              "citation_id": "thomas-2019",
-              "support_excerpt": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
-              "supported_claim": "The review states that parafollicular C cells secrete calcitonin.",
-              "evidence_terms": [
-                "parafollicular c"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C47807"
               },
-              "citation_id": "thomas-2019",
-              "support_excerpt": "A neuroendocrine tumour, MTC arises from parafollicular cells (C cells), which secrete calcitonin. This usually poorly delineated and infiltrative tumour is composed of solid nests of discohesive cells within a fibrous stroma. Tumour cells stain for calcitonin as well as for chromogranin A and carcinoembryonic antigen.",
-              "supported_claim": "The review reports calcitonin staining in MTC tumor cells.",
-              "evidence_terms": [
-                "calcitonin"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:MolecularAbnormality",
                 "filler": "C129702"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review reports somatic RET mutation in 43\u201365 percent of sporadic MTC.",
-              "evidence_terms": [
-                "mutation in"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C3879"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review identifies MTC as the sole subgroup of thyroid C-cell-derived carcinomas.",
-              "evidence_terms": [
-                "thyroid c cell derived carcinomas"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:NormalTissueOrigin",
                 "filler": "C33782"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review states that MTC originates from parafollicular C cells.",
-              "evidence_terms": [
-                "from parafollicular c cells"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:PrimarySite",
                 "filler": "C12400"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The reviewed entity is medullary thyroid carcinoma of the thyroid gland.",
-              "evidence_terms": [
-                "of the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageSystem",
                 "filler": "C90530"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review concerns diagnosis and management of medullary thyroid carcinoma.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C6135-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageValue",
                 "filler": "C27970"
               },
-              "citation_id": "kaliszewski-2022",
-              "support_excerpt": "MTC is a neoplasm originating from parafollicular C cells, which produce calcitonin (Ctn). | Of these, thyroid C-cell-derived carcinomas are a distinct entity, and MTC is its only subgroup. | The sporadic form is most often (43\u201365%) caused by a somatic mutation in the RET gene.",
-              "supported_claim": "The review concerns diagnosis and management of medullary thyroid carcinoma.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }
@@ -1046,149 +903,84 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Left Atrial Myxoma using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:AssociatedRegion",
                 "filler": "C12905"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "Cardiac myxoma occurs in heart chambers.",
-              "evidence_terms": [
-                "in"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:AssociatedRegion",
                 "filler": "C13004"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The review describes cardiac and endocardial location.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:AssociatedSite",
                 "filler": "C13004"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The review describes cardiac and endocardial location.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C36899"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "Histopathology includes scattered stellate cells in myxoid stroma.",
-              "evidence_terms": [
-                "stellate cells"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C36954"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The source describes round, polygonal, and stellate cells.",
-              "evidence_terms": [
-                "round polygonal"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C35998"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The review explicitly describes abundant loose myxoid stroma.",
-              "evidence_terms": [
-                "abundant loose myxoid stroma"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C36105"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The review reports clinical-course observations.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C36122"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "Histopathological examination describes loose myxoid stroma with scattered round, polygonal, or stellate cells.",
-              "evidence_terms": [
-                "loose myxoid stroma with scattered round polygonal or"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C53583"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The passage states that histogenesis is still controversial.",
-              "evidence_terms": [
-                "histogenesis"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C3499"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "The review identifies cardiac myxoma and its myxoid histopathology.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C4791-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:PrimarySite",
                 "filler": "C12869"
               },
-              "citation_id": "islam-2022",
-              "support_excerpt": "They arise most commonly from the left atrium, but no chambers of the heart are immune. | Histopathological examination reveals abundant loose myxoid stroma with scattered round, polygonal or stellate cells with dense irregular nuclei. | Histogenesis is still controversial; the current view centres around origin from the primitive pluripotent mesenchymal cells.",
-              "supported_claim": "Cardiac myxomas arise most commonly from the left atrium.",
-              "evidence_terms": [
-                "arise most commonly from the left atrium"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }
@@ -1344,7 +1136,6 @@
       "questions": [
         {
           "question_id": "C100054-REVIEWABLE-PAIRS",
-          "source_concept_binding_required": true,
           "pair_keys": [
             {
               "axis": "op:ClinicalFinding",
@@ -1361,33 +1152,19 @@
               "question_id": "C100054-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
-                "filler": "C36027"
-              },
-              "citation_id": "milman-2023",
-              "support_excerpt": "without documented evidence of subepithelial invasion",
-              "supported_claim": "The named melanoma-in-situ criterion is described without documented evidence of subepithelial invasion.",
-              "target_axis": "op:ClinicalFinding",
-              "source_concept_code": "C36027",
-              "source_concept_identity": "dc1c1349cd2780fcd9f536c37ba6419980e90306eb858ef1a6a793814866e907",
-              "evidence_terms": [
-                "without documented evidence of subepithelial invasion"
-              ]
-            },
-            {
-              "question_id": "C100054-REVIEWABLE-PAIRS",
-              "pair_key": {
-                "axis": "op:ClinicalFinding",
                 "filler": "C8326"
               },
               "citation_id": "milman-2023-low-grade",
               "support_excerpt": "Predominantly basilar melanocytic proliferation with low-grade atypia",
               "supported_claim": "The low-grade CMIL row describes predominantly basilar melanocytic proliferation with low-grade atypia.",
-              "target_axis": "op:ClinicalFinding",
               "source_concept_code": "C8326",
               "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
-              "evidence_terms": [
-                "predominantly basilar melanocytic proliferation with low-grade atypia"
-              ]
+              "evidence_signature": {
+                "required_source_features": [
+                  "atypia"
+                ],
+                "passage_scope": "exclusive"
+              }
             },
             {
               "question_id": "C100054-REVIEWABLE-PAIRS",
@@ -1398,12 +1175,14 @@
               "citation_id": "milman-2023-high-grade",
               "support_excerpt": "significant non-basilar proliferation of melanocytes with high-grade atypia",
               "supported_claim": "The high-grade CMIL row describes significant non-basilar proliferation of melanocytes with high-grade atypia.",
-              "target_axis": "op:ClinicalFinding",
               "source_concept_code": "C8326",
               "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
-              "evidence_terms": [
-                "significant non-basilar proliferation of melanocytes with high-grade atypia"
-              ]
+              "evidence_signature": {
+                "required_source_features": [
+                  "atypia"
+                ],
+                "passage_scope": "exclusive"
+              }
             },
             {
               "question_id": "C100054-REVIEWABLE-PAIRS",
@@ -1414,33 +1193,17 @@
               "citation_id": "mudhar-2024",
               "support_excerpt": "progression of noninvasive neoplastic melanocytes from low- to high-grade lesions, onto melanoma in situ (MIS)",
               "supported_claim": "WHO-EYE04 describes noninvasive neoplastic melanocytes progressing from low- to high-grade lesions and melanoma in situ.",
-              "target_axis": "op:ClinicalFinding",
               "source_concept_code": "C36027",
               "source_concept_identity": "dc1c1349cd2780fcd9f536c37ba6419980e90306eb858ef1a6a793814866e907",
-              "evidence_terms": [
-                "noninvasive neoplastic melanocytes",
-                "low- to high-grade lesions",
-                "melanoma in situ"
-              ]
-            },
-            {
-              "question_id": "C100054-REVIEWABLE-PAIRS",
-              "pair_key": {
-                "axis": "op:ClinicalFinding",
-                "filler": "C8326"
-              },
-              "citation_id": "mudhar-2024",
-              "support_excerpt": "noninvasive neoplastic melanocytes from low- to high-grade lesions",
-              "supported_claim": "WHO-EYE04 distinguishes low- to high-grade lesions among noninvasive neoplastic melanocytes.",
-              "target_axis": "op:ClinicalFinding",
-              "source_concept_code": "C8326",
-              "source_concept_identity": "1d18e6fcbeb9d393f95e61592a2974b540d207d68db6d6c40aa80b58ae4510b1",
-              "evidence_terms": [
-                "noninvasive neoplastic melanocytes",
-                "low- to high-grade lesions"
-              ]
+              "evidence_signature": {
+                "required_source_features": [
+                  "noninvasive"
+                ],
+                "passage_scope": "exclusive"
+              }
             }
-          ]
+          ],
+          "withheld_pairs": []
         }
       ],
       "source_concepts": [
@@ -1597,110 +1360,63 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Childhood Acute Lymphoblastic Leukemia Toronto Guidelines v2, Tier 1 using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C12914"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The manual's ALL row concerns acute lymphoblastic leukemia.",
-              "evidence_terms": [
-                "acute lymphoblastic"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C60644"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "evidence_terms": [
-                "acute lymphoblastic leukaemia cns negative cns positive cns"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C3168"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The Tier 1 row is specifically Acute lymphoblastic leukaemia in a childhood staging manual.",
-              "evidence_terms": [
-                "acute lymphoblastic leukaemia"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:NormalTissueOrigin",
                 "filler": "C13049"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The manual supplies CNS-negative and CNS-positive staging values.",
-              "evidence_terms": [
-                "cns negative"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:PrimarySite",
                 "filler": "C12431"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The manual supplies CNS-negative and CNS-positive staging values.",
-              "evidence_terms": [
-                "cns negative"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageSystem",
                 "filler": "C198023"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The manual identifies the less-detailed Tier 1 profile and its two ALL values.",
-              "evidence_terms": [
-                "and"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C4005"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The childhood staging manual describes acute lymphoblastic leukemia staging.",
-              "evidence_terms": [
-                "acute lymphoblastic"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C198031-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageValue",
                 "filler": "C198022"
               },
-              "citation_id": "toronto-v2-manual",
-              "support_excerpt": "Acute lymphoblastic leukaemia | CNS negative | CNS positive. | CNS negative: No clinical signs of CNS involvement and no blasts in CSF. | CNS positive: Clinical signs of CNS involvement or blasts in CSF.",
-              "supported_claim": "The manual's exact ALL Tier 1 values are CNS negative and CNS positive.",
-              "evidence_terms": [
-                "cns negative"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }
@@ -1898,240 +1614,133 @@
             }
           ],
           "text": "For each named semantic pair, assess its clinical applicability within Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 using the cited pair-specific evidence.",
-          "claims": [
+          "claims": [],
+          "withheld_pairs": [
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:CellType",
                 "filler": "C36820"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "SCLC is a poorly differentiated high-grade neuroendocrine carcinoma, but some tumors lack standard neuroendocrine markers.",
-              "evidence_terms": [
-                "standard neuroendocrine markers"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C155863"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "The review describes SCLC as poorly differentiated and high grade.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C207031"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "A minority of SCLC is negative for all standard neuroendocrine markers.",
-              "evidence_terms": [
-                "negative for all standard neuroendocrine markers"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C3331"
               },
-              "citation_id": "ajcc-v7",
-              "support_excerpt": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
-              "supported_claim": "AJCC v7 assigns malignant pleural effusion to M1a/stage IV.",
-              "evidence_terms": [
-                "malignant pleural"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C36129"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "SCLC is described as a high-grade carcinoma.",
-              "evidence_terms": [
-                "sclc"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C36184"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "Extensive intratumoral necrosis is often recognized.",
-              "evidence_terms": [
-                "extensive"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C43574"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "SCLC is neuroendocrine, while a minority lacks all standard neuroendocrine markers.",
-              "evidence_terms": [
-                "all standard neuroendocrine markers"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C54209"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "Peripheral palisading is listed as one possible SCLC growth feature.",
-              "evidence_terms": [
-                "peripheral palisading"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C55817"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "Nuclear molding is described as well developed in tightly cohesive sheets.",
-              "evidence_terms": [
-                "in tightly cohesive sheets"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:ClinicalFinding",
                 "filler": "C60308"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "The review reports a usually very high mitotic rate of 10 mitoses per 10 high-power fields.",
-              "evidence_terms": [
-                "per 10 high power fields"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C4917"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "The review's entity is small cell lung carcinoma and provides its histopathologic features.",
-              "evidence_terms": [
-                "s entity"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:PrimarySite",
                 "filler": "C12468"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "The reviewed entity is a carcinoma arising in the lung.",
-              "evidence_terms": [
-                "is a"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:PrimarySubsite",
                 "filler": "C12683"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "Most SCLC tumors are hilar or perihilar and spread along bronchial submucosa.",
-              "evidence_terms": [
-                "sclc"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageSystem",
                 "filler": "C90530"
               },
-              "citation_id": "ajcc-v7",
-              "support_excerpt": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
-              "supported_claim": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
-              "evidence_terms": [
-                "m1a separate tumor nodule s in a contralateral"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageValue",
                 "filler": "C27978"
               },
-              "citation_id": "ajcc-v7",
-              "support_excerpt": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
-              "supported_claim": "AJCC v7 requires M0 for stage IIIB, while malignant pleural effusion is M1a.",
-              "evidence_terms": [
-                "malignant pleural"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:StageValue",
                 "filler": "C28064"
               },
-              "citation_id": "ajcc-v7",
-              "support_excerpt": "M1a Separate tumor nodule(s) in a contralateral lobe; tumor with pleural nodules or malignant pleural (or pericardial) effusion. | T4 (pleural effusion) | M1a | IV | IV | IV | IV.",
-              "supported_claim": "AJCC v7 places malignant pleural effusion in stage IV.",
-              "evidence_terms": [
-                "malignant pleural"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C4878"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "SCLC is one subtype of lung carcinoma.",
-              "evidence_terms": [
-                "sclc"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             },
             {
-              "question_id": "C35756-REVIEWABLE-PAIRS",
               "pair_key": {
                 "axis": "op:Morphology",
                 "filler": "C9049"
               },
-              "citation_id": "cancers-2021",
-              "support_excerpt": "Within tightly cohesive sheets, nuclear molding is well developed. | extensive necrosis are characteristic of this entity. The mitotic rate is usually very high (10 mitosis per 10 high power fields). | SCLC tumor can demonstrate other growth features as peripheral palisading. | a minority of SCLCs are negative for all standard neuroendocrine markers.",
-              "supported_claim": "The pathology evidence identifies SCLC.",
-              "evidence_terms": [
-                "the"
-              ]
+              "reason": "No non-vacuous lexical feature is verified across the exact NCIt source label/P97 and cited passage surfaces."
             }
           ]
         }

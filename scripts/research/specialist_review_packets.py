@@ -1585,6 +1585,7 @@ def _render_packet(  # noqa: C901, PLR0912
         (pair.key.axis, pair.key.filler): pair.pair_id for pair in row.pairs
     }
     pair_by_key = {(pair.key.axis, pair.key.filler): pair for pair in row.pairs}
+    source_concept_by_code = {source.code: source for source in dossier.source_concepts}
     baseline_group_ids = tuple(
         tuple(
             pair_id_by_key[(axis, filler)]
@@ -1800,8 +1801,15 @@ def _render_packet(  # noqa: C901, PLR0912
                     source_heading,
                     "Clinical source:",
                     *(
-                        f"- **{claim.citation_id}:** {claim.supported_claim} "
-                        f"Exact support: “{claim.support_excerpt}”"
+                        f"- **{claim.citation_id}:** NCIt source "
+                        f"`{claim.source_concept_code}` — "
+                        f"{source_concept_by_code[claim.source_concept_code].exact_label}. "
+                        f"Source feature signature: "
+                        f"{', '.join(claim.evidence_signature.required_source_features)}. "
+                        f"Passage scope: {claim.evidence_signature.passage_scope}. "
+                        f"{claim.supported_claim} Exact support: “{claim.support_excerpt}” "
+                        "Limitation: this lexical signature binds exact source surfaces; "
+                        "it does not establish clinical entailment."
                         for claim in question.claims
                         if (claim.pair_key.axis, claim.pair_key.filler)
                         == (pair.key.axis, pair.key.filler)
@@ -1966,6 +1974,11 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
             for occurrence in pair.get("occurrences", ())
             for value in (occurrence["anchor_code"], occurrence["role_code"])
         )
+        wanted |= {
+            source.code
+            for dossier in context.dossiers
+            for source in dossier.source_concepts
+        }
         wanted.update(
             str(value)
             for candidate in diagnostic["candidate_rows"]
@@ -1998,15 +2011,12 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
         name = f"{row.code}.md"
         dossier = dossier_by_code[row.code]
         citations = {item.citation_id: item for item in dossier.citations}
+        source_concepts = {item.code: item for item in dossier.source_concepts}
         claims_by_key = {
             (target.axis, target.filler): tuple(
                 (target, question, claim)
                 for claim in question.claims
-                if (
-                    claim.source_concept_code == target.filler
-                    if claim.source_concept_code is not None
-                    else claim.pair_key == target
-                )
+                if claim.source_concept_code == target.filler
             )
             for question in dossier.questions
             for target in question.pair_keys
@@ -2042,6 +2052,7 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                     question=question,
                     claim=claim,
                     citation=citations[claim.citation_id],
+                    source_concept=source_concepts[claim.source_concept_code],
                 )
                 for target, question, claim in claim_records
             )
@@ -2119,6 +2130,9 @@ def generate_specialist_review_packets(  # noqa: C901, PLR0912, PLR0915
                                     question=question,
                                     claim=claim,
                                     citation=citations[claim.citation_id],
+                                    source_concept=source_concepts[
+                                        claim.source_concept_code
+                                    ],
                                 )
                             )
                             if (pair.key.axis, pair.key.filler) in claims_by_key

@@ -7,9 +7,12 @@ from pydantic import ValidationError
 from scripts.research.specialist_literature_context import (
     LiteratureCitation,
     LiteratureEvidenceClaim,
+    LiteratureEvidenceSignature,
     LiteraturePairKey,
     LiteratureQuestion,
+    LiteratureSourceConcept,
     citation_supports_pair,
+    source_concept_identity,
 )
 from scripts.research.specialist_review_packets import (
     ActionConsequence,
@@ -219,13 +222,29 @@ def _citation(
 
 
 def _claim(*, filler: str = "C1", citation_id: str = "S1") -> LiteratureEvidenceClaim:
+    source = _source(filler)
     return LiteratureEvidenceClaim(
         question_id="Q1",
         pair_key=LiteraturePairKey(axis="op:CellType", filler=filler),
         citation_id=citation_id,
         support_excerpt="contains spindle cells",
         supported_claim="The lesion contains spindle cells.",
-        evidence_terms=("contains spindle cells",),
+        source_concept_code=filler,
+        source_concept_identity=source.source_concept_identity,
+        evidence_signature=LiteratureEvidenceSignature(
+            required_source_features=("spindle cells",), passage_scope="exclusive"
+        ),
+    )
+
+
+def _source(code: str = "C1") -> LiteratureSourceConcept:
+    label = "Spindle Cells"
+    definition = "Cells with spindle morphology."
+    return LiteratureSourceConcept(
+        code=code,
+        exact_label=label,
+        exact_definition=definition,
+        source_concept_identity=source_concept_identity(code, label, definition),
     )
 
 
@@ -246,6 +265,7 @@ def test_d1_shared_citation_predicate_accepts_exact_accessible_pair_claim() -> N
         question=question,
         claim=question.claims[0],
         citation=_citation(),
+        source_concept=_source(),
     )
 
 
@@ -256,6 +276,7 @@ def test_d2_shared_citation_predicate_rejects_wrong_pair() -> None:
         question=question,
         claim=question.claims[0],
         citation=_citation(),
+        source_concept=_source(),
     )
 
 
@@ -266,6 +287,7 @@ def test_d3_shared_citation_predicate_rejects_restricted_source() -> None:
         question=question,
         claim=question.claims[0],
         citation=_citation(status="access-restricted"),
+        source_concept=_source(),
     )
 
 
@@ -276,6 +298,7 @@ def test_d4_shared_citation_predicate_rejects_contradiction() -> None:
         question=question,
         claim=question.claims[0],
         citation=_citation(does_not="Does not support spindle cells."),
+        source_concept=_source(),
     )
 
 
@@ -283,7 +306,10 @@ def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
     claim = _claim().model_copy(
         update={
             "supported_claim": "The lesion contains spindle cells and is metastatic.",
-            "evidence_terms": ("contains spindle cells", "metastatic"),
+            "evidence_signature": LiteratureEvidenceSignature(
+                required_source_features=("spindle cells", "metastatic"),
+                passage_scope="exclusive",
+            ),
         }
     )
     question = _question(claim)
@@ -292,6 +318,7 @@ def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
         question=question,
         claim=claim,
         citation=_citation(),
+        source_concept=_source(),
     )
 
 
@@ -302,6 +329,7 @@ def test_d4b_shared_citation_predicate_rejects_wrong_pair_with_same_citation() -
         question=question,
         claim=question.claims[0],
         citation=_citation(),
+        source_concept=_source(),
     )
 
 
