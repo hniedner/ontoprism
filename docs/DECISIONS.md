@@ -705,7 +705,7 @@ measure filler accuracy, and `include` is strictly the SME label rate. In partic
 
 Candidate rows contain 63 `include` labels, but 64 kept constituents: the remaining kept row is
 the `revise` decision for Stage I Endometrial Cancer FIGO 2023 (`C206219`) with
-`op:PrimarySite` Uterus (`C12316`), and that revised pair is absent from
+`op:PrimarySite` Corpus Uteri (`C12316`), and that revised pair is absent from
 the recorded engine evidence
 (`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
 2026-08-09).

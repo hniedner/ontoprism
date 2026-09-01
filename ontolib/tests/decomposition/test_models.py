@@ -15,6 +15,7 @@ from ontolib.decomposition.models import (
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
+from ontolib.decomposition.provenance import _constituents_by_code
 
 
 @pytest.mark.unit
@@ -32,6 +33,45 @@ def test_constituent_defaults_are_conservative() -> None:
     assert c.most_specific is False
     assert c.needs_review is False
     assert c.source_roles == ("R101",)
+
+
+@pytest.mark.unit
+def test_constituent_source_occurrences_require_source_definitions() -> None:
+    with pytest.raises(
+        ValueError, match="source occurrence IDs require source definition IDs"
+    ):
+        Constituent(
+            axis="R101",
+            filler_code="C12400",
+            axis_source="role",
+            source_occurrence_ids=("a" * 64,),
+        )
+
+
+@pytest.mark.unit
+def test_persisted_constituent_reload_rejects_orphan_source_occurrence() -> None:
+    row = {
+        "concept_code": "C6135",
+        "axis": "R101",
+        "filler_code": "C12400",
+        "axis_source": "role",
+        "source_roles": ["R101"],
+        "most_specific": True,
+        "needs_review": False,
+        "relationship_group": None,
+        "source_definition_ids": [],
+    }
+    link = {
+        "concept_code": "C6135",
+        "axis": "R101",
+        "filler_code": "C12400",
+        "occurrence_id": "a" * 64,
+    }
+
+    with pytest.raises(
+        ValueError, match="source occurrence IDs require source definition IDs"
+    ):
+        _constituents_by_code([row], [link])  # type: ignore[arg-type]
 
 
 @pytest.mark.unit

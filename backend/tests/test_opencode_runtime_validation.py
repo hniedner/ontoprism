@@ -515,6 +515,8 @@ def test_actual_implementer_contract_allows_only_canonical_mutations(
         ("architect", "git diff --check", "deny"),
         ("architect", "git diff --no-index /dev/null new-file", "deny"),
         ("pr-test-analyzer", "git diff --no-ext-diff", "deny"),
+        ("pr-test-analyzer", "git diff --no-ext-diff main...HEAD", "allow"),
+        ("pr-test-analyzer", "git diff --name-only main...HEAD", "allow"),
         ("ontoprism-team", "pdm run pytest backend/tests/test_x.py", "deny"),
         ("ontoprism-team", "pdm run test-integration-full-store anything", "deny"),
         ("ontoprism-team", "git diff --ext-diff", "deny"),

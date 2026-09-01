@@ -7,11 +7,15 @@ import pytest
 from ontolib.decomposition import vocab
 from ontolib.decomposition.enhanced_showcase import (
     SHOWCASE_GRAPH_IRI,
+    ShowcasePolicyError,
     build_showcase_decision_query,
     load_packaged_showcase_decision_set,
     validate_showcase_rows,
 )
-from ontolib.decomposition.showcase_readiness import activate_showcase_readiness
+from ontolib.decomposition.showcase_readiness import (
+    activate_showcase_readiness,
+    verify_showcase_readiness,
+)
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 pytestmark = [
@@ -70,3 +74,27 @@ async def test_showcase_activation_replaces_only_its_graph_on_real_qlever(
     assert staging_rows == []
     assert before == after
     assert SHOWCASE_GRAPH_IRI != vocab.DECOMPOSED_GRAPH_IRI
+
+
+@pytest.mark.integration
+async def test_showcase_verification_rejects_foreign_real_qlever_content(
+    tmp_path,
+) -> None:
+    url = os.environ.get("NCIT_SPARQL_URL", "http://localhost:7888")
+    output = tmp_path / "m1-6-enhanced-showcase-readiness.json"
+    async with ncit_sparql_client(url) as client:
+        await client.update(
+            "INSERT DATA { GRAPH "
+            f"<{SHOWCASE_GRAPH_IRI}> {{ <urn:foreign> <urn:predicate> <urn:value> }} }}"
+        )
+        with pytest.raises(
+            ShowcasePolicyError, match=r"closure budgets|exact packaged graph"
+        ):
+            await verify_showcase_readiness(
+                client,
+                output=output,
+                git_head="a" * 40,
+                producing_command="test",
+            )
+
+    assert not output.exists()

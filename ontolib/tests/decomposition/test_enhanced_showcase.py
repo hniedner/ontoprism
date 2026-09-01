@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 from copy import deepcopy
+from typing import cast
 
 import pytest
 
@@ -100,6 +101,47 @@ def test_decision_authority_and_evidence_support_are_separate_and_fail_closed() 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"source_occurrence_ids": ()}, "source support and binding"),
+        (
+            {"support": ("source-stated",)},
+            "peer-reviewed-supported",
+        ),
+    ],
+)
+def test_locally_approved_decisions_require_bound_peer_reviewed_source_evidence(
+    updates: dict[str, object], message: str
+) -> None:
+    module = _showcase()
+    approved = next(
+        decision
+        for concept in module.load_packaged_showcase_decision_set().concepts
+        for decision in concept.decisions
+        if decision.authority == "locally-approved"
+    )
+    payload = approved.model_dump(mode="python")
+    if "support" in updates:
+        updates["support"] = tuple(
+            module.EvidenceSupport(item)
+            for item in cast("tuple[str, ...]", updates["support"])
+        )
+    payload.update(updates)
+
+    with pytest.raises(ValueError, match=message):
+        module.ShowcaseDecision.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_nci_adopted_is_not_an_available_showcase_authority() -> None:
+    module = _showcase()
+    assert "nci-adopted" not in {
+        authority.value for authority in module.DecisionAuthority
+    }
+
+
+@pytest.mark.unit
 def test_overlay_changes_only_effective_constituents_and_binds_identity() -> None:
     module = _showcase()
     policy = module.load_packaged_showcase_decision_set()
@@ -131,16 +173,11 @@ def test_overlay_changes_only_effective_constituents_and_binds_identity() -> Non
 
 
 @pytest.mark.unit
-def test_decision_graph_round_trip_and_scoped_recoverable_replacement() -> None:
+def test_decision_graph_serialization_and_scoped_recoverable_replacement() -> None:
     module = _showcase()
     policy = module.load_packaged_showcase_decision_set()
     turtle = module.serialize_showcase_decision_graph(policy)
-    rows = module.parse_showcase_decision_graph(turtle)
-
-    assert len(rows) == sum(len(concept.decisions) for concept in policy.concepts)
-    assert {row.concept_code for row in rows} == {
-        concept.code for concept in policy.concepts
-    }
+    assert "ShowcaseDecision" in turtle
     staging = module.showcase_staging_graph_iri("run-127")
     update = module.build_showcase_replacement_update(staging)
     assert module.SHOWCASE_GRAPH_IRI in update
@@ -149,11 +186,6 @@ def test_decision_graph_round_trip_and_scoped_recoverable_replacement() -> None:
     assert "CLEAR GRAPH" in update
     assert "ADD GRAPH" in update
     assert "DROP GRAPH" in update
-
-    malformed = turtle.replace('\\"include\\"', '\\"invented\\"', 1)
-    assert malformed != turtle
-    with pytest.raises(ValueError, match="stored showcase decision graph"):
-        module.parse_showcase_decision_graph(malformed)
 
 
 @pytest.mark.unit

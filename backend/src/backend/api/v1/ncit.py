@@ -26,7 +26,10 @@ from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.enhanced_showcase import (
     EnhancedNcitShowcaseView,
+    ShowcaseConceptNotInCohortError,
+    ShowcaseConceptPolicy,
     ShowcaseConstituent,
+    ShowcaseDecisionSet,
     ShowcasePolicyError,
     build_showcase_view,
     load_packaged_showcase_decision_set,
@@ -61,6 +64,19 @@ from ontolib.terminologies.sparql_transport import safe_iri
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
+
+
+def _showcase_policy_for(
+    code: str,
+) -> tuple[ShowcaseDecisionSet, ShowcaseConceptPolicy]:
+    try:
+        policy = load_packaged_showcase_decision_set()
+    except ShowcasePolicyError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    try:
+        return policy, policy.concept(code)
+    except ShowcaseConceptNotInCohortError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 async def _xref_expected(
@@ -395,11 +411,7 @@ async def concept_enhanced_ncit_showcase(
     code: str,
 ) -> EnhancedNcitShowcaseView:
     """Return the explicit local showcase overlay without changing ordinary reads."""
-    try:
-        policy = load_packaged_showcase_decision_set()
-        concept_policy = policy.concept(code)
-    except ShowcasePolicyError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    policy, concept_policy = _showcase_policy_for(code)
     try:
         base_rows = await reader.rows_for(code)
         decision_rows = await reader.showcase_rows_for(code)

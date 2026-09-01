@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
 
-vi.mock('$lib/api', () => ({ getEnhancedNcitShowcase: vi.fn() }));
-import { getEnhancedNcitShowcase } from '$lib/api';
+vi.mock('$lib/api', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/api')>()),
+	getEnhancedNcitShowcase: vi.fn()
+}));
+import { ApiRequestError, getEnhancedNcitShowcase } from '$lib/api';
 import EnhancedShowcasePanel from './EnhancedShowcasePanel.svelte';
 
 const mock = vi.mocked(getEnhancedNcitShowcase);
@@ -75,5 +79,17 @@ describe('EnhancedShowcasePanel', () => {
 		await waitFor(() =>
 			expect(screen.getByText('Enhanced NCIt showcase unavailable')).toBeInTheDocument()
 		);
+	});
+
+	it('requests every concept and treats an out-of-cohort 404 as no showcase', async () => {
+		mock.mockRejectedValueOnce(new ApiRequestError(404, 'outside showcase'));
+
+		render(EnhancedShowcasePanel, { code: 'C999999' });
+
+		await waitFor(() => expect(mock).toHaveBeenCalledWith('C999999', undefined, expect.any(AbortSignal)));
+		await tick();
+		await tick();
+		expect(screen.queryByText('Enhanced NCIt showcase unavailable')).not.toBeInTheDocument();
+		expect(screen.queryByText('Enhanced NCIt showcase')).not.toBeInTheDocument();
 	});
 });

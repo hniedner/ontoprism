@@ -1,6 +1,7 @@
 """Tests for upstream xref on decomposition constituents (issues #77/#82)."""
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import (
@@ -53,6 +54,26 @@ def test_upstream_mapping_low_confidence_not_identity() -> None:
     )
     assert m.confidence == 0.7
     assert m.is_identity is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("predicate", "http://www.w3.org/2004/02/skos/core#exactMacth"),
+        ("lifecycle", "acitve"),
+    ],
+)
+def test_upstream_mapping_rejects_off_vocabulary_values(field: str, value: str) -> None:
+    payload = {
+        "object_id": "UBERON:0002046",
+        "predicate": EXACT_MATCH,
+        "lifecycle": "active",
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        UpstreamMapping.model_validate(payload)
 
 
 @pytest.mark.unit

@@ -589,6 +589,8 @@ class Constituent:
         for occurrence_id in occurrence_ids:
             _require_sha256(occurrence_id, "source_occurrence_ids item")
         object.__setattr__(self, "source_occurrence_ids", occurrence_ids)
+        if occurrence_ids and not canonical:
+            raise ValueError("source occurrence IDs require source definition IDs")
 
 
 @dataclass(frozen=True, slots=True)

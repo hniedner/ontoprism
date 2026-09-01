@@ -13,7 +13,11 @@ from pydantic import Field, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.decomposition.models import AxisSource  # noqa: TC001 (Pydantic runtime)
-from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.repositories.xref.vocab import (
+    EXACT_MATCH,
+    MappingLifecycle,
+    MappingPredicate,
+)
 
 
 class UpstreamMapping(StrictBoundaryModel):
@@ -26,8 +30,8 @@ class UpstreamMapping(StrictBoundaryModel):
     """
 
     object_id: str
-    predicate: str
-    lifecycle: str
+    predicate: MappingPredicate
+    lifecycle: MappingLifecycle
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @property

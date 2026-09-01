@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getEnhancedNcitShowcase } from '$lib/api';
+	import { ApiRequestError, getEnhancedNcitShowcase } from '$lib/api';
 	import { handleLatest } from '$lib/latest';
 	import type { EnhancedNcitShowcaseView, ShowcaseDecision } from '$lib/types';
 
@@ -17,7 +17,7 @@
 			getEnhancedNcitShowcase(code, undefined, controller.signal),
 			{
 				ready: (result) => (data = result),
-				failed: () => (unavailable = true),
+				failed: (error) => (unavailable = !(error instanceof ApiRequestError && error.status === 404)),
 				settled: () => (loaded = true)
 			},
 			() => controller.abort()
