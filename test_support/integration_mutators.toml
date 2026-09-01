@@ -181,6 +181,11 @@ path = "ontolib/tests/decomposition/test_read_integration.py"
 fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_enhanced_showcase_integration.py"
+tests = ["test_showcase_activation_replaces_only_its_graph_on_real_qlever"]
+fixtures = ["isolated_qlever_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_additivity_integration.py"
 fixtures = ["isolated_qlever_settings"]
 

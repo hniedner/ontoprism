@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import DecompositionPanel from '$lib/components/DecompositionPanel.svelte';
+	import EnhancedShowcasePanel from '$lib/components/EnhancedShowcasePanel.svelte';
 	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
 	import NcitConceptGraph from './NcitConceptGraph.svelte';
@@ -57,6 +58,9 @@
 <NcitConceptGraph code={detail.code} graph={data.graph} />
 
 <div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+	{#if ['C27262', 'C102870', 'C6135', 'C4791', 'C100054', 'C198031', 'C35756'].includes(detail.code)}
+		<EnhancedShowcasePanel code={detail.code} />
+	{/if}
 	<RelationshipList title="Roles" items={detail.roles} />
 	<RelationshipList title="Associations" items={detail.associations} />
 	<RelationshipList title="Incoming roles" items={detail.incoming_roles} />

@@ -6,6 +6,7 @@ import type {
 	CdeSearchPage,
 	CdeSummary,
 	ConceptDecomposition,
+	EnhancedNcitShowcaseView,
 	ConceptDetail,
 	ConceptAlignments,
 	Neighborhood,
@@ -24,6 +25,7 @@ import {
 	icdoListPath,
 	icdoSearchPath,
 	ncitDecompositionPath,
+	ncitEnhancedShowcasePath,
 	ncitMappingsPath,
 	type IcdoDataset,
 	type IcdoPageFor
@@ -263,6 +265,19 @@ export function getDecomposition(
 ): Promise<ConceptDecomposition> {
 	return getJson<ConceptDecomposition>(
 		apiUrl(ncitDecompositionPath(code)),
+		fetchImpl,
+		signal
+	);
+}
+
+/** Explicit local enhanced-NCIt showcase; ordinary decomposition remains unchanged. */
+export function getEnhancedNcitShowcase(
+	code: string,
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
+): Promise<EnhancedNcitShowcaseView> {
+	return getJson<EnhancedNcitShowcaseView>(
+		apiUrl(ncitEnhancedShowcasePath(code)),
 		fetchImpl,
 		signal
 	);
