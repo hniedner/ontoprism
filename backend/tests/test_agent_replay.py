@@ -62,6 +62,34 @@ def test_group_review_rev2_uses_only_new_output_paths(tmp_path: Path) -> None:
     assert str(tmp_path / "tmp/m1-6-group-review-workbook.xlsx") not in command
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("operation", "activate"),
+    [
+        ("activate-enhanced-ncit-showcase", True),
+        ("verify-enhanced-ncit-showcase", False),
+    ],
+)
+def test_showcase_operations_are_fixed_and_refuse_free_form_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    activate: bool,
+) -> None:
+    calls: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(
+        replay,
+        "_run_showcase_operator",
+        lambda root, runner, *, activate: calls.append((root, activate)) or 0,
+        raising=False,
+    )
+
+    assert run_agent_replay([operation], tmp_path, runner=_Runner()) == 0
+    assert calls == [(tmp_path.resolve(), activate)]
+    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
+        run_agent_replay([operation, "http://attacker.test/graph"], tmp_path)
+
+
 class _PodmanDiagnosticRunner:
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path

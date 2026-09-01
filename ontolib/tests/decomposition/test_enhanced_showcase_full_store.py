@@ -16,6 +16,11 @@ async def test_c9432_exists_with_bound_parents_but_is_not_c35756_source_finding(
 ):
     url = os.environ.get("NCIT_SPARQL_URL", "http://localhost:7888")
     async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        versions = await client.select(
+            "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            "?ontology a owl:Ontology ; owl:versionInfo ?version . } } LIMIT 2"
+        )
         parents = await client.select(
             f"""SELECT ?parent WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{
                 <{NCIT_NS}C9432> <{RDFS_NS}subClassOf> ?parent .
@@ -34,6 +39,7 @@ async def test_c9432_exists_with_bound_parents_but_is_not_c35756_source_finding(
             }} }}"""
         )
 
+    assert versions == [{"version": "26.07d"}]
     assert {row["parent"] for row in parents} >= {
         f"{NCIT_NS}C3331",
         f"{NCIT_NS}C198611",
