@@ -206,6 +206,59 @@ def test_decision_graph_serialization_and_scoped_recoverable_replacement() -> No
 
 
 @pytest.mark.unit
+def test_exact_showcase_graph_rejects_a_row_beyond_the_closure_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _showcase()
+    policy = module.load_packaged_showcase_decision_set()
+    monkeypatch.setattr(
+        module,
+        "serialize_showcase_decision_graph",
+        lambda _policy: "<urn:s> <urn:p> <urn:o> .",
+    )
+    rows = [{"s": "urn:s", "p": "urn:p", "o": "urn:o"}]
+    rows.append(rows[0].copy())
+    assert module._expected_showcase_graph_rows(policy) == {("urn:s", "urn:p", "urn:o")}
+
+    with pytest.raises(
+        module.ShowcasePolicyError,
+        match=r"^stored showcase graph exceeds closure budgets$",
+    ):
+        module.require_exact_showcase_graph(rows, policy)
+
+
+@pytest.mark.unit
+def test_exact_showcase_graph_rejects_bytes_over_budget_within_closure_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _showcase()
+    policy = module.load_packaged_showcase_decision_set()
+    oversized_value = "x" * module._SHOWCASE_GRAPH_BYTE_BUDGET
+    monkeypatch.setattr(
+        module,
+        "serialize_showcase_decision_graph",
+        lambda _policy: f'<urn:s> <urn:p> """{oversized_value}""" .',
+    )
+    rows = [
+        {
+            "s": "urn:s",
+            "p": "urn:p",
+            "o": oversized_value,
+        }
+    ]
+    assert module._expected_showcase_graph_rows(policy) == {
+        ("urn:s", "urn:p", oversized_value)
+    }
+    assert len(rows) == 1
+
+    with pytest.raises(
+        module.ShowcasePolicyError,
+        match=r"^stored showcase graph exceeds closure budgets$",
+    ):
+        module.require_exact_showcase_graph(rows, policy)
+
+
+@pytest.mark.unit
 def test_showcase_and_packaged_r101_policy_are_provably_orthogonal() -> None:
     module = _showcase()
     assert (
