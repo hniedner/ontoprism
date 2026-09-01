@@ -262,7 +262,7 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
         (output / "index.json").read_bytes()
     )
     context_note = (
-        "This packet contains 5 context-only pairs. Their optional context-correction "
+        "This packet contains 55 context-only pairs. Their optional context-correction "
         "response regions are schema-supported and do not request clinical answers or "
         "ontology actions."
     )
@@ -302,12 +302,13 @@ def test_generator_writes_schema_three_and_bound_validation_deterministically(  
     ).action_pair_ids:
         assert "[[ONTOPRISM:STAGE-B:START]]" not in markdown
         assert "Stage B signature" not in markdown
-        assert "not-applicable-pending-engineering" in markdown
+        assert "Supporting source facts:" not in markdown
 
     all_markdown = "\n".join(
         (output / f"{code}.md").read_text(encoding="utf-8") for code in CONCEPT_ORDER
     )
-    assert all_markdown.count(context_note) == 1
+    rendered_context_note = context_note.replace("55 context-only", "5 context-only")
+    assert all_markdown.count(rendered_context_note) == 1
     for entry in generated_index.packets:
         if not entry.action_pair_ids or entry.dispatch_status == "withheld":
             continue

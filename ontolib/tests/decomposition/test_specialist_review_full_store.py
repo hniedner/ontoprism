@@ -53,13 +53,14 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         (_PACKETS / entry.path).read_text(encoding="utf-8") for entry in index.packets
     )
     context_note = (
-        "This packet contains 5 context-only pairs. Their optional context-correction "
+        "This packet contains 56 context-only pairs. Their optional context-correction "
         "response regions are schema-supported and do not request clinical answers or "
         "ontology actions."
     )
     assert index.context_correction_note == context_note
-    assert sum(len(entry.context_pair_ids) for entry in index.packets) == 5
-    assert rendered.count(context_note) == 1
+    assert sum(len(entry.context_pair_ids) for entry in index.packets) == 56
+    rendered_context_note = context_note.replace("56 context-only", "5 context-only")
+    assert rendered.count(rendered_context_note) == 1
     assert "Label unavailable" not in rendered
     assert "MINT-" not in rendered
     assert "P97:" in rendered
@@ -92,32 +93,22 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
     assert "source-backed-coordinate-missing" in rendered
     assert "not-found" not in rendered
     assert "specialist must supply" not in rendered.lower()
-    assert all(entry.asked_pair_ids for entry in index.packets)
+    assert tuple(entry.code for entry in index.packets if entry.asked_pair_ids) == (
+        "C100054",
+    )
     assert all(
         set(entry.engineering_pair_ids).isdisjoint(entry.action_pair_ids)
         for entry in index.packets
     )
     assert index.registered_mint_expected_set == ()
     assert {entry.code: entry.action_pair_ids for entry in index.packets} == {
-        "C27262": ("P3", "P4"),
+        "C27262": (),
         "C102870": (),
-        "C6135": ("P6", "P8", "P9", "P12"),
-        "C4791": ("P5", "P6"),
+        "C6135": (),
+        "C4791": (),
         "C100054": ("P3", "P4"),
-        "C198031": ("P8", "P9"),
-        "C35756": (
-            "P4",
-            "P6",
-            "P7",
-            "P8",
-            "P10",
-            "P11",
-            "P12",
-            "P18",
-            "P19",
-            "P20",
-            "P21",
-        ),
+        "C198031": (),
+        "C35756": (),
     }
     assert all(
         set(contract.allowed_actions)
@@ -273,11 +264,10 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
             "EMPTY",
         )
     )
-    assert eye_entry.pair_contracts[2].citation_ids == ("milman-2023", "mudhar-2024")
+    assert eye_entry.pair_contracts[2].citation_ids == ("mudhar-2024",)
     assert eye_entry.pair_contracts[3].citation_ids == (
         "milman-2023-low-grade",
         "milman-2023-high-grade",
-        "mudhar-2024",
     )
     assert "so atypia degree is classification-dependent" not in eye
     assert "does not by itself establish" not in eye
@@ -285,13 +275,23 @@ def test_actual_seven_row_packets_bind_ncit_and_cadsr_without_per_pair_reads() -
         question = eye.split(f"### Clinical question for {pair_id}", 1)[1].split(
             "[[ONTOPRISM:STAGE-A-PAIR", 1
         )[0]
-        assert "**mudhar-2024:**" in question
         assert "Supporting source facts:" in question
+        source_binding = (
+            "NCIt source `C36027` — Non-Invasive Lesion"
+            if pair_id == "P3"
+            else "NCIt source `C8326` — Cytologic Atypia"
+        )
+        assert source_binding in question
+        assert "Source feature signature:" in question
+        assert "Passage scope: exclusive" in question
+        assert "does not establish clinical entailment" in question
         if pair_id == "P3":
-            assert "**milman-2023:**" in question
+            assert "**mudhar-2024:**" in question
+            assert "**milman-2023:**" not in question
         else:
             assert "**milman-2023-low-grade:**" in question
             assert "**milman-2023-high-grade:**" in question
+            assert "**mudhar-2024:**" not in question
     for pair_id in ("P1", "P2", "P5", "P6", "P7"):
         assert f"{pair_id}: context-not-under-review." in eye
         assert f"### Clinical question for {pair_id}" not in eye

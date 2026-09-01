@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import date
 from pathlib import Path
 from typing import Literal, Self
@@ -14,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CONCEPT_ORDER = ("C27262", "C102870", "C6135", "C4791", "C100054", "C198031", "C35756")
 _CONTROLLING_AUTHORITY_MAX = 2
+_MIN_FEATURE_LENGTH = 3
+_DISTINCT_PAIR_THRESHOLD = 2
 
 
 class _StrictModel(BaseModel):
@@ -71,16 +74,81 @@ class LiteratureCitation(_StrictModel):
         return self
 
 
+LEXICAL_EVIDENCE_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "their",
+        "this",
+        "to",
+        "was",
+        "were",
+        "with",
+    }
+)
+
+
+def normalize_lexical_evidence(value: str) -> str:
+    """Canonicalize lexical evidence without inferring synonyms or entailment."""
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    dashed = "".join(
+        "-" if unicodedata.category(char) == "Pd" else char for char in folded
+    )
+    joined = re.sub(r"(?<=\w)-(?=\w)", "", dashed)
+    return " ".join(re.findall(r"[^\W_]+", joined, flags=re.UNICODE))
+
+
+class LiteratureEvidenceSignature(_StrictModel):
+    required_source_features: tuple[str, ...] = Field(min_length=1, max_length=8)
+    passage_scope: Literal["exclusive", "shared-context"]
+
+    @model_validator(mode="after")
+    def _features_are_non_vacuous_and_unique(self) -> Self:
+        normalized = tuple(
+            normalize_lexical_evidence(feature)
+            for feature in self.required_source_features
+        )
+        if any(
+            len(feature) < _MIN_FEATURE_LENGTH
+            or all(token in LEXICAL_EVIDENCE_STOPWORDS for token in feature.split())
+            for feature in normalized
+        ):
+            raise ValueError(
+                "lexical evidence features must be non-vacuous, at least three "
+                "characters, and not stopword-only"
+            )
+        if len(set(normalized)) != len(normalized):
+            raise ValueError(
+                "lexical evidence features must be unique after normalization"
+            )
+        return self
+
+
 class LiteratureEvidenceClaim(_StrictModel):
     question_id: str = Field(min_length=1)
     pair_key: LiteraturePairKey
     citation_id: str = Field(min_length=1)
     support_excerpt: str = Field(min_length=1)
     supported_claim: str = Field(min_length=1)
-    evidence_terms: tuple[str, ...] = Field(min_length=1)
-    target_axis: str | None = None
-    source_concept_code: str | None = Field(default=None, pattern=r"^C[0-9]+$")
-    source_concept_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    source_concept_code: str = Field(pattern=r"^C[0-9]+$")
+    source_concept_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidence_signature: LiteratureEvidenceSignature
 
 
 class LiteratureSourceConcept(_StrictModel):
@@ -114,10 +182,6 @@ _ALLOWED_EVIDENCE_KINDS = (
 )
 
 
-def _normalized_evidence_text(value: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
-
-
 def source_concept_identity(code: str, label: str, definition: str) -> str:
     """Bind an NCIt code to its exact stated preferred label and P97 definition."""
     payload = json.dumps(
@@ -128,12 +192,34 @@ def source_concept_identity(code: str, label: str, definition: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+class LiteratureWithheldPair(_StrictModel):
+    pair_key: LiteraturePairKey
+    reason: str = Field(min_length=1)
+
+
 class LiteratureQuestion(_StrictModel):
     question_id: str = Field(min_length=1)
     pair_keys: tuple[LiteraturePairKey, ...] = Field(min_length=1)
     text: str = Field(min_length=1)
-    claims: tuple[LiteratureEvidenceClaim, ...] = Field(min_length=1)
-    source_concept_binding_required: bool = False
+    claims: tuple[LiteratureEvidenceClaim, ...] = ()
+    withheld_pairs: tuple[LiteratureWithheldPair, ...] = ()
+
+    @model_validator(mode="after")
+    def _claimed_and_withheld_pairs_cover_the_question(self) -> Self:
+        keys = {(key.axis, key.filler) for key in self.pair_keys}
+        claimed = {
+            (claim.pair_key.axis, claim.pair_key.filler) for claim in self.claims
+        }
+        withheld = {
+            (item.pair_key.axis, item.pair_key.filler) for item in self.withheld_pairs
+        }
+        if claimed & withheld or claimed | withheld != keys:
+            raise ValueError(
+                "claimed and withheld pairs must be an exact disjoint cover"
+            )
+        if len(withheld) != len(self.withheld_pairs):
+            raise ValueError("withheld pair keys must be unique")
+        return self
 
 
 def citation_supports_pair(
@@ -142,6 +228,7 @@ def citation_supports_pair(
     question: LiteratureQuestion,
     claim: LiteratureEvidenceClaim,
     citation: LiteratureCitation,
+    source_concept: LiteratureSourceConcept,
 ) -> bool:
     """Check exact source/excerpt binding, not automated clinical entailment."""
     if (
@@ -160,29 +247,37 @@ def citation_supports_pair(
         )
     ):
         return False
-    if question.source_concept_binding_required and (
-        claim.target_axis != target.axis
-        or claim.source_concept_code != target.filler
-        or claim.source_concept_identity is None
+    if (
+        claim.source_concept_code != target.filler
+        or source_concept.code != target.filler
+        or claim.source_concept_identity != source_concept.source_concept_identity
     ):
         return False
     if claim.support_excerpt not in citation.exact_passage:
         return False
-    passage = _normalized_evidence_text(citation.exact_passage)
-    supported_claim = _normalized_evidence_text(claim.supported_claim)
-    normalized_terms = tuple(
-        _normalized_evidence_text(term) for term in claim.evidence_terms
+    surfaces = (
+        normalize_lexical_evidence(
+            f"{source_concept.exact_label} {source_concept.exact_definition}"
+        ),
+        normalize_lexical_evidence(claim.support_excerpt),
+        normalize_lexical_evidence(claim.supported_claim),
+        normalize_lexical_evidence(citation.exact_passage),
     )
-    if (
-        any(not term for term in normalized_terms)
-        or any(term not in passage for term in normalized_terms)
-        or any(term not in supported_claim for term in normalized_terms)
+    normalized_features = tuple(
+        normalize_lexical_evidence(feature)
+        for feature in claim.evidence_signature.required_source_features
+    )
+    if any(
+        feature not in surface
+        for feature in normalized_features
+        for surface in surfaces
     ):
         return False
+    supported_claim = normalize_lexical_evidence(claim.supported_claim)
     contradiction = citation.does_not_support.lower().strip().rstrip(".")
     prefix = "does not support "
     if contradiction.startswith(prefix):
-        unsupported = " ".join(re.findall(r"[a-z0-9]+", contradiction[len(prefix) :]))
+        unsupported = normalize_lexical_evidence(contradiction[len(prefix) :])
         if unsupported and unsupported in supported_claim:
             return False
     return True
@@ -193,47 +288,72 @@ def _validate_question_bindings(
     citations: dict[str, LiteratureCitation],
     source_concepts: dict[str, LiteratureSourceConcept],
 ) -> None:
-    keys = {(key.axis, key.filler) for key in question.pair_keys}
-    claim_keys = {
-        (claim.pair_key.axis, claim.pair_key.filler) for claim in question.claims
-    }
-    if claim_keys != keys or any(
-        claim.question_id != question.question_id for claim in question.claims
-    ):
+    if any(claim.question_id != question.question_id for claim in question.claims):
         raise ValueError("claim must bind the question's exact pair and identity")
     for claim in question.claims:
-        if question.source_concept_binding_required:
-            source = source_concepts.get(claim.source_concept_code or "")
-            if (
-                source is None
-                or claim.source_concept_code != claim.pair_key.filler
-                or claim.target_axis != claim.pair_key.axis
-                or claim.source_concept_identity != source.source_concept_identity
-            ):
-                raise ValueError(
-                    "claim source concept must bind the exact question pair"
-                )
+        source = source_concepts.get(claim.source_concept_code)
+        if (
+            source is None
+            or claim.source_concept_code != claim.pair_key.filler
+            or claim.source_concept_identity != source.source_concept_identity
+        ):
+            raise ValueError("claim source concept must bind the exact question pair")
         citation = citations.get(claim.citation_id)
         if citation is None:
             raise ValueError("question references an unknown citation")
-        target = (
-            next(
-                key
-                for key in question.pair_keys
-                if key.filler == claim.source_concept_code
-            )
-            if claim.source_concept_code is not None
-            else claim.pair_key
-        )
         if not citation_supports_pair(
-            target=target, question=question, claim=claim, citation=citation
+            target=claim.pair_key,
+            question=question,
+            claim=claim,
+            citation=citation,
+            source_concept=source,
         ):
             raise ValueError(
-                "every pair claim requires its exact accessible "
-                "passage-bearing citation"
+                "every lexical feature must appear in the exact NCIt label and P97, "
+                "support excerpt, supported claim, and citation exact passage"
             )
     if "supply" in question.text.lower():
         raise ValueError("researchable evidence cannot be delegated to the specialist")
+
+
+def _validate_duplicate_evidence(
+    questions: tuple[LiteratureQuestion, ...],
+) -> None:
+    evidence_uses: dict[tuple[str, str], list[LiteratureEvidenceClaim]] = {}
+    for question in questions:
+        for claim in question.claims:
+            evidence_uses.setdefault(
+                (
+                    claim.citation_id,
+                    normalize_lexical_evidence(claim.support_excerpt),
+                ),
+                [],
+            ).append(claim)
+    for claims in evidence_uses.values():
+        pair_keys = {(claim.pair_key.axis, claim.pair_key.filler) for claim in claims}
+        if len(pair_keys) < _DISTINCT_PAIR_THRESHOLD:
+            continue
+        if any(
+            claim.evidence_signature.passage_scope == "exclusive" for claim in claims
+        ):
+            raise ValueError(
+                "exclusive evidence cannot be shared across distinct pairs"
+            )
+        signatures = {
+            tuple(
+                normalize_lexical_evidence(feature)
+                for feature in claim.evidence_signature.required_source_features
+            )
+            for claim in claims
+        }
+        supported_claims = {
+            normalize_lexical_evidence(claim.supported_claim) for claim in claims
+        }
+        if len(signatures) != len(claims) or len(supported_claims) != len(claims):
+            raise ValueError(
+                "shared-context evidence requires distinct valid signatures and "
+                "distinct claims; identical bindings across pairs are forbidden"
+            )
 
 
 class LiteratureDossierSource(_StrictModel):
@@ -278,6 +398,7 @@ class LiteratureDossierSource(_StrictModel):
             raise ValueError("source concept codes must be unique")
         for question in self.questions:
             _validate_question_bindings(question, citations, source_concepts)
+        _validate_duplicate_evidence(self.questions)
         return self
 
 
@@ -297,7 +418,7 @@ class OncologyAccessibleEvidenceRecord(_StrictModel):
 
 
 class LiteratureContextSource(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     ncit_version: Literal["26.07d"]
     evidence_pass: Literal["final"]
     oncology_accessible_evidence_records: tuple[
@@ -315,7 +436,7 @@ class LiteratureContextSource(_StrictModel):
 
 
 class GeneratedLiteratureContext(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     ncit_version: Literal["26.07d"]
     evidence_pass: Literal["final"]
     source_path: str
@@ -344,7 +465,7 @@ def generate_specialist_literature_context(
     source = LiteratureContextSource.model_validate_json(source_bytes)
     generated_on = date.today().isoformat()
     generated = GeneratedLiteratureContext(
-        schema_version=2,
+        schema_version=3,
         ncit_version=source.ncit_version,
         evidence_pass=source.evidence_pass,
         source_path=_portable_source_path(source_path),
