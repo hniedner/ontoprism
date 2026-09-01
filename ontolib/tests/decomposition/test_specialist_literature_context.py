@@ -18,7 +18,9 @@ def test_c6135_source_facts_are_neutral_observations_without_answer_cues() -> No
     source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
     dossier = next(row for row in source.dossiers if row.code == "C6135")
     source_facts = "\n".join(
-        claim.source_fact for question in dossier.questions for claim in question.claims
+        claim.supported_claim
+        for question in dossier.questions
+        for claim in question.claims
     ).lower()
 
     assert "not a generic malignant neuroendocrine-cell operand" not in source_facts
@@ -43,7 +45,7 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
         "Conjunctival Melanocytic Intraepithelial Neoplasia" not in SOURCE.read_text()
     )
     p4_facts = " ".join(
-        item.source_fact for item in by_pair[("op:ClinicalFinding", "C8326")]
+        item.supported_claim for item in by_pair[("op:ClinicalFinding", "C8326")]
     )
     allowed_statuses = {
         "universal-defining",
@@ -53,15 +55,15 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
         "inapplicable",
         "unresolved",
     }
-    all_source_facts = " ".join(item.source_fact for item in claims).lower()
+    all_source_facts = " ".join(item.supported_claim for item in claims).lower()
     assert not any(status in all_source_facts for status in allowed_statuses)
     assert "so atypia degree is classification-dependent" not in p4_facts.lower()
     assert "low-grade atypia" in p4_facts
     assert "high-grade atypia" in p4_facts
-    p6_facts = " ".join(
-        item.source_fact for item in by_pair[("op:NormalTissueOrigin", "C32365")]
-    )
-    assert "does not" not in p6_facts.lower()
+    assert set(by_pair) == {
+        ("op:ClinicalFinding", "C36027"),
+        ("op:ClinicalFinding", "C8326"),
+    }
     assert {
         item.citation_id
         for pair in (
@@ -69,7 +71,28 @@ def test_c100054_uses_the_stated_source_preferred_label_and_neutral_facts() -> N
             ("op:ClinicalFinding", "C8326"),
         )
         for item in by_pair[pair]
-    } == {"milman-2023", "mudhar-2024"}
+    } == {
+        "milman-2023",
+        "milman-2023-low-grade",
+        "milman-2023-high-grade",
+        "mudhar-2024",
+    }
+
+
+def test_c100054_claim_excerpts_and_terms_are_exactly_passage_bound() -> None:
+    source = LiteratureContextSource.model_validate_json(SOURCE.read_bytes())
+    dossier = next(row for row in source.dossiers if row.code == "C100054")
+    citations = {item.citation_id: item for item in dossier.citations}
+
+    for question in dossier.questions:
+        assert {(key.axis, key.filler) for key in question.pair_keys} == {
+            ("op:ClinicalFinding", "C36027"),
+            ("op:ClinicalFinding", "C8326"),
+        }
+        for claim in question.claims:
+            passage = citations[claim.citation_id].exact_passage
+            assert claim.support_excerpt in passage
+            assert all(term.lower() in passage.lower() for term in claim.evidence_terms)
 
 
 def test_c100054_bresler_2022_metadata_is_exact_and_access_is_honest() -> None:
