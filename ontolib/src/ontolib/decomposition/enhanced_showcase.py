@@ -426,13 +426,14 @@ def qualify_showcase_orthogonality(
     *,
     collapse_concept_roots: set[str] | None = None,
     collapse_runtime_keys: set[tuple[str, str, str]] | None = None,
+    collapse_occurrences: set[str] | None = None,
 ) -> None:
     collapse = load_packaged_collapse_veto_policy()
     roots = _collapse_roots(collapse, collapse_concept_roots)
     overlap_roots = tuple(sorted(_EXPECTED_CODES & roots))
     showcase_occurrences = _showcase_occurrences(policy)
-    collapse_occurrences = {entry.occurrence_id for entry in collapse.entries}
-    overlap_occurrences = tuple(sorted(showcase_occurrences & collapse_occurrences))
+    protected_occurrences = _collapse_occurrences(collapse, collapse_occurrences)
+    overlap_occurrences = tuple(sorted(showcase_occurrences & protected_occurrences))
     protected_keys = _collapse_runtime_key_space(collapse, collapse_runtime_keys)
     showcase_keys = _showcase_runtime_key_space(policy)
     runtime_keys = tuple(
@@ -450,6 +451,14 @@ def _collapse_roots(
     if override is not None:
         return override
     return {entry.concept_code for entry in collapse.entries}
+
+
+def _collapse_occurrences(
+    collapse: CollapseVetoPolicy, override: set[str] | None
+) -> set[str]:
+    if override is not None:
+        return override
+    return {entry.occurrence_id for entry in collapse.entries}
 
 
 def _collapse_runtime_key_space(

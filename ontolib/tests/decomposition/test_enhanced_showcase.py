@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from copy import deepcopy
 from typing import cast
 
 import pytest
+from pydantic import ValidationError
 
 
 def _showcase():
     return importlib.import_module("ontolib.decomposition.enhanced_showcase")
+
+
+def _recompute_decision_set_identity(module, payload: dict[str, object]) -> None:
+    identity_payload = {
+        key: value for key, value in payload.items() if key != "decision_set_identity"
+    }
+    payload["decision_set_identity"] = hashlib.sha256(
+        module._canonical(identity_payload)
+    ).hexdigest()
 
 
 @pytest.mark.unit
@@ -87,17 +98,23 @@ def test_decision_authority_and_evidence_support_are_separate_and_fail_closed() 
     payload = policy.model_dump(mode="json")
     decision = payload["concepts"][0]["decisions"][0]
     decision["authority"] = "project-provisional"
-    decision["support"] = ["peer-reviewed-not-found"]
-    decision["limitations"] = ""
-    payload["decision_set_identity"] = "0" * 64
+    decision["support"] = ["peer-reviewed-supported"]
+    decision["limitations"] = " "
+    _recompute_decision_set_identity(module, payload)
 
-    with pytest.raises(ValueError, match="limitations"):
+    with pytest.raises(ValidationError) as missing_limitations:
         module.ShowcaseDecisionSet.model_validate_json(json.dumps(payload))
+    assert str(missing_limitations.value.errors()[0].get("ctx", {}).get("error")) == (
+        "project-provisional include requires project-inference and limitations"
+    )
 
     decision["limitations"] = "Bounded limitation."
-    decision["support"] = ["peer-reviewed-supported"]
-    with pytest.raises(ValueError, match="project-inference"):
+    _recompute_decision_set_identity(module, payload)
+    with pytest.raises(ValidationError) as missing_inference:
         module.ShowcaseDecisionSet.model_validate_json(json.dumps(payload))
+    assert str(missing_inference.value.errors()[0].get("ctx", {}).get("error")) == (
+        "project-provisional include requires project-inference and limitations"
+    )
 
 
 @pytest.mark.unit
@@ -206,6 +223,29 @@ def test_showcase_and_packaged_r101_policy_are_provably_orthogonal() -> None:
             policy,
             collapse_concept_roots=set(),
             collapse_runtime_keys={("C6135", "op:NormalTissueOrigin", "C33782")},
+        )
+
+
+@pytest.mark.unit
+def test_showcase_occurrence_overlap_reject_branch_is_live() -> None:
+    module = _showcase()
+    policy = module.load_packaged_showcase_decision_set()
+    occurrence = next(
+        occurrence
+        for concept in policy.concepts
+        for decision in concept.decisions
+        for occurrence in decision.source_occurrence_ids
+    )
+
+    with pytest.raises(
+        module.ShowcasePolicyError,
+        match=r"^enhanced showcase overlaps R101 collapse-veto policy$",
+    ):
+        module.qualify_showcase_orthogonality(
+            policy,
+            collapse_concept_roots=set(),
+            collapse_runtime_keys=set(),
+            collapse_occurrences={occurrence},
         )
 
 
