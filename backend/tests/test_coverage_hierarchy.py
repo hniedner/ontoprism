@@ -158,6 +158,11 @@ def test_branchless_metric_is_na_and_unmeasured_metric_is_zero() -> None:
     )
 
 
+def test_metric_deficit_uses_strictly_greater_than_ninety_percent_floor() -> None:
+    assert Metric(covered=90, total=100).is_deficit is True
+    assert Metric(covered=91, total=100).is_deficit is False
+
+
 @pytest.mark.parametrize(
     ("values", "location", "message"),
     [

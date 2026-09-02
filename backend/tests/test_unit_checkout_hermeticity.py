@@ -41,6 +41,29 @@ def test_fixed_ignored_path_detector_reject_branch_is_live(source: str) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("relative_path", "expected_violation"),
+    [
+        ("database/fixture.json", False),
+        ("datasets/fixture.json", False),
+        ("tmpdata/x.json", False),
+        ("data/fixture.json", True),
+        ("tmp/fixture.json", True),
+    ],
+)
+def test_fixed_ignored_path_detector_matches_complete_root_segments(
+    relative_path: str, expected_violation: bool
+) -> None:
+    source = (
+        f'def test_read() -> None:\n    Path(__file__).parents[2] / "{relative_path}"\n'
+    )
+
+    violations = fixed_ignored_path_violations(source, filename="test_subject.py")
+
+    assert bool(violations) is expected_violation
+
+
+@pytest.mark.unit
 def test_detector_allows_owned_temp_paths_and_documentation() -> None:
     source = '''
 def test_safe(tmp_path: Path) -> None:

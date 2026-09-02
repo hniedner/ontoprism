@@ -43,17 +43,37 @@ def test_frontend_hierarchy_runner_uses_installed_vitest_version_and_fixed_paths
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "payload",
-    ["{not-json", "[]", json.dumps({}), json.dumps({"version": 3})],
+    ("payload", "message"),
+    [
+        ("[]", "Vitest package metadata must be a JSON object"),
+        (json.dumps({}), "Vitest package metadata has no string version"),
+        (json.dumps({"version": 3}), "Vitest package metadata has no string version"),
+        (json.dumps({"version": ""}), "Vitest package metadata has no string version"),
+    ],
 )
 def test_frontend_hierarchy_runner_fails_closed_for_invalid_vitest_metadata(
-    tmp_path: Path, payload: str
+    tmp_path: Path, payload: str, message: str
 ) -> None:
     package = tmp_path / "frontend/node_modules/vitest/package.json"
     package.parent.mkdir(parents=True)
     package.write_text(payload, encoding="utf-8")
 
-    with pytest.raises((ValueError, json.JSONDecodeError)):
+    with pytest.raises(ValueError, match=message) as error:
+        run_frontend_hierarchy(root=tmp_path, hierarchy_main=lambda _arguments: 0)
+
+    assert type(error.value) is ValueError
+    assert str(error.value) == message
+
+
+@pytest.mark.unit
+def test_frontend_hierarchy_runner_propagates_invalid_vitest_json(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "frontend/node_modules/vitest/package.json"
+    package.parent.mkdir(parents=True)
+    package.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(json.JSONDecodeError):
         run_frontend_hierarchy(root=tmp_path, hierarchy_main=lambda _arguments: 0)
 
 
