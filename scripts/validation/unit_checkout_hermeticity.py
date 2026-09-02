@@ -213,8 +213,9 @@ def _segmented_ignored_path(node: ast.BinOp, anchors: set[str]) -> str | None:
         if isinstance(segment, ast.Constant) and isinstance(segment.value, str)
     ]
     for index, value in enumerate(values):
-        if value in _IGNORED_ROOTS:
-            return "/".join(values[index:])
+        if _ignored_literal_or_root(value):
+            normalized = value.replace("\\", "/").removeprefix("./")
+            return "/".join((normalized, *values[index + 1 :]))
     return None
 
 

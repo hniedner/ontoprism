@@ -164,6 +164,14 @@ def test_unit_surface_does_not_exclude_full_store_decorated_ranges(
             'pathlib.Path(__file__).parent / "tmp" / "manifest.json"',
             "tmp/manifest.json",
         ),
+        (
+            '_MANIFEST = Path(__file__).resolve().parents[2] / "data/review.json"',
+            "data/review.json",
+        ),
+        (
+            '_MANIFEST = Path(__file__).resolve().parents[2] / "tmp/data/icdo"',
+            "tmp/data/icdo",
+        ),
     ],
 )
 def test_unit_surface_rejects_fixed_module_path_constants_used_by_unit_tests(
@@ -205,7 +213,9 @@ def test_unit_surface_allows_module_documentation_and_pytest_owned_paths(
         "@pytest.mark.unit\n"
         "def test_safe(tmp_path: Path) -> None:\n"
         '    manifest = tmp_path / "data" / "manifest.json"\n'
-        "    manifest.write_bytes(DOCUMENTATION.encode())\n",
+        "    manifest.write_bytes(DOCUMENTATION.encode())\n"
+        '    source_path = Path(__file__).parents[2] / "metadata/review.json"\n'
+        "    source_path.read_bytes()\n",
         encoding="utf-8",
     )
 
