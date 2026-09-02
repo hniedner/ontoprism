@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 from scripts.validation.unit_checkout_hermeticity import (
     fixed_ignored_path_violations,
+    mixed_test_marker_surface_violations,
+    mixed_test_marker_violations,
     unit_test_surface_violations,
 )
 
@@ -51,6 +53,55 @@ def test_safe(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source", "expected_test"),
+    [
+        (
+            "import pytest\n"
+            "pytestmark = pytest.mark.unit\n"
+            "@pytest.mark.integration\n"
+            "def test_real_store() -> None:\n    pass\n",
+            "test_real_store",
+        ),
+        (
+            "import pytest\n"
+            "pytestmark = [pytest.mark.unit]\n"
+            "@pytest.mark.full_store\n"
+            "class TestCorpus:\n"
+            "    def test_real_store(self) -> None:\n        pass\n",
+            "TestCorpus::test_real_store",
+        ),
+        (
+            "import pytest\n"
+            "@pytest.mark.integration\n"
+            "class TestService:\n"
+            "    @pytest.mark.unit\n"
+            "    def test_endpoint(self) -> None:\n        pass\n",
+            "TestService::test_endpoint",
+        ),
+    ],
+)
+def test_mixed_marker_contract_rejects_effective_marker_combinations(
+    source: str,
+    expected_test: str,
+) -> None:
+    violations = mixed_test_marker_violations(source, filename="test_subject.py")
+
+    assert len(violations) == 1
+    assert expected_test in violations[0].message
+    assert "unit" in violations[0].message
+
+
+@pytest.mark.unit
+def test_repository_has_no_mixed_unit_and_real_boundary_markers() -> None:
+    violations = mixed_test_marker_surface_violations(_ROOT)
+
+    assert violations == (), "\n".join(
+        f"{item.path}:{item.line}: {item.message}" for item in violations
+    )
+
+
+@pytest.mark.unit
 def test_surface_discovery_excludes_full_store_modules_and_fails_closed(
     tmp_path: Path,
 ) -> None:
@@ -73,17 +124,26 @@ def test_surface_discovery_excludes_full_store_modules_and_fails_closed(
 
 
 @pytest.mark.unit
-def test_real_mixed_marker_hierarchy_contract_is_excluded_from_unit_surface() -> None:
-    relative = "ontolib/tests/decomposition/test_axis_diagnostic_report.py"
-    source = (_ROOT / relative).read_text(encoding="utf-8")
-
-    direct = fixed_ignored_path_violations(source, filename=relative)
-    surface = unit_test_surface_violations(_ROOT)
-
-    assert any(
-        item.line == 328 and "data/qlever-ncit" in item.message for item in direct
+def test_unit_surface_does_not_exclude_full_store_decorated_ranges(
+    tmp_path: Path,
+) -> None:
+    tests = tmp_path / "ontolib/tests"
+    tests.mkdir(parents=True)
+    (tests / "test_mixed.py").write_text(
+        "import pytest\n"
+        "from pathlib import Path\n"
+        "pytestmark = pytest.mark.unit\n"
+        "@pytest.mark.full_store\n"
+        "def test_real_store() -> None:\n"
+        '    Path("data/qlever-ncit/manifest.json").read_bytes()\n',
+        encoding="utf-8",
     )
-    assert not any(item.path == relative and item.line == 328 for item in surface)
+
+    violations = unit_test_surface_violations(tmp_path)
+
+    assert len(violations) == 1
+    assert violations[0].path == "ontolib/tests/test_mixed.py"
+    assert "data/qlever-ncit/manifest.json" in violations[0].message
 
 
 @pytest.mark.unit

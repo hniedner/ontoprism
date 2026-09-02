@@ -36,8 +36,6 @@ from ontolib.decomposition.axis_diagnostics import (
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
-pytestmark = pytest.mark.unit
-
 _GOLDEN = Path(__file__).with_name("golden")
 _ORACLE = _GOLDEN / "neoplasm-adjudicated.json"
 _ROWS = _GOLDEN / "neoplasm-row-decisions.json"
@@ -72,6 +70,7 @@ def _inputs():  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.mark.unit
 def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> None:
     oracle, rows, registry, evidence, comparison = _inputs()
     supports = {}
@@ -168,6 +167,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     }
 
 
+@pytest.mark.unit
 def test_revise_row_reports_pair_group_review_and_provenance_independently() -> None:
     oracle, rows, registry, evidence, comparison = _inputs()
 
@@ -195,6 +195,7 @@ def test_revise_row_reports_pair_group_review_and_provenance_independently() -> 
     assert c35501.provenance_delta == "unchanged"
 
 
+@pytest.mark.unit
 def test_report_identity_rejects_rebound_payload() -> None:
     oracle, rows, registry, evidence, comparison = _inputs()
     report = build_axis_diagnostic_report(
@@ -214,6 +215,7 @@ def test_report_identity_rejects_rebound_payload() -> None:
         type(report).model_validate_json(json.dumps(payload))
 
 
+@pytest.mark.unit
 def test_source_evidence_variants_are_strict_and_discriminated() -> None:
     available = AvailableSourcePairEvidence(
         status="available",
@@ -260,6 +262,7 @@ def test_source_evidence_variants_are_strict_and_discriminated() -> None:
         )
 
 
+@pytest.mark.unit
 def test_current_projection_status_is_typed_and_independent_from_range_verdict() -> (
     None
 ):

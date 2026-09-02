@@ -23,6 +23,8 @@ class Violation:
 
 
 def _marker_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Call):
+        return _marker_name(node.func)
     if not isinstance(node, ast.Attribute):
         return None
     if (
@@ -60,10 +62,82 @@ def _module_markers(tree: ast.Module) -> set[str]:
     return markers
 
 
+def _decorator_markers(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+) -> set[str]:
+    return {
+        marker
+        for decorator in node.decorator_list
+        if (marker := _marker_name(decorator)) is not None
+    }
+
+
+def mixed_test_marker_violations(
+    source: str, *, filename: str
+) -> tuple[Violation, ...]:
+    """Reject test nodes marked as both unit and a real-boundary contract."""
+    tree = ast.parse(source, filename=filename)
+    module_markers = _module_markers(tree)
+    violations: list[Violation] = []
+
+    def inspect_function(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        inherited: set[str],
+        identity: str,
+    ) -> None:
+        if not node.name.startswith("test_"):
+            return
+        effective = inherited | _decorator_markers(node)
+        boundary_markers = effective & {"integration", "full_store"}
+        if "unit" in effective and boundary_markers:
+            conflicts = ", ".join(sorted(boundary_markers))
+            violations.append(
+                Violation(
+                    filename,
+                    node.lineno,
+                    f"{identity} is both unit and {conflicts}",
+                )
+            )
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            inspect_function(node, module_markers, node.name)
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            class_markers = module_markers | _decorator_markers(node)
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    inspect_function(
+                        child,
+                        class_markers,
+                        f"{node.name}::{child.name}",
+                    )
+    return tuple(violations)
+
+
+def mixed_test_marker_surface_violations(root: Path) -> tuple[Violation, ...]:
+    """Inspect repository tests without importing or collecting test modules."""
+    violations: list[Violation] = []
+    for test_root in _TEST_ROOTS:
+        for path in sorted((root / test_root).rglob("test_*.py")):
+            relative = path.relative_to(root).as_posix()
+            source = path.read_text(encoding="utf-8")
+            try:
+                violations.extend(
+                    mixed_test_marker_violations(source, filename=relative)
+                )
+            except SyntaxError as error:
+                violations.append(
+                    Violation(
+                        relative,
+                        error.lineno or 0,
+                        f"unable to parse test marker candidate: {error.msg}",
+                    )
+                )
+    return tuple(violations)
+
+
 def _unit_nodes(tree: ast.Module) -> tuple[ast.AST, ...]:
     markers = _module_markers(tree)
-    if "full_store" in markers:
-        return ()
     if "unit" in markers:
         return (tree,)
     selected: list[ast.AST] = []
@@ -238,7 +312,7 @@ def fixed_ignored_path_violations(
 
 
 def unit_test_surface_violations(root: Path) -> tuple[Violation, ...]:
-    """Discover and inspect explicitly marked non-full-store unit tests."""
+    """Discover and inspect explicitly marked unit tests."""
     violations: list[Violation] = []
     for test_root in _TEST_ROOTS:
         for path in sorted((root / test_root).rglob("test_*.py")):
@@ -260,17 +334,6 @@ def unit_test_surface_violations(root: Path) -> tuple[Violation, ...]:
                 continue
             discovered = fixed_ignored_path_violations(source, filename=relative)
             module_unit = isinstance(unit_nodes[0], ast.Module)
-            full_store_ranges = [
-                (node.lineno, node.end_lineno or node.lineno)
-                for node in tree.body
-                if isinstance(
-                    node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-                )
-                and any(
-                    _marker_name(decorator) == "full_store"
-                    for decorator in node.decorator_list
-                )
-            ]
             unit_ranges = [
                 (
                     getattr(node, "lineno", 0),
@@ -283,13 +346,7 @@ def unit_test_surface_violations(root: Path) -> tuple[Violation, ...]:
                 violation
                 for violation in discovered
                 if (
-                    (
-                        module_unit
-                        and not any(
-                            start <= violation.line <= end
-                            for start, end in full_store_ranges
-                        )
-                    )
+                    module_unit
                     or any(start <= violation.line <= end for start, end in unit_ranges)
                 )
             )
