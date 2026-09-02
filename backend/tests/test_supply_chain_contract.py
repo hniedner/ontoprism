@@ -265,6 +265,13 @@ def test_frontend_hierarchy_report_runs_inside_the_project_environment() -> None
     )
 
 
+def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    filters = yaml.safe_load(workflow["jobs"]["changes"]["steps"][1]["with"]["filters"])
+
+    assert "scripts/validation/frontend_coverage_hierarchy.py" in filters["frontend"]
+
+
 def test_frontend_transitive_security_and_install_script_policy() -> None:
     """Patched transitive tools stay pinned and optional native scripts stay denied."""
     package = json.loads(

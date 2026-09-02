@@ -805,7 +805,8 @@ def validate_full_store_timeout_contract(
         "internal timeout",
         "outer tool timeout",
         "never start",
-        "1200000 ms",
+        "default",
+        "shorter",
         "retry",
     )
     missing = [term for term in required if term not in normalized]
@@ -813,6 +814,11 @@ def validate_full_store_timeout_contract(
         validation.error(
             "FULL_STORE_TIMEOUT",
             f"{label} missing required semantics: {', '.join(missing)}",
+        )
+    if "1200000" in normalized:
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} contains a stale incorrect outer timeout",
         )
     if re.search(
         r"pdm run agent-replay podman-test-full-store\s+--?timeout\b", normalized

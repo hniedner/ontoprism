@@ -19,9 +19,9 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "coverage-surfaces.toml"
@@ -39,6 +39,8 @@ _EXEMPTION_KINDS = {
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
 _IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignore")
 MetricKind = Literal["lines", "branches"]
+SupportedCoverageTool = Literal["coverage.py", "vitest"]
+SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
 
 
 class _Document(BaseModel):
@@ -48,9 +50,15 @@ class _Document(BaseModel):
 class Metric(_Document):
     """One covered/total metric; ``None`` means the surface was not measured."""
 
-    covered: int
-    total: int | None
+    covered: Annotated[int, Field(ge=0)]
+    total: Annotated[int, Field(ge=0)] | None
     kind: MetricKind = "branches"
+
+    @model_validator(mode="after")
+    def covered_does_not_exceed_total(self) -> Self:
+        if self.total is not None and self.covered > self.total:
+            raise ValueError("covered must not exceed total")
+        return self
 
     @property
     def percent(self) -> float:
@@ -89,24 +97,14 @@ class ArtifactIdentity(_Document):
     commit: str
     config_sha256: str
     manifest_sha256: str
-    tool: str
+    tool: SupportedCoverageTool
     tool_version: str
     layer: str
     source_sha256: str = ""
     worktree_dirty: bool = False
 
-    def as_dict(self) -> dict[str, str | int | bool]:
-        return {
-            "schema_version": self.schema_version,
-            "commit": self.commit,
-            "config_sha256": self.config_sha256,
-            "manifest_sha256": self.manifest_sha256,
-            "tool": self.tool,
-            "tool_version": self.tool_version,
-            "layer": self.layer,
-            "source_sha256": self.source_sha256,
-            "worktree_dirty": self.worktree_dirty,
-        }
+    def as_dict(self) -> dict[str, object]:
+        return self.model_dump(mode="json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +114,7 @@ class LayerCompatibility:
     config_sha256: str
     manifest_sha256: str
     source_sha256: str
-    tool: str
+    tool: SupportedCoverageTool
     tool_version: str
 
     @classmethod
@@ -880,16 +878,14 @@ def _istanbul_module_scope(surface: Surface, file_data: Mapping[str, object]) ->
         location = _mapping(location_value, "statement location")
         start = _mapping(location.get("start", {}), "statement start")
         line = start.get("line")
-        hits = statement_hits.get(key)
-        if isinstance(line, int) and isinstance(hits, int):
+        hits = _istanbul_hit(statement_hits.get(key), f"statement hits.{key}")
+        if isinstance(line, int):
             line_hits[line] = max(line_hits.get(line, 0), hits)
     branch_hits = _mapping(file_data.get("b", {}), "branch hits")
     flattened = [
         hit
-        for values in branch_hits.values()
-        if isinstance(values, list)
-        for hit in values
-        if isinstance(hit, int)
+        for key, values in branch_hits.items()
+        for hit in _istanbul_hit_list(values, f"branch hits.{key}")
     ]
     return Scope(
         scope_id=f"module:{surface.path}",
@@ -922,6 +918,22 @@ def _position(location: Mapping[str, object], key: str) -> tuple[int, int]:
     if not isinstance(column, int):
         raise ValueError(f"location.{key} column must be an integer or null")
     return line, column
+
+
+def _istanbul_hit(value: object, context: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{context} must be an integer")
+    if value < 0:
+        raise ValueError(f"{context} must be non-negative")
+    return value
+
+
+def _istanbul_hit_list(value: object, context: str) -> list[int]:
+    if not isinstance(value, list):
+        raise ValueError(f"{context} must be a list of integers")
+    return [
+        _istanbul_hit(hit, f"{context}[{index}]") for index, hit in enumerate(value)
+    ]
 
 
 def _location_start(location: Mapping[str, object]) -> tuple[int, int]:
@@ -970,18 +982,22 @@ def _istanbul_function_scopes(
         line_hits: dict[int, int] = {}
         for statement_key, statement_value in statement_map.items():
             statement = _mapping(statement_value, f"statementMap.{statement_key}")
-            hits = statement_hits.get(statement_key)
-            if _inside(statement, location) and isinstance(hits, int):
+            hits = _istanbul_hit(
+                statement_hits.get(statement_key), f"statement hits.{statement_key}"
+            )
+            if _inside(statement, location):
                 line = _position(statement, "start")[0]
                 line_hits[line] = max(line_hits.get(line, 0), hits)
         function_branch_hits: list[int] = []
         for branch_key, branch_value in branch_map.items():
             branch = _mapping(branch_value, f"branchMap.{branch_key}")
-            hits = branch_hits.get(branch_key, [])
-            if _inside(branch, location) and isinstance(hits, list):
-                function_branch_hits.extend(hit for hit in hits if isinstance(hit, int))
-        function_hit = function_hits.get(key)
-        if isinstance(function_hit, int) and not line_hits:
+            hits = _istanbul_hit_list(
+                branch_hits.get(branch_key), f"branch hits.{branch_key}"
+            )
+            if _inside(branch, location):
+                function_branch_hits.extend(hits)
+        function_hit = _istanbul_hit(function_hits.get(key), f"function hits.{key}")
+        if not line_hits:
             line_hits[_position(location, "start")[0]] = function_hit
         start_line = _position(location, "start")[0]
         scopes.append(
@@ -1074,7 +1090,7 @@ def make_identity(
     manifest: Manifest,
     *,
     layer: str,
-    tool: str,
+    tool: SupportedCoverageTool,
     tool_version: str,
     root: Path = REPO_ROOT,
 ) -> ArtifactIdentity:
@@ -1105,16 +1121,18 @@ def make_identity(
 
 
 def identity_from_mapping(raw: Mapping[str, object]) -> ArtifactIdentity:
-    return ArtifactIdentity(
-        schema_version=_integer(raw, "schema_version"),
-        commit=_string(raw, "commit"),
-        config_sha256=_string(raw, "config_sha256"),
-        manifest_sha256=_string(raw, "manifest_sha256"),
-        tool=_string(raw, "tool"),
-        tool_version=_string(raw, "tool_version"),
-        layer=_string(raw, "layer"),
-        source_sha256=_string(raw, "source_sha256"),
-        worktree_dirty=_boolean(raw, "worktree_dirty"),
+    return ArtifactIdentity.model_validate(
+        {
+            "schema_version": _integer(raw, "schema_version"),
+            "commit": _string(raw, "commit"),
+            "config_sha256": _string(raw, "config_sha256"),
+            "manifest_sha256": _string(raw, "manifest_sha256"),
+            "tool": _string(raw, "tool"),
+            "tool_version": _string(raw, "tool_version"),
+            "layer": _string(raw, "layer"),
+            "source_sha256": _string(raw, "source_sha256"),
+            "worktree_dirty": _boolean(raw, "worktree_dirty"),
+        }
     )
 
 
@@ -1230,7 +1248,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate")
     identity = subparsers.add_parser("identity")
     identity.add_argument("--layer", required=True)
-    identity.add_argument("--tool", required=True)
+    identity.add_argument("--tool", required=True, choices=SUPPORTED_COVERAGE_TOOLS)
     identity.add_argument("--tool-version", required=True)
     identity.add_argument("--output", type=Path, required=True)
     verify = subparsers.add_parser("verify-identities")

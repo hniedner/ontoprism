@@ -3,10 +3,11 @@ mappings."""
 
 import hashlib
 import json
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import Field
+from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
@@ -120,12 +121,7 @@ async def _xref_expected(
 
 
 class MappingEntry(StrictBoundaryModel):
-    """One terminology alignment for an NCIt concept, serialized for the API.
-
-    The router supplies ``is_identity`` using the same rule as
-    ``UpstreamMapping.is_identity``: true when the predicate is ``exactMatch`` and
-    lifecycle is ``validated``/``active``. The model does not enforce that relationship.
-    """
+    """One terminology alignment for an NCIt concept, serialized for the API."""
 
     object_id: str
     system: str
@@ -133,7 +129,30 @@ class MappingEntry(StrictBoundaryModel):
     predicate: MappingPredicate
     lifecycle: MappingLifecycle
     confidence: float = Field(ge=0.0, le=1.0)
-    is_identity: bool
+
+    @model_validator(mode="before")
+    @classmethod
+    def serialized_identity_must_match_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping) or "is_identity" not in value:
+            return value
+        expected = value.get("predicate") == EXACT_MATCH and value.get("lifecycle") in {
+            "validated",
+            "active",
+        }
+        if value["is_identity"] is not expected:
+            raise ValueError("is_identity must match predicate and lifecycle")
+        without_computed = dict(value)
+        without_computed.pop("is_identity")
+        return without_computed
+
+    @computed_field
+    @property
+    def is_identity(self) -> bool:
+        """Whether this is a curated exact identity mapping."""
+        return self.predicate == EXACT_MATCH and self.lifecycle in {
+            "validated",
+            "active",
+        }
 
 
 class ConceptMappings(StrictBoundaryModel):
@@ -161,10 +180,6 @@ def _mapping_entries(
                 predicate=predicate,
                 lifecycle=row.lifecycle,
                 confidence=row.confidence,
-                is_identity=(
-                    predicate == EXACT_MATCH
-                    and row.lifecycle in {"validated", "active"}
-                ),
             )
         )
     return entries

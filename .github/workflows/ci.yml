@@ -63,6 +63,7 @@ jobs:
               - 'frontend/**'
               - 'coverage-surfaces.toml'
               - 'scripts/validation/coverage_hierarchy.py'
+              - 'scripts/validation/frontend_coverage_hierarchy.py'
               - 'scripts/validation/strict_coverage_gate.py'
               - '.github/workflows/ci.yml'
             embeddings:

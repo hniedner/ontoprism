@@ -94,7 +94,8 @@ def test_full_store_prompt_requires_outer_bash_timeout_on_first_attempt(
         "first attempt",
         "internal timeout",
         "never start",
-        "1200000",
+        "default",
+        "shorter",
         "retry",
     ):
         assert semantic_token in prompt
@@ -111,7 +112,7 @@ def test_full_store_prompt_requires_outer_bash_timeout_on_first_attempt(
         ),
         (
             "Invoke `pdm run agent-replay podman-test-full-store` through the Bash "
-            "tool with its outer timeout set to 1200000 milliseconds, then retry "
+            "tool with its outer timeout set to a shorter value, then retry "
             "with 3600000 milliseconds."
         ),
     ],
@@ -139,6 +140,23 @@ def test_full_store_timeout_gate_rejects_fake_shell_timeout_flag(
 
     assert any(
         error.startswith("FULL_STORE_TIMEOUT:") and "shell flag" in error
+        for error in validate(config_root)
+    )
+
+
+@pytest.mark.parametrize("relative", FULL_STORE_TIMEOUT_PROMPTS)
+def test_full_store_timeout_gate_rejects_stale_wrong_timeout(
+    config_root: Path, relative: str
+) -> None:
+    path = config_root / relative
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\nThe previous outer timeout was 1200000 milliseconds.\n",
+        encoding="utf-8",
+    )
+
+    assert any(
+        error.startswith("FULL_STORE_TIMEOUT:") and "stale" in error
         for error in validate(config_root)
     )
 
