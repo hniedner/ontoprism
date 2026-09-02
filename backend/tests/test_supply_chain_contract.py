@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -263,6 +264,39 @@ def test_frontend_hierarchy_report_runs_inside_the_project_environment() -> None
     assert step["run"] == (
         "pdm run python -m scripts.validation.frontend_coverage_hierarchy"
     )
+
+
+def test_python_coverage_job_installs_and_imports_its_pinned_runtime() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["coverage-verify"]["steps"]
+
+    install = next(step for step in steps if step.get("name") == "Install coverage")
+    assert shlex.split(install["run"]) == [
+        "pip",
+        "install",
+        "coverage>=7,<8",
+        "pydantic>=2,<3",
+    ]
+
+    verify = next(
+        step for step in steps if step.get("name") == "Verify coverage tooling imports"
+    )
+    assert verify["run"] == "python -c 'import coverage, pydantic'"
+
+    hierarchy_tree = ast.parse(
+        (_ROOT / "scripts/validation/coverage_hierarchy.py").read_text()
+    )
+    imported_roots = {
+        node.module.partition(".")[0]
+        for node in ast.walk(hierarchy_tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    } | {
+        alias.name.partition(".")[0]
+        for node in ast.walk(hierarchy_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert "pydantic" in imported_roots
 
 
 def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:
