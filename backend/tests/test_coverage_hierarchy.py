@@ -420,9 +420,7 @@ def test_runtime_dependency_verification_rejects_lock_version_mismatch(
         verify_runtime_dependencies(lock)
 
 
-def test_current_identity_allows_downloaded_artifacts_outside_source_inventory() -> (
-    None
-):
+def test_current_identity_allows_dirty_checkout_when_tracked_identity_matches() -> None:
     artifact = _identity()
     current_with_auxiliary_outputs = ArtifactIdentity(
         **{

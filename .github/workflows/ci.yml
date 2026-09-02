@@ -193,8 +193,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Only Coverage.py, Pydantic, git on PATH, and the checked-out source are needed to
-      # gate and render the report-only hierarchy — no editable ontolib/backend install.
+      # Coverage.py, Pydantic, git on PATH, and the real checked-out source are needed to
+      # verify layer identity against the checkout, gate, and render; no editable install.
+      # In particular, no editable ontolib/backend install is needed.
       # relative_files=true (pyproject) keeps uploaded .coverage portable across jobs.
       - name: Install coverage report dependencies
         run: pip install 'coverage==7.15.4' 'pydantic==2.13.4'

@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 import yaml
+from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -291,7 +292,18 @@ def _python_entrypoints(command: str) -> list[tuple[str, str]]:
     ]
 
 
-def _import_roots(path: Path, visited: set[Path] | None = None) -> set[str]:
+def _local_module_path(root: Path, module: str) -> Path | None:
+    module_path = root / module.replace(".", "/")
+    source = module_path.with_suffix(".py")
+    if source.is_file():
+        return source
+    package = module_path / "__init__.py"
+    return package if package.is_file() else None
+
+
+def _import_roots(
+    path: Path, root: Path = _ROOT, visited: set[Path] | None = None
+) -> set[str]:
     visited = set() if visited is None else visited
     path = path.resolve()
     if path in visited:
@@ -309,20 +321,34 @@ def _import_roots(path: Path, visited: set[Path] | None = None) -> set[str]:
         for alias in node.names
     }
     local_roots = {
-        root
-        for root in roots
-        if (_ROOT / root).is_dir() or (_ROOT / f"{root}.py").is_file()
+        import_root
+        for import_root in roots
+        if _local_module_path(root, import_root) is not None
+        or (root / import_root).is_dir()
     }
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.module is None:
-            continue
-        candidate = _ROOT / f"{node.module.replace('.', '/')}.py"
-        if candidate.is_file():
-            roots.update(_import_roots(candidate, visited))
+        modules = (
+            [node.module]
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+            else [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else []
+        )
+        for module in modules:
+            candidate = _local_module_path(root, module)
+            if candidate is not None:
+                roots.update(_import_roots(candidate, root, visited))
     return roots - local_roots - sys.stdlib_module_names
 
 
-def test_python_coverage_job_derives_and_pins_its_complete_runtime() -> None:
+def _assert_report_runtime_packages(
+    required_roots: set[str], installed: dict[str, str]
+) -> None:
+    assert required_roots == REPORT_RUNTIME_PACKAGES
+    assert installed.keys() == REPORT_RUNTIME_PACKAGES
+
+
+def test_python_coverage_job_derives_and_pins_its_python_runtime() -> None:
     workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["coverage-verify"]["steps"]
 
@@ -350,9 +376,9 @@ def test_python_coverage_job_derives_and_pins_its_complete_runtime() -> None:
         if script:
             required_roots.update(_import_roots(_ROOT / script))
 
-    assert installed.keys() == required_roots
+    _assert_report_runtime_packages(required_roots, installed)
     locked = _locked_versions()
-    assert installed == {name: locked[name] for name in required_roots}
+    assert installed == {name: locked[name] for name in REPORT_RUNTIME_PACKAGES}
 
     verify_index, verify = next(
         (index, step)
@@ -367,10 +393,32 @@ def test_python_coverage_job_derives_and_pins_its_complete_runtime() -> None:
 
     workflow_text = (_ROOT / ".github/workflows/ci.yml").read_text()
     assert (
-        "Only Coverage.py, Pydantic, git on PATH, and the checked-out source are "
-        "needed to" in workflow_text.replace("\n      # ", " ")
+        "Coverage.py, Pydantic, git on PATH, and the real checked-out source are "
+        "needed to verify layer identity against the checkout, gate, and render; "
+        "no editable install." in workflow_text.replace("\n      # ", " ")
     )
     assert "no editable ontolib/backend install" in workflow_text
+
+
+def test_python_runtime_derivation_detects_new_dependency_through_plain_local_import(
+    tmp_path: Path,
+) -> None:
+    entrypoint = tmp_path / "scripts" / "validation" / "entrypoint.py"
+    imported = tmp_path / "scripts" / "validation" / "imported.py"
+    entrypoint.parent.mkdir(parents=True)
+    entrypoint.write_text("import scripts.validation.imported\n")
+    imported.write_text(
+        "import coverage\nimport newly_added_report_dependency\nimport pydantic\n"
+    )
+
+    derived = _import_roots(entrypoint, tmp_path)
+
+    assert derived == REPORT_RUNTIME_PACKAGES | {"newly_added_report_dependency"}
+    with pytest.raises(AssertionError):
+        _assert_report_runtime_packages(
+            derived,
+            {"coverage": "7.15.4", "pydantic": "2.13.4"},
+        )
 
 
 def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:

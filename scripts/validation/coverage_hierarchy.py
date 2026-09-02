@@ -8,6 +8,7 @@ import dataclasses
 import datetime
 import fnmatch
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -19,7 +20,7 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -41,6 +42,7 @@ _IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignor
 MetricKind = Literal["lines", "branches"]
 SupportedCoverageTool = Literal["coverage.py", "vitest"]
 SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
+REPORT_RUNTIME_PACKAGES: Final[frozenset[str]] = frozenset({"coverage", "pydantic"})
 
 
 class _Document(BaseModel):
@@ -1181,10 +1183,7 @@ def verify_installed_tool_version(
 
 
 def verify_runtime_dependencies(lock_path: Path) -> dict[str, str]:
-    """Require report-only Python dependencies to equal their locked versions."""
-    import coverage  # noqa: PLC0415
-    import pydantic  # noqa: PLC0415
-
+    """Require the Coverage.py and Pydantic report runtime to match the lock."""
     raw = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     packages = raw.get("package")
     if not isinstance(packages, list):
@@ -1200,8 +1199,7 @@ def verify_runtime_dependencies(lock_path: Path) -> dict[str, str]:
         locked_versions.setdefault(name, set()).add(version)
 
     installed = {
-        "coverage": coverage.__version__,
-        "pydantic": pydantic.__version__,
+        name: importlib.metadata.version(name) for name in REPORT_RUNTIME_PACKAGES
     }
     for name, actual_version in installed.items():
         expected_versions = locked_versions.get(name)
@@ -1227,10 +1225,10 @@ def verify_identities_against_current(
 ) -> None:
     """Reject layers stale against current tracked inputs.
 
-    Coverage artifacts are downloaded into the verification checkout, so unrelated
-    untracked output may make ``git status`` dirty. The current identity's explicit
-    commit/config/manifest/source hashes are authoritative; collected layers themselves
-    must still have been produced from clean worktrees.
+    Unrelated output not covered by the hashed inventory may make ``git status`` dirty.
+    The current identity's explicit commit/config/manifest/source hashes are
+    authoritative; collected layers themselves must still have been produced from clean
+    worktrees.
     """
     # Run the collected-layer check outside the wrapper so its own diagnostics (dirty
     # worktree, missing identities) are not relabelled as a staleness mismatch.
