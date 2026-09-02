@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -418,6 +420,52 @@ def test_runtime_dependency_verification_rejects_lock_version_mismatch(
         match=r"installed pydantic version \S+ does not match pdm.lock version 0.0.0",
     ):
         verify_runtime_dependencies(lock)
+
+
+@pytest.mark.parametrize("missing_name", ["coverage", "pydantic"])
+def test_runtime_dependency_verification_rejects_missing_package(
+    tmp_path: Path, missing_name: str
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    package_entries = [
+        "[[package]]\n"
+        f'name = "{name}"\n'
+        f'version = "{importlib.metadata.version(name)}"\n'
+        for name in ("coverage", "pydantic")
+        if name != missing_name
+    ]
+    lock.write_text("".join(package_entries), encoding="utf-8")
+    expected_error = f"{lock} does not lock {missing_name}"
+
+    with pytest.raises(ValueError, match=re.escape(expected_error)) as error:
+        verify_runtime_dependencies(lock)
+
+    assert str(error.value) == expected_error
+
+
+@pytest.mark.parametrize("conflicting_name", ["coverage", "pydantic"])
+def test_runtime_dependency_verification_rejects_conflicting_versions(
+    tmp_path: Path, conflicting_name: str
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    installed_version = importlib.metadata.version(conflicting_name)
+    package_entries = [
+        "[[package]]\n"
+        f'name = "{name}"\n'
+        f'version = "{importlib.metadata.version(name)}"\n'
+        for name in ("coverage", "pydantic")
+    ]
+    package_entries.append(
+        f'[[package]]\nname = "{conflicting_name}"\nversion = "0.0.0"\n'
+    )
+    lock.write_text("".join(package_entries), encoding="utf-8")
+    versions = ", ".join(sorted(("0.0.0", installed_version)))
+    expected_error = f"{lock} locks conflicting {conflicting_name} versions: {versions}"
+
+    with pytest.raises(ValueError, match=re.escape(expected_error)) as error:
+        verify_runtime_dependencies(lock)
+
+    assert str(error.value) == expected_error
 
 
 def test_current_identity_allows_dirty_checkout_when_tracked_identity_matches() -> None:
