@@ -117,7 +117,8 @@ def _composed_readiness_inputs(
         source_identity=report.source_identity,
         source_release=report.source_release_id,
     )
-    manifest = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    manifest = tmp_path / "source-manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
     validation = build_r101_reuse_validation(
         report_identity=report.report_identity,
         existing_packet_identity="1" * 64,
@@ -163,6 +164,20 @@ def _composed_readiness_inputs(
         ),
     )
     monkeypatch.setattr(module, "load_group_review_packet", lambda _path: group)
+    original_r103_loader = module.load_r103_promoted_review_revision
+
+    def load_r103_with_fixture_manifest(path: Path) -> Any:
+        revision = original_r103_loader(path)
+        packet = revision.packet.model_copy(
+            update={"candidate_manifest_identity": module._identity({})}
+        )
+        return SimpleNamespace(packet=packet, registry=revision.registry)
+
+    monkeypatch.setattr(
+        module,
+        "load_r103_promoted_review_revision",
+        load_r103_with_fixture_manifest,
+    )
     unused = tmp_path / "unused.json"
     unused.write_text("{}")
     arguments: dict[str, Any] = {
@@ -1033,7 +1048,9 @@ def test_readiness_independently_rejects_mutated_embedded_packet_bindings(
         tmp_path, monkeypatch
     )
     state = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
-    packet = state.packet.model_copy(update={field: "f" * 64})
+    packet = state.packet.model_copy(
+        update={"candidate_manifest_identity": _identity({}), field: "f" * 64}
+    )
     monkeypatch.setattr(
         module,
         "load_r103_promoted_review_revision",

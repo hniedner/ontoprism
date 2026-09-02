@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -40,8 +39,7 @@ def test_verify_runner_docstring_describes_default_context_selection() -> None:
 def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pdm_executable = shutil.which("pdm")
-    assert pdm_executable is not None
+    pdm_executable = "/test/bin/pdm"
     runner = _Runner()
     monkeypatch.setattr(
         "scripts.validation.run_verify.os.environ",
@@ -51,7 +49,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
         },
     )
 
-    assert run_verify(runner=runner) == 0
+    assert run_verify(runner=runner, pdm_executable=pdm_executable) == 0
 
     assert [command for command, _options in runner.calls] == [
         [
@@ -63,6 +61,13 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
         [sys.executable, "-m", "pre_commit", "run", "--all-files"],
         [pdm_executable, "run", "test-ci"],
         ["npm", "--prefix", "frontend", "run", "test:coverage"],
+        [
+            pdm_executable,
+            "run",
+            "python",
+            "-m",
+            "scripts.validation.frontend_coverage_hierarchy",
+        ],
     ]
     for _command, options in runner.calls:
         assert options == {
@@ -95,20 +100,35 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
         {"DOCKER_HOST": "unix:///deliberate.sock"},
     )
 
-    assert run_verify(runner=runner) == 0
-    assert len(runner.calls) == 4
+    assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
+    assert len(runner.calls) == 5
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
 
 
 @pytest.mark.unit
-def test_verify_runner_stops_at_first_failed_gate(
+@pytest.mark.parametrize(("fail_at", "expected_calls"), [(2, 2), (5, 5)])
+def test_verify_runner_stops_at_first_failed_gate_including_hierarchy_report(
     monkeypatch: pytest.MonkeyPatch,
+    fail_at: int,
+    expected_calls: int,
 ) -> None:
-    runner = _Runner(fail_at=2)
+    runner = _Runner(fail_at=fail_at)
     for selector in DOCKER_SELECTOR_VARIABLES:
         monkeypatch.delenv(selector, raising=False)
 
-    assert run_verify(runner=runner) == 1
-    assert len(runner.calls) == 2
+    assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 1
+    assert len(runner.calls) == expected_calls
+
+
+@pytest.mark.unit
+def test_verify_runner_discovers_pdm_only_when_verification_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.validation.run_verify.shutil.which", lambda _name: None
+    )
+
+    with pytest.raises(RuntimeError, match="pdm executable"):
+        run_verify(runner=_Runner())

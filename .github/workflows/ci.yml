@@ -281,12 +281,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Report native frontend coverage hierarchy (non-blocking deficits)
-        run: >-
-          python scripts/validation/coverage_hierarchy.py frontend-report
-          --coverage-json frontend/coverage/coverage-final.json
-          --tool-version "$(node -p 'require("./frontend/node_modules/vitest/package.json").version')"
-          --output frontend/coverage/hierarchy.json
-          --text-output frontend/coverage/hierarchy.txt
+        run: pdm run python -m scripts.validation.frontend_coverage_hierarchy
         working-directory: ${{ github.workspace }}
 
       - name: Upload frontend hierarchy report

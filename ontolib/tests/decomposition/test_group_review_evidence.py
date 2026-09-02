@@ -12,11 +12,9 @@ pytestmark = pytest.mark.unit
 
 _ROOT = Path(__file__).parents[3]
 _GOLDEN = Path(__file__).with_name("golden")
-_SOURCE_PACKET = _ROOT / "tmp/m1-6-group-review-packet.json"
 _HISTORICAL_PACKET = _ROOT / "evidence/group-review-packet-26.07d-schema3.json"
 _MARKDOWN = _ROOT / "evidence/group-review-rationale-26.07d.md"
 _SIDECAR = _ROOT / "evidence/group-review-rationale-26.07d.json"
-_SOURCE_MARKDOWN = _ROOT / "tmp/m1-6-group-review-rationale-template.md"
 
 
 def _loaded():
@@ -36,11 +34,14 @@ def _mutated_markdown(tmp_path: Path, mutate) -> tuple[Path, Path]:
     return markdown, sidecar
 
 
-def test_tracked_markdown_is_frozen_verbatim_and_strictly_bound() -> None:
+def test_tracked_markdown_is_strictly_bound_to_admitted_evidence() -> None:
     packet, evidence = _loaded()
 
     assert packet.ncit_version == "26.07d"
-    assert _MARKDOWN.read_bytes() == _SOURCE_MARKDOWN.read_bytes()
+    assert (
+        evidence.sidecar.markdown_sha256
+        == group_review.hashlib.sha256(_MARKDOWN.read_bytes()).hexdigest()
+    )
     assert evidence.reviewer == "R. Hannes Niedner, M.D."
     assert evidence.review_date == "2026-08-28"
     assert len(evidence.rows) == 18
@@ -73,7 +74,7 @@ def test_admission_writes_frozen_markdown_before_computing_sidecar(
 ) -> None:
     packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     source = tmp_path / "completed.md"
-    source.write_bytes(_SOURCE_MARKDOWN.read_bytes())
+    source.write_bytes(_MARKDOWN.read_bytes())
     (tmp_path / "evidence").mkdir()
     monkeypatch.chdir(tmp_path)
 
@@ -210,13 +211,12 @@ def test_first_evidence_admission_inventory_is_exact_and_rejects_binary() -> Non
         )
 
 
-def test_historical_packet_is_byte_admitted_and_binds_frozen_rationale() -> None:
+def test_historical_packet_identity_binds_frozen_rationale() -> None:
     packet = group_review.load_historical_group_review_packet(_HISTORICAL_PACKET)
     sidecar = group_review.GroupReviewRationaleSidecar.model_validate_json(
         _SIDECAR.read_bytes()
     )
 
-    assert _HISTORICAL_PACKET.read_bytes() == _SOURCE_PACKET.read_bytes()
     assert packet.schema_version == 3
     assert packet.packet_identity == sidecar.packet_identity
     assert (

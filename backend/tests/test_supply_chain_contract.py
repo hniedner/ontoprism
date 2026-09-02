@@ -250,6 +250,21 @@ def test_every_ci_job_installs_the_tools_its_steps_invoke() -> None:
         )
 
 
+def test_frontend_hierarchy_report_runs_inside_the_project_environment() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["web-tests"]["steps"]
+        if step.get("name")
+        == "Report native frontend coverage hierarchy (non-blocking deficits)"
+    )
+
+    assert step["working-directory"] == "${{ github.workspace }}"
+    assert step["run"] == (
+        "pdm run python -m scripts.validation.frontend_coverage_hierarchy"
+    )
+
+
 def test_frontend_transitive_security_and_install_script_policy() -> None:
     """Patched transitive tools stay pinned and optional native scripts stay denied."""
     package = json.loads(

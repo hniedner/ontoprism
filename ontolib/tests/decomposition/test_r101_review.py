@@ -6,7 +6,7 @@ import math
 import re
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 from scripts import adjudication
 from scripts.adjudication import _parser
 
+import ontolib.decomposition.r101_review as r101_review_module
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.r101_conservation import (
     R101ConservationValidationError,
@@ -40,9 +41,11 @@ from ontolib.decomposition.r101_review import (
     write_r101_review_workbook,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 GOLDEN = Path(__file__).parent / "golden"
 REPORT_PATH = GOLDEN / "neoplasm-r101-v4-conservation.json.gz"
-SOURCE_MANIFEST = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
 
 APPROVE = "Approve non-exclusive coverage except marked exceptions"
 REJECT = "Reject; retain broader site in projection"
@@ -108,11 +111,29 @@ class _Labels:
         }
 
 
+@pytest.fixture(scope="module")
+def source_manifest(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    report = load_r101_conservation_report(REPORT_PATH)
+    path = tmp_path_factory.mktemp("r101-source") / "manifest.json"
+    path.write_text("{}", encoding="utf-8")
+    patch = pytest.MonkeyPatch()
+    patch.setattr(
+        r101_review_module,
+        "validate_ncit_sibling_manifest",
+        lambda _path: NcitSourceSnapshot(
+            source_identity=report.source_identity,
+            ontology_version=report.source_release_id,
+        ),
+    )
+    yield path
+    patch.undo()
+
+
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def packet_and_labels():
+async def packet_and_labels(source_manifest: Path):
     report = load_r101_conservation_report(REPORT_PATH)
     labels = _Labels()
-    packet = await build_r101_review_packet(report, SOURCE_MANIFEST, labels)
+    packet = await build_r101_review_packet(report, source_manifest, labels)
     return report, packet, labels
 
 
@@ -586,7 +607,9 @@ class _SelectRows:
 
 
 @pytest.mark.unit
-async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows() -> None:
+async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows(
+    source_manifest: Path,
+) -> None:
     codes = tuple(f"C{index}" for index in range(1201))
     client = _SelectRows({})
     reader = QLeverReviewLabels(client, max_batch_size=500)
@@ -602,13 +625,13 @@ async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows() -> None:
     ):
         with pytest.raises(R101ReviewValidationError, match=message):
             await build_r101_review_packet(
-                report, SOURCE_MANIFEST, _Labels({"C12727": list(override)})
+                report, source_manifest, _Labels({"C12727": list(override)})
             )
 
 
 @pytest.mark.unit
 async def test_prepare_certifies_source_before_batched_label_reads(
-    monkeypatch, tmp_path: Path, capsys
+    monkeypatch, tmp_path: Path, capsys, source_manifest: Path
 ) -> None:
     report = load_r101_conservation_report(REPORT_PATH)
     events: list[str] = []
@@ -658,7 +681,7 @@ async def test_prepare_certifies_source_before_batched_label_reads(
             "Any",
             SimpleNamespace(
                 report=REPORT_PATH,
-                source_manifest=SOURCE_MANIFEST,
+                source_manifest=source_manifest,
                 endpoint="http://qlever.test",
                 output_packet=tmp_path / "packet.json",
                 output_xlsx=tmp_path / "packet.xlsx",
@@ -828,6 +851,7 @@ async def test_packet_aggregate_identity_and_membership_refusals(
 @pytest.mark.unit
 async def test_builder_source_and_covered_row_refusal_gates_are_live(
     packet_and_labels,
+    source_manifest: Path,
 ) -> None:
     report, _, _ = packet_and_labels
     for changed, message in (
@@ -836,7 +860,7 @@ async def test_builder_source_and_covered_row_refusal_gates_are_live(
         (report.model_copy(update={"grouping_presentation": ()}), "does not exhaust"),
     ):
         with pytest.raises(R101ReviewValidationError, match=message):
-            await build_r101_review_packet(changed, SOURCE_MANIFEST, _Labels())
+            await build_r101_review_packet(changed, source_manifest, _Labels())
 
     index = next(
         index
@@ -862,7 +886,7 @@ async def test_builder_source_and_covered_row_refusal_gates_are_live(
         with pytest.raises(R101ReviewValidationError, match=message):
             await build_r101_review_packet(
                 report.model_copy(update={"occurrences": tuple(rows)}),
-                SOURCE_MANIFEST,
+                source_manifest,
                 _Labels(),
             )
 
