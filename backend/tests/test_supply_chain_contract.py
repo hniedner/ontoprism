@@ -8,6 +8,8 @@ import os
 import re
 import shlex
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -242,7 +244,9 @@ def test_every_ci_job_installs_the_tools_its_steps_invoke() -> None:
             for command in commands
             for fragment in (command, *_npm_script_bodies(command, scripts))
         ]
-        invokes_pdm = any(re.search(r"(?<!\S)pdm\b", fragment) for fragment in executed)
+        invokes_pdm = any(
+            re.search(r"(?<!\S)pdm(?=\s|$)", fragment) for fragment in executed
+        )
         if not invokes_pdm:
             continue
         assert any(step.get("uses") == _SETUP_PDM_ACTION for step in steps), (
@@ -266,37 +270,123 @@ def test_frontend_hierarchy_report_runs_inside_the_project_environment() -> None
     )
 
 
-def test_python_coverage_job_installs_and_imports_its_pinned_runtime() -> None:
-    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
-    steps = workflow["jobs"]["coverage-verify"]["steps"]
+def _locked_versions() -> dict[str, str]:
+    packages = tomllib.loads((_ROOT / "pdm.lock").read_text())["package"]
+    versions: dict[str, str] = {}
+    for package in packages:
+        name = package["name"]
+        version = package["version"]
+        previous = versions.setdefault(name, version)
+        assert previous == version, f"pdm.lock has conflicting versions for {name}"
+    return versions
 
-    install = next(step for step in steps if step.get("name") == "Install coverage")
-    assert shlex.split(install["run"]) == [
-        "pip",
-        "install",
-        "coverage>=7,<8",
-        "pydantic>=2,<3",
+
+def _python_entrypoints(command: str) -> list[tuple[str, str]]:
+    return [
+        (module or "", script or "")
+        for module, script in re.findall(
+            r"(?m)(?<!\S)python\s+(?:-m\s+([\w.]+)|(scripts/[\w/]+\.py))",
+            command,
+        )
     ]
 
-    verify = next(
-        step for step in steps if step.get("name") == "Verify coverage tooling imports"
-    )
-    assert verify["run"] == "python -c 'import coverage, pydantic'"
 
-    hierarchy_tree = ast.parse(
-        (_ROOT / "scripts/validation/coverage_hierarchy.py").read_text()
-    )
-    imported_roots = {
+def _import_roots(path: Path, visited: set[Path] | None = None) -> set[str]:
+    visited = set() if visited is None else visited
+    path = path.resolve()
+    if path in visited:
+        return set()
+    visited.add(path)
+    tree = ast.parse(path.read_text())
+    roots = {
         node.module.partition(".")[0]
-        for node in ast.walk(hierarchy_tree)
+        for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module is not None
     } | {
         alias.name.partition(".")[0]
-        for node in ast.walk(hierarchy_tree)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Import)
         for alias in node.names
     }
-    assert "pydantic" in imported_roots
+    local_roots = {
+        root
+        for root in roots
+        if (_ROOT / root).is_dir() or (_ROOT / f"{root}.py").is_file()
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        candidate = _ROOT / f"{node.module.replace('.', '/')}.py"
+        if candidate.is_file():
+            roots.update(_import_roots(candidate, visited))
+    return roots - local_roots - sys.stdlib_module_names
+
+
+def test_python_coverage_job_derives_and_pins_its_complete_runtime() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["coverage-verify"]["steps"]
+
+    install_index, install = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name") == "Install coverage report dependencies"
+    )
+    install_specs = shlex.split(install["run"])[2:]
+    installed = dict(spec.split("==", maxsplit=1) for spec in install_specs)
+
+    invoked = [
+        (index, entrypoint)
+        for index, step in enumerate(steps)
+        for entrypoint in _python_entrypoints(step.get("run", ""))
+    ]
+    required_roots: set[str] = set()
+    for _, (module, script) in invoked:
+        if module:
+            module_path = _ROOT / f"{module.replace('.', '/')}.py"
+            if module_path.is_file():
+                required_roots.update(_import_roots(module_path))
+            else:
+                required_roots.add(module.partition(".")[0])
+        if script:
+            required_roots.update(_import_roots(_ROOT / script))
+
+    assert installed.keys() == required_roots
+    locked = _locked_versions()
+    assert installed == {name: locked[name] for name in required_roots}
+
+    verify_index, verify = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify coverage report dependency versions"
+    )
+    assert verify["run"] == (
+        "python -m scripts.validation.verify_coverage_runtime --lock pdm.lock"
+    )
+    assert install_index < verify_index
+    assert all(verify_index <= index for index, _ in invoked)
+
+    workflow_text = (_ROOT / ".github/workflows/ci.yml").read_text()
+    assert (
+        "Only Coverage.py, Pydantic, git on PATH, and the checked-out source are "
+        "needed to" in workflow_text.replace("\n      # ", " ")
+    )
+    assert "no editable ontolib/backend install" in workflow_text
+
+
+def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    jobs = workflow["jobs"]
+
+    for job_name, artifact_name in (
+        ("backend-tests", "coverage-data"),
+        ("integration-tests", "coverage-integration-data"),
+    ):
+        upload = next(
+            step
+            for step in jobs[job_name]["steps"]
+            if step.get("with", {}).get("name") == artifact_name
+        )
+        assert upload["with"]["if-no-files-found"] == "error"
 
 
 def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:

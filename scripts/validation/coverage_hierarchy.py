@@ -1159,6 +1159,68 @@ def verify_identities(identities: Sequence[ArtifactIdentity]) -> None:
                 )
 
 
+def verify_installed_tool_version(
+    identities: Sequence[ArtifactIdentity],
+) -> str:
+    """Require the Coverage.py consumer to match the collected layer version."""
+    import coverage  # noqa: PLC0415
+
+    verify_identities(identities)
+    expected = identities[0]
+    if expected.tool != "coverage.py":
+        raise ValueError(
+            f"cannot verify installed runtime for coverage tool {expected.tool}"
+        )
+    actual_version = coverage.__version__
+    if actual_version != expected.tool_version:
+        raise ValueError(
+            f"installed coverage.py version {actual_version} does not match "
+            f"coverage artifact tool_version {expected.tool_version}"
+        )
+    return actual_version
+
+
+def verify_runtime_dependencies(lock_path: Path) -> dict[str, str]:
+    """Require report-only Python dependencies to equal their locked versions."""
+    import coverage  # noqa: PLC0415
+    import pydantic  # noqa: PLC0415
+
+    raw = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    packages = raw.get("package")
+    if not isinstance(packages, list):
+        raise ValueError(f"{lock_path} does not contain a package list")
+    locked_versions: dict[str, set[str]] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            raise ValueError(f"{lock_path} contains a malformed package entry")
+        name = package.get("name")
+        version = package.get("version")
+        if not isinstance(name, str) or not isinstance(version, str):
+            raise ValueError(f"{lock_path} contains an unversioned package entry")
+        locked_versions.setdefault(name, set()).add(version)
+
+    installed = {
+        "coverage": coverage.__version__,
+        "pydantic": pydantic.__version__,
+    }
+    for name, actual_version in installed.items():
+        expected_versions = locked_versions.get(name)
+        if expected_versions is None:
+            raise ValueError(f"{lock_path} does not lock {name}")
+        if len(expected_versions) != 1:
+            versions = ", ".join(sorted(expected_versions))
+            raise ValueError(
+                f"{lock_path} locks conflicting {name} versions: {versions}"
+            )
+        expected_version = next(iter(expected_versions))
+        if actual_version != expected_version:
+            raise ValueError(
+                f"installed {name} version {actual_version} does not match "
+                f"pdm.lock version {expected_version}"
+            )
+    return installed
+
+
 def verify_identities_against_current(
     identities: Sequence[ArtifactIdentity],
     current: ArtifactIdentity,
@@ -1302,11 +1364,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_identities(identities)
         if args.against_current:
             baseline = identities[0]
+            installed_tool_version = verify_installed_tool_version(identities)
             current = make_identity(
                 manifest,
                 layer="current-checkout",
                 tool=baseline.tool,
-                tool_version=baseline.tool_version,
+                tool_version=installed_tool_version,
                 root=root,
             )
             verify_identities_against_current(identities, current)

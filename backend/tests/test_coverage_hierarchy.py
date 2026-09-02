@@ -5,8 +5,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import coverage
 import pytest
 from pydantic import ValidationError
+from scripts.validation import coverage_hierarchy
 from scripts.validation.coverage_hierarchy import (
     ArtifactIdentity,
     Metric,
@@ -19,6 +21,7 @@ from scripts.validation.coverage_hierarchy import (
     validate_manifest,
     verify_identities,
     verify_identities_against_current,
+    verify_runtime_dependencies,
 )
 from scripts.validation.coverage_hierarchy import (
     _python_raw_report as python_raw_report,
@@ -383,6 +386,38 @@ def test_identity_verification_rejects_artifacts_stale_against_checkout() -> Non
 
     with pytest.raises(ValueError, match=r"stale.*current checkout"):
         verify_identities_against_current((artifact,), current)
+
+
+def test_identity_verification_rejects_installed_coverage_version_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _identity()
+    monkeypatch.setattr(coverage, "__version__", "7.99.0")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"installed coverage\.py version 7\.99\.0 does not match "
+            r"coverage artifact tool_version 7\.15\.2"
+        ),
+    ):
+        coverage_hierarchy.verify_installed_tool_version((artifact,))
+
+
+def test_runtime_dependency_verification_rejects_lock_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    lock.write_text(
+        '[[package]]\nname = "coverage"\nversion = "7.15.4"\n'
+        '[[package]]\nname = "pydantic"\nversion = "0.0.0"\n'
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"installed pydantic version \S+ does not match pdm.lock version 0.0.0",
+    ):
+        verify_runtime_dependencies(lock)
 
 
 def test_current_identity_allows_downloaded_artifacts_outside_source_inventory() -> (

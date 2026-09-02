@@ -171,6 +171,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-data
+          if-no-files-found: error
           # .coverage is a dotfile; upload-artifact@v4 excludes hidden files by default.
           include-hidden-files: true
           path: |
@@ -192,14 +193,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Only Coverage.py, Pydantic, and the checked-out source are needed to gate and
-      # render the report-only hierarchy — no editable ontolib/backend install.
+      # Only Coverage.py, Pydantic, git on PATH, and the checked-out source are needed to
+      # gate and render the report-only hierarchy — no editable ontolib/backend install.
       # relative_files=true (pyproject) keeps uploaded .coverage portable across jobs.
-      - name: Install coverage
-        run: pip install 'coverage>=7,<8' 'pydantic>=2,<3'
+      - name: Install coverage report dependencies
+        run: pip install 'coverage==7.15.4' 'pydantic==2.13.4'
 
-      - name: Verify coverage tooling imports
-        run: python -c 'import coverage, pydantic'
+      - name: Verify coverage report dependency versions
+        run: python -m scripts.validation.verify_coverage_runtime --lock pdm.lock
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -382,6 +383,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-integration-data
+          if-no-files-found: error
           include-hidden-files: true
           path: |
             .coverage.integration
