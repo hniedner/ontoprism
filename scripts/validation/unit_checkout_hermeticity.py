@@ -227,7 +227,7 @@ def _is_input_context(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
         return parent.arg is not None and any(
             term in parent.arg.lower() for term in _INPUT_KEYWORD_TERMS
         )
-    if isinstance(parent, ast.Expr):
+    if isinstance(parent, (ast.Expr, ast.Assign, ast.AnnAssign)):
         return True
     if isinstance(parent, ast.Call):
         if current in parent.args:
@@ -247,6 +247,25 @@ def _is_input_context(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
     return False
 
 
+def _module_assignment_ranges(tree: ast.Module) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        (statement.lineno, statement.end_lineno or statement.lineno)
+        for statement in tree.body
+        if isinstance(statement, (ast.Assign, ast.AnnAssign))
+        and statement.value is not None
+    )
+
+
+def _outer_segmented_ignored_path(
+    node: ast.BinOp,
+    parents: dict[ast.AST, ast.AST],
+    anchors: set[str],
+) -> str | None:
+    if isinstance(parents.get(node), ast.BinOp):
+        return None
+    return _segmented_ignored_path(node, anchors)
+
+
 def fixed_ignored_path_violations(
     source: str, *, filename: str
 ) -> tuple[Violation, ...]:
@@ -261,7 +280,7 @@ def fixed_ignored_path_violations(
     violations: set[tuple[int, str]] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.BinOp):
-            path = _segmented_ignored_path(node, anchors)
+            path = _outer_segmented_ignored_path(node, parents, anchors)
             if path is not None and _is_input_context(node, parents):
                 violations.add((node.lineno, path))
         elif isinstance(node, ast.Call) and node.args:
@@ -342,12 +361,17 @@ def unit_test_surface_violations(root: Path) -> tuple[Violation, ...]:
                 for node in unit_nodes
                 if not isinstance(node, ast.Module)
             ]
+            module_assignment_ranges = _module_assignment_ranges(tree)
             violations.extend(
                 violation
                 for violation in discovered
                 if (
                     module_unit
                     or any(start <= violation.line <= end for start, end in unit_ranges)
+                    or any(
+                        start <= violation.line <= end
+                        for start, end in module_assignment_ranges
+                    )
                 )
             )
     return tuple(
