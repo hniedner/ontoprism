@@ -25,7 +25,15 @@ FRONTEND_TEST_NAME = re.compile(r".+\.(?:test|spec)\.(?:js|jsx|ts|tsx)$")
 FRONTEND_ARGUMENTS_WITH_NAME = 3
 MAX_FRONTEND_FAILURE_NAMES = 10
 MAX_FRONTEND_FAILURE_NAME_LENGTH = 160
+MAX_FRONTEND_DIAGNOSTIC_BYTES = 16_384
+MAX_FRONTEND_DIAGNOSTIC_CHARS = 1_999
+MAX_FRONTEND_DIAGNOSTIC_LINES = 12
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
+SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(api[_-]?key|authorization|auth|token|password|secret)\b"
+    r"\s*[:=]\s*(?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s]+)"
+)
+BEARER_CREDENTIAL = re.compile(r"(?i)\bbearer\s+[^\s]+")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TEST_IDENTIFIER = re.compile(r"test_[A-Za-z0-9_]+")
 NONINTEGRATION_MARKERS = (
@@ -57,7 +65,14 @@ class SafeIntegrationEntry:
 
 
 class CommandResult(Protocol):
-    returncode: int
+    @property
+    def returncode(self) -> int: ...
+
+    @property
+    def stdout(self) -> bytes | None: ...
+
+    @property
+    def stderr(self) -> bytes | None: ...
 
 
 class CommandRunner(Protocol):
@@ -330,13 +345,6 @@ def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvoca
     )
 
 
-def parse_vitest_execution_count(payload: str) -> int:
-    """Return passed plus failed tests from the fixed Vitest JSON reporter."""
-    report = _parse_vitest_report(payload)
-    passed, failed = _vitest_counts(report)
-    return passed + failed
-
-
 def _parse_vitest_report(payload: str) -> dict[str, object]:
     try:
         report = json.loads(payload)
@@ -391,7 +399,10 @@ def _vitest_assertions(report: dict[str, object]) -> tuple[dict[object, object],
 def _vitest_failure_names(report: dict[str, object], failed: int) -> tuple[str, ...]:
     names: list[str] = []
     for assertion in _vitest_assertions(report):
-        if assertion.get("status") != "failed":
+        status = assertion.get("status")
+        if not isinstance(status, str):
+            raise AgentTestInputError("frontend test report is invalid")
+        if status != "failed":
             continue
         full_name = assertion.get("fullName")
         if not isinstance(full_name, str):
@@ -400,7 +411,7 @@ def _vitest_failure_names(report: dict[str, object], failed: int) -> tuple[str, 
         if not sanitized:
             raise AgentTestInputError("frontend test report is invalid")
         names.append(sanitized)
-    if len(names) != failed:
+    if len(names) > failed or len(set(names)) != len(names):
         raise AgentTestInputError("frontend test report is invalid")
     return tuple(sorted(names))
 
@@ -410,34 +421,96 @@ def _print_vitest_failure_summary(failed: int, names: tuple[str, ...]) -> None:
     shown = names[:MAX_FRONTEND_FAILURE_NAMES]
     for name in shown:
         print(f"- {name}", file=sys.stderr)
-    omitted = failed - len(shown)
-    if omitted:
-        print(f"- ... {omitted} more failed tests", file=sys.stderr)
+    omitted_names = len(names) - len(shown)
+    if omitted_names:
+        print(
+            f"- ... {omitted_names} more named frontend failures",
+            file=sys.stderr,
+        )
+    unnamed = failed - len(names)
+    if unnamed:
+        print(f"- {unnamed} unnamed frontend failures", file=sys.stderr)
 
 
-def _frontend_result(report_path: Path, child_status: int) -> int:
+def _sanitize_diagnostic_stream(stream: bytes | None) -> str:
+    if not stream:
+        return ""
+    return stream[-MAX_FRONTEND_DIAGNOSTIC_BYTES:].decode("utf-8", errors="replace")
+
+
+def _sanitize_frontend_diagnostic(
+    stdout: bytes | None,
+    stderr: bytes | None,
+    *,
+    root: Path,
+    temporary: Path,
+) -> str:
+    text = "\n".join(
+        part
+        for part in (
+            _sanitize_diagnostic_stream(stdout),
+            _sanitize_diagnostic_stream(stderr),
+        )
+        if part
+    )
+    if not text:
+        return ""
+    text = ANSI_ESCAPE.sub("", text)
+    text = "".join(
+        character
+        if character == "\n" or (character.isprintable() and character != "\r")
+        else ""
+        for character in text
+    )
+    text = text.replace(str(root), "<WORKTREE>")
+    text = text.replace(str(temporary), "<TEMP>")
+    text = SECRET_ASSIGNMENT.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        text,
+    )
+    text = BEARER_CREDENTIAL.sub("Bearer [REDACTED]", text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    normalized = "\n".join(line for line in lines if line)
+    bounded_lines = "\n".join(normalized.splitlines()[-MAX_FRONTEND_DIAGNOSTIC_LINES:])
+    return bounded_lines[-MAX_FRONTEND_DIAGNOSTIC_CHARS:]
+
+
+def _print_frontend_diagnostic(diagnostic: str) -> None:
+    if diagnostic:
+        print("frontend diagnostic:", file=sys.stderr)
+        print(diagnostic, file=sys.stderr)
+
+
+def _frontend_result(
+    report_path: Path,
+    child_status: int,
+    *,
+    diagnostic: str,
+) -> int:
     try:
         payload = report_path.read_text(encoding="utf-8")
         report = _parse_vitest_report(payload)
         passed, failed = _vitest_counts(report)
+        names = _vitest_failure_names(report, failed)
     except (OSError, UnicodeDecodeError, AgentTestInputError):
         print("frontend test report is invalid", file=sys.stderr)
+        _print_frontend_diagnostic(diagnostic)
         return 3
     if passed + failed == 0:
-        print("no frontend test matched the request", file=sys.stderr)
-        return 4
+        if child_status == 0:
+            print("no frontend test matched the request", file=sys.stderr)
+            return 4
+        print("frontend test process failed before tests executed", file=sys.stderr)
+        _print_frontend_diagnostic(diagnostic)
+        return child_status
     if failed == 0:
         if child_status != 0:
             print(
                 "frontend test process failed without a failed test",
                 file=sys.stderr,
             )
+            _print_frontend_diagnostic(diagnostic)
         return child_status
-    try:
-        names = _vitest_failure_names(report, failed)
-    except AgentTestInputError:
-        print("frontend test report is invalid", file=sys.stderr)
-        return 3
     if child_status == 0:
         print(
             "frontend test report contradicts process status",
@@ -468,7 +541,7 @@ def run_agent_test(
     runner: CommandRunner | None = None,
 ) -> int:
     """Execute a validated pytest command directly, never through a shell."""
-    runner = runner or _subprocess_runner
+    execute: CommandRunner = runner or _subprocess_runner
     invocation = build_pytest_invocation(arguments, root)
     with tempfile.TemporaryDirectory(prefix="ontoprism-agent-test-") as temporary:
         report_path = Path(temporary) / "vitest-report.json"
@@ -480,7 +553,7 @@ def run_agent_test(
                 f"--outputFile={report_path}",
             )
         try:
-            result = runner(
+            result = execute(
                 command,
                 cwd=invocation.cwd,
                 env=_controlled_environment(),
@@ -497,7 +570,17 @@ def run_agent_test(
             return 3
         if invocation.mode != "frontend":
             return result.returncode
-        return _frontend_result(report_path, result.returncode)
+        diagnostic = _sanitize_frontend_diagnostic(
+            result.stdout,
+            result.stderr,
+            root=root.resolve(),
+            temporary=Path(temporary),
+        )
+        return _frontend_result(
+            report_path,
+            result.returncode,
+            diagnostic=diagnostic,
+        )
 
 
 def main() -> int:
