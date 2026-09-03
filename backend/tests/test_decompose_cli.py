@@ -243,7 +243,7 @@ async def test_load_is_coordinated_inside_pipeline_before_run_completion(
     monkeypatch.setattr(decompose, "run_pipeline", pipeline)
 
     await decompose._run(
-        source_manifest=Path("candidate.json"),
+        source_manifest=tmp_path / "candidate.json",
         branch="neoplasm",
         out=output,
         load=True,
@@ -285,7 +285,7 @@ async def test_file_only_resume_wires_exact_pipeline_configuration(
     output = tmp_path / "review.ttl"
 
     actual = await decompose._run(
-        source_manifest=Path("candidate.json"),
+        source_manifest=tmp_path / "candidate.json",
         branch="disease",
         out=output,
         load=False,
@@ -321,6 +321,7 @@ async def test_file_only_resume_wires_exact_pipeline_configuration(
 
 @pytest.mark.unit
 async def test_pipeline_failure_propagates_after_client_and_engine_cleanup(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     primary = RuntimeError("pipeline unavailable")
@@ -333,7 +334,7 @@ async def test_pipeline_failure_propagates_after_client_and_engine_cleanup(
 
     with pytest.raises(RuntimeError, match="pipeline unavailable") as exc_info:
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -353,6 +354,7 @@ async def test_pipeline_failure_propagates_after_client_and_engine_cleanup(
 
 @pytest.mark.unit
 async def test_client_cleanup_failure_does_not_mask_pipeline_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     primary = RuntimeError("pipeline unavailable")
@@ -370,7 +372,7 @@ async def test_client_cleanup_failure_does_not_mask_pipeline_failure(
 
     with pytest.raises(RuntimeError, match="pipeline unavailable") as exc_info:
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -386,6 +388,7 @@ async def test_client_cleanup_failure_does_not_mask_pipeline_failure(
 
 @pytest.mark.unit
 async def test_cancellation_propagates_after_client_and_engine_cleanup(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
@@ -396,7 +399,7 @@ async def test_cancellation_propagates_after_client_and_engine_cleanup(
 
     with pytest.raises(asyncio.CancelledError):
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -415,6 +418,7 @@ async def test_cancellation_propagates_after_client_and_engine_cleanup(
 
 @pytest.mark.unit
 async def test_cleanup_failure_after_success_is_not_reported_as_success(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
@@ -430,7 +434,7 @@ async def test_cleanup_failure_after_success_is_not_reported_as_success(
 
     with pytest.raises(RuntimeError, match="engine cleanup failed") as exc_info:
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -445,6 +449,7 @@ async def test_cleanup_failure_after_success_is_not_reported_as_success(
 
 @pytest.mark.unit
 async def test_cleanup_failure_is_metadata_on_primary_pipeline_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     primary = ValueError("pipeline failed")
@@ -461,7 +466,7 @@ async def test_cleanup_failure_is_metadata_on_primary_pipeline_failure(
 
     with pytest.raises(ValueError, match="pipeline failed") as exc_info:
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -476,6 +481,7 @@ async def test_cleanup_failure_is_metadata_on_primary_pipeline_failure(
 
 @pytest.mark.unit
 async def test_cleanup_cancellation_does_not_mask_primary_pipeline_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     primary = ValueError("pipeline failed")
@@ -491,7 +497,7 @@ async def test_cleanup_cancellation_does_not_mask_primary_pipeline_failure(
 
     with pytest.raises(ValueError, match="pipeline failed") as exc_info:
         await decompose._run(
-            Path("candidate.json"),
+            tmp_path / "candidate.json",
             decompose.DecompositionBranch.NEOPLASM,
             None,
             False,
@@ -506,6 +512,7 @@ async def test_cleanup_cancellation_does_not_mask_primary_pipeline_failure(
 
 @pytest.mark.unit
 async def test_equivalence_refusal_precedes_settings_and_clients(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     get_settings = MagicMock(side_effect=AssertionError("settings were loaded"))
@@ -513,7 +520,7 @@ async def test_equivalence_refusal_precedes_settings_and_clients(
 
     with pytest.raises(ValueError, match="not available"):
         await decompose._run(
-            source_manifest=Path("unused-manifest.json"),
+            source_manifest=tmp_path / "unused-manifest.json",
             branch="neoplasm",
             out=Path("unused.ttl"),
             load=True,
@@ -527,6 +534,7 @@ async def test_equivalence_refusal_precedes_settings_and_clients(
 
 @pytest.mark.unit
 def test_cli_rejects_equivalence_before_starting_event_loop(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run = MagicMock(side_effect=AssertionError("event loop started"))
@@ -534,7 +542,7 @@ def test_cli_rejects_equivalence_before_starting_event_loop(
 
     with pytest.raises(typer.BadParameter, match="not available"):
         decompose.main(
-            source_manifest=Path("unused-manifest.json"),
+            source_manifest=tmp_path / "unused-manifest.json",
             branch="neoplasm",
             out=None,
             load=False,
@@ -549,6 +557,7 @@ def test_cli_rejects_equivalence_before_starting_event_loop(
 
 @pytest.mark.unit
 def test_cli_rejects_load_without_output_before_starting_event_loop(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run = MagicMock(side_effect=AssertionError("event loop started"))
@@ -556,7 +565,7 @@ def test_cli_rejects_load_without_output_before_starting_event_loop(
 
     with pytest.raises(typer.BadParameter, match="requires --out"):
         decompose.main(
-            source_manifest=Path("unused-manifest.json"),
+            source_manifest=tmp_path / "unused-manifest.json",
             branch="neoplasm",
             out=None,
             load=True,
@@ -579,6 +588,7 @@ def test_cli_rejects_load_without_output_before_starting_event_loop(
     ],
 )
 def test_cli_rejects_unsafe_sample_modes_before_starting_event_loop(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     out: Path | None,
     load: bool,
@@ -590,7 +600,7 @@ def test_cli_rejects_unsafe_sample_modes_before_starting_event_loop(
 
     with pytest.raises(typer.BadParameter, match=message):
         decompose.main(
-            source_manifest=Path("unused-manifest.json"),
+            source_manifest=tmp_path / "unused-manifest.json",
             branch="neoplasm",
             out=out,
             load=load,
@@ -598,7 +608,7 @@ def test_cli_rejects_unsafe_sample_modes_before_starting_event_loop(
             resume=None,
             total_limit=total_limit,
             walker_max_depth=5,
-            sample_manifest=Path("sample.json"),
+            sample_manifest=tmp_path / "sample.json",
         )
 
     run.assert_not_called()
@@ -616,7 +626,7 @@ async def test_invalid_sample_manifest_fails_before_settings_are_loaded(
 
     with pytest.raises(ValueError, match="valid sample manifest"):
         await decompose._run(
-            source_manifest=Path("unused-manifest.json"),
+            source_manifest=tmp_path / "unused-manifest.json",
             branch="neoplasm",
             out=tmp_path / "review.ttl",
             load=False,
@@ -641,7 +651,7 @@ async def test_sample_manifest_is_loaded_and_wired_to_pipeline(
     _install_run_collaborators(monkeypatch, pipeline)
 
     metrics = await decompose._run(
-        source_manifest=Path("candidate.json"),
+        source_manifest=tmp_path / "candidate.json",
         branch="neoplasm",
         out=tmp_path / "review.ttl",
         load=False,
@@ -681,7 +691,7 @@ def test_main_prints_metrics_and_forwards_resume_options(
     output = tmp_path / "decomposed.ttl"
 
     decompose.main(
-        source_manifest=Path("candidate.json"),
+        source_manifest=tmp_path / "candidate.json",
         branch=decompose.DecompositionBranch.DISEASE,
         out=output,
         load=False,
@@ -692,7 +702,7 @@ def test_main_prints_metrics_and_forwards_resume_options(
     )
 
     assert captured["args"] == (
-        Path("candidate.json"),
+        tmp_path / "candidate.json",
         decompose.DecompositionBranch.DISEASE,
         output,
         False,
@@ -711,6 +721,7 @@ def test_main_prints_metrics_and_forwards_resume_options(
 
 @pytest.mark.unit
 def test_main_propagates_pipeline_failure_without_success_output(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -721,7 +732,7 @@ def test_main_propagates_pipeline_failure_without_success_output(
 
     with pytest.raises(RuntimeError, match="pipeline unavailable"):
         decompose.main(
-            source_manifest=Path("candidate.json"),
+            source_manifest=tmp_path / "candidate.json",
             branch=decompose.DecompositionBranch.NEOPLASM,
             out=None,
             load=False,
@@ -915,6 +926,7 @@ def _manifest(observation: CandidateObservation) -> SimpleNamespace:
 
 @pytest.mark.unit
 async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observation = _observation()
@@ -927,7 +939,7 @@ async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
     monkeypatch.setattr(decompose, "observe_ncit_candidate", observe)
 
     snapshot = await decompose._source_snapshot(
-        Path("candidate/.ontoprism-ncit-candidate.json"),
+        tmp_path / "candidate/.ontoprism-ncit-candidate.json",
         "http://127.0.0.1:7888",
     )
 
@@ -938,6 +950,7 @@ async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
 
 @pytest.mark.unit
 async def test_source_snapshot_ignores_ontoprisms_own_published_graphs(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`--load` publishes into the same store; that must not read as source drift.
@@ -961,7 +974,7 @@ async def test_source_snapshot_ignores_ontoprisms_own_published_graphs(
     )
 
     snapshot = await decompose._source_snapshot(
-        Path("candidate/.ontoprism-ncit-candidate.json"),
+        tmp_path / "candidate/.ontoprism-ncit-candidate.json",
         "http://127.0.0.1:7888",
     )
 
@@ -970,6 +983,7 @@ async def test_source_snapshot_ignores_ontoprisms_own_published_graphs(
 
 @pytest.mark.unit
 async def test_source_snapshot_rejects_endpoint_observation_mismatch(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -986,13 +1000,14 @@ async def test_source_snapshot_rejects_endpoint_observation_mismatch(
 
     with pytest.raises(SourceIdentityChangedError, match="observation"):
         await decompose._source_snapshot(
-            Path("candidate/.ontoprism-ncit-candidate.json"),
+            tmp_path / "candidate/.ontoprism-ncit-candidate.json",
             "http://127.0.0.1:7888",
         )
 
 
 @pytest.mark.unit
 async def test_source_snapshot_rejects_an_unexpected_extra_named_graph(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Only ontoprism's own additive graphs are ignorable, not any extra graph."""
@@ -1009,6 +1024,6 @@ async def test_source_snapshot_rejects_an_unexpected_extra_named_graph(
 
     with pytest.raises(SourceIdentityChangedError, match="observation"):
         await decompose._source_snapshot(
-            Path("candidate/.ontoprism-ncit-candidate.json"),
+            tmp_path / "candidate/.ontoprism-ncit-candidate.json",
             "http://127.0.0.1:7888",
         )
