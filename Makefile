@@ -1,13 +1,12 @@
-.PHONY: help install test test-unit test-integration test-ci python-314-compatibility lint fmt api-dev web-dev up down
+.PHONY: help install test test-unit test-integration test-ci lint fmt api-dev web-dev up down
 
 help:
 	@echo "ontoprism — common targets:"
-	@echo "  install         PDM install (requires Python 3.13–3.14) + editable local packages"
+	@echo "  install         PDM install (requires Python >=3.14.7,<3.15) + editable local packages"
 	@echo "  test            Run the full test suite (pdm run test)"
 	@echo "  test-unit       Unit tests only"
 	@echo "  test-integration  Integration tests (owned disposable services)"
 	@echo "  test-ci         Tests with coverage (xml + term-missing)"
-	@echo "  python-314-compatibility  Clean locked import + non-integration suite in disposable Python 3.14"
 	@echo "  lint            ruff check + basedpyright"
 	@echo "  fmt             ruff format"
 	@echo "  api-dev         Run the FastAPI backend (uvicorn, reload)"
@@ -28,9 +27,6 @@ test-integration:
 
 test-ci:
 	pdm run test-ci
-
-python-314-compatibility:
-	pdm run python-314-compatibility
 
 lint:
 	pdm run lint

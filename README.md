@@ -1,7 +1,7 @@
 # ONTOPRISM
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.13%E2%80%933.14-3776AB?logo=python&logoColor=fff" alt="Python 3.13–3.14">
+  <img src="https://img.shields.io/badge/python-3.14.7-3776AB?logo=python&logoColor=fff" alt="Python 3.14.7">
   <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff" alt="FastAPI">
   <img src="https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=fff" alt="Svelte 5">
   <img src="https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=fff" alt="PostgreSQL 15">
@@ -287,7 +287,7 @@ proof-bearing contract (#153), not a property claimed by this projection.
 ## Quickstart
 
 ```bash
-pdm install --dev                # Use Python 3.13 for the production/default environment
+pdm install --dev                # Requires Python 3.14.7
 npm ci --prefix frontend         # SvelteKit deps
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -298,13 +298,10 @@ pdm run data-build uberon-store  # build the Uberon/CL QLever index
 pdm run up                       # start QLever + Postgres
 pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
-pdm run python-314-compatibility # isolated 3.14 import + non-integration certification
 ```
 
-Keep `python3.14` discoverable on `PATH`: mandatory `pdm run verify` includes that
-compatibility lane. Python 3.14 certification covers hermetic imports and the
-non-integration unit suite; integration, data-build execution, and the production
-container remain on Python 3.13.
+Python 3.14.7 is the only supported local, CI, data-build, integration, and container
+runtime. Recreate an older project environment before installing from the lock.
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
 for first-run provisioning. Entitled ICD-O operators set the server-only
@@ -339,7 +336,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 
 | Category | Technologies |
 |---|---|
-| Backend | Python 3.13–3.14 (3.13 production/default) · PDM · FastAPI · QLever (SPARQL) · PostgreSQL + pgvector |
+| Backend | Python 3.14.7 · PDM · FastAPI · QLever (SPARQL) · PostgreSQL + pgvector |
 | Frontend | SvelteKit 5 · Tailwind 4 · Sigma + graphology · TypeScript |
 | Quality | ruff · basedpyright · pytest · vitest · pre-commit · >90% coverage |
 
@@ -353,7 +350,6 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 | `pdm run start-all` / `stop-all` / `restart-all` | Backend + frontend process supervision |
 | `pdm run start-backend` / `stop-backend` / `restart-backend` | FastAPI on :8011 |
 | `pdm run start-frontend` / `stop-frontend` / `restart-frontend` | SvelteKit on :5175 |
-| `pdm run python-314-compatibility` | Clean locked Python 3.14 runtime-import and non-integration lane; also included by `verify` |
 | `pdm run migrate` | Alembic schema migration |
 
 Background logs go to `.dev-logs/`. Ports are offset from the sibling `fairdata` app — see

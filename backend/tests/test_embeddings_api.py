@@ -62,7 +62,7 @@ def _require_published_corpus(corpus: str, table: str, required_doc_id: str) -> 
 
     try:
         expected, actual, physical, sentinel = asyncio.run(_facts())
-    except (OSError, OperationalError, InterfaceError):
+    except OSError, OperationalError, InterfaceError:
         pytest.skip("Embedding DB (pgvector) not reachable")
         return
     assert expected == actual == physical

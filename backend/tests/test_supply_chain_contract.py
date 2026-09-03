@@ -16,15 +16,6 @@ from typing import Any
 import pytest
 import yaml
 from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
-from scripts.validation.python_versions import (
-    DEFAULT_PYTHON_VERSION,
-    PYTHON_COMPATIBILITY_INTERPRETER,
-    PYTHON_COMPATIBILITY_VERSION,
-    SUPPORTED_PYTHON_REQUIREMENT,
-)
-from scripts.validation.run_python_compatibility_tests import (
-    _PYTEST_PARALLEL_ARGUMENTS,
-)
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -133,8 +124,8 @@ def test_full_application_images_are_exactly_digest_pinned() -> None:
 
     expected_from = {
         "backend/Dockerfile": (
-            "python:3.13-slim@sha256:"
-            "ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a"
+            "python:3.14.7-slim@sha256:"
+            "cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6"
         ),
         "frontend/Dockerfile": (
             "node:24-slim@sha256:"
@@ -645,7 +636,7 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
         steps = jobs[job_name]["steps"]
         setup = next(step for step in steps if step.get("uses") == _SETUP_PDM_ACTION)
         assert setup["with"] == {
-            "python-version": "3.13",
+            "python-version": "3.14.7",
             "version": _PDM_VERSION,
             "cache": True,
         }
@@ -681,64 +672,7 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
 
 
-def test_python_314_compatibility_job_is_required_clean_and_isolated() -> None:
-    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
-    jobs = workflow["jobs"]
-    job = jobs["python-314-compatibility"]
-    steps = job["steps"]
-
-    assert job["name"] == "python 3.14 compatibility"
-    assert job["needs"] == ["changes"]
-    assert job["if"] == (
-        "${{ needs.changes.outputs.backend == 'true' || "
-        "github.event_name != 'pull_request' }}"
-    )
-
-    setup = next(step for step in steps if step.get("uses") == _SETUP_PDM_ACTION)
-    assert setup["with"] == {
-        "python-version": "3.14",
-        "version": _PDM_VERSION,
-        "cache": True,
-    }
-
-    commands = [step["run"] for step in steps if "run" in step]
-    assert commands == [
-        "pdm sync --clean-unselected --dev",
-        "pdm run test-python-compatibility-smoke",
-        "pdm run test-python-compatibility",
-    ]
-    pyproject = tomllib.loads((_ROOT / "pyproject.toml").read_text())
-    scripts = pyproject["tool"]["pdm"]["scripts"]
-    assert scripts["test-python-compatibility"] == (
-        "python -m scripts.validation.run_python_compatibility_tests"
-    )
-    compatibility_runner = (
-        _ROOT / "scripts" / "validation" / "run_python_compatibility_tests.py"
-    ).read_text()
-    assert '"not integration"' in compatibility_runner
-    assert _PYTEST_PARALLEL_ARGUMENTS == ("-n", "auto")
-    assert "--cov" not in compatibility_runner
-    assert "coverage.xml" not in compatibility_runner
-
-    summary_needs = jobs["ci-summary"]["needs"]
-    assert "python-314-compatibility" in summary_needs
-
-    compatibility_artifacts = {
-        step.get("with", {}).get("name")
-        for step in steps
-        if step.get("uses", "").startswith("actions/upload-artifact@")
-    }
-    coverage_artifacts = {
-        step.get("with", {}).get("name")
-        for job_name in ("backend-tests", "integration-tests")
-        for step in jobs[job_name]["steps"]
-        if step.get("uses", "").startswith("actions/upload-artifact@")
-    }
-    assert compatibility_artifacts == set()
-    assert compatibility_artifacts.isdisjoint(coverage_artifacts)
-
-
-def test_python_support_targets_and_ci_job_count_are_governed_once() -> None:
+def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
     pyprojects = [
         tomllib.loads((_ROOT / path).read_text())
@@ -748,33 +682,71 @@ def test_python_support_targets_and_ci_job_count_are_governed_once() -> None:
             "backend/pyproject.toml",
         )
     ]
-    root_project = pyprojects[0]
-
-    assert PYTHON_COMPATIBILITY_VERSION == "3.14"
-    assert PYTHON_COMPATIBILITY_INTERPRETER == "python3.14"
-    assert DEFAULT_PYTHON_VERSION == "3.13"
-    assert SUPPORTED_PYTHON_REQUIREMENT == ">=3.13,<3.15"
-    default = tuple(int(part) for part in DEFAULT_PYTHON_VERSION.split("."))
-    compatibility = tuple(int(part) for part in PYTHON_COMPATIBILITY_VERSION.split("."))
-    lower, upper = SUPPORTED_PYTHON_REQUIREMENT.split(",")
-    upper_bound = tuple(int(part) for part in upper.removeprefix("<").split("."))
-    assert lower == f">={DEFAULT_PYTHON_VERSION}"
-    assert default <= compatibility < upper_bound
-    assert upper_bound == (compatibility[0], compatibility[1] + 1)
     assert {project["project"]["requires-python"] for project in pyprojects} == {
-        SUPPORTED_PYTHON_REQUIREMENT
+        ">=3.14.7,<3.15"
     }
-    assert (
-        root_project["tool"]["basedpyright"]["pythonVersion"] == DEFAULT_PYTHON_VERSION
+    assert pyprojects[0]["tool"]["basedpyright"]["pythonVersion"] == "3.14"
+    assert pyprojects[0]["tool"]["pytest"]["ini_options"]["filterwarnings"] == [
+        "error::DeprecationWarning",
+        (
+            "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use "
+            "anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:"
+            "starlette\\.testclient"
+        ),
+    ]
+    assert (_ROOT / ".python-version").read_text().strip() == "3.14.7"
+
+    jobs = workflow["jobs"]
+    assert len(jobs) == 9
+    assert "python-314-compatibility" not in jobs
+    assert len(jobs["ci-summary"]["needs"]) == 8
+    setup_versions = [
+        step["with"]["python-version"]
+        for job in jobs.values()
+        for step in job.get("steps", [])
+        if "python-version" in step.get("with", {})
+    ]
+    assert setup_versions
+    assert set(setup_versions) == {"3.14.7"}
+
+    lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
+    # PDM canonicalizes >=3.14.7,<3.15 to the equivalent compatible-release form.
+    assert lock["metadata"]["targets"] == [{"requires_python": "~=3.14.7"}]
+
+    dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
+    base_image = re.compile(
+        r"^FROM python:3\.14\.7-slim@sha256:[0-9a-f]{64}(?: AS builder)?$"
     )
-    assert len(workflow["jobs"]) == 10
-    assert (
-        workflow["jobs"]["python-314-compatibility"]["steps"][1]["with"][
-            "python-version"
-        ]
-        == PYTHON_COMPATIBILITY_VERSION
+    assert [line for line in dockerfile.splitlines() if line.startswith("FROM ")]
+    assert all(
+        base_image.fullmatch(line)
+        for line in dockerfile.splitlines()
+        if line.startswith("FROM ")
     )
-    assert "python:3.13-slim@" in (_ROOT / "backend" / "Dockerfile").read_text()
+
+    active_configuration_paths = (
+        ".github/workflows/ci.yml",
+        ".github/workflows/update-readme-code-stats.yml",
+        ".opencode/opencode.json",
+        ".pre-commit-config.yaml",
+        ".python-version",
+        "AGENTS.md",
+        "Makefile",
+        "README.md",
+        "backend/Dockerfile",
+        "backend/pyproject.toml",
+        "ontolib/pyproject.toml",
+        "pyproject.toml",
+    )
+    for relative_path in active_configuration_paths:
+        current = (_ROOT / relative_path).read_text()
+        assert "3.13" not in current, relative_path
+        assert "python-314-compatibility" not in current, relative_path
+
+    decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
+    d84 = decisions.partition("### D84.")[2].partition("\n### D83.")[0]
+    assert "3.14.7-only" in d84
+    assert "supersedes D83" in d84
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:

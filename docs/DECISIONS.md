@@ -7,6 +7,25 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-03 — Python 3.14.7 is the sole runtime
+
+### D84. The pre-production platform is 3.14.7-only and supersedes D83 immediately
+
+**Decision:** Python 3.14.7 is the only supported local, hosted-CI, integration,
+data-build, and container runtime; this decision supersedes D83 rather than retaining a
+3.13 compatibility architecture (`git diff --no-ext-diff`, 2026-09-03). The root and both
+local package manifests require `>=3.14.7,<3.15`, while PDM canonically records the same
+lock target as `~=3.14.7` (`pdm lock --python ">=3.14.7,<3.15"`, 2026-09-03).
+
+Every Python setup step uses exact 3.14.7, ordinary test configuration fails
+deprecations except for the exact observed third-party Starlette alias warning, and the
+former compatibility job, runners, warning module, version module, and special verify
+gate are removed (`git diff --no-ext-diff`, 2026-09-03). The backend base is the immutable
+multi-platform `python:3.14.7-slim` index digest
+`sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6`
+(`GET https://hub.docker.com/v2/repositories/library/python/tags/3.14.7-slim`,
+2026-09-03).
+
 ## 2026-09-03 — Python 3.14 is a required forward-compatibility lane
 
 ### D83. Production stays on Python 3.13 while every locked non-integration test and runtime import is certified on 3.14

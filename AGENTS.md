@@ -145,7 +145,7 @@ decisions — see D60 for the full statement.
 ## Setup & dev servers
 
 ```bash
-pdm install --dev       # Use Python 3.13 for the production/default environment
+pdm install --dev       # Requires Python 3.14.7
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -158,10 +158,8 @@ pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a p
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
 
-Keep `python3.14` discoverable on `PATH`: mandatory `pdm run verify` includes its
-compatibility lane. Python 3.14 certification covers hermetic imports and the
-non-integration unit suite; integration, data-build execution, and the production
-container remain on Python 3.13.
+Python 3.14.7 is the only supported local, CI, integration, data-build, and container
+runtime. Recreate an older project environment before installing from the lock.
 
 Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
 so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;
@@ -171,7 +169,6 @@ defaults point at the services above.
 
 ```bash
 pdm run verify              # THE pre-PR gate: everything CI enforces, in CI's own commands
-pdm run python-314-compatibility  # clean 3.14 import + non-integration forward-compatibility lane
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
 pdm run test-integration     # safe default: nonce-owned disposable PG/QLever

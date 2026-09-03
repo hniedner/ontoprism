@@ -14,10 +14,10 @@ import math
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003 - Pydantic resolves this at runtime
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this at runtime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import text

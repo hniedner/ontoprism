@@ -103,7 +103,7 @@ jobs:
         id: setup-pdm
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -142,7 +142,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -179,35 +179,6 @@ jobs:
             coverage.xml
             coverage-unit.identity.json
 
-  # Required forward-compatibility lane. Python 3.13 remains the production/default
-  # runtime and owns coverage; this job certifies the complete hermetic Python suite
-  # without publishing coverage artifacts or duplicating service integration.
-  python-314-compatibility:
-    name: python 3.14 compatibility
-    needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up PDM with Python 3.14 (cached)
-        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
-        with:
-          python-version: "3.14"
-          version: "2.28.0"
-          cache: true
-
-      - name: Install dependencies from lock
-        run: pdm sync --clean-unselected --dev
-
-      - name: Smoke runtime and application imports
-        run: pdm run test-python-compatibility-smoke
-
-      - name: Run complete non-integration Python suite
-        run: pdm run test-python-compatibility
-
   coverage-verify:
     name: coverage verify (ontolib + backend)
     needs: [backend-tests, integration-tests]
@@ -217,10 +188,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14.7
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
 
       # Coverage.py, Pydantic, git on PATH, and the real checked-out source are needed to
       # verify layer identity against the checkout, gate, and render; no editable install.
@@ -298,7 +269,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -356,7 +327,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -432,7 +403,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -516,7 +487,7 @@ jobs:
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
-    needs: [changes, quality, backend-tests, python-314-compatibility, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
+    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -29,7 +29,7 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
 async def _pg_reachable(admin_dsn: str) -> bool:
     try:
         conn = await asyncpg.connect(admin_dsn, timeout=2)
-    except (OSError, asyncpg.PostgresError):
+    except OSError, asyncpg.PostgresError:
         return False
     await conn.close()
     return True

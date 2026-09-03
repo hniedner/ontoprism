@@ -61,7 +61,11 @@ def test_tracked_text_has_no_retired_local_runtime_references() -> None:
         if not encoded_relative:
             continue
         relative = encoded_relative.decode()
-        source = (_ROOT / relative).read_bytes()
+        path = _ROOT / relative
+        # Index entries deleted by the current change are not current authored text.
+        if not path.exists():
+            continue
+        source = path.read_bytes()
         violations.extend(_retired_runtime_violations(relative, source))
 
     assert violations == []

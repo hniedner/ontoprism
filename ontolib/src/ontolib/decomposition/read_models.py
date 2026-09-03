@@ -12,7 +12,7 @@ from typing import Self
 from pydantic import Field, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
-from ontolib.decomposition.models import AxisSource  # noqa: TC001 (Pydantic runtime)
+from ontolib.decomposition.models import AxisSource
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,

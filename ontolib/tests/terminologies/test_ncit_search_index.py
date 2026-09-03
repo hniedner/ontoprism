@@ -31,7 +31,7 @@ class _Result:
 
 
 class _Begin:
-    async def __aenter__(self) -> "_Begin":
+    async def __aenter__(self) -> _Begin:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
@@ -39,10 +39,10 @@ class _Begin:
 
 
 class _Session:
-    def __init__(self, factory: "_SessionFactory") -> None:
+    def __init__(self, factory: _SessionFactory) -> None:
         self._factory = factory
 
-    async def __aenter__(self) -> "_Session":
+    async def __aenter__(self) -> _Session:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:

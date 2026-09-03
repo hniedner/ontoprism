@@ -259,7 +259,7 @@ def check_file(filepath: Path) -> tuple[list[str], list[str]]:
     """Check a test file for quality anti-patterns."""
     try:
         content = filepath.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return [], []
 
     if not content.strip():

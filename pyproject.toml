@@ -3,7 +3,7 @@ name = "ontoprism"
 version = "0.21.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
-requires-python = ">=3.13,<3.15"
+requires-python = ">=3.14.7,<3.15"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Hannes Niedner" }]
 
@@ -87,17 +87,14 @@ test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests back
 test-integration-ci-coverage = { shell = "COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report=" }
 test-ci = { shell = "COVERAGE_FILE=.coverage.unit pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report= && coverage combine .coverage.unit .coverage.integration && python scripts/validation/strict_coverage_gate.py python --coverage-data .coverage --root ." }
 test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
-test-python-compatibility-smoke = "python -m scripts.validation.python_compatibility_smoke"
-test-python-compatibility = "python -m scripts.validation.run_python_compatibility_tests"
-python-314-compatibility = "python -m scripts.validation.run_python_compatibility"
 # The single pre-PR gate: everything CI enforces, in CI's own commands. Run this before
 # opening or updating a pull request, and before each merge into a milestone branch.
 # "Gates green" means this command exited 0 — not a subset of it. Three defects reached
 # CI on PR #290 because targeted substitutes (a single vitest file, a narrowed pytest
 # selection) were run instead of the real gate commands.
-# This includes the isolated Python 3.14 lane. The one gate it cannot reproduce is
+# The one gate it cannot reproduce is
 # CodeQL, which is GitHub default setup and runs only on pull requests and pushes to
-# main; `workflow_dispatch` on ci.yml covers all ten CI jobs for a branch without a PR.
+# main; `workflow_dispatch` on ci.yml covers all nine CI jobs for a branch without a PR.
 verify = "python -m scripts.validation.run_verify"
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
@@ -162,6 +159,10 @@ minversion = "8.0"
 norecursedirs = ["build", "dist", ".git", ".venv", "node_modules", "frontend"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "error::DeprecationWarning",
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:starlette\\.testclient",
+]
 markers = [
     "unit: Fast unit tests with mocked externalities only",
     "integration: Tests against real services; mutators use run-owned disposables",
@@ -175,7 +176,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 src = ["ontolib/src", "backend/src", "ontolib/tests", "backend/tests"]
 
@@ -199,6 +200,9 @@ select = [
 ignore = [
     "PLR0913",          # too many args (FastAPI DI, query builders)
     "ASYNC240", "ASYNC250",  # sync Path/os ops in async are fine (we use asyncio)
+    # Python 3.14's deferred annotations make TCH propose moving framework-resolved
+    # annotation names out of runtime scope. FastAPI/Pydantic inspect those names.
+    "TC001", "TC002", "TC003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -226,7 +230,7 @@ show_missing = true
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 
 [tool.basedpyright]
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 typeCheckingMode = "standard"
 include = ["ontolib/src", "backend/src", "test_support"]
 extraPaths = ["ontolib/src", "backend/src"]

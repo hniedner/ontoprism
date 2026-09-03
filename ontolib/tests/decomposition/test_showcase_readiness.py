@@ -220,6 +220,24 @@ async def test_self_consistent_false_readiness_claims_fail_model_validation(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_tampered_readiness_payload_fails_identity_validation(
+    tmp_path: Path,
+) -> None:
+    report = await verify_showcase_readiness(
+        _StoredShowcaseClient(),
+        output=tmp_path / "readiness.json",
+        git_head="a" * 40,
+        producing_command="pdm run agent-replay verify-enhanced-ncit-showcase",
+    )
+    payload = report.model_dump()
+    payload["concept_count"] += 1
+
+    with pytest.raises(ValidationError, match="report identity differs"):
+        ShowcaseReadinessReport.model_validate(payload)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_partial_storage_fails_closed_without_a_report(tmp_path: Path) -> None:
     output = tmp_path / "tmp/m1-6-enhanced-showcase-readiness.json"
     output.parent.mkdir(parents=True)

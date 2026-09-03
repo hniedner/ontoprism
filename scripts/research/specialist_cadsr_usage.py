@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ontolib.repositories.cadsr.models import CdeSummary  # noqa: TC001
+from ontolib.repositories.cadsr.models import CdeSummary
 from ontolib.repositories.cadsr.repository import CdeRepository
 
 
