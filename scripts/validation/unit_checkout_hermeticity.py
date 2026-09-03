@@ -15,7 +15,7 @@ import posixpath
 import re
 import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar, Literal, Protocol
 
@@ -53,23 +53,36 @@ class Violation:
     message: str
 
     def __post_init__(self) -> None:
-        if self.kind in {"input", "invalid_path"} and (
+        if self.kind in {"input", "invalid_path", "marker_error", "parse_error"} and (
             self.line is None or self.line < 1
         ):
             raise ValueError(f"{self.kind} violations require a positive line")
-        if self.kind == "inventory_error" and self.line is not None:
-            raise ValueError("inventory errors cannot have a source line")
+        if self.kind in {"inventory_error", "untracked_test", "read_error"} and (
+            self.line is not None
+        ):
+            raise ValueError(f"{self.kind} violations cannot have a source line")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class UnitSurface:
-    module_scope: bool
+class ModuleUnitSurface:
+    nodes: tuple[ast.AST, ...]
+
+    def __post_init__(self) -> None:
+        if not self.nodes:
+            raise ValueError("a module unit surface must contain its module nodes")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SelectedUnitSurface:
     nodes: tuple[ast.AST, ...]
     module_statements: tuple[ast.stmt, ...]
 
     def __post_init__(self) -> None:
-        if self.module_scope and not self.nodes:
-            raise ValueError("a module unit surface must contain its module nodes")
+        if not self.nodes:
+            raise ValueError("a selected unit surface must contain selected nodes")
+
+
+type UnitSurface = ModuleUnitSurface | SelectedUnitSurface
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -86,26 +99,29 @@ class TestInventory:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TrackedInventory:
     files: frozenset[str]
-    directories: frozenset[str]
+    _directories: frozenset[str] = field(init=False, repr=False)
 
-    @classmethod
-    def from_files(cls, files: frozenset[str]) -> TrackedInventory:
+    def __post_init__(self) -> None:
         directories: set[str] = set()
-        for tracked in files:
+        for tracked in self.files:
             parent = posixpath.dirname(tracked)
             while parent:
                 directories.add(parent)
                 parent = posixpath.dirname(parent)
-        return cls(files=files, directories=frozenset(directories))
+        object.__setattr__(self, "_directories", frozenset(directories))
+
+    @classmethod
+    def from_files(cls, files: frozenset[str]) -> TrackedInventory:
+        return cls(files=files)
 
     def has_file(self, path: str) -> bool:
         return path in self.files
 
     def has_directory(self, path: str) -> bool:
-        return (path == "." and bool(self.files)) or path in self.directories
+        return (path == "." and bool(self.files)) or path in self._directories
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Candidate:
     expression: ast.AST
     line: int
@@ -131,15 +147,13 @@ class _ResolvedPath:
     invalid_reason: str = ""
 
     def __post_init__(self) -> None:
-        if self.state not in {"unresolved", "pytest_owned", "checkout", "invalid"}:
-            raise ValueError(f"unknown resolved-path state: {self.state}")
         if self.state in {"unresolved", "pytest_owned"}:
             if self.value or self.explicit or self.invalid_reason:
                 raise ValueError(f"{self.state} paths cannot carry checkout fields")
         elif self.state == "checkout":
             if not self.value or self.invalid_reason:
                 raise ValueError("checkout paths require only a value")
-        elif not self.invalid_reason:
+        elif self.state == "invalid" and not self.invalid_reason:
             raise ValueError("invalid paths require a reason")
 
     @classmethod
@@ -412,17 +426,15 @@ def mixed_test_marker_surface_violations(
     return tuple(violations)
 
 
-def _unit_nodes(tree: ast.Module) -> UnitSurface:
+def _unit_nodes(tree: ast.Module) -> UnitSurface | None:
     module_statements = tuple(
         node
         for node in tree.body
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     )
     if "unit" in _module_markers(tree):
-        return UnitSurface(
-            module_scope=True,
+        return ModuleUnitSurface(
             nodes=tuple(tree.body),
-            module_statements=module_statements,
         )
 
     selected: list[ast.AST] = []
@@ -440,8 +452,9 @@ def _unit_nodes(tree: ast.Module) -> UnitSurface:
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
                     and "unit" in _decorator_markers(child)
                 )
-    return UnitSurface(
-        module_scope=False,
+    if not selected:
+        return None
+    return SelectedUnitSurface(
         nodes=tuple(selected),
         module_statements=module_statements,
     )
@@ -745,14 +758,17 @@ def _call_candidates(node: ast.Call) -> list[_Candidate]:
     if name == "open":
         return _open_candidates(node)
     if isinstance(node.func, ast.Attribute) and name in _PATH_READ_METHODS:
-        return [_Candidate(node.func.value, node.lineno, True)]
+        return [
+            _Candidate(expression=node.func.value, line=node.lineno, force_path=True)
+        ]
     if any(term in name for term in _INPUT_CALL_TERMS):
         candidates = [
-            _Candidate(argument, node.lineno, False) for argument in node.args
+            _Candidate(expression=argument, line=node.lineno, force_path=False)
+            for argument in node.args
         ]
     else:
         candidates = [
-            _Candidate(argument, node.lineno, False)
+            _Candidate(expression=argument, line=node.lineno, force_path=False)
             for argument in node.args
             if isinstance(argument, (ast.Call, ast.BinOp))
         ]
@@ -765,11 +781,15 @@ def _open_candidates(node: ast.Call) -> list[_Candidate]:
         return []
     candidates: list[_Candidate] = []
     if isinstance(node.func, ast.Attribute):
-        candidates.append(_Candidate(node.func.value, node.lineno, True))
+        candidates.append(
+            _Candidate(expression=node.func.value, line=node.lineno, force_path=True)
+        )
     elif node.args:
-        candidates.append(_Candidate(node.args[0], node.lineno, True))
+        candidates.append(
+            _Candidate(expression=node.args[0], line=node.lineno, force_path=True)
+        )
     candidates.extend(
-        _Candidate(keyword.value, node.lineno, True)
+        _Candidate(expression=keyword.value, line=node.lineno, force_path=True)
         for keyword in node.keywords
         if keyword.arg == "file"
     )
@@ -799,7 +819,13 @@ def _keyword_candidates(node: ast.Call, call_name: str) -> list[_Candidate]:
             continue
         is_path = "path" in keyword_name or "manifest" in keyword_name
         if is_input and (is_path or input_call or is_directory_input):
-            candidates.append(_Candidate(keyword.value, node.lineno, is_path))
+            candidates.append(
+                _Candidate(
+                    expression=keyword.value,
+                    line=node.lineno,
+                    force_path=is_path,
+                )
+            )
     return candidates
 
 
@@ -888,12 +914,17 @@ def fixed_untracked_input_violations(
 
 
 def _node_ranges(surface: UnitSurface) -> list[tuple[int, int]]:
+    nodes = (
+        surface.nodes
+        if isinstance(surface, ModuleUnitSurface)
+        else (*surface.nodes, *surface.module_statements)
+    )
     return [
         (
             getattr(node, "lineno", 0),
             getattr(node, "end_lineno", None) or getattr(node, "lineno", 0),
         )
-        for node in (*surface.nodes, *surface.module_statements)
+        for node in nodes
         if hasattr(node, "lineno")
     ]
 
@@ -936,14 +967,11 @@ def unit_test_surface_violations(
             )
             continue
         surface = _unit_nodes(tree)
-        if not surface.module_scope and not surface.nodes:
+        if surface is None:
             continue
         discovered = _fixed_untracked_input_violations(
             tree, filename=relative, inventory=tracked
         )
-        if surface.module_scope:
-            violations.extend(discovered)
-            continue
         ranges = _node_ranges(surface)
         violations.extend(
             violation

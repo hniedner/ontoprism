@@ -14,10 +14,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import scripts.validation.unit_checkout_hermeticity as checkout_gate
 from scripts.validation.unit_checkout_hermeticity import (
     TestInventory,
     TrackedInventory,
+    Violation,
     _call_candidates,
+    _node_ranges,
     _ResolvedPath,
     _run_git,
     _unit_nodes,
@@ -307,7 +310,7 @@ def test_path_open_write_modes_are_not_checkout_inputs(mode: str) -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("mode", ["r", "r+", "w+"])
-def test_path_open_read_modes_remain_checkout_inputs(mode: str) -> None:
+def test_path_open_read_capable_modes_remain_checkout_inputs(mode: str) -> None:
     source = f'def test_read() -> None:\n    Path("private/in.txt").open("{mode}")\n'
 
     violations = fixed_untracked_input_violations(
@@ -422,7 +425,7 @@ def test_method_level_unit_in_an_unmarked_class_is_scanned(git_root: Path) -> No
 
 
 @pytest.mark.unit
-def test_unit_surface_has_a_typed_shape_for_module_statements() -> None:
+def test_unit_surface_variants_reject_impossible_selected_state() -> None:
     tree = ast.parse(
         "import pytest\nVALUE = 1\n"
         "@pytest.mark.unit\ndef test_value() -> None:\n    assert VALUE\n"
@@ -430,10 +433,28 @@ def test_unit_surface_has_a_typed_shape_for_module_statements() -> None:
 
     surface = _unit_nodes(tree)
 
+    assert isinstance(surface, checkout_gate.SelectedUnitSurface)
     assert dataclasses.is_dataclass(surface)
-    assert surface.module_scope is False
     assert len(surface.nodes) == 1
     assert len(surface.module_statements) == 2
+    assert _node_ranges(surface) == [(4, 5), (1, 1), (2, 2)]
+    with pytest.raises(ValueError, match="selected unit surface"):
+        checkout_gate.SelectedUnitSurface(nodes=(), module_statements=())
+
+
+@pytest.mark.unit
+def test_module_unit_surface_is_a_distinct_keyword_only_variant() -> None:
+    tree = ast.parse(
+        "import pytest\npytestmark = pytest.mark.unit\n"
+        "def test_value() -> None:\n    assert True\n"
+    )
+
+    surface = _unit_nodes(tree)
+
+    assert isinstance(surface, checkout_gate.ModuleUnitSurface)
+    assert _node_ranges(surface) == [(1, 1), (2, 2), (3, 4)]
+    with pytest.raises(TypeError):
+        checkout_gate.ModuleUnitSurface(tuple(tree.body))  # type: ignore[call-arg]
 
 
 @pytest.mark.unit
@@ -811,7 +832,7 @@ def test_resolved_path_discriminator_rejects_invalid_combinations(
 
 
 @pytest.mark.unit
-def test_candidate_is_a_named_frozen_dataclass() -> None:
+def test_candidate_is_a_keyword_only_named_frozen_dataclass() -> None:
     statement = ast.parse('open("manifest.json")').body[0]
     assert isinstance(statement, ast.Expr)
     call = statement.value
@@ -821,6 +842,8 @@ def test_candidate_is_a_named_frozen_dataclass() -> None:
 
     assert dataclasses.is_dataclass(candidate)
     assert candidate.expression is call.args[0]
+    with pytest.raises(TypeError):
+        type(candidate)(call.args[0], call.lineno, True)  # type: ignore[call-arg]
     with pytest.raises(dataclasses.FrozenInstanceError):
         candidate.line = 99  # type: ignore[misc]
 
@@ -901,3 +924,35 @@ def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
     assert tracked.has_file("goldens/result.json")
     assert tracked.has_directory("goldens")
     assert not tracked.has_file("goldens")
+    with pytest.raises(TypeError, match="directories"):
+        TrackedInventory(
+            files=frozenset({"goldens/result.json"}),
+            directories=frozenset({"inconsistent"}),  # type: ignore[call-arg]
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("kind", ["inventory_error", "untracked_test", "read_error"])
+def test_non_source_violations_reject_source_lines(kind: str) -> None:
+    with pytest.raises(ValueError, match="cannot have a source line"):
+        Violation(
+            kind=kind,  # type: ignore[arg-type]
+            path="test_subject.py",
+            line=1,
+            message="failure",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "kind", ["input", "invalid_path", "marker_error", "parse_error"]
+)
+@pytest.mark.parametrize("line", [None, 0])
+def test_source_violations_require_positive_lines(kind: str, line: int | None) -> None:
+    with pytest.raises(ValueError, match="require a positive line"):
+        Violation(
+            kind=kind,  # type: ignore[arg-type]
+            path="test_subject.py",
+            line=line,
+            message="failure",
+        )
