@@ -48,7 +48,7 @@ def _decomposition(code: str = "C1") -> Decomposition:
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
             )
         ],
     )

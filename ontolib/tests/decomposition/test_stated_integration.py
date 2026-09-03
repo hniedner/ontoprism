@@ -10,12 +10,21 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 
 from ontolib.decomposition import stated_queries
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+from ontolib.decomposition.axis_diagnostics import (
+    AxisHierarchyEvidence,
+    HierarchyEdge,
+    build_disjoint_pairs_query,
+    classify_axis_range,
+    disjoint_pairs_from_rows,
+)
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
     build_complete_definition_query,
     read_complete_definition,
@@ -29,13 +38,16 @@ from ontolib.decomposition.extract import (
     part_of_pairs_from_rows,
     semantic_type_of_from_rows,
 )
-from ontolib.decomposition.filler_selection import select_constituents
+from ontolib.decomposition.filler_selection import (
+    select_constituents as _select_constituents,
+)
 from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
     RoleRestriction,
 )
-from ontolib.decomposition.run import _decompose_one
+from ontolib.decomposition.run import _decompose_one as _decompose_one_impl
+from ontolib.decomposition.scope import read_scope_hierarchy_edges
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
@@ -180,6 +192,77 @@ async def test_stated_query_builders_parse_against_disposable_store(
         for q in build_genus_walk_members_query("C6135"):
             rows = await client.select(q)
             assert isinstance(rows, list)
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_axis_range_double_matches_disposable_qlever(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99701 rdfs:subClassOf ncit:C99702 .
+        ncit:C99702 rdfs:subClassOf ncit:C7057 .
+        ncit:C99703 owl:disjointWith ncit:C7057 .
+    """
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        edges = await read_scope_hierarchy_edges(client)
+        disjoint = disjoint_pairs_from_rows(
+            await client.select_once(
+                build_disjoint_pairs_query(),
+                required_variables={"left", "right"},
+            )
+        )
+
+    contract = AXIS_CONTRACTS["op:Morphology"]
+    real_snapshot = AxisHierarchyEvidence(
+        source_identity="a" * 64,
+        edges=tuple(
+            HierarchyEdge(child=edge.child, parent=edge.parent) for edge in edges
+        ),
+        disjoint_pairs=disjoint,
+    )
+    doubled_snapshot = AxisHierarchyEvidence(
+        source_identity="a" * 64,
+        edges=(
+            HierarchyEdge(child="C99701", parent="C99702"),
+            HierarchyEdge(child="C99702", parent="C7057"),
+        ),
+        disjoint_pairs=disjoint_pairs_from_rows(
+            [{"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C99703"}]
+        ),
+    )
+    real = tuple(
+        classify_axis_range(
+            "op:Morphology",
+            filler,
+            contract.range_code,
+            real_snapshot,
+        ).status
+        for filler in ("C99701", "C99703", "C99704")
+    )
+    doubled = tuple(
+        classify_axis_range(
+            "op:Morphology",
+            filler,
+            contract.range_code,
+            doubled_snapshot,
+        ).status
+        for filler in ("C99701", "C99703", "C99704")
+    )
+
+    assert real == doubled == ("valid", "invalid", "unknown")
 
 
 @pytest.mark.integration
@@ -666,6 +749,79 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_r82_paths_preserve_direct_edges_and_edge_removal_on_real_qlever(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    source_identity = "e" * 64
+    direct_edges = [(f"C991{index:02d}", f"C992{index:02d}") for index in range(9)]
+    chain_edges = [("C99310", "C99320"), ("C99320", "C99330")]
+    parallel_chain_edges = [
+        edge
+        for index in range(8)
+        for edge in (
+            (f"C994{index:02d}", f"C995{index:02d}"),
+            (f"C995{index:02d}", f"C996{index:02d}"),
+        )
+    ]
+    parallel_pairs = tuple(
+        (f"C994{index:02d}", f"C996{index:02d}") for index in range(8)
+    )
+
+    def turtle(edges: list[tuple[str, str]]) -> bytes:
+        return "\n".join(
+            f"<{NCIT_NS}{part}> <{RDFS_NS}subClassOf> [ "
+            f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
+            f"<{OWL_NS}someValuesFrom> <{NCIT_NS}{whole}> ] ."
+            for part, whole in edges
+        ).encode()
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            turtle(direct_edges + chain_edges + parallel_chain_edges),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=True,
+        )
+        result = await stated_queries.resolve_part_of_paths(
+            client,
+            (*direct_edges, ("C99310", "C99330")),
+            source_identity=source_identity,
+        )
+        reverse = await stated_queries.resolve_part_of_paths(
+            client,
+            (("C99330", "C99310"),),
+            source_identity=source_identity,
+        )
+        parallel = await stated_queries.resolve_part_of_paths(
+            client, parallel_pairs, source_identity=source_identity
+        )
+        await client.load(
+            turtle(direct_edges + chain_edges[:1]),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=True,
+        )
+        removed = await stated_queries.resolve_part_of_paths(
+            client,
+            (("C99310", "C99330"),),
+            source_identity=source_identity,
+        )
+
+    assert result.max_pair_batch_size == 8
+    assert result.paths[("C99100", "C99200")].edges[0].part_code == "C99100"
+    chain = result.paths[("C99310", "C99330")]
+    assert [(edge.part_code, edge.whole_code) for edge in chain.edges] == chain_edges
+    assert all(edge.source_identity == source_identity for edge in chain.edges)
+    assert all(edge.fact_identity and edge.restriction_node_id for edge in chain.edges)
+    assert len(parallel.paths) == 8
+    assert parallel.query_count <= 10
+    assert reverse.paths == {}
+    assert removed.paths == {}
+
+
+@pytest.mark.integration
 @pytest.mark.full_store
 async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
     url = _url()
@@ -883,11 +1039,118 @@ async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
         if isinstance(fact, RestrictionDefinitionFact)
     }
     projected_pairs = {
-        (constituent.source_role, constituent.filler_code)
+        (source_role, constituent.filler_code)
         for constituent in decomposition.constituents
+        for source_role in constituent.source_roles
     }
     assert ("R103", "C54105") in source_pairs
     assert ("R103", "C54105") not in projected_pairs
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_union_definition_reaches_typed_unknown_outcome() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C114759",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+        )
+
+    assert result.outcome == "unknown"
+    assert result.decomposition is None
+    assert "Neoplastic Process" in result.semantic_types
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_c130035_r82_closure_stays_within_observed_bounds() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C130035",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+        )
+
+    assert result.outcome in {"decomposed", "residual"}
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+@pytest.mark.parametrize(
+    ("concept_code", "expected_pair", "broader_pair", "expected_morphology"),
+    [
+        (
+            "C6135",
+            ("op:AssociatedRegion", "C13063"),
+            ("op:AssociatedRegion", "C12418"),
+            "C3879",
+        ),
+        (
+            "C101539",
+            ("op:AssociatedRegion", "C13063"),
+            ("op:AssociatedRegion", "C12418"),
+            "C7153",
+        ),
+        (
+            "C4791",
+            ("op:PrimarySite", "C12869"),
+            ("op:PrimarySite", "C12727"),
+            "C3499",
+        ),
+    ],
+)
+async def test_2607d_r101_collapse_is_limited_to_routed_axis(
+    concept_code: str,
+    expected_pair: tuple[str, str],
+    broader_pair: tuple[str, str],
+    expected_morphology: str,
+) -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            concept_code,
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=7,
+        )
+
+    assert result.decomposition is not None
+    pairs = {
+        (constituent.axis, constituent.filler_code)
+        for constituent in result.decomposition.constituents
+    }
+    assert expected_pair in pairs
+    assert broader_pair not in pairs
+    assert {filler for axis, filler in pairs if axis == "op:Morphology"} == {
+        expected_morphology
+    }
 
 
 @pytest.mark.integration
@@ -991,7 +1254,7 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
         constituents = select_constituents(
             roles,
             make_is_ancestor(ancestor_pairs),
-            parent_morphology=None,
+            parent_morphologies=(),
             semantic_type_of=_st_of,
         )
 
@@ -1080,7 +1343,7 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
         constituents = select_constituents(
             roles,
             make_is_ancestor(ancestor_pairs),
-            parent_morphology=morphology,
+            parent_morphologies=((morphology,) if morphology is not None else ()),
             semantic_type_of=_st_of,
         )
 
@@ -1089,6 +1352,107 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     assert len(morphology_constituents) == 1
     assert morphology_constituents[0].filler_code == "C3879"
     assert morphology_constituents[0].axis_source == "parent"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_c150094_combines_r100_and_r101_primary_site_evidence() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C150094",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    matching = [
+        constituent
+        for constituent in decomposition.constituents
+        if (constituent.axis, constituent.filler_code) == ("op:PrimarySite", "C12316")
+    ]
+    assert len(matching) == 1
+    constituent = matching[0]
+    assert constituent.source_roles == ("R100", "R101")
+    facts_by_id = {
+        fact.fact_id: fact for fact in decomposition.complete_definition.facts
+    }
+    assert {
+        fact.role_code
+        for fact_id in constituent.source_definition_ids
+        if isinstance((fact := facts_by_id[fact_id]), RestrictionDefinitionFact)
+    } == {"R100", "R101"}
+    occurrences_by_id = {
+        occurrence.occurrence_id: occurrence
+        for occurrence in decomposition.complete_definition.occurrences
+    }
+    assert {
+        occurrences_by_id[occurrence_id].role_code
+        for occurrence_id in constituent.source_occurrence_ids
+    } == {"R100", "R101"}
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_c198031_repeated_pairs_across_groups_keep_exact_emitted_citations() -> (
+    None
+):
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        result = await _decompose_one(
+            "C198031",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    occurrences = decomposition.complete_definition.occurrences
+    matching = [
+        item
+        for item in occurrences
+        if (item.role_code, item.filler_code) == ("R105", "C12914")
+    ]
+    assert len({item.source_group_id for item in matching}) == 2
+    emitted = [
+        item
+        for item in decomposition.constituents
+        if item.filler_code == "C12914" and "R105" in item.source_roles
+    ]
+    assert len(emitted) == 1
+    assert emitted[0].source_occurrence_ids == tuple(
+        sorted(item.occurrence_id for item in matching)
+    )
+    assert not any(
+        item.filler_code == "C13013" and "R104" in item.source_roles
+        for item in decomposition.constituents
+    )
 
 
 @pytest.mark.integration
@@ -1140,7 +1504,7 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
     ]
     assert all(
         constituent.group is None
-        and constituent.source_role == "R101"
+        and constituent.source_roles == ("R101",)
         and constituent.source_definition_ids
         and constituent.needs_review is False
         for constituent in regions
@@ -1239,7 +1603,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
         }, review.constituents
         assert all(
             not constituent.needs_review
-            and constituent.source_role == "R105"
+            and constituent.source_roles == ("R105",)
             and constituent.source_definition_ids
             for constituent in retained_cell_types
         )
@@ -1285,3 +1649,21 @@ async def test_ncit_role_metadata_contract_matches_normalization() -> None:
         ("R114", "Disease_May_Have_Cytogenetic_Abnormality"),
         ("R115", "Disease_May_Have_Finding"),
     }
+
+
+def select_constituents(*args: Any, **kwargs: Any):
+    return _select_constituents(
+        *args,
+        **kwargs,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+
+async def _decompose_one(*args: Any, **kwargs: Any):
+    return await _decompose_one_impl(
+        *args,
+        **kwargs,
+        source_identity="0" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )

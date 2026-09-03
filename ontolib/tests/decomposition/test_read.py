@@ -3,7 +3,9 @@
 import pytest
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read import decomposition_from_rows
+from ontolib.decomposition.read_models import DecompositionConstituent
 from ontolib.terminologies.namespaces import NCIT_NS
 
 
@@ -13,7 +15,7 @@ def _ncit(code: str) -> str:
 
 def _row(**kw: str) -> dict[str, str | None]:
     # legacy_writer always emits op:axisSource, so a realistic row always carries it.
-    return (
+    row = (
         dict.fromkeys(
             (
                 "status",
@@ -31,6 +33,15 @@ def _row(**kw: str) -> dict[str, str | None]:
         | {"axisSource": "role"}
         | kw
     )
+    axis = row["axis"]
+    if (
+        row["axisSource"] == "role"
+        and isinstance(axis, str)
+        and axis.startswith(NCIT_NS + "R")
+        and row["sourceRole"] is None
+    ):
+        row["sourceRole"] = axis
+    return row
 
 
 @pytest.mark.unit
@@ -79,7 +90,7 @@ def test_op_axis_keeps_its_prefix() -> None:
 
 
 @pytest.mark.unit
-def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
+def test_normalized_axis_preserves_valid_ncit_source_roles() -> None:
     d = decomposition_from_rows(
         "C6135",
         [
@@ -93,7 +104,26 @@ def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
     )
 
     assert d.constituents[0].axis == "op:PrimarySite"
-    assert d.constituents[0].source_role == "R101"
+    assert d.constituents[0].source_roles == ("R101",)
+
+
+@pytest.mark.unit
+def test_repeated_role_rows_merge_to_canonical_source_roles() -> None:
+    common = {
+        "axis": f"{vocab.ONTOPRISM_NS}PrimarySite",
+        "filler": _ncit("C12316"),
+    }
+
+    decomposition = decomposition_from_rows(
+        "C150094",
+        [
+            _row(**common, sourceRole=_ncit("R101")),
+            _row(**common, sourceRole=_ncit("R100")),
+        ],
+    )
+
+    assert len(decomposition.constituents) == 1
+    assert decomposition.constituents[0].source_roles == ("R100", "R101")
 
 
 @pytest.mark.unit
@@ -242,3 +272,77 @@ def test_conflicting_rows_for_one_constituent_fail_closed() -> None:
                 _row(**common, group="two"),
             ],
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("axis_source", "source_roles", "message"),
+    [
+        ("role", (), "role-derived"),
+        ("parent", ("R101",), "parent/NLP"),
+        ("nlp", ("R101",), "parent/NLP"),
+        ("role", ("C101",), "NCIt role"),
+    ],
+)
+def test_read_constituent_rejects_invalid_source_role_invariants(
+    axis_source: AxisSource,
+    source_roles: tuple[str, ...],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        DecompositionConstituent(
+            axis="op:PrimarySite",
+            filler="C12400",
+            axis_source=axis_source,
+            source_roles=source_roles,
+        )
+
+
+@pytest.mark.unit
+def test_parent_read_row_with_source_role_fails_closed() -> None:
+    with pytest.raises(ValueError, match="parent/NLP"):
+        decomposition_from_rows(
+            "C1",
+            [
+                _row(
+                    axis=f"{vocab.ONTOPRISM_NS}Morphology",
+                    filler=_ncit("C3499"),
+                    axisSource="parent",
+                    sourceRole=_ncit("R101"),
+                )
+            ],
+        )
+
+
+@pytest.mark.unit
+def test_role_read_row_without_source_role_fails_closed() -> None:
+    with pytest.raises(ValueError, match="role-derived"):
+        decomposition_from_rows(
+            "C1",
+            [
+                _row(
+                    axis=f"{vocab.ONTOPRISM_NS}PrimarySite",
+                    filler=_ncit("C12400"),
+                    axisSource="role",
+                )
+            ],
+        )
+
+
+@pytest.mark.unit
+def test_repeated_valid_role_rows_merge_and_revalidate_all_sources() -> None:
+    common = {
+        "axis": f"{vocab.ONTOPRISM_NS}PrimarySite",
+        "filler": _ncit("C12316"),
+        "axisSource": "role",
+    }
+
+    decomposition = decomposition_from_rows(
+        "C150094",
+        [
+            _row(**common, sourceRole=_ncit("R101")),
+            _row(**common, sourceRole=_ncit("R100")),
+        ],
+    )
+
+    assert decomposition.constituents[0].source_roles == ("R100", "R101")

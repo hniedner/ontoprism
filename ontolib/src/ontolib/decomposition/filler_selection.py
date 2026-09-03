@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
 from ontolib.decomposition.axis_contracts import (
@@ -23,6 +24,9 @@ from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
     primary_subsites_for_morphology,
 )
+
+if TYPE_CHECKING:
+    from ontolib.decomposition.collapse_policy import CollapseVetoPolicy
 
 # ``is_ancestor(a, b)`` means *a* is a proper superclass of *b*.
 # R82 containment is supplied independently through ``IsPartOf``.
@@ -182,31 +186,67 @@ def _r101_semantic_type_constituents(
     is_part_of: IsPartOf,
     semantic_type_of: Callable[[str], str | None],
 ) -> list[Constituent]:
-    organ_fillers = {
+    semantic_types = {filler: semantic_type_of(filler) for filler in fillers}
+    organ_fillers, region_fillers = _partition_location_fillers(fillers, semantic_types)
+    unknown_fillers = fillers - organ_fillers - region_fillers
+    location_broader = _location_broader(is_ancestor, is_part_of)
+    organ = most_specific(organ_fillers, location_broader) or organ_fillers
+    region = most_specific(region_fillers, location_broader) or region_fillers
+    return [
+        *_semantic_organ_constituents(organ, fillers, is_ancestor),
+        *_unknown_primary_site_constituents(unknown_fillers),
+        *_associated_region_constituents(region, fillers, is_ancestor),
+    ]
+
+
+def _partition_location_fillers(
+    fillers: set[str], semantic_types: dict[str, str | None]
+) -> tuple[set[str], set[str]]:
+    organs = {
         filler
         for filler in fillers
-        if semantic_type_of(filler) == axes.ORGAN_SEMANTIC_TYPE
+        if semantic_types[filler] == axes.ORGAN_SEMANTIC_TYPE
     }
-    region_fillers = fillers - organ_fillers
-    organ = most_specific(organ_fillers, is_ancestor) or organ_fillers
-    location_broader = _location_broader(is_ancestor, is_part_of)
-    region = most_specific(region_fillers, location_broader) or region_fillers
+    regions = {
+        filler
+        for filler in fillers
+        if semantic_types[filler] is not None and filler not in organs
+    }
+    return organs, regions
 
-    organ_ambiguous = len(organ) > 1
-    organ_constituents = [
+
+def _semantic_organ_constituents(
+    organs: set[str], fillers: set[str], is_ancestor: IsAncestor
+) -> list[Constituent]:
+    ambiguous = len(organs) > 1
+    return [
         Constituent(
             axis=axes.PRIMARY_SITE_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=organ_ambiguous,
+            needs_review=ambiguous,
         )
-        for filler in organ
+        for filler in organs
     ]
+
+
+def _unknown_primary_site_constituents(
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
+) -> list[Constituent]:
     return [
-        *organ_constituents,
-        *_associated_region_constituents(region, fillers, is_ancestor),
+        Constituent(
+            axis=axes.PRIMARY_SITE_AXIS,
+            filler_code=filler,
+            axis_source="role",
+            source_roles=(source_roles or {}).get(
+                (axes.PRIMARY_SITE_AXIS, filler), (axes.PRIMARY_SITE_ROLE,)
+            ),
+            needs_review=True,
+        )
+        for filler in sorted(fillers)
     ]
 
 
@@ -221,7 +261,7 @@ def _associated_region_constituents(
             axis=axes.ASSOCIATED_REGION_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=False,
             group=group,
@@ -238,18 +278,18 @@ def _primary_subsite_constituents(
             axis=axes.PRIMARY_SUBSITE_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
         )
         for filler in subsites
     ]
 
 
-def _source_role_for_axis(axis_name: str) -> str | None:
+def _source_roles_for_axis(axis_name: str) -> tuple[str, ...]:
     contract = AXIS_CONTRACTS.get(axis_name)
     if contract is not None and len(contract.source_roles) == 1:
-        return contract.source_roles[0]
-    return axis_name if axis_name.startswith("R") else None
+        return contract.source_roles
+    return (axis_name,) if axis_name.startswith("R") else ()
 
 
 def _requires_review(axis_name: str, *, ambiguous: bool) -> bool:
@@ -263,7 +303,7 @@ def _standard_constituents(
     leaves: set[str],
     fillers: set[str],
     is_ancestor: IsAncestor,
-    source_roles: dict[tuple[str, str], str] | None = None,
+    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> list[Constituent]:
     ambiguous = len(leaves) > 1
     is_routed = axis_name in _REVIEW_EXEMPT_AXES
@@ -273,8 +313,8 @@ def _standard_constituents(
             axis=axis_name,
             filler_code=filler,
             axis_source="role",
-            source_role=(source_roles or {}).get(
-                (axis_name, filler), _source_role_for_axis(axis_name)
+            source_roles=(source_roles or {}).get(
+                (axis_name, filler), _source_roles_for_axis(axis_name)
             ),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=_requires_review(axis_name, ambiguous=ambiguous),
@@ -288,21 +328,36 @@ def _group_by_routed_axis(
     restrictions: Iterable[RoleRestriction],
     parent_morphology: str | None = None,
     concept_code: str | None = None,
-) -> tuple[dict[str, set[str]], dict[tuple[str, str], str]]:
+    *,
+    source_identity: str | None = None,
+    collapse_policy: CollapseVetoPolicy | None = None,
+) -> tuple[
+    dict[str, set[str]],
+    dict[tuple[str, str], tuple[str, ...]],
+    set[tuple[str, str]],
+]:
     by_axis: dict[str, set[str]] = defaultdict(set)
-    source_roles: dict[tuple[str, str], str] = {}
-    for r in filter_excluded(restrictions, concept_code=concept_code):
+    source_role_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
+    included = tuple(filter_excluded(restrictions, concept_code=concept_code))
+    protected = (
+        collapse_policy.protected_fillers(
+            included,
+            source_identity=source_identity,
+            concept_code=concept_code,
+            route_axis=lambda row: route_axis(row, parent_morphology),
+        )
+        if collapse_policy is not None
+        else set()
+    )
+    for r in included:
         axis_name = route_axis(r, parent_morphology)
         by_axis[axis_name].add(r.filler_code)
         key = (axis_name, r.filler_code)
-        existing_role = source_roles.get(key)
-        if existing_role is not None and existing_role != r.role_code:
-            raise ValueError(
-                f"routed axis/filler {key!r} has multiple source roles: "
-                f"{existing_role!r}, {r.role_code!r}"
-            )
-        source_roles[key] = r.role_code
-    return by_axis, source_roles
+        source_role_sets[key].add(r.role_code)
+    source_roles = {
+        key: tuple(sorted(roles)) for key, roles in source_role_sets.items()
+    }
+    return by_axis, source_roles, protected
 
 
 def comparison_filler_codes(
@@ -341,7 +396,7 @@ def _resolve_r101_with_organ_lookup(
     is_ancestor: IsAncestor,
     parent_morphology: str | None,
     semantic_type_of: Callable[[str], str | None] | None,
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_part_of: IsPartOf,
     axis_name: str = "",
 ) -> list[Constituent] | None:
@@ -349,18 +404,50 @@ def _resolve_r101_with_organ_lookup(
     organ = _known_r101_organ(fillers, parent_morphology, axis_name)
     if organ is None:
         return None
-    primary = Constituent(
+    primary = _known_organ_constituent(organ, fillers, source_roles, is_ancestor)
+    if semantic_type_of is None:
+        return [primary]
+    return _organ_context_constituents(
+        primary=primary,
+        organ=organ,
+        fillers=fillers,
+        parent_morphology=cast("str", parent_morphology),
+        semantic_type_of=semantic_type_of,
+        source_roles=source_roles,
+        is_ancestor=is_ancestor,
+        is_part_of=is_part_of,
+    )
+
+
+def _known_organ_constituent(
+    organ: str,
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+) -> Constituent:
+    return Constituent(
         axis=axes.PRIMARY_SITE_AXIS,
         filler_code=organ,
         axis_source="role",
-        source_role=source_roles.get(
-            (axes.PRIMARY_SITE_AXIS, organ), axes.PRIMARY_SITE_ROLE
+        source_roles=source_roles.get(
+            (axes.PRIMARY_SITE_AXIS, organ), (axes.PRIMARY_SITE_ROLE,)
         ),
         most_specific=_is_most_specific(organ, fillers, is_ancestor),
         needs_review=False,
     )
-    if semantic_type_of is None:
-        return [primary]
+
+
+def _organ_context_constituents(
+    *,
+    primary: Constituent,
+    organ: str,
+    fillers: set[str],
+    parent_morphology: str,
+    semantic_type_of: Callable[[str], str | None],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
+) -> list[Constituent]:
     # Retained deliberately, not dead by construction: exhaustive enumeration of
     # 144,072 closed-form inputs, 9.0M production-shaped pipeline runs, and 14,604
     # hermetic-suite helper executions all found this set empty. The emptiness is
@@ -369,27 +456,35 @@ def _resolve_r101_with_organ_lookup(
     # ontolib.decomposition.site_resolution), not structural, so deleting the branch
     # would silently drop subsites the moment those tables overlap.
     subsites = set(primary_subsites_for_morphology(parent_morphology)) & fillers
+    # Partition the residual once. A missing P106 value is absence of evidence,
+    # never evidence that the source R101 filler denotes a region.
+    residual_fillers = fillers - {organ} - subsites
     regions = {
         filler
-        for filler in fillers - {organ} - subsites
-        if semantic_type_of(filler) != axes.ORGAN_SEMANTIC_TYPE
+        for filler in residual_fillers
+        if semantic_type_of(filler) not in {None, axes.ORGAN_SEMANTIC_TYPE}
+    }
+    unknown_fillers = {
+        filler for filler in residual_fillers if semantic_type_of(filler) is None
     }
     location_broader = _location_broader(is_ancestor, is_part_of)
     region_leaves = most_specific(regions, location_broader) or regions
     return [
         primary,
         *_primary_subsite_constituents(subsites, fillers, is_ancestor),
+        *_unknown_primary_site_constituents(unknown_fillers, source_roles),
         *_associated_region_constituents(region_leaves, fillers, is_ancestor),
     ]
 
 
 def _iter_axis_constituents(
     by_axis: dict[str, set[str]],
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_ancestor: IsAncestor,
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None = None,
     is_part_of: IsPartOf | None = None,
+    protected: set[tuple[str, str]] | None = None,
 ) -> list[Constituent]:
     part_of = is_part_of or (lambda _part, _whole: False)
     result: list[Constituent] = []
@@ -403,6 +498,11 @@ def _iter_axis_constituents(
                 parent_morphology,
                 source_roles,
                 part_of,
+                {
+                    filler
+                    for protected_axis, filler in protected or set()
+                    if protected_axis == axis_name
+                },
             )
         )
     return result
@@ -414,8 +514,9 @@ def _constituents_for_axis(
     is_ancestor: IsAncestor,
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None,
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_part_of: IsPartOf,
+    protected_fillers: set[str],
 ) -> list[Constituent]:
     resolved = _resolve_r101_with_organ_lookup(
         fillers,
@@ -426,19 +527,68 @@ def _constituents_for_axis(
         is_part_of,
         axis_name,
     )
-    if resolved is not None:
-        return resolved
-
-    if _is_r101_semantic_split(axis_name, fillers, semantic_type_of):
+    if resolved is None and _is_r101_semantic_split(
+        axis_name, fillers, semantic_type_of
+    ):
         narrowed = cast("Callable[[str], str | None]", semantic_type_of)
-        split = _r101_semantic_type_constituents(
+        resolved = _r101_semantic_type_constituents(
             fillers, is_ancestor, is_part_of, narrowed
         )
-        if split:
-            return split
+    if not resolved:
+        leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
+        resolved = _standard_constituents(
+            axis_name, leaves, fillers, is_ancestor, source_roles
+        )
+    return _add_protected_fillers(
+        resolved,
+        axis_name,
+        protected_fillers,
+        fillers,
+        source_roles,
+        is_ancestor,
+    )
 
-    leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
-    return _standard_constituents(axis_name, leaves, fillers, is_ancestor, source_roles)
+
+def _add_protected_fillers(
+    resolved: list[Constituent],
+    axis_name: str,
+    protected_fillers: set[str],
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+) -> list[Constituent]:
+    if not protected_fillers:
+        return resolved
+    existing = {row.filler_code for row in resolved if row.axis == axis_name}
+    result = [
+        *resolved,
+        *(
+            Constituent(
+                axis=axis_name,
+                filler_code=filler,
+                axis_source="role",
+                source_roles=source_roles.get(
+                    (axis_name, filler), _source_roles_for_axis(axis_name)
+                ),
+                most_specific=_is_most_specific(filler, fillers, is_ancestor),
+            )
+            for filler in sorted(protected_fillers - existing)
+        ),
+    ]
+    return _mark_ambiguous_axis(result, axis_name)
+
+
+def _mark_ambiguous_axis(
+    constituents: list[Constituent], axis_name: str
+) -> list[Constituent]:
+    if sum(row.axis == axis_name for row in constituents) <= 1:
+        return constituents
+    return [
+        replace(row, needs_review=True, group=axis_name)
+        if row.axis == axis_name
+        else row
+        for row in constituents
+    ]
 
 
 def _resolved_leaves(
@@ -462,9 +612,9 @@ def _resolved_leaves(
 
 
 def _append_morphology(
-    constituents: list[Constituent], parent_morphology: str | None
+    constituents: list[Constituent], parent_morphologies: Iterable[str]
 ) -> None:
-    if parent_morphology is not None:
+    for parent_morphology in parent_morphologies:
         constituents.append(
             Constituent(
                 axis=axes.MORPHOLOGY_AXIS,
@@ -478,10 +628,12 @@ def select_constituents(
     restrictions: Iterable[RoleRestriction],
     is_ancestor: IsAncestor,
     *,
-    parent_morphology: str | None = None,
+    parent_morphologies: Iterable[str] = (),
     semantic_type_of: Callable[[str], str | None] | None = None,
     is_part_of: IsPartOf | None = None,
     concept_code: str | None = None,
+    source_identity: str | None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
@@ -498,15 +650,23 @@ def select_constituents(
       ``axes.UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE``,
       the ``ncit-26.07d-unsupported-filler-v1`` set
 
-    The survivors are grouped by routed axis (D20 refinement 1), collapsed to their
-    most-specific filler(s) on hierarchy-comparable axes, and all associated-lineage
-    fillers are preserved.
-    It then applies D20 refinement 2 (semantic-type ranking on residual R101 leaves) and
-    assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
-    (axis, filler) for deterministic, diffable results.
+    The survivors undergo normal axis routing and semantic resolution (D20 refinements
+    1 and 2), including most-specific collapse on hierarchy-comparable axes and
+    preservation of all associated-lineage fillers. Exact policy-protected
+    ``(axis, broader)`` fillers are then restored additively. Restored PrimarySite
+    values are marked review-required and grouped only when their resulting axis is
+    ambiguous.
+    Output is sorted (axis, filler) for deterministic, diffable results.
     """
-    by_axis, source_roles = _group_by_routed_axis(
-        restrictions, parent_morphology, concept_code
+    restriction_rows = tuple(restrictions)
+    morphology_fillers = tuple(dict.fromkeys(parent_morphologies))
+    parent_morphology = morphology_fillers[0] if morphology_fillers else None
+    by_axis, source_roles, protected = _group_by_routed_axis(
+        restriction_rows,
+        parent_morphology,
+        concept_code,
+        source_identity=source_identity,
+        collapse_policy=collapse_policy,
     )
     constituents = _iter_axis_constituents(
         by_axis,
@@ -515,6 +675,33 @@ def select_constituents(
         semantic_type_of,
         parent_morphology,
         is_part_of,
+        protected,
     )
-    _append_morphology(constituents, parent_morphology)
-    return sorted(constituents, key=lambda c: (c.axis, c.filler_code))
+    _append_morphology(constituents, morphology_fillers)
+    provenance: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
+    for restriction in filter_excluded(restriction_rows, concept_code=concept_code):
+        key = (route_axis(restriction, parent_morphology), restriction.filler_code)
+        definition_ids, occurrence_ids = provenance.setdefault(key, (set(), set()))
+        definition_ids.update(restriction.source_definition_ids)
+        occurrence_ids.update(restriction.source_occurrence_ids)
+
+    def source_ids(constituent: Constituent) -> tuple[set[str], set[str]]:
+        key = (constituent.axis, constituent.filler_code)
+        if key not in provenance and constituent.axis in {
+            axes.ASSOCIATED_REGION_AXIS,
+            axes.PRIMARY_SUBSITE_AXIS,
+        }:
+            key = (axes.PRIMARY_SITE_AXIS, constituent.filler_code)
+        return provenance[key]
+
+    traced = [
+        replace(
+            constituent,
+            source_definition_ids=tuple(source_ids(constituent)[0]),
+            source_occurrence_ids=tuple(source_ids(constituent)[1]),
+        )
+        if constituent.axis_source == "role"
+        else constituent
+        for constituent in constituents
+    ]
+    return sorted(traced, key=lambda c: (c.axis, c.filler_code))

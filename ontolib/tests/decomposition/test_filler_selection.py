@@ -1,6 +1,7 @@
 """Unit tests for filler selection: Excludes filter, most-specific, morphology."""
 
 from collections import defaultdict
+from typing import Any
 
 import pytest
 
@@ -11,6 +12,7 @@ from ontolib.decomposition.axes import (
     PRIMARY_SITE_AXIS,
     STAGE_VALUE_AXIS,
 )
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
     STAGE_CLASSIFICATION_VERSION,
     STAGE_SYSTEM_CODES,
@@ -18,9 +20,26 @@ from ontolib.decomposition.filler_selection import (
     filter_excluded,
     most_specific,
     route_axis,
-    select_constituents,
+)
+from ontolib.decomposition.filler_selection import (
+    select_constituents as _select_constituents,
 )
 from ontolib.decomposition.models import RoleRestriction
+from ontolib.decomposition.site_resolution import (
+    MORPHOLOGY_TO_ORGAN,
+    MORPHOLOGY_TO_PRIMARY_SUBSITES,
+)
+
+
+def select_constituents(*args: Any, **kwargs: Any):
+    """Exercise ordinary selection with the explicit no-veto policy."""
+    return _select_constituents(
+        *args,
+        **kwargs,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
 
 # A tiny fake hierarchy: (ancestor, descendant) pairs. Endocrine Gland and Neck are
 # both ancestors of Thyroid Gland (the inferred-graph ancestor bleed, assessment §4).
@@ -44,6 +63,37 @@ def _roles(*pairs: tuple[str, str, str]) -> list[RoleRestriction]:
 
 
 @pytest.mark.unit
+def test_selection_preserves_only_provenance_routed_to_the_selected_pair() -> None:
+    selected_fact = "a" * 64
+    selected_occurrence = "b" * 64
+    collapsed_fact = "c" * 64
+    collapsed_occurrence = "d" * 64
+    constituents = select_constituents(
+        (
+            RoleRestriction(
+                "R101",
+                "C12400",
+                source_definition_ids=(selected_fact,),
+                source_occurrence_ids=(selected_occurrence,),
+            ),
+            RoleRestriction(
+                "R101",
+                "C12401",
+                source_definition_ids=(collapsed_fact,),
+                source_occurrence_ids=(collapsed_occurrence,),
+            ),
+        ),
+        _is_ancestor,
+    )
+
+    assert [(item.axis, item.filler_code) for item in constituents] == [
+        (PRIMARY_SITE_AXIS, "C12400")
+    ]
+    assert constituents[0].source_definition_ids == (selected_fact,)
+    assert constituents[0].source_occurrence_ids == (selected_occurrence,)
+
+
+@pytest.mark.unit
 def test_filter_excluded_drops_negative_axioms() -> None:
     restrictions = _roles(
         ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
@@ -51,6 +101,73 @@ def test_filter_excluded_drops_negative_axioms() -> None:
     )
     kept = filter_excluded(restrictions)
     assert [r.role_code for r in kept] == ["R101"]
+
+
+@pytest.mark.unit
+def test_selection_preserves_source_ids_from_every_routed_occurrence() -> None:
+    restrictions = [
+        RoleRestriction(
+            "R101",
+            "C12400",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C2",
+            source_definition_ids=("a" * 64,),
+            source_occurrence_ids=("b" * 64,),
+        ),
+        RoleRestriction(
+            "R101",
+            "C12400",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3",
+            source_definition_ids=("c" * 64,),
+            source_occurrence_ids=("d" * 64,),
+        ),
+    ]
+
+    (constituent,) = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+    )
+
+    assert constituent.source_definition_ids == ("a" * 64, "c" * 64)
+    assert constituent.source_occurrence_ids == ("b" * 64, "d" * 64)
+
+
+@pytest.mark.unit
+def test_overlapping_organ_subsite_mapping_preserves_routed_source_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    morphology = "C999001"
+    organ = "C999002"
+    other_site = "C999003"
+    definition_id = "a" * 64
+    occurrence_id = "b" * 64
+    monkeypatch.setitem(MORPHOLOGY_TO_ORGAN, morphology, organ)
+    monkeypatch.setitem(MORPHOLOGY_TO_PRIMARY_SUBSITES, morphology, frozenset({organ}))
+    restrictions = [
+        RoleRestriction(
+            "R100",
+            organ,
+            source_definition_ids=(definition_id,),
+            source_occurrence_ids=(occurrence_id,),
+        ),
+        RoleRestriction("R101", other_site),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphologies=(morphology,),
+        semantic_type_of=lambda _code: None,
+    )
+
+    subsite = next(
+        item
+        for item in constituents
+        if (item.axis, item.filler_code) == ("op:PrimarySubsite", organ)
+    )
+    assert subsite.source_definition_ids == (definition_id,)
+    assert subsite.source_occurrence_ids == (occurrence_id,)
 
 
 @pytest.mark.unit
@@ -239,7 +356,7 @@ def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
 def test_select_adds_morphology_from_parent() -> None:
     restrictions = _roles(("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"))
     constituents = select_constituents(
-        restrictions, _is_ancestor, parent_morphology="C40384"
+        restrictions, _is_ancestor, parent_morphologies=("C40384",)
     )
     morph = [c for c in constituents if c.axis == MORPHOLOGY_AXIS]
     assert len(morph) == 1
@@ -303,7 +420,7 @@ def test_supported_role_keeps_source_role_separate_from_normalized_axis() -> Non
     )
 
     assert constituent.axis == "op:MolecularAbnormality"
-    assert constituent.source_role == "R106"
+    assert constituent.source_roles == ("R106",)
     assert constituent.needs_review is False
 
 
@@ -315,7 +432,7 @@ def test_unknown_defining_role_is_preserved_and_review_required() -> None:
     )
 
     assert constituent.axis == "R999"
-    assert constituent.source_role == "R999"
+    assert constituent.source_roles == ("R999",)
     assert constituent.needs_review is True
 
 
@@ -392,6 +509,46 @@ def test_semantic_type_ranking_splits_organ_from_region() -> None:
     assert cons["C12400"].axis == PRIMARY_SITE_AXIS
     assert cons["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert cons["C13063"].axis == ASSOCIATED_REGION_AXIS
+
+
+@pytest.mark.unit
+def test_semantic_type_routing_preserves_exact_region_provenance() -> None:
+    selected_fact = "a" * 64
+    selected_occurrence = "b" * 64
+    collapsed_fact = "c" * 64
+    collapsed_occurrence = "d" * 64
+    semantic_types = {
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    restrictions = [
+        RoleRestriction(
+            "R101",
+            "C12418",
+            source_definition_ids=(collapsed_fact,),
+            source_occurrence_ids=(collapsed_occurrence,),
+        ),
+        RoleRestriction(
+            "R101",
+            "C13063",
+            source_definition_ids=(selected_fact,),
+            source_occurrence_ids=(selected_occurrence,),
+        ),
+    ]
+
+    (constituent,) = select_constituents(
+        restrictions,
+        lambda _broader, _narrower: False,
+        semantic_type_of=semantic_types.get,
+        is_part_of=lambda part, whole: (part, whole) == ("C13063", "C12418"),
+    )
+
+    assert (constituent.axis, constituent.filler_code) == (
+        ASSOCIATED_REGION_AXIS,
+        "C13063",
+    )
+    assert constituent.source_definition_ids == (selected_fact,)
+    assert constituent.source_occurrence_ids == (selected_occurrence,)
 
 
 @pytest.mark.unit
@@ -534,7 +691,7 @@ def test_ratified_lung_primary_routes_bronchus_to_primary_subsite() -> None:
     constituents = select_constituents(
         restrictions,
         lambda _a, _b: False,
-        parent_morphology="C4878",
+        parent_morphologies=("C4878",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -561,7 +718,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
     constituents = select_constituents(
         restrictions,
         lambda broader, narrower: (broader, narrower) == ("C12402", "C12316"),
-        parent_morphology="C7558",
+        parent_morphologies=("C7558",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -572,7 +729,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
         ("op:Morphology", "C7558"),
     }
     primary = next(item for item in constituents if item.axis == "op:PrimarySite")
-    assert primary.source_role == "R100"
+    assert primary.source_roles == ("R100",)
 
 
 @pytest.mark.unit
@@ -592,7 +749,7 @@ def test_routing_precedes_region_axis_collapse() -> None:
         lambda broader, narrower: (
             (broader, narrower) in {("C12418", "C13063"), ("C13063", "C12400")}
         ),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -642,7 +799,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: (a, b) == ("C75102", "C12400"),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1
@@ -653,7 +810,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("reverse", [False, True])
-def test_same_routed_pair_from_different_source_roles_fails_closed(
+def test_same_routed_pair_preserves_all_source_roles(
     reverse: bool,
 ) -> None:
     restrictions = [
@@ -663,12 +820,85 @@ def test_same_routed_pair_from_different_source_roles_fails_closed(
     if reverse:
         restrictions.reverse()
 
-    with pytest.raises(ValueError, match="multiple source roles"):
-        select_constituents(
-            restrictions,
-            lambda _ancestor, _descendant: False,
-            parent_morphology="C7558",
-        )
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphologies=("C7558",),
+    )
+
+    primary_site = next(
+        item
+        for item in constituents
+        if (item.axis, item.filler_code) == ("op:PrimarySite", "C12316")
+    )
+    assert primary_site.source_roles == ("R100", "R101")
+
+
+@pytest.mark.unit
+def test_r101_organ_partition_collapses_broader_partonomic_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12727"),
+        RoleRestriction("R101", "C12869"),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=lambda _code: "Body Part, Organ, or Organ Component",
+        is_part_of=lambda part, whole: (part, whole) == ("C12869", "C12727"),
+    )
+
+    assert [(item.axis, item.filler_code) for item in constituents] == [
+        ("op:PrimarySite", "C12869")
+    ]
+
+
+@pytest.mark.unit
+def test_r101_missing_semantic_type_remains_unresolved_primary_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400"),
+        RoleRestriction("R101", "C99999"),
+    ]
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C99999": None,
+    }
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=semantic_types.get,
+    )
+
+    actual = [(item.axis, item.filler_code, item.needs_review) for item in constituents]
+    assert actual == [
+        ("op:PrimarySite", "C12400", False),
+        ("op:PrimarySite", "C99999", True),
+    ]
+
+
+@pytest.mark.unit
+def test_morphology_organ_partition_preserves_unknown_as_review_primary_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400"),
+        RoleRestriction("R101", "C99999"),
+    ]
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C99999": None,
+    }
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphologies=("C3879",),
+        semantic_type_of=semantic_types.get,
+    )
+
+    unknown = next(item for item in constituents if item.filler_code == "C99999")
+    assert unknown.axis == PRIMARY_SITE_AXIS
+    assert unknown.needs_review is True
+    assert unknown.source_roles == ("R101",)
 
 
 @pytest.mark.unit
@@ -692,7 +922,7 @@ def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None
                 ("C13063", "C12400"),
             }
         ),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=semantic_types.get,
     )
     by_axis = {
@@ -728,7 +958,7 @@ def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=lambda _: "Body Part, Organ, or Organ Component",
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
@@ -746,7 +976,7 @@ def test_region_only_candidates_reach_fallback_without_known_organ() -> None:
     constituents = select_constituents(
         restrictions,
         lambda _a, _b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=lambda _code: "Anatomical Structure",
     )
 
@@ -770,7 +1000,7 @@ def test_organ_lookup_falls_through_on_unknown_morphology() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C99999",
+        parent_morphologies=("C99999",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 2
@@ -786,7 +1016,7 @@ def test_organ_lookup_not_triggered_for_single_filler() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1

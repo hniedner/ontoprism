@@ -15,6 +15,7 @@ OPERATION_ARGUMENT_COUNT = 2
 COMMIT_ARGUMENT_COUNT = 3
 MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
+MUTATION_TIMEOUT_SECONDS = 600
 MUTATION_FAILURE_MESSAGES = {
     "switch-existing": (
         "Git switch failed and may have changed repository state; inspect git status"
@@ -53,6 +54,14 @@ class CommandRunner(Protocol):
     def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
 
 
+def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
+    # Arguments are the fixed, validated Git invocation built above; never shell input.
+    return subprocess.run(  # noqa: S603, PLW1510
+        arguments,
+        **kwargs,  # type: ignore[arg-type,return-value]
+    )
+
+
 def _invoke(
     arguments: list[str],
     root: Path,
@@ -68,7 +77,7 @@ def _invoke(
             text=True,
             shell=False,
             check=False,
-            timeout=PROCESS_TIMEOUT_SECONDS,
+            timeout=(MUTATION_TIMEOUT_SECONDS if mutating else PROCESS_TIMEOUT_SECONDS),
         )
     except UnicodeDecodeError as exc:
         message = (
@@ -191,9 +200,10 @@ def run_agent_git(
     arguments: list[str],
     root: Path,
     *,
-    runner: CommandRunner = subprocess.run,
+    runner: CommandRunner | None = None,
 ) -> int:
     """Validate and run one fixed local Git operation without a shell."""
+    runner = runner or _subprocess_runner
     if not arguments:
         raise AgentGitInputError("Git operation is unsupported")
     operation = arguments[0]

@@ -5,7 +5,6 @@ import binascii
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
-from pydantic import BaseModel
 
 from backend.api.v1.alignment import mapping_relative_to
 from backend.dependencies import (
@@ -17,6 +16,7 @@ from backend.dependencies import (
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import IcdoRepositoryReady, RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.repositories.icdo.congruence import (
     CongruenceReport,
     build_congruence_report,
@@ -43,7 +43,7 @@ Edition = Literal["3.2", "4.0"]
 Axis = Literal["morphology", "topography"]
 
 
-class NcitAlignment(BaseModel):
+class NcitAlignment(StrictBoundaryModel):
     code: str
     system: Literal["ncit"] = "ncit"
     version: str
@@ -51,13 +51,13 @@ class NcitAlignment(BaseModel):
     lifecycle: MappingLifecycle
 
 
-class IcdoAccessReport(BaseModel):
+class IcdoAccessReport(StrictBoundaryModel):
     """Opaque consumer access state after all served datasets are certified."""
 
     status: Literal["ready-and-entitled"] = "ready-and-entitled"
 
 
-class _RecordBase(BaseModel):
+class _RecordBase(StrictBoundaryModel):
     code: str
     preferred: str | None = None
     synonyms: tuple[str, ...] = ()
@@ -106,7 +106,7 @@ class TopographyLeafRecord(_RecordBase):
 type TopographyRecord = TopographyCategoryRecord | TopographyLeafRecord
 
 
-class _IcdoDetail(BaseModel):
+class _IcdoDetail(StrictBoundaryModel):
     activation_identity: str
     serving_identity: str
     ncit_alignments: list[NcitAlignment]
@@ -133,7 +133,7 @@ class Topography40Detail(_IcdoDetail):
 type IcdoDetail = Morphology32Detail | Morphology40Detail | Topography40Detail
 
 
-class _IcdoPage(BaseModel):
+class _IcdoPage(StrictBoundaryModel):
     activation_identity: str
     serving_identity: str
     query: str

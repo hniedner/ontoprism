@@ -5,10 +5,12 @@ mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` module tree t
 the client parses — enough to browse trials and open a trial detail.
 """
 
-from pydantic import BaseModel
+from pydantic import Field
+
+from ontolib.common.boundary_models import StrictBoundaryModel
 
 
-class CTInterventionDetail(BaseModel):
+class CTInterventionDetail(StrictBoundaryModel):
     """An intervention (drug, procedure, device, …) evaluated by a trial."""
 
     type: str | None = None
@@ -16,7 +18,7 @@ class CTInterventionDetail(BaseModel):
     description: str | None = None
 
 
-class CTOutcome(BaseModel):
+class CTOutcome(StrictBoundaryModel):
     """A primary or secondary outcome measure."""
 
     measure: str
@@ -24,14 +26,14 @@ class CTOutcome(BaseModel):
     time_frame: str | None = None
 
 
-class CTSponsor(BaseModel):
+class CTSponsor(StrictBoundaryModel):
     """A trial sponsor or collaborator."""
 
     name: str
     role: str | None = None  # "lead" | "collaborator"
 
 
-class CTLocation(BaseModel):
+class CTLocation(StrictBoundaryModel):
     """A facility where the trial is (or was) conducted."""
 
     facility: str | None = None
@@ -41,7 +43,7 @@ class CTLocation(BaseModel):
     status: str | None = None
 
 
-class CTReference(BaseModel):
+class CTReference(StrictBoundaryModel):
     """A publication referenced by a trial (the CT.gov↔PubMed cross-link)."""
 
     pmid: str | None = None
@@ -49,22 +51,22 @@ class CTReference(BaseModel):
     reference_type: str | None = None  # "RESULT" | "BACKGROUND" | "DERIVED"
 
 
-class CTStudySummary(BaseModel):
+class CTStudySummary(StrictBoundaryModel):
     """A lightweight trial reference for search-result tables."""
 
     nct_id: str
     title: str
     status: str | None = None
     phase: str | None = None
-    conditions: list[str] = []
-    interventions: list[str] = []
+    conditions: list[str] = Field(default_factory=list)
+    interventions: list[str] = Field(default_factory=list)
     start_date: str | None = None
     enrollment: int | None = None
     # Synthesized from result position (the CT.gov API returns no relevance score).
     relevance_score: float = 0.0
 
 
-class CTStudyDetail(BaseModel):
+class CTStudyDetail(StrictBoundaryModel):
     """Full trial detail assembled from the CT.gov v2 protocol-section modules."""
 
     nct_id: str
@@ -74,24 +76,24 @@ class CTStudyDetail(BaseModel):
     phase: str | None = None
     study_type: str | None = None
     primary_purpose: str | None = None
-    conditions: list[str] = []
-    interventions: list[CTInterventionDetail] = []
-    primary_outcomes: list[CTOutcome] = []
-    secondary_outcomes: list[CTOutcome] = []
+    conditions: list[str] = Field(default_factory=list)
+    interventions: list[CTInterventionDetail] = Field(default_factory=list)
+    primary_outcomes: list[CTOutcome] = Field(default_factory=list)
+    secondary_outcomes: list[CTOutcome] = Field(default_factory=list)
     eligibility_criteria: str | None = None
     enrollment: int | None = None
     start_date: str | None = None
-    sponsors: list[CTSponsor] = []
-    locations: list[CTLocation] = []
-    references: list[CTReference] = []
+    sponsors: list[CTSponsor] = Field(default_factory=list)
+    locations: list[CTLocation] = Field(default_factory=list)
+    references: list[CTReference] = Field(default_factory=list)
     url: str = ""
 
 
-class CTStudySearchPage(BaseModel):
+class CTStudySearchPage(StrictBoundaryModel):
     """A page of trial search results with the resolved query terms echoed back."""
 
     condition: str | None = None
     intervention: str | None = None
     term: str | None = None
     total: int
-    studies: list[CTStudySummary] = []
+    studies: list[CTStudySummary] = Field(default_factory=list)

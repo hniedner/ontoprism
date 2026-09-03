@@ -5,13 +5,18 @@ distinctive output is a **decomposed (non-pre-coordinated) NCIt**. It is built b
 the ontology vertical slice of the `fairdata` platform (see [DECISIONS.md](DECISIONS.md)
 D1–D2) and adding a decomposition engine.
 
+For plain-language definitions of decomposition, axes, fillers, genera, semantic types,
+curated projections, source occurrences, partonomies, and relationship groups, see the
+[shared terminology](../README.md#terminology). This document retains the precise ontology
+terms after that introduction.
+
 ## Layout (keep-names)
 
 ```
 ontoprism/
 ├── pyproject.toml            # root PDM project (distribution=false), tool config, test scripts
 ├── conftest.py               # puts ontolib/src & backend/src on sys.path (see DECISIONS D6)
-├── docker-compose.yml        # postgres(:5433) + qlever-ncit(:7888) + qlever-uberon(:7889)
+├── docker-compose.yml        # Local Compose services published on :5433/:7888/:7889
 ├── Makefile  .env.example
 ├── .github/workflows/       # ci (path-filtered: quality/backend/coverage/web/integration
 │                            #   + ci-summary) + release + security (codeql default setup,
@@ -38,8 +43,10 @@ ontoprism/
 
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
-  in a separate default-graph index. Runtime reasoning is disabled. The compose stack
-  runs the digest-pinned QLever index/server pair on :7888/:7889; the first-install
+  in a separate default-graph index. Runtime reasoning is disabled. The local Compose stack
+  unconditionally publishes the digest-pinned QLever index/server pair on :7888/:7889.
+  Separately, when the `ontoprism-podman` Docker context is selected, the optional context
+  chooses Podman as the container engine; it does not choose or alter those ports. The first-install
   bootstrap and #148's journaled, rollback-capable replacement of an existing NCIt index
   are implemented.
 - **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run
@@ -58,6 +65,26 @@ ontoprism/
   backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
   -q`, 2026-08-10). Decomposition RDF and proposal RDF remain additive projections,
   never source graph mutations.
+
+## Python model boundary
+
+ONTOPRISM uses both dataclasses and Pydantic deliberately; they are not interchangeable.
+
+- **Frozen dataclasses are domain values.** Pure algorithms exchange immutable facts,
+  evidence, verdicts, and calculation results as dataclasses. Domain modules do not
+  inherit from Pydantic models and do not embed Pydantic configuration or wire objects.
+- **Pydantic models are boundary documents.** Configuration, API DTOs, persisted JSON,
+  CLI-generated artifacts, manifests, and database/report payloads use strict Pydantic
+  models because they validate untrusted or serialized shapes and provide a defined wire
+  representation.
+- **Adapters convert explicitly.** A boundary model may not contain a domain dataclass as
+  a field, and a domain dataclass may not contain a Pydantic model. Adapter functions map
+  every field between the two representations. This keeps serialization concerns out of
+  domain logic and prevents Pydantic's coercion/serialization behavior from becoming an
+  implicit domain contract.
+- **Ordinary service/adapter classes remain ordinary classes.** A QLever reader, cache,
+  repository, or orchestrator is behavior, not a value schema; it uses neither dataclass
+  nor `BaseModel` merely for convenience.
 
 ## Web request architecture
 
@@ -105,7 +132,7 @@ persisted `source_identity` matches that certified active proxy (D68).
 
 ## Key inherited mechanism: NCIt roles are OWL restrictions
 
-NCIt encodes pre-coordination as OWL existential restrictions
+NCIt encodes pre-coordination as relationship requirements (OWL existential restrictions)
 (`?c rdfs:subClassOf [ owl:onProperty ?R ; owl:someValuesFrom ?filler ]`), **not** as
 direct triples (0 direct R-triples in the store; associations are direct A-triples). The
 restriction-traversal query (`ontolib` `terminologies/ncit/graph_store_role_queries.py`)
@@ -114,7 +141,8 @@ builds on. Porting it faithfully is the keystone of M1/M2 ("roles must render").
 
 ## Decomposition model (additive; exact reversibility quarantined)
 
-Legacy pre-coordinated concepts are **flagged, never deleted**
+Decomposition exposes a complex concept's semantic parts without replacing it. Legacy
+pre-coordinated concepts are therefore **flagged, never deleted**
 (`representationStatus="legacy-precoordinated"`) and linked to constituents via
 `hasConstituent[axis, filler]`. Constituents come roles-first (100% already exist as
 active concepts) with NLP/label parsing as fallback for label-only axes (laterality,

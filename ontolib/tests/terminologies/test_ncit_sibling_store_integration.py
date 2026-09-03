@@ -10,6 +10,7 @@ import pytest
 from scripts.decompose import _source_snapshot
 
 from ontolib.decomposition import stated_queries as stated_queries_module
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.models import CompleteDefinition, RestrictionDefinitionFact
 from ontolib.decomposition.run import _decompose_one
@@ -160,6 +161,8 @@ async def _m1_walker_evidence(
             client,
             label=None,
             label_lookup=unexpected_label_lookup,
+            source_identity="0" * 64,
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
             walker_max_depth=5,
         )
         outcome_evidence[code] = (candidate.semantic_types, candidate.outcome)

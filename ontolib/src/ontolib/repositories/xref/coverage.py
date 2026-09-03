@@ -6,6 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, ConfigDict, model_validator
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -46,8 +48,9 @@ class CdeAnchors:
         return any(len(v) > 1 for v in by_type.values())
 
 
-@dataclass(frozen=True)
-class CoverageReport:
+class CoverageReport(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
     n_cdes: int
     single_code_cdes: int
     post_coordinated_cdes: int
@@ -61,7 +64,8 @@ class CoverageReport:
     anchors_unmapped: int
     cde_coverage: float
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _valid_counts(self) -> CoverageReport:
         if self.live + self.unresolved != self.distinct_anchors:
             msg = (
                 f"Invariant: live ({self.live}) + unresolved ({self.unresolved}) "
@@ -88,22 +92,10 @@ class CoverageReport:
                 f"!= distinct_anchors ({self.distinct_anchors})"
             )
             raise ValueError(msg)
+        return self
 
     def as_dict(self) -> dict[str, float | int]:
-        return {
-            "n_cdes": self.n_cdes,
-            "single_code_cdes": self.single_code_cdes,
-            "post_coordinated_cdes": self.post_coordinated_cdes,
-            "distinct_anchors": self.distinct_anchors,
-            "live": self.live,
-            "unresolved": self.unresolved,
-            "anchors_in_roles": self.anchors_in_roles,
-            "anchors_new": self.anchors_new,
-            "anchors_identity_mapped": self.anchors_identity_mapped,
-            "anchors_close_only": self.anchors_close_only,
-            "anchors_unmapped": self.anchors_unmapped,
-            "cde_coverage": self.cde_coverage,
-        }
+        return self.model_dump(mode="json")
 
 
 _CDE_ANCHORS_SQL = (

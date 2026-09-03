@@ -11,7 +11,6 @@ import subprocess
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -210,13 +209,13 @@ class _DockerRun(Protocol):
 
 
 class _ContainerHealth(BaseModel):
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     Status: str
 
 
 class _ContainerState(BaseModel):
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     Running: bool
     Status: str
@@ -224,7 +223,7 @@ class _ContainerState(BaseModel):
 
 
 class _ContainerMount(BaseModel):
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     Type: str
     Source: str
@@ -233,7 +232,7 @@ class _ContainerMount(BaseModel):
 
 
 class _ContainerConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     Image: str
     Cmd: list[str]
@@ -241,7 +240,7 @@ class _ContainerConfig(BaseModel):
 
 
 class _ContainerInspection(BaseModel):
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     Id: str
     Name: str
@@ -293,12 +292,64 @@ class QleverServiceContract(BaseModel):
         )
 
 
+def _inspection_document(payload: str) -> dict[str, object]:
+    raw = json.loads(payload)
+    if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+        raise ValueError("expected one container inspection object")
+    return raw[0]
+
+
+def _inspection_mapping(document: dict[str, object], name: str) -> dict[str, object]:
+    value = document.get(name)
+    if not isinstance(value, dict):
+        raise ValueError(f"container inspection {name} is malformed")
+    return value
+
+
+def _inspection_mounts(document: dict[str, object]) -> list[dict[str, object]]:
+    value = document.get("Mounts")
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("container inspection mounts are malformed")
+    return value
+
+
+def _project_inspection(document: dict[str, object]) -> dict[str, object]:
+    state = _inspection_mapping(document, "State")
+    config = _inspection_mapping(document, "Config")
+    health = state.get("Health")
+    return {
+        "Id": document.get("Id"),
+        "Name": document.get("Name"),
+        "Image": document.get("Image"),
+        "State": {
+            "Running": state.get("Running"),
+            "Status": state.get("Status"),
+            "Health": (
+                {"Status": health.get("Status")} if isinstance(health, dict) else None
+            ),
+        },
+        "Mounts": [
+            {
+                "Type": mount.get("Type"),
+                "Source": mount.get("Source"),
+                "Destination": mount.get("Destination"),
+                "RW": mount.get("RW"),
+            }
+            for mount in _inspection_mounts(document)
+        ],
+        "Config": {
+            "Image": config.get("Image"),
+            "Cmd": config.get("Cmd"),
+            "Labels": config.get("Labels"),
+        },
+    }
+
+
 def _parse_container_inspection(payload: str) -> _ContainerInspection:
     try:
-        raw = json.loads(payload)
-        if not isinstance(raw, list) or len(raw) != 1:
-            raise ValueError("expected one container")
-        return _ContainerInspection.model_validate(raw[0])
+        return _ContainerInspection.model_validate(
+            _project_inspection(_inspection_document(payload))
+        )
     except (ValueError, ValidationError) as exc:
         raise ActivationServiceError(
             "NCIt QLever container inspection is malformed"
@@ -1459,13 +1510,21 @@ def cleanup_rollback_store(
     return transition_activation_journal(journal_path, journal, "rollback-cleaned")
 
 
-@dataclass(frozen=True, slots=True)
 class _ActivationRun:
-    journal_path: Path
-    service: ActivationService
-    reconcile_projection: ActivationStep
-    validate_health: ActivationStep
-    validate_rollback_health: ActivationStep
+    def __init__(
+        self,
+        *,
+        journal_path: Path,
+        service: ActivationService,
+        reconcile_projection: ActivationStep,
+        validate_health: ActivationStep,
+        validate_rollback_health: ActivationStep,
+    ) -> None:
+        self.journal_path = journal_path
+        self.service = service
+        self.reconcile_projection = reconcile_projection
+        self.validate_health = validate_health
+        self.validate_rollback_health = validate_rollback_health
 
 
 async def _pause_step(

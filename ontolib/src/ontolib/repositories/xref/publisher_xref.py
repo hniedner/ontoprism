@@ -35,7 +35,7 @@ class PublisherXrefSourceError(ValueError):
 
 
 class CountDelta(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     expected: int
     observed: int
     delta: int
@@ -54,14 +54,14 @@ class PublisherXrefCountDriftError(ValueError):
 
 
 class UnresolvedPublisherXref(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     uberon_id: str
     ncit_id: str
     reason: Literal["ncit-target-not-found"] = "ncit-target-not-found"
 
 
 class PublisherXrefReport(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     uberon_release: str
     ncit_release: str
     uberon_assertion_identity: str

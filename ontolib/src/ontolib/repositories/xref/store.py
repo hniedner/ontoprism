@@ -71,7 +71,7 @@ def _validate_source_contract(
     if identity is None:
         raise AssertionError("irrelevant source reached contract validation")
     observed_values = observed.model_dump()
-    expected_values = identity.model_dump()
+    expected_values = identity.as_dict()
     for key in expected_values:
         if observed_values.get(key) != expected_values.get(key):
             raise StaleXrefGenerationError(

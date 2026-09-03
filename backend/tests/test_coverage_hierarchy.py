@@ -1,21 +1,29 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import coverage
 import pytest
+from pydantic import ValidationError
+from scripts.validation import coverage_hierarchy
 from scripts.validation.coverage_hierarchy import (
     ArtifactIdentity,
     Metric,
     build_frontend_report,
     build_python_report,
+    identity_from_mapping,
     load_coverage_config,
     load_manifest,
+    main,
     validate_manifest,
     verify_identities,
     verify_identities_against_current,
+    verify_runtime_dependencies,
 )
 from scripts.validation.coverage_hierarchy import (
     _python_raw_report as python_raw_report,
@@ -155,6 +163,78 @@ def test_branchless_metric_is_na_and_unmeasured_metric_is_zero() -> None:
     )
 
 
+def test_metric_deficit_uses_strictly_greater_than_ninety_percent_floor() -> None:
+    assert Metric(covered=90, total=100).is_deficit is True
+    assert Metric(covered=91, total=100).is_deficit is False
+
+
+@pytest.mark.parametrize(
+    ("values", "location", "message"),
+    [
+        (
+            {"covered": -1, "total": 1},
+            ("covered",),
+            "Input should be greater than or equal to 0",
+        ),
+        (
+            {"covered": 0, "total": -1},
+            ("total",),
+            "Input should be greater than or equal to 0",
+        ),
+        ({"covered": 2, "total": 1}, (), "Value error, covered must not exceed total"),
+    ],
+)
+def test_metric_rejects_impossible_counts(
+    values: dict[str, int], location: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        Metric.model_validate(values)
+
+    assert error.value.errors(include_url=False)[0]["loc"] == location
+    assert error.value.errors(include_url=False)[0]["msg"] == message
+
+
+def test_artifact_identity_serialization_tracks_model_fields_and_roundtrips() -> None:
+    class ExtendedArtifactIdentity(ArtifactIdentity):
+        collector: str
+
+    identity = ExtendedArtifactIdentity(**_identity().model_dump(), collector="ci")
+
+    assert identity.as_dict() == identity.model_dump(mode="json")
+    assert identity_from_mapping(_identity().as_dict()) == _identity()
+
+
+def test_artifact_identity_model_rejects_unsupported_tool_typo() -> None:
+    values = {**_identity().as_dict(), "tool": "coverge.py"}
+
+    with pytest.raises(ValidationError) as error:
+        ArtifactIdentity.model_validate(values)
+
+    assert error.value.errors(include_url=False)[0]["loc"] == ("tool",)
+    assert error.value.errors(include_url=False)[0]["msg"] == (
+        "Input should be 'coverage.py' or 'vitest'"
+    )
+
+
+def test_identity_cli_rejects_unsupported_tool_typo(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "identity",
+                "--layer",
+                "python-unit",
+                "--tool",
+                "coverge.py",
+                "--tool-version",
+                "7.15.2",
+                "--output",
+                str(tmp_path / "identity.json"),
+            ]
+        )
+
+    assert error.value.code == 2
+
+
 def test_unmeasured_executable_module_is_reported_as_zero(tmp_path: Path) -> None:
     source = tmp_path / "src" / "missing.py"
     source.parent.mkdir()
@@ -270,17 +350,18 @@ def test_identity_mismatch_refuses_cross_commit_merge() -> None:
 
 def test_identity_mismatch_refuses_configuration_and_source_drift() -> None:
     baseline = _identity()
-    for field in (
-        "config_sha256",
-        "manifest_sha256",
-        "source_sha256",
-        "tool",
-        "tool_version",
-    ):
+    replacements = {
+        "config_sha256": "e" * 40,
+        "manifest_sha256": "e" * 40,
+        "source_sha256": "e" * 40,
+        "tool": "vitest",
+        "tool_version": "e" * 40,
+    }
+    for field, replacement in replacements.items():
         changed = ArtifactIdentity(
             **{
                 **baseline.as_dict(),
-                field: "e" * 40,
+                field: replacement,
                 "layer": "python-integration",
             }
         )
@@ -309,9 +390,85 @@ def test_identity_verification_rejects_artifacts_stale_against_checkout() -> Non
         verify_identities_against_current((artifact,), current)
 
 
-def test_current_identity_allows_downloaded_artifacts_outside_source_inventory() -> (
-    None
-):
+def test_identity_verification_rejects_installed_coverage_version_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _identity()
+    monkeypatch.setattr(coverage, "__version__", "7.99.0")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"installed coverage\.py version 7\.99\.0 does not match "
+            r"coverage artifact tool_version 7\.15\.2"
+        ),
+    ):
+        coverage_hierarchy.verify_installed_tool_version((artifact,))
+
+
+def test_runtime_dependency_verification_rejects_lock_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    lock.write_text(
+        '[[package]]\nname = "coverage"\nversion = "7.15.4"\n'
+        '[[package]]\nname = "pydantic"\nversion = "0.0.0"\n'
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"installed pydantic version \S+ does not match pdm.lock version 0.0.0",
+    ):
+        verify_runtime_dependencies(lock)
+
+
+@pytest.mark.parametrize("missing_name", ["coverage", "pydantic"])
+def test_runtime_dependency_verification_rejects_missing_package(
+    tmp_path: Path, missing_name: str
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    package_entries = [
+        "[[package]]\n"
+        f'name = "{name}"\n'
+        f'version = "{importlib.metadata.version(name)}"\n'
+        for name in ("coverage", "pydantic")
+        if name != missing_name
+    ]
+    lock.write_text("".join(package_entries), encoding="utf-8")
+    expected_error = f"{lock} does not lock {missing_name}"
+
+    with pytest.raises(ValueError, match=re.escape(expected_error)) as error:
+        verify_runtime_dependencies(lock)
+
+    assert str(error.value) == expected_error
+
+
+@pytest.mark.parametrize("conflicting_name", ["coverage", "pydantic"])
+def test_runtime_dependency_verification_rejects_conflicting_versions(
+    tmp_path: Path, conflicting_name: str
+) -> None:
+    lock = tmp_path / "pdm.lock"
+    installed_version = importlib.metadata.version(conflicting_name)
+    package_entries = [
+        "[[package]]\n"
+        f'name = "{name}"\n'
+        f'version = "{importlib.metadata.version(name)}"\n'
+        for name in ("coverage", "pydantic")
+    ]
+    package_entries.append(
+        f'[[package]]\nname = "{conflicting_name}"\nversion = "0.0.0"\n'
+    )
+    lock.write_text("".join(package_entries), encoding="utf-8")
+    versions = ", ".join(sorted(("0.0.0", installed_version)))
+    expected_error = f"{lock} locks conflicting {conflicting_name} versions: {versions}"
+
+    with pytest.raises(ValueError, match=re.escape(expected_error)) as error:
+        verify_runtime_dependencies(lock)
+
+    assert str(error.value) == expected_error
+
+
+def test_current_identity_allows_dirty_checkout_when_tracked_identity_matches() -> None:
     artifact = _identity()
     current_with_auxiliary_outputs = ArtifactIdentity(
         **{

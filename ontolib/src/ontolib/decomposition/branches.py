@@ -44,14 +44,14 @@ _BRANCH_SPECS = {
         scope_version=_SCOPE_VERSION,
         semantic_types=_AXIS_SEMANTIC_TYPES,
         algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
-        algorithm_version="decomposition-v3",
+        algorithm_version="decomposition-v4",
     ),
     DecompositionBranch.DISEASE: BranchSpec(
         root_code="C2991",
         scope_version=_SCOPE_VERSION,
         semantic_types=_AXIS_SEMANTIC_TYPES,
         algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
-        algorithm_version="decomposition-v3",
+        algorithm_version="decomposition-v4",
     ),
 }
 

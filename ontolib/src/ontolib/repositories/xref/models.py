@@ -81,16 +81,70 @@ class IcdoReadIdentity(BaseModel):
     icdo_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class UberonReadIdentityValue:
+    ncit_source_identity: str
+    uberon_source_identity: str
+    uberon_serving_identity: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "ncit_source_identity": self.ncit_source_identity,
+            "uberon_source_identity": self.uberon_source_identity,
+            "uberon_serving_identity": self.uberon_serving_identity,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class IcdoReadIdentityValue:
+    ncit_source_identity: str
+    icdo_generation_identity: str
+    icdo_serving_identity: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "ncit_source_identity": self.ncit_source_identity,
+            "icdo_generation_identity": self.icdo_generation_identity,
+            "icdo_serving_identity": self.icdo_serving_identity,
+        }
+
+
+def _uberon_identity_value(value: UberonReadIdentity) -> UberonReadIdentityValue:
+    return UberonReadIdentityValue(
+        ncit_source_identity=value.ncit_source_identity,
+        uberon_source_identity=value.uberon_source_identity,
+        uberon_serving_identity=value.uberon_serving_identity,
+    )
+
+
+def _icdo_identity_value(value: IcdoReadIdentity) -> IcdoReadIdentityValue:
+    return IcdoReadIdentityValue(
+        ncit_source_identity=value.ncit_source_identity,
+        icdo_generation_identity=value.icdo_generation_identity,
+        icdo_serving_identity=value.icdo_serving_identity,
+    )
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class XrefReadPolicy:
     """Sources relevant to one mapping read and their current identities."""
 
-    uberon: UberonReadIdentity | None = None
-    icdo: IcdoReadIdentity | None = None
+    uberon: UberonReadIdentityValue | None
+    icdo: IcdoReadIdentityValue | None
 
-    def __post_init__(self) -> None:
-        if self.uberon is None and self.icdo is None:
+    def __init__(
+        self,
+        uberon: UberonReadIdentity | None = None,
+        icdo: IcdoReadIdentity | None = None,
+    ) -> None:
+        if uberon is None and icdo is None:
             raise ValueError("xref read policy must select at least one source family")
+        object.__setattr__(
+            self,
+            "uberon",
+            _uberon_identity_value(uberon) if uberon else None,
+        )
+        object.__setattr__(self, "icdo", _icdo_identity_value(icdo) if icdo else None)
 
 
 class StaleXrefGenerationError(RuntimeError):

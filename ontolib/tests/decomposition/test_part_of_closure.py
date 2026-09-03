@@ -303,15 +303,15 @@ async def test_part_of_closure_rejects_dynamic_257th_expansion_code() -> None:
 
 @pytest.mark.unit
 async def test_part_of_closure_rejects_query_body_bound_before_store() -> None:
-    accepted_code = f"C{'1' * 16_077}"
+    accepted_code = f"C{'1' * 16_073}"
     assert (
         len(stated_queries.build_part_of_expansion_query([accepted_code]).encode())
-        == 65_535
+        == 65_532
     )
 
     store = _ExpansionStore()
-    with pytest.raises(ValueError, match=r"query body is 65539 bytes.*65536"):
-        await stated_queries.resolve_part_of_pairs(store, [f"C{'1' * 16_078}"])
+    with pytest.raises(ValueError, match=r"query body is 65540 bytes.*65536"):
+        await stated_queries.resolve_part_of_pairs(store, [f"C{'1' * 16_075}"])
     assert store.calls == []
 
 
@@ -361,22 +361,22 @@ async def test_part_of_closure_rejects_unrequested_ninth_hop() -> None:
 
 
 @pytest.mark.unit
-async def test_part_of_closure_accepts_fourteenth_superclass_hop() -> None:
-    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(14)}
-    expansions["C2014"] = [("whole", "C2015")]
+async def test_part_of_closure_accepts_twentieth_superclass_hop() -> None:
+    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(20)}
+    expansions["C2020"] = [("whole", "C2021")]
 
     assert await stated_queries.resolve_part_of_pairs(
-        _ExpansionStore(expansions), ["C2000", "C2015"]
-    ) == [PartOfPair(part="C2000", whole="C2015")]
+        _ExpansionStore(expansions), ["C2000", "C2021"]
+    ) == [PartOfPair(part="C2000", whole="C2021")]
 
 
 @pytest.mark.unit
-async def test_part_of_closure_rejects_fifteenth_superclass_hop() -> None:
-    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(15)}
-    expansions["C2015"] = [("whole", "C2016")]
-    with pytest.raises(ValueError, match=r"superclass hop.*14"):
+async def test_part_of_closure_rejects_twenty_first_superclass_hop() -> None:
+    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(21)}
+    expansions["C2021"] = [("whole", "C2022")]
+    with pytest.raises(ValueError, match=r"superclass hop.*20"):
         await stated_queries.resolve_part_of_pairs(
-            _ExpansionStore(expansions), ["C2000", "C2016"]
+            _ExpansionStore(expansions), ["C2000", "C2022"]
         )
 
 

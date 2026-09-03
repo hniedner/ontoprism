@@ -23,7 +23,9 @@ from ontolib.core.data_build_tools import (
     QLEVER_IMAGE,
     QLEVER_TOOL,
     DataBuildToolIdentity,
+    DataBuildToolIdentityDocument,
     identify_jena_installation,
+    tool_identity_document,
 )
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -77,8 +79,8 @@ class LoaderIdentity(_StrictProofModel):
     image: str
     image_id: str
     cli_version: str
-    tool: DataBuildToolIdentity
-    converter: DataBuildToolIdentity
+    tool: DataBuildToolIdentityDocument
+    converter: DataBuildToolIdentityDocument
     converter_runtime_image: str
     store_format_identity: str = ""
 
@@ -92,8 +94,8 @@ class LoaderIdentity(_StrictProofModel):
                         "image": self.image,
                         "image_id": self.image_id,
                         "cli_version": self.cli_version,
-                        "tool": self.tool.as_dict(),
-                        "converter": self.converter.as_dict(),
+                        "tool": self.tool.model_dump(mode="json"),
+                        "converter": self.converter.model_dump(mode="json"),
                         "converter_runtime_image": self.converter_runtime_image,
                     }
                 ),
@@ -119,6 +121,9 @@ class CandidateObservation(_StrictProofModel):
     has_required_restriction: bool
     default_has_stated_only_sentinel: bool
     stated_has_stated_only_sentinel: bool
+
+
+NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT = 9
 
 
 class CandidateValidationPolicy(_StrictProofModel):
@@ -164,16 +169,16 @@ class CandidateArtifact(_StrictProofModel):
     artifact_identity: str
 
 
-class _DockerConfig(BaseModel):
+class _DockerConfig(_StrictProofModel):
     labels: dict[str, str] = Field(alias="Labels")
 
 
-class _DockerMount(BaseModel):
+class _DockerMount(_StrictProofModel):
     source: str = Field(alias="Source")
     destination: str = Field(alias="Destination")
 
 
-class _DockerInspection(BaseModel):
+class _DockerInspection(_StrictProofModel):
     container_id: str = Field(alias="Id")
     config: _DockerConfig = Field(alias="Config")
     mounts: tuple[_DockerMount, ...] = Field(alias="Mounts")
@@ -281,12 +286,43 @@ def _no_connection_audit(url: str) -> AbstractContextManager[None]:
     return nullcontext()
 
 
+def _inspection_document(payload: str) -> dict[str, object]:
+    document = json.loads(payload)
+    if (
+        not isinstance(document, list)
+        or len(document) != 1
+        or not isinstance(document[0], dict)
+    ):
+        raise ValueError("expected one container inspection object")
+    return document[0]
+
+
+def _project_candidate_inspection(raw: dict[str, object]) -> dict[str, object]:
+    config = raw.get("Config")
+    mounts = raw.get("Mounts")
+    if not isinstance(config, dict) or not isinstance(mounts, list):
+        raise ValueError("container inspection nested fields are malformed")
+    if any(not isinstance(mount, dict) for mount in mounts):
+        raise ValueError("container inspection mount is malformed")
+    return {
+        "Id": raw.get("Id"),
+        "Config": {"Labels": config.get("Labels")},
+        "Mounts": tuple(
+            {
+                "Source": mount.get("Source"),
+                "Destination": mount.get("Destination"),
+            }
+            for mount in mounts
+        ),
+    }
+
+
 def _parse_container_inspection(
     inspected: subprocess.CompletedProcess[str],
 ) -> _DockerInspection:
     try:
-        document = json.loads(inspected.stdout)
-        return _DockerInspection.model_validate(document[0])
+        raw = _inspection_document(inspected.stdout)
+        return _DockerInspection.model_validate(_project_candidate_inspection(raw))
     except (IndexError, KeyError, TypeError, ValueError, ValidationError) as exc:
         raise SiblingStoreValidationError(
             "candidate container inspection was malformed"
@@ -456,8 +492,8 @@ class DockerQleverRuntime:
             image=QLEVER_IMAGE,
             image_id=image_id,
             cli_version=version,
-            tool=QLEVER_TOOL,
-            converter=converter,
+            tool=tool_identity_document(QLEVER_TOOL),
+            converter=tool_identity_document(converter),
             converter_runtime_image=JENA_JRE_IMAGE,
         )
 
@@ -1134,8 +1170,8 @@ def _validate_manifest_runtime(manifest: NcitSiblingStoreManifest) -> None:
         exact_loader,
         QLEVER_IMAGE,
         QLEVER_INDEX_VERSION,
-        QLEVER_TOOL,
-        JENA_RIOT_ARTIFACT.identity,
+        tool_identity_document(QLEVER_TOOL),
+        tool_identity_document(JENA_RIOT_ARTIFACT.identity),
         JENA_JRE_IMAGE,
     )
     if actual != expected:

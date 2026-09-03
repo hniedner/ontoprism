@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from pydantic import BaseModel, ConfigDict, Field
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -53,6 +55,39 @@ class DataBuildToolIdentity:
             "version": self.version,
             "digest": self.digest,
         }
+
+
+class DataBuildToolIdentityDocument(BaseModel):
+    """Strict serialized form embedded in build and store manifests."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    name: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+def tool_identity_document(
+    value: DataBuildToolIdentity,
+) -> DataBuildToolIdentityDocument:
+    return DataBuildToolIdentityDocument(
+        name=value.name,
+        source=value.source,
+        version=value.version,
+        digest=value.digest,
+    )
+
+
+def tool_identity_value(
+    document: DataBuildToolIdentityDocument,
+) -> DataBuildToolIdentity:
+    return DataBuildToolIdentity(
+        name=document.name,
+        source=document.source,
+        version=document.version,
+        digest=document.digest,
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-from typing import TYPE_CHECKING
+import hashlib
+from pathlib import Path
 
 import asyncpg
 import pytest
 from pydantic import ValidationError
+from scripts.research.current_evidence import generate_current_evidence
+from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -27,8 +30,10 @@ from ontolib.decomposition.models import (
     Decomposition,
     DefinitionGroup,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
+    canonical_source_occurrence_id,
 )
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
@@ -36,13 +41,14 @@ from ontolib.decomposition.provenance import (
     RunStateError,
 )
 from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from ontolib.decomposition.sampling import load_sample_manifest
 
 _RUN_ID = "test-provenance-integration-run"
 _RERUN_ID = "test-provenance-integration-rerun"
 _PUBLICATION_RUN_ID = "test-provenance-publication-run"
+_CURRENT_EVIDENCE_RUN_ID = "test-current-evidence-generator-run"
+_CURRENT_MANIFEST = Path("samples/ncit-26.07d-m1-current-replay.json")
+_CURRENT_GOLDEN = Path(__file__).parent / "golden"
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -57,6 +63,7 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
 def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -85,6 +92,7 @@ async def _cleanup(dsn: str) -> None:
             _RUN_ID,
             _RERUN_ID,
             _PUBLICATION_RUN_ID,
+            _CURRENT_EVIDENCE_RUN_ID,
             _SHARED_GENUS_RUN_ID,
         ]
         await conn.execute(
@@ -186,7 +194,7 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
                 axis="R101",
                 filler_code="C200",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 source_definition_ids=(fact_id,),
             ),
         ),
@@ -206,6 +214,60 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
                 DefinitionGroup(group_id=group_id, anchor_code="C100", depth=depth),
             ),
             root_group_ids=(group_id,),
+        ),
+    )
+
+
+def _repeated_occurrence_decomposition() -> Decomposition:
+    group_id = canonical_definition_group_id("C6135", ("restriction:R101:C12400",))
+    fact_id = canonical_definition_fact_id(
+        "C6135", group_id, "restriction", "R101", "C12400"
+    )
+    occurrences = tuple(
+        SourceDefinitionOccurrence(
+            occurrence_id=canonical_source_occurrence_id(
+                "C6135", fact_id, (0, position)
+            ),
+            root_code="C6135",
+            source_fact_id=fact_id,
+            source_group_id=group_id,
+            anchor_code="C6135",
+            depth=0,
+            role_code="R101",
+            filler_code="C12400",
+            structural_path=(0, position),
+            member_position=position,
+        )
+        for position in (0, 1)
+    )
+    return Decomposition(
+        code="C6135",
+        semantic_type="Neoplastic Process",
+        constituents=(
+            Constituent(
+                axis="op:PrimarySite",
+                filler_code="C12400",
+                axis_source="role",
+                source_roles=("R101",),
+                source_definition_ids=(fact_id,),
+                source_occurrence_ids=tuple(
+                    occurrence.occurrence_id for occurrence in occurrences
+                ),
+            ),
+        ),
+        complete_definition=CompleteDefinition(
+            root_code="C6135",
+            facts=(
+                RestrictionDefinitionFact(
+                    fact_id=fact_id,
+                    anchor_code="C6135",
+                    group_id=group_id,
+                    depth=0,
+                    role_code="R101",
+                    filler_code="C12400",
+                ),
+            ),
+            occurrences=occurrences,
         ),
     )
 
@@ -338,25 +400,31 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             _RUN_ID,
             "C6135",
             claim,
-            decomposition=Decomposition(
-                code="C6135",
-                semantic_type="Neoplastic Process",
-                constituents=[
-                    Constituent(
-                        axis="op:PrimarySite",
-                        filler_code="C12400",
-                        axis_source="role",
-                        source_role="R101",
-                    )
-                ],
-            ),
+            decomposition=_repeated_occurrence_decomposition(),
             minted=(),
             semantic_types=("Neoplastic Process",),
         )
         assert await store.pending_codes(_RUN_ID) == []
         persisted = await store.decompositions_for_run(_RUN_ID)
         assert persisted[0].constituents[0].axis == "op:PrimarySite"
-        assert persisted[0].constituents[0].source_role == "R101"
+        assert persisted[0].constituents[0].source_roles == ("R101",)
+        complete_definition = persisted[0].complete_definition
+        assert complete_definition is not None
+        assert len(complete_definition.occurrences) == 2
+        expected_occurrence_ids = tuple(
+            sorted(
+                canonical_source_occurrence_id(
+                    "C6135",
+                    complete_definition.occurrences[0].source_fact_id,
+                    (0, position),
+                )
+                for position in (0, 1)
+            )
+        )
+        assert (
+            persisted[0].constituents[0].source_occurrence_ids
+            == expected_occurrence_ids
+        )
 
         finished = await store.finish_run(
             _RUN_ID,
@@ -653,6 +721,122 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
         assert complete.status == "complete"
         assert complete.publication_state == "published"
         assert complete.publication_finished_at is not None
+        evidence_run = await store.completed_run_for_evidence(_PUBLICATION_RUN_ID)
+        assert evidence_run.fingerprint == _publication_fingerprint()
+        assert evidence_run.representation_identity == identity
+        assert evidence_run.publication_artifact_path == artifact_path
+    finally:
+        await _cleanup(dsn)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_current_evidence_generator_reads_real_published_postgres_run(
+    tmp_path: Path,
+) -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    manifest = load_sample_manifest(_CURRENT_MANIFEST)
+    artifact = tmp_path / "decomposed.ttl"
+    artifact.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135> "
+        "<https://w3id.org/ontoprism/vocab#representationStatus> "
+        '"legacy-precoordinated" ; '
+        "<https://w3id.org/ontoprism/vocab#decomposedBy> "
+        f'"{_CURRENT_EVIDENCE_RUN_ID}" .\n'
+    )
+    representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    fingerprint = RunFingerprint(
+        schema_version=5,
+        source_identity=manifest.source_identity,
+        collapse_policy_identity="0" * 64,
+        branch=manifest.branch,
+        scope_root=manifest.scope_root,
+        scope_version=manifest.scope_version,
+        semantic_types=("Neoplastic Process",),
+        worklist=manifest.codes,
+        sample_manifest_identity=manifest.identity,
+        algorithm_version="decomposition-v3",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="named-graph",
+        emitted_at=datetime.datetime(2026, 8, 15, 12, tzinfo=datetime.UTC),
+    )
+    try:
+        await _cleanup(dsn)
+        await store.create_run(_CURRENT_EVIDENCE_RUN_ID, "26.07d", fingerprint)
+        for code in manifest.codes:
+            claim = await store.claim_work_item(_CURRENT_EVIDENCE_RUN_ID, code)
+            assert claim is not None
+            await store.complete_work_item(
+                _CURRENT_EVIDENCE_RUN_ID,
+                code,
+                claim,
+                decomposition=(
+                    _repeated_occurrence_decomposition() if code == "C6135" else None
+                ),
+                outcome=None if code == "C6135" else "atomic-no-op",
+                semantic_types=("Neoplastic Process",),
+                minted=(),
+            )
+        await store.begin_publication(
+            _CURRENT_EVIDENCE_RUN_ID,
+            representation_identity=representation_identity,
+            artifact_path=str(artifact.resolve()),
+            built_at=datetime.datetime.now(datetime.UTC),
+            predecessor=None,
+        )
+        assert await store.finish_run(
+            _CURRENT_EVIDENCE_RUN_ID,
+            source_identity=manifest.source_identity,
+            metrics=await _completion_metrics(store, _CURRENT_EVIDENCE_RUN_ID),
+            representation_identity=representation_identity,
+        )
+
+        aggregate_query_count = 0
+
+        def count_aggregate_queries(*_args: object) -> None:
+            nonlocal aggregate_query_count
+            aggregate_query_count += 1
+
+        event.listen(
+            engine.sync_engine, "before_cursor_execute", count_aggregate_queries
+        )
+        try:
+            aggregate = await store.corpus_baseline_aggregate(_CURRENT_EVIDENCE_RUN_ID)
+        finally:
+            event.remove(
+                engine.sync_engine, "before_cursor_execute", count_aggregate_queries
+            )
+        assert aggregate_query_count == 1
+        assert aggregate.worklist_count == len(manifest.codes)
+        assert aggregate.outcome_counts.decomposed == 1
+        assert aggregate.outcome_counts.atomic_noop == len(manifest.codes) - 1
+        assert aggregate.decomposed_codes == ("C6135",)
+        assert aggregate.emitted_constituent_pair_count == 1
+        assert aggregate.complete_semantic_fact_count == 1
+        assert aggregate.source_occurrence_count == 2
+        assert aggregate.selected_occurrence_count == 2
+        assert aggregate.minted_count == 0
+
+        evidence, comparison = await generate_current_evidence(
+            sample_manifest=_CURRENT_MANIFEST,
+            oracle=_CURRENT_GOLDEN / "neoplasm-adjudicated.json",
+            row_decisions=_CURRENT_GOLDEN / "neoplasm-row-decisions.json",
+            proposal_registry=_CURRENT_GOLDEN / "proposal-registry.json",
+            run_id=_CURRENT_EVIDENCE_RUN_ID,
+            artifact=artifact,
+            engine_output=tmp_path / "engine.json",
+            comparison_output=tmp_path / "comparison.json",
+            store=store,
+        )
+
+        assert tuple(item.code for item in evidence.concepts) == manifest.codes
+        concept = next(item for item in evidence.concepts if item.code == "C6135")
+        assert len(concept.all_source_occurrences) == 2
+        assert comparison.current_evidence_identity == evidence.evidence_identity
     finally:
         await _cleanup(dsn)
         await dispose_engine(engine)

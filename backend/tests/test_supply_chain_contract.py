@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
 import shlex
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -241,13 +245,219 @@ def test_every_ci_job_installs_the_tools_its_steps_invoke() -> None:
             for command in commands
             for fragment in (command, *_npm_script_bodies(command, scripts))
         ]
-        invokes_pdm = any(re.search(r"(?<!\S)pdm\b", fragment) for fragment in executed)
+        invokes_pdm = any(
+            re.search(r"(?<!\S)pdm(?=\s|$)", fragment) for fragment in executed
+        )
         if not invokes_pdm:
             continue
         assert any(step.get("uses") == _SETUP_PDM_ACTION for step in steps), (
             f"CI job {job_name!r} invokes pdm but never installs it; "
             f"add {_SETUP_PDM_ACTION} to that job"
         )
+
+
+def test_frontend_hierarchy_report_runs_inside_the_project_environment() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["web-tests"]["steps"]
+        if step.get("name")
+        == "Report native frontend coverage hierarchy (non-blocking deficits)"
+    )
+
+    assert step["working-directory"] == "${{ github.workspace }}"
+    assert step["run"] == (
+        "pdm run python -m scripts.validation.frontend_coverage_hierarchy"
+    )
+
+
+def _locked_versions() -> dict[str, str]:
+    packages = tomllib.loads((_ROOT / "pdm.lock").read_text())["package"]
+    versions: dict[str, str] = {}
+    for package in packages:
+        name = package["name"]
+        version = package["version"]
+        previous = versions.setdefault(name, version)
+        assert previous == version, f"pdm.lock has conflicting versions for {name}"
+    return versions
+
+
+def _python_entrypoints(command: str) -> list[tuple[str, str]]:
+    return [
+        (module or "", script or "")
+        for module, script in re.findall(
+            r"(?m)(?<!\S)python\s+(?:-m\s+([\w.]+)|(scripts/[\w/]+\.py))",
+            command,
+        )
+    ]
+
+
+def _local_module_path(root: Path, module: str) -> Path | None:
+    module_path = root / module.replace(".", "/")
+    source = module_path.with_suffix(".py")
+    if source.is_file():
+        return source
+    package = module_path / "__init__.py"
+    return package if package.is_file() else None
+
+
+def _import_roots(
+    path: Path, root: Path = _ROOT, visited: set[Path] | None = None
+) -> set[str]:
+    visited = set() if visited is None else visited
+    path = path.resolve()
+    if path in visited:
+        return set()
+    visited.add(path)
+    tree = ast.parse(path.read_text())
+    roots = {
+        node.module.partition(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    } | {
+        alias.name.partition(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    local_roots = {
+        import_root
+        for import_root in roots
+        if _local_module_path(root, import_root) is not None
+        or (root / import_root).is_dir()
+    }
+    for node in ast.walk(tree):
+        modules = (
+            [node.module]
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+            else [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else []
+        )
+        for module in modules:
+            candidate = _local_module_path(root, module)
+            if candidate is not None:
+                roots.update(_import_roots(candidate, root, visited))
+    return roots - local_roots - sys.stdlib_module_names
+
+
+def _assert_report_runtime_packages(
+    required_roots: set[str], installed: dict[str, str]
+) -> None:
+    assert required_roots == REPORT_RUNTIME_PACKAGES
+    assert installed.keys() == REPORT_RUNTIME_PACKAGES
+
+
+def test_python_coverage_job_derives_and_pins_its_python_runtime() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["coverage-verify"]["steps"]
+
+    install_index, install = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name") == "Install coverage report dependencies"
+    )
+    install_specs = shlex.split(install["run"])[2:]
+    installed = dict(spec.split("==", maxsplit=1) for spec in install_specs)
+
+    invoked = [
+        (index, entrypoint)
+        for index, step in enumerate(steps)
+        for entrypoint in _python_entrypoints(step.get("run", ""))
+    ]
+    required_roots: set[str] = set()
+    for _, (module, script) in invoked:
+        if module:
+            module_path = _ROOT / f"{module.replace('.', '/')}.py"
+            if module_path.is_file():
+                required_roots.update(_import_roots(module_path))
+            else:
+                required_roots.add(module.partition(".")[0])
+        if script:
+            required_roots.update(_import_roots(_ROOT / script))
+
+    _assert_report_runtime_packages(required_roots, installed)
+    locked = _locked_versions()
+    assert installed == {name: locked[name] for name in REPORT_RUNTIME_PACKAGES}
+
+    verify_index, verify = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify coverage report dependency versions"
+    )
+    assert verify["run"] == (
+        "python -m scripts.validation.verify_coverage_runtime --lock pdm.lock"
+    )
+    assert install_index < verify_index
+    assert all(verify_index <= index for index, _ in invoked)
+
+    workflow_text = (_ROOT / ".github/workflows/ci.yml").read_text()
+    assert (
+        "Coverage.py, Pydantic, git on PATH, and the real checked-out source are "
+        "needed to verify layer identity against the checkout, gate, and render; "
+        "no editable install." in workflow_text.replace("\n      # ", " ")
+    )
+    assert "no editable ontolib/backend install" in workflow_text
+
+
+def test_python_runtime_derivation_detects_new_dependency_through_plain_local_import(
+    tmp_path: Path,
+) -> None:
+    entrypoint = tmp_path / "scripts" / "validation" / "entrypoint.py"
+    imported = tmp_path / "scripts" / "validation" / "imported.py"
+    entrypoint.parent.mkdir(parents=True)
+    entrypoint.write_text("import scripts.validation.imported\n")
+    imported.write_text(
+        "import coverage\nimport newly_added_report_dependency\nimport pydantic\n"
+    )
+
+    derived = _import_roots(entrypoint, tmp_path)
+
+    assert derived == REPORT_RUNTIME_PACKAGES | {"newly_added_report_dependency"}
+    with pytest.raises(AssertionError):
+        _assert_report_runtime_packages(
+            derived,
+            {"coverage": "7.15.4", "pydantic": "2.13.4"},
+        )
+
+
+def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    jobs = workflow["jobs"]
+
+    for job_name, artifact_name in (
+        ("backend-tests", "coverage-data"),
+        ("integration-tests", "coverage-integration-data"),
+    ):
+        upload = next(
+            step
+            for step in jobs[job_name]["steps"]
+            if step.get("with", {}).get("name") == artifact_name
+        )
+        assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    filters = yaml.safe_load(workflow["jobs"]["changes"]["steps"][1]["with"]["filters"])
+
+    assert "scripts/validation/frontend_coverage_hierarchy.py" in filters["frontend"]
+
+
+def test_frontend_transitive_security_and_install_script_policy() -> None:
+    """Patched transitive tools stay pinned and optional native scripts stay denied."""
+    package = json.loads(
+        (_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+    )
+    lock = json.loads(
+        (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
+    )
+
+    assert package["allowScripts"] == {"fsevents": False}
+    assert package["overrides"]["brace-expansion"] == "^5.0.9"
+    assert package["overrides"]["nanoid"] == "^3.3.18"
+    assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.9"
+    assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
 
 
 def test_ci_dependency_environments_are_pinned_clean_and_cached(

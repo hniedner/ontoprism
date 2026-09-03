@@ -71,8 +71,8 @@ def _render_constituent(subj: str, root_code: str, constituent: Constituent) -> 
         f"{_p(vocab.FILLER)} {filler} ; "
         f'{_p(vocab.AXIS_SOURCE)} "{constituent.axis_source}"'
     )
-    if constituent.source_role is not None:
-        rendered += f" ; {_p(vocab.SOURCE_ROLE)} <{NCIT_NS}{constituent.source_role}>"
+    for source_role in constituent.source_roles:
+        rendered += f" ; {_p(vocab.SOURCE_ROLE)} <{NCIT_NS}{source_role}>"
     if constituent.most_specific:
         rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
     if constituent.group is not None:

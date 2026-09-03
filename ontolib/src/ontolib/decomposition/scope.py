@@ -177,6 +177,13 @@ async def enumerate_scope_codes(
     root_code: str,
 ) -> tuple[str, ...]:
     """Materialize one hierarchy scope from complete bounded edge observations."""
+    return descendant_codes(root_code, await read_scope_hierarchy_edges(client))
+
+
+async def read_scope_hierarchy_edges(
+    client: ScopeSelectClient,
+) -> tuple[HierarchyEdge, ...]:
+    """Read the complete bounded stated named-class hierarchy once."""
     edges: set[HierarchyEdge] = set()
     for query in build_scope_edge_queries():
         rows = await client.select_once(
@@ -192,4 +199,4 @@ async def enumerate_scope_codes(
         raise ScopeHierarchyError(
             "stated hierarchy contains a named genus beyond the bounded genus positions"
         )
-    return descendant_codes(root_code, edges)
+    return tuple(sorted(edges, key=lambda edge: (edge.child, edge.parent)))

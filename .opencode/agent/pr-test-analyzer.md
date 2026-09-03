@@ -18,7 +18,13 @@ permission:
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
+    "git diff --no-ext-diff main...HEAD": allow
+    "git diff --name-only main...HEAD": allow
     "pdm run agent-test *": allow
+    "pdm run agent-github-read *": allow
+    "pdm run agent-test --safe-integration *": deny
+    "pdm run agent-github *": deny
+    "pdm run pytest *": deny
     "git add": deny
     "git add *": deny
     "git commit": deny

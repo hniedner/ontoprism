@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from ontolib.decomposition.scope import ScopeHierarchyError, enumerate_scope_codes
+from ontolib.decomposition.scope import (
+    ScopeHierarchyError,
+    enumerate_scope_codes,
+    read_scope_hierarchy_edges,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -40,10 +44,11 @@ class _ScopeRowsDouble:
 
     async def select_once(
         self,
-        _query: str,
+        query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> Sequence[Mapping[str, str | None]]:
+        del query
         assert required_variables in ({"child", "parent"}, {"overflowChild"})
         return self._responses.pop(0)
 
@@ -71,10 +76,29 @@ async def test_scope_double_matches_disposable_qlever_for_defined_genus_dag(
     assert "C99505" not in real_disease
 
 
+async def test_scope_hierarchy_snapshot_matches_disposable_qlever_and_double(
+    isolated_qlever_url: str,
+) -> None:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        real = await read_scope_hierarchy_edges(client)
+    doubled = await read_scope_hierarchy_edges(_ScopeRowsDouble())
+
+    expected = {
+        ("C99501", "C99500"),
+        ("C99502", "C99501"),
+        ("C99503", "C99502"),
+        ("C99504", "C99500"),
+    }
+    assert {(edge.child, edge.parent) for edge in doubled} == expected
+    assert expected <= {(edge.child, edge.parent) for edge in real}
+
+
 @pytest.mark.mutating_integration
 async def test_scope_fails_closed_when_named_genus_follows_bounded_prefix(
     isolated_qlever_url: str,
+    preserved_stated_graph: None,
 ) -> None:
+    del preserved_stated_graph
     restrictions = "\n".join(
         (
             "[ a <http://www.w3.org/2002/07/owl#Restriction> ; "

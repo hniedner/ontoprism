@@ -5,6 +5,13 @@ from collections.abc import Collection
 import pytest
 
 from ontolib.decomposition.complete_definition import CompleteDefinitionError
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    DefinitionGroup,
+    GenusDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
+)
 from ontolib.decomposition.stated_queries import (
     _intersection_hop_pattern,
     _is_staging_concept_label,
@@ -12,12 +19,16 @@ from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
     build_morphology_query,
+    build_part_of_candidate_paths_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    read_complete_genus_chain,
     resolve_morphology_filler,
+    resolve_morphology_fillers,
+    resolve_part_of_paths,
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
@@ -26,6 +37,98 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 def _iri(code: str) -> str:
     return f"{NCIT_NS}{code}"
+
+
+def _genus_fact(anchor: str, depth: int, genus: str) -> GenusDefinitionFact:
+    signature = f"genus:{genus}:primitive"
+    group_id = canonical_definition_group_id(anchor, (signature,))
+    return GenusDefinitionFact(
+        fact_id=canonical_definition_fact_id(
+            anchor, group_id, "genus", genus, "primitive"
+        ),
+        anchor_code=anchor,
+        group_id=group_id,
+        depth=depth,
+        genus_code=genus,
+        is_defined=False,
+    )
+
+
+@pytest.mark.unit
+async def test_plural_morphology_projection_retains_coequal_root_genera() -> None:
+    facts = (
+        _genus_fact("C27262", 0, "C35501"),
+        _genus_fact("C27262", 0, "C9290"),
+    )
+    complete = CompleteDefinition(
+        root_code="C27262",
+        facts=facts,
+        groups=tuple(
+            DefinitionGroup(
+                group_id=fact.group_id,
+                anchor_code=fact.anchor_code,
+                depth=fact.depth,
+            )
+            for fact in facts
+        ),
+        root_group_ids=tuple(fact.group_id for fact in facts),
+    )
+
+    async def labels(query: str, *, required_variables=()):
+        if "rdf:first ?member" in query:
+            assert required_variables == {"member"}
+            return [{"member": _iri("C35501"), "type": f"{OWL_NS}Class"}]
+        assert required_variables == {"label"}
+        if _iri("C35501") in query:
+            return [{"label": "Acute Myeloid Leukemia"}]
+        if _iri("C9290") in query:
+            return [{"label": "Myeloid Leukemia"}]
+        raise AssertionError("unexpected genus label query")
+
+    assert await resolve_morphology_fillers(labels, complete, max_depth=5) == (
+        "C35501",
+        "C9290",
+    )
+
+
+@pytest.mark.unit
+def test_candidate_path_preflight_binds_only_named_pairs_and_caps_64() -> None:
+    query = build_part_of_candidate_paths_query((("C1", "C2"), ("C3", "C4")))
+    assert f"(<{_iri('C1')}> <{_iri('C2')}>)" in query
+    assert f"(<{_iri('C3')}> <{_iri('C4')}>)" in query
+    assert f"(<{_iri('C1')}> <{_iri('C4')}>)" not in query
+    assert "?assertedPart ?restriction" in query
+    with pytest.raises(ValueError, match="at most 64"):
+        build_part_of_candidate_paths_query(
+            tuple((f"C{index + 1}", f"C{index + 1000}") for index in range(65))
+        )
+
+
+@pytest.mark.unit
+async def test_candidate_path_resolution_rejects_missing_evidence_binding() -> None:
+    class MissingRestriction:
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ):
+            assert query
+            assert required_variables == {
+                "part",
+                "whole",
+                "assertedPart",
+                "restriction",
+            }
+            return [
+                {
+                    "part": _iri("C1"),
+                    "whole": _iri("C2"),
+                    "assertedPart": _iri("C1"),
+                }
+            ]
+
+    with pytest.raises(ValueError, match="missing a binding"):
+        await resolve_part_of_paths(
+            MissingRestriction(), (("C1", "C2"),), source_identity="a" * 64
+        )
 
 
 @pytest.mark.unit
@@ -784,7 +887,45 @@ async def test_walk_genus_chain_deduplicates_roles_and_terminates_on_cycle() -> 
         ("R101", "C12704")
     ]
     assert roles[0].anchoring_genus == "C3809"
+    assert len(roles[0].source_definition_ids) == 1
+    assert len(roles[0].source_occurrence_ids) == 2
     assert queried_codes == ["C6135", "C3809"]
+
+
+@pytest.mark.unit
+async def test_complete_genus_chain_preserves_duplicate_pair_source_facts() -> None:
+    rows_by_code = {
+        "C1": _definition_rows(
+            "_:root",
+            (_iri("C2"), None, None, True),
+            (_iri("C3"), None, None, True),
+        ),
+        "C2": _definition_rows(
+            "_:first",
+            ("_:first-site", _iri("R101"), _iri("C12400"), False),
+        ),
+        "C3": _definition_rows(
+            "_:second",
+            ("_:second-site", _iri("R101"), _iri("C12400"), False),
+        ),
+    }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
+    )
+
+    complete, roles = await read_complete_genus_chain(select, "C1")
+
+    assert len(roles) == 2
+    assert {role.anchoring_genus for role in roles} == {"C2", "C3"}
+    assert {role.source_definition_ids for role in roles} == {
+        (fact.fact_id,)
+        for fact in complete.facts
+        if getattr(fact, "role_code", None) == "R101"
+    }
+    assert {role.source_occurrence_ids for role in roles} == {
+        (occurrence.occurrence_id,) for occurrence in complete.occurrences
+    }
 
 
 @pytest.mark.unit

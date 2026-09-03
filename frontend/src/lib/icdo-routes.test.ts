@@ -49,6 +49,7 @@ describe('ICD-O route contracts', () => {
 		}
 		for (const path of [
 			'/api/v1/ncit/list',
+			'/api/v1/ncit/concepts/C6135/enhanced-ncit-showcase',
 			'/api/v1/icdo/3.2/topography/list',
 			'/api/v1/icdo/4.0/topography/unknown'
 		]) {

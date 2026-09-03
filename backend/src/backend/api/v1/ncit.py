@@ -1,10 +1,13 @@
 """NCIt repository read endpoints: concept detail, search, graph neighborhood,
 mappings."""
 
+import hashlib
+import json
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
@@ -20,7 +23,19 @@ from backend.dependencies import (
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.enhanced_showcase import (
+    EnhancedNcitShowcaseView,
+    ShowcaseConceptNotInCohortError,
+    ShowcaseConceptPolicy,
+    ShowcaseConstituent,
+    ShowcaseDecisionSet,
+    ShowcasePolicyError,
+    build_showcase_view,
+    load_packaged_showcase_decision_set,
+    require_active_showcase_decisions,
+)
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -50,6 +65,19 @@ from ontolib.terminologies.sparql_transport import safe_iri
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
+
+
+def _showcase_policy_for(
+    code: str,
+) -> tuple[ShowcaseDecisionSet, ShowcaseConceptPolicy]:
+    try:
+        policy = load_packaged_showcase_decision_set()
+    except ShowcasePolicyError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    try:
+        return policy, policy.concept(code)
+    except ShowcaseConceptNotInCohortError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 async def _xref_expected(
@@ -92,12 +120,8 @@ async def _xref_expected(
     )
 
 
-class MappingEntry(BaseModel):
-    """One terminology alignment for an NCIt concept, serialized for the API.
-
-    ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
-    the predicate is ``exactMatch`` and lifecycle is ``validated``/``active``.
-    """
+class MappingEntry(StrictBoundaryModel):
+    """One terminology alignment for an NCIt concept, serialized for the API."""
 
     object_id: str
     system: str
@@ -106,16 +130,32 @@ class MappingEntry(BaseModel):
     lifecycle: MappingLifecycle
     confidence: float = Field(ge=0.0, le=1.0)
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def is_identity(self) -> bool:
-        return self.predicate == EXACT_MATCH and self.lifecycle in (
+    @model_validator(mode="before")
+    @classmethod
+    def serialized_identity_must_match_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping) or "is_identity" not in value:
+            return value
+        expected = value.get("predicate") == EXACT_MATCH and value.get("lifecycle") in {
             "validated",
             "active",
-        )
+        }
+        if value["is_identity"] is not expected:
+            raise ValueError("is_identity must match predicate and lifecycle")
+        without_computed = dict(value)
+        without_computed.pop("is_identity")
+        return without_computed
+
+    @computed_field
+    @property
+    def is_identity(self) -> bool:
+        """Whether this is a curated exact identity mapping."""
+        return self.predicate == EXACT_MATCH and self.lifecycle in {
+            "validated",
+            "active",
+        }
 
 
-class ConceptMappings(BaseModel):
+class ConceptMappings(StrictBoundaryModel):
     """Mappings plus NCIt identity; ICD-O rows require capability and entitlement."""
 
     code: str
@@ -374,3 +414,47 @@ async def concept_decomposition(
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return decomposition
+
+
+@router.get(
+    "/concepts/{code}/enhanced-ncit-showcase",
+    response_model=EnhancedNcitShowcaseView,
+)
+async def concept_enhanced_ncit_showcase(
+    reader: DecompositionReads,
+    store: NcitStore,
+    code: str,
+) -> EnhancedNcitShowcaseView:
+    """Return the explicit local showcase overlay without changing ordinary reads."""
+    policy, concept_policy = _showcase_policy_for(code)
+    try:
+        base_rows = await reader.rows_for(code)
+        decision_rows = await reader.showcase_rows_for(code)
+        require_active_showcase_decisions(decision_rows, concept_policy.decisions)
+        decomposition = decomposition_from_rows(code, base_rows)
+        codes = [item.filler for item in decomposition.constituents]
+        labels = await store.labels_for(codes) if codes else {}
+        base = tuple(
+            ShowcaseConstituent(
+                axis=item.axis,
+                filler=item.filler,
+                label=labels.get(item.filler),
+            )
+            for item in decomposition.constituents
+        )
+        identity_payload = {
+            "code": code,
+            "decomposed_on": decomposition.decomposed_on,
+            "constituents": [item.model_dump(mode="json") for item in base],
+        }
+        base_identity = hashlib.sha256(
+            json.dumps(
+                identity_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("ascii")
+        ).hexdigest()
+        return build_showcase_view(code, base_identity, base, policy=policy)
+    except (ShowcasePolicyError, ValueError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

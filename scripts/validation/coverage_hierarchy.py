@@ -8,6 +8,7 @@ import dataclasses
 import datetime
 import fnmatch
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -19,7 +20,9 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Final, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "coverage-surfaces.toml"
@@ -37,15 +40,27 @@ _EXEMPTION_KINDS = {
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
 _IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignore")
 MetricKind = Literal["lines", "branches"]
+SupportedCoverageTool = Literal["coverage.py", "vitest"]
+SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
+REPORT_RUNTIME_PACKAGES: Final[frozenset[str]] = frozenset({"coverage", "pydantic"})
 
 
-@dataclass(frozen=True, slots=True)
-class Metric:
+class _Document(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+
+class Metric(_Document):
     """One covered/total metric; ``None`` means the surface was not measured."""
 
-    covered: int
-    total: int | None
+    covered: Annotated[int, Field(ge=0)]
+    total: Annotated[int, Field(ge=0)] | None
     kind: MetricKind = "branches"
+
+    @model_validator(mode="after")
+    def covered_does_not_exceed_total(self) -> Self:
+        if self.total is not None and self.covered > self.total:
+            raise ValueError("covered must not exceed total")
+        return self
 
     @property
     def percent(self) -> float:
@@ -77,22 +92,21 @@ class Metric:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class ArtifactIdentity:
+class ArtifactIdentity(_Document):
     """Commit and configuration identity carried beside a coverage layer."""
 
     schema_version: int
     commit: str
     config_sha256: str
     manifest_sha256: str
-    tool: str
+    tool: SupportedCoverageTool
     tool_version: str
     layer: str
     source_sha256: str = ""
     worktree_dirty: bool = False
 
-    def as_dict(self) -> dict[str, str | int | bool]:
-        return dataclasses.asdict(self)
+    def as_dict(self) -> dict[str, object]:
+        return self.model_dump(mode="json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +116,7 @@ class LayerCompatibility:
     config_sha256: str
     manifest_sha256: str
     source_sha256: str
-    tool: str
+    tool: SupportedCoverageTool
     tool_version: str
 
     @classmethod
@@ -116,8 +130,7 @@ class LayerCompatibility:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class Group:
+class Group(_Document):
     name: str
     classification: str
     language: str
@@ -127,21 +140,18 @@ class Group:
     executable: bool
 
 
-@dataclass(frozen=True, slots=True)
-class Inventory:
+class Inventory(_Document):
     root: str
     extensions: tuple[str, ...]
     default_group: str
 
 
-@dataclass(frozen=True, slots=True)
-class Assignment:
+class Assignment(_Document):
     pattern: str
     group: str
 
 
-@dataclass(frozen=True, slots=True)
-class Exemption:
+class Exemption(_Document):
     path: str
     line: int
     kind: str
@@ -153,14 +163,12 @@ class Exemption:
     configured_in: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class Surface:
+class Surface(_Document):
     path: str
     group: Group
 
 
-@dataclass(frozen=True, slots=True)
-class Manifest:
+class Manifest(_Document):
     path: Path
     schema_version: int
     report_only: bool
@@ -181,8 +189,7 @@ class CoverageConfig:
     partial_also: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class Scope:
+class Scope(_Document):
     scope_id: str
     level: str
     name: str
@@ -210,8 +217,7 @@ class Scope:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class HierarchyReport:
+class HierarchyReport(_Document):
     schema_version: int
     report_only: bool
     language: str
@@ -688,8 +694,8 @@ def _unmeasured_scope(surface: Surface) -> Scope:
         path=surface.path,
         group=surface.group.name,
         tree=surface.group.tree,
-        lines=Metric(0, None, "lines"),
-        branches=Metric(0, None, "branches"),
+        lines=Metric(covered=0, total=None, kind="lines"),
+        branches=Metric(covered=0, total=None, kind="branches"),
     )
 
 
@@ -739,7 +745,7 @@ def _sum_metrics(metrics: Iterable[Metric]) -> Metric:
     values = tuple(metrics)
     kind: MetricKind = values[0].kind if values else "branches"
     if any(metric.total is None for metric in values):
-        return Metric(0, None, kind)
+        return Metric(covered=0, total=None, kind=kind)
     return Metric(
         covered=sum(metric.covered for metric in values),
         total=sum(metric.total or 0 for metric in values),
@@ -874,16 +880,14 @@ def _istanbul_module_scope(surface: Surface, file_data: Mapping[str, object]) ->
         location = _mapping(location_value, "statement location")
         start = _mapping(location.get("start", {}), "statement start")
         line = start.get("line")
-        hits = statement_hits.get(key)
-        if isinstance(line, int) and isinstance(hits, int):
+        hits = _istanbul_hit(statement_hits.get(key), f"statement hits.{key}")
+        if isinstance(line, int):
             line_hits[line] = max(line_hits.get(line, 0), hits)
     branch_hits = _mapping(file_data.get("b", {}), "branch hits")
     flattened = [
         hit
-        for values in branch_hits.values()
-        if isinstance(values, list)
-        for hit in values
-        if isinstance(hit, int)
+        for key, values in branch_hits.items()
+        for hit in _istanbul_hit_list(values, f"branch hits.{key}")
     ]
     return Scope(
         scope_id=f"module:{surface.path}",
@@ -893,9 +897,15 @@ def _istanbul_module_scope(surface: Surface, file_data: Mapping[str, object]) ->
         group=surface.group.name,
         tree=surface.group.tree,
         lines=Metric(
-            sum(hit > 0 for hit in line_hits.values()), len(line_hits), "lines"
+            covered=sum(hit > 0 for hit in line_hits.values()),
+            total=len(line_hits),
+            kind="lines",
         ),
-        branches=Metric(sum(hit > 0 for hit in flattened), len(flattened), "branches"),
+        branches=Metric(
+            covered=sum(hit > 0 for hit in flattened),
+            total=len(flattened),
+            kind="branches",
+        ),
     )
 
 
@@ -910,6 +920,22 @@ def _position(location: Mapping[str, object], key: str) -> tuple[int, int]:
     if not isinstance(column, int):
         raise ValueError(f"location.{key} column must be an integer or null")
     return line, column
+
+
+def _istanbul_hit(value: object, context: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{context} must be an integer")
+    if value < 0:
+        raise ValueError(f"{context} must be non-negative")
+    return value
+
+
+def _istanbul_hit_list(value: object, context: str) -> list[int]:
+    if not isinstance(value, list):
+        raise ValueError(f"{context} must be a list of integers")
+    return [
+        _istanbul_hit(hit, f"{context}[{index}]") for index, hit in enumerate(value)
+    ]
 
 
 def _location_start(location: Mapping[str, object]) -> tuple[int, int]:
@@ -958,18 +984,22 @@ def _istanbul_function_scopes(
         line_hits: dict[int, int] = {}
         for statement_key, statement_value in statement_map.items():
             statement = _mapping(statement_value, f"statementMap.{statement_key}")
-            hits = statement_hits.get(statement_key)
-            if _inside(statement, location) and isinstance(hits, int):
+            hits = _istanbul_hit(
+                statement_hits.get(statement_key), f"statement hits.{statement_key}"
+            )
+            if _inside(statement, location):
                 line = _position(statement, "start")[0]
                 line_hits[line] = max(line_hits.get(line, 0), hits)
         function_branch_hits: list[int] = []
         for branch_key, branch_value in branch_map.items():
             branch = _mapping(branch_value, f"branchMap.{branch_key}")
-            hits = branch_hits.get(branch_key, [])
-            if _inside(branch, location) and isinstance(hits, list):
-                function_branch_hits.extend(hit for hit in hits if isinstance(hit, int))
-        function_hit = function_hits.get(key)
-        if isinstance(function_hit, int) and not line_hits:
+            hits = _istanbul_hit_list(
+                branch_hits.get(branch_key), f"branch hits.{branch_key}"
+            )
+            if _inside(branch, location):
+                function_branch_hits.extend(hits)
+        function_hit = _istanbul_hit(function_hits.get(key), f"function hits.{key}")
+        if not line_hits:
             line_hits[_position(location, "start")[0]] = function_hit
         start_line = _position(location, "start")[0]
         scopes.append(
@@ -981,14 +1011,14 @@ def _istanbul_function_scopes(
                 group=surface.group.name,
                 tree=surface.group.tree,
                 lines=Metric(
-                    sum(hit > 0 for hit in line_hits.values()),
-                    len(line_hits),
-                    "lines",
+                    covered=sum(hit > 0 for hit in line_hits.values()),
+                    total=len(line_hits),
+                    kind="lines",
                 ),
                 branches=Metric(
-                    sum(hit > 0 for hit in function_branch_hits),
-                    len(function_branch_hits),
-                    "branches",
+                    covered=sum(hit > 0 for hit in function_branch_hits),
+                    total=len(function_branch_hits),
+                    kind="branches",
                 ),
             )
         )
@@ -1062,7 +1092,7 @@ def make_identity(
     manifest: Manifest,
     *,
     layer: str,
-    tool: str,
+    tool: SupportedCoverageTool,
     tool_version: str,
     root: Path = REPO_ROOT,
 ) -> ArtifactIdentity:
@@ -1093,16 +1123,18 @@ def make_identity(
 
 
 def identity_from_mapping(raw: Mapping[str, object]) -> ArtifactIdentity:
-    return ArtifactIdentity(
-        schema_version=_integer(raw, "schema_version"),
-        commit=_string(raw, "commit"),
-        config_sha256=_string(raw, "config_sha256"),
-        manifest_sha256=_string(raw, "manifest_sha256"),
-        tool=_string(raw, "tool"),
-        tool_version=_string(raw, "tool_version"),
-        layer=_string(raw, "layer"),
-        source_sha256=_string(raw, "source_sha256"),
-        worktree_dirty=_boolean(raw, "worktree_dirty"),
+    return ArtifactIdentity.model_validate(
+        {
+            "schema_version": _integer(raw, "schema_version"),
+            "commit": _string(raw, "commit"),
+            "config_sha256": _string(raw, "config_sha256"),
+            "manifest_sha256": _string(raw, "manifest_sha256"),
+            "tool": _string(raw, "tool"),
+            "tool_version": _string(raw, "tool_version"),
+            "layer": _string(raw, "layer"),
+            "source_sha256": _string(raw, "source_sha256"),
+            "worktree_dirty": _boolean(raw, "worktree_dirty"),
+        }
     )
 
 
@@ -1129,22 +1161,80 @@ def verify_identities(identities: Sequence[ArtifactIdentity]) -> None:
                 )
 
 
+def verify_installed_tool_version(
+    identities: Sequence[ArtifactIdentity],
+) -> str:
+    """Require the Coverage.py consumer to match the collected layer version."""
+    import coverage  # noqa: PLC0415
+
+    verify_identities(identities)
+    expected = identities[0]
+    if expected.tool != "coverage.py":
+        raise ValueError(
+            f"cannot verify installed runtime for coverage tool {expected.tool}"
+        )
+    actual_version = coverage.__version__
+    if actual_version != expected.tool_version:
+        raise ValueError(
+            f"installed coverage.py version {actual_version} does not match "
+            f"coverage artifact tool_version {expected.tool_version}"
+        )
+    return actual_version
+
+
+def verify_runtime_dependencies(lock_path: Path) -> dict[str, str]:
+    """Require the Coverage.py and Pydantic report runtime to match the lock."""
+    raw = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    packages = raw.get("package")
+    if not isinstance(packages, list):
+        raise ValueError(f"{lock_path} does not contain a package list")
+    locked_versions: dict[str, set[str]] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            raise ValueError(f"{lock_path} contains a malformed package entry")
+        name = package.get("name")
+        version = package.get("version")
+        if not isinstance(name, str) or not isinstance(version, str):
+            raise ValueError(f"{lock_path} contains an unversioned package entry")
+        locked_versions.setdefault(name, set()).add(version)
+
+    installed = {
+        name: importlib.metadata.version(name) for name in REPORT_RUNTIME_PACKAGES
+    }
+    for name, actual_version in installed.items():
+        expected_versions = locked_versions.get(name)
+        if expected_versions is None:
+            raise ValueError(f"{lock_path} does not lock {name}")
+        if len(expected_versions) != 1:
+            versions = ", ".join(sorted(expected_versions))
+            raise ValueError(
+                f"{lock_path} locks conflicting {name} versions: {versions}"
+            )
+        expected_version = next(iter(expected_versions))
+        if actual_version != expected_version:
+            raise ValueError(
+                f"installed {name} version {actual_version} does not match "
+                f"pdm.lock version {expected_version}"
+            )
+    return installed
+
+
 def verify_identities_against_current(
     identities: Sequence[ArtifactIdentity],
     current: ArtifactIdentity,
 ) -> None:
     """Reject layers stale against current tracked inputs.
 
-    Coverage artifacts are downloaded into the verification checkout, so unrelated
-    untracked output may make ``git status`` dirty. The current identity's explicit
-    commit/config/manifest/source hashes are authoritative; collected layers themselves
-    must still have been produced from clean worktrees.
+    Unrelated output not covered by the hashed inventory may make ``git status`` dirty.
+    The current identity's explicit commit/config/manifest/source hashes are
+    authoritative; collected layers themselves must still have been produced from clean
+    worktrees.
     """
     # Run the collected-layer check outside the wrapper so its own diagnostics (dirty
     # worktree, missing identities) are not relabelled as a staleness mismatch.
     verify_identities(identities)
     try:
-        current_inputs = dataclasses.replace(current, worktree_dirty=False)
+        current_inputs = current.model_copy(update={"worktree_dirty": False})
         verify_identities((*identities, current_inputs))
     except ValueError as error:
         raise ValueError(
@@ -1218,7 +1308,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate")
     identity = subparsers.add_parser("identity")
     identity.add_argument("--layer", required=True)
-    identity.add_argument("--tool", required=True)
+    identity.add_argument("--tool", required=True, choices=SUPPORTED_COVERAGE_TOOLS)
     identity.add_argument("--tool-version", required=True)
     identity.add_argument("--output", type=Path, required=True)
     verify = subparsers.add_parser("verify-identities")
@@ -1272,11 +1362,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_identities(identities)
         if args.against_current:
             baseline = identities[0]
+            installed_tool_version = verify_installed_tool_version(identities)
             current = make_identity(
                 manifest,
                 layer="current-checkout",
                 tool=baseline.tool,
-                tool_version=baseline.tool_version,
+                tool_version=installed_tool_version,
                 root=root,
             )
             verify_identities_against_current(identities, current)

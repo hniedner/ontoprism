@@ -63,7 +63,7 @@ def _is_stage_system_filler(label: str | None) -> bool:
     return bool(label) and any(m in label for m in _STAGE_SYSTEM_MARKERS)
 
 
-def extract_defining_axes(roles: list[Role]) -> set[tuple[str, str]]:
+def extract_defining_axes(roles: tuple[Role, ...]) -> set[tuple[str, str]]:
     """Filter+relabel a level's roles into (axis, filler_code) pairs."""
     pairs: set[tuple[str, str]] = set()
     for r in roles:

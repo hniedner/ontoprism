@@ -1,9 +1,11 @@
 """Read models for the caDSR CDE repository (pydantic, serialized by the API)."""
 
-from pydantic import BaseModel
+from pydantic import Field
+
+from ontolib.common.boundary_models import StrictBoundaryModel
 
 
-class ConceptLink(BaseModel):
+class ConceptLink(StrictBoundaryModel):
     """A CDE's link to an NCIt concept — the shared identity that joins the graphs."""
 
     concept_code: str
@@ -12,7 +14,7 @@ class ConceptLink(BaseModel):
     is_primary: bool = False
 
 
-class PermissibleValue(BaseModel):
+class PermissibleValue(StrictBoundaryModel):
     """A permissible value in a CDE's enumerated value domain."""
 
     value: str
@@ -20,7 +22,7 @@ class PermissibleValue(BaseModel):
     meaning_code: str | None = None
 
 
-class CdeSummary(BaseModel):
+class CdeSummary(StrictBoundaryModel):
     """A lightweight CDE reference for tables and join results."""
 
     public_id: str
@@ -38,8 +40,8 @@ class CdeDetail(CdeSummary):
     workflow_status: str | None = None
     registration_status: str | None = None
     value_domain_type: str | None = None
-    permissible_values: list[PermissibleValue] = []
-    concepts: list[ConceptLink] = []
+    permissible_values: list[PermissibleValue] = Field(default_factory=list)
+    concepts: list[ConceptLink] = Field(default_factory=list)
 
 
 class SimilarCde(CdeSummary):
@@ -48,11 +50,11 @@ class SimilarCde(CdeSummary):
     score: float
 
 
-class CdeSearchPage(BaseModel):
+class CdeSearchPage(StrictBoundaryModel):
     """A paginated CDE search result."""
 
     query: str
     total: int
     limit: int
     offset: int
-    hits: list[CdeSummary] = []
+    hits: list[CdeSummary] = Field(default_factory=list)

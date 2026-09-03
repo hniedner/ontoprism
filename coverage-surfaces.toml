@@ -371,7 +371,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/dev/update_readme_code_stats.py"
-line = 154
+line = 156
 kind = "pragma-no-cover"
 owner = "release automation maintainers"
 rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
@@ -381,7 +381,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/adjudication.py"
-line = 126
+line = 1225
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "The PDM script calls the module guard; CLI import and evaluation behavior are tested through main()."

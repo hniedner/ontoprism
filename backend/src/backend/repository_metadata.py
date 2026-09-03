@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -188,15 +187,15 @@ class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
 IcdoCertificationResult = IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
 
 
-@dataclass(frozen=True, slots=True)
-class IcdoAccessCertification:
+class IcdoAccessCertification(_RepositoryModel):
     """Exact certification result for each served ICD-O dataset."""
 
     morphology_32: IcdoCertificationResult
     morphology_40: IcdoCertificationResult
     topography_40: IcdoCertificationResult
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _datasets_match_slots(self) -> IcdoAccessCertification:
         expected = (
             (self.morphology_32, ServedIcdoDataset.ICDO_32_MORPHOLOGY),
             (self.morphology_40, ServedIcdoDataset.ICDO_40_MORPHOLOGY),
@@ -212,6 +211,7 @@ class IcdoAccessCertification:
                 != dataset.value
             ):
                 raise ValueError("ICD-O access certification dataset mismatch")
+        return self
 
     def values(
         self,
@@ -359,7 +359,18 @@ def bind_cadsr_repository_metadata(
         source_identity=source.archive_sha256,
         manifest_identity=source_fingerprint,
         item_count=item_count,
-        source=CadsrSourceMetadata.model_validate(asdict(source)),
+        source=CadsrSourceMetadata(
+            url=source.url,
+            downloaded_at=source.downloaded_at,
+            etag=source.etag,
+            last_modified=source.last_modified,
+            archive_size=source.archive_size,
+            archive_sha256=source.archive_sha256,
+            member_count=source.member_count,
+            member_names_sha256=source.member_names_sha256,
+            first_member_timestamp=source.first_member_timestamp,
+            last_member_timestamp=source.last_member_timestamp,
+        ),
     )
 
 

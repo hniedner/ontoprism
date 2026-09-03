@@ -83,7 +83,7 @@ def _decomposition_for_durability() -> Decomposition:
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
             )
         ],
     )
@@ -104,7 +104,7 @@ async def test_ttl_publishes_axis_contract_and_constituent_source_role(
                         axis="op:PrimarySite",
                         filler_code="C12400",
                         axis_source="role",
-                        source_role="R101",
+                        source_roles=("R100", "R101"),
                     )
                 ],
             )
@@ -114,6 +114,9 @@ async def test_ttl_publishes_axis_contract_and_constituent_source_role(
     graph = rdflib.Graph().parse(out)
     primary_site = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite")
     source_role = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101")
+    additional_source_role = URIRef(
+        "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R100"
+    )
 
     assert (primary_site, rdflib.RDF.type, OWL.ObjectProperty) in graph
     assert (primary_site, rdflib.RDFS.domain, None) in graph
@@ -121,6 +124,7 @@ async def test_ttl_publishes_axis_contract_and_constituent_source_role(
     assert (primary_site, rdflib.RDFS.comment, None) in graph
     assert (primary_site, URIRef(vocab.NORMALIZED_FROM_ROLE), source_role) in graph
     assert (None, URIRef(vocab.SOURCE_ROLE), source_role) in graph
+    assert (None, URIRef(vocab.SOURCE_ROLE), additional_source_role) in graph
 
     primary_subsite = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySubsite")
     normal_tissue_origin = URIRef(f"{vocab.ONTOPRISM_NS}NormalTissueOrigin")
@@ -388,14 +392,14 @@ async def test_group_id_is_rendered(tmp_path: Path) -> None:
                     axis="op:AssociatedRegion",
                     filler_code="C12418",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     group="op:AssociatedRegion",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     group="op:AssociatedRegion",
                 ),
             ],
@@ -435,14 +439,14 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
                     axis="op:AssociatedRegion",
                     filler_code="C12418",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     group="op:AssociatedRegion",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     group="op:AssociatedRegion",
                 ),
             ],
@@ -591,7 +595,7 @@ async def test_shared_definition_ids_are_scoped_to_each_decomposition_root(
                     axis="R101",
                     filler_code="C200",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     source_definition_ids=(fact_id,),
                 ),
             ),

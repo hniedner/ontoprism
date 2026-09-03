@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol, cast
 
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.extract import (
@@ -20,9 +20,13 @@ from ontolib.decomposition.extract import (
 )
 from ontolib.decomposition.models import (
     CompleteDefinition,
+    GenusDefinitionFact,
+    ResolvedR82Path,
+    ResolvedR82PathEdge,
     RestrictionDefinitionFact,
     RoleRestriction,
 )
+from ontolib.decomposition.r101_conservation import r82_fact_identity
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
@@ -30,6 +34,7 @@ from ontolib.terminologies.sparql_transport import safe_iri
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
+
 
 _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
@@ -47,8 +52,9 @@ _MAX_INTERSECTION_HOPS = 6
 _PART_OF_QUERY_CODE_LIMIT = 16
 _PART_OF_EXPANSION_ROW_LIMIT = 256
 _PART_OF_MAX_R82_HOPS = 8
-_PART_OF_MAX_SUPERCLASS_HOPS = 14
+_PART_OF_MAX_SUPERCLASS_HOPS = 20
 _PART_OF_MAX_EXPANDED_CODES = 256
+_PART_OF_CANDIDATE_PREFLIGHT_LIMIT = 64
 _PART_OF_MAX_REQUESTS = 64
 _PART_OF_MAX_TOTAL_ROWS = 4096
 _PART_OF_MAX_QUERY_BYTES = 65_536
@@ -83,6 +89,7 @@ class SingleAttemptSelectRows(Protocol):
 class _PartOfNodeExpansion:
     parents: frozenset[str]
     wholes: frozenset[str]
+    whole_evidence: tuple[tuple[str, str], ...] = ()
 
 
 def _frontier_nodes(frontiers: Mapping[str, set[str]]) -> set[str]:
@@ -311,6 +318,43 @@ def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
     ]
 
 
+def build_part_of_candidate_paths_query(
+    pairs: Iterable[tuple[str, str]],
+) -> str:
+    """Build a direct/inherited one-R82-edge preflight for exact candidate pairs."""
+    candidates = tuple(sorted(set(pairs)))
+    if len(candidates) > _PART_OF_CANDIDATE_PREFLIGHT_LIMIT:
+        raise ValueError("R82 candidate preflight accepts at most 64 pairs")
+    if not candidates:
+        return (
+            f"{_PREFIXES}SELECT ?part ?whole ?assertedPart ?restriction "
+            "WHERE { FILTER(false) }"
+        )
+    values: list[str] = []
+    for part, whole in candidates:
+        part_iri = safe_iri(part, NCIT_NS)
+        whole_iri = safe_iri(whole, NCIT_NS)
+        if (
+            _NCIT_CONCEPT_CODE.fullmatch(part) is None
+            or _NCIT_CONCEPT_CODE.fullmatch(whole) is None
+        ):
+            raise ValueError("R82 endpoint is not an NCIt concept code")
+        values.append(f"(<{part_iri}> <{whole_iri}>)")
+    return f"""{_PREFIXES}
+        SELECT DISTINCT ?part ?whole ?assertedPart ?restriction WHERE {{
+            VALUES (?part ?whole) {{ {" ".join(values)} }}
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                ?part rdfs:subClassOf* ?assertedPart .
+                ?assertedPart rdfs:subClassOf ?restriction .
+                ?restriction a owl:Restriction ;
+                    owl:onProperty <{NCIT_NS}R82> ;
+                    owl:someValuesFrom ?whole .
+            }}
+        }}
+        ORDER BY ?part ?whole ?assertedPart ?restriction
+    """
+
+
 def _part_of_expansion_branches(code: str) -> tuple[str, str]:
     # Flattened SPARQL rows omit RDF term metadata, so carry target IRI-ness explicitly.
     iri = safe_iri(code, NCIT_NS)
@@ -345,7 +389,7 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
         raise ValueError("R82 expansion query accepts at most 16 codes")
     if not code_list:
         query = (
-            f"{_PREFIXES}SELECT DISTINCT ?node ?kind ?target ?targetType "
+            f"{_PREFIXES}SELECT DISTINCT ?node ?kind ?target ?targetType ?restriction "
             f"WHERE {{ FILTER(false) }} LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}"
         )
     else:
@@ -353,7 +397,7 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
             branch for code in code_list for branch in _part_of_expansion_branches(code)
         )
         query = f"""{_PREFIXES}
-            SELECT DISTINCT ?node ?kind ?target ?targetType WHERE {{
+            SELECT DISTINCT ?node ?kind ?target ?targetType ?restriction WHERE {{
                 GRAPH <{STATED_GRAPH_IRI}> {{
                     {branches}
                 }}
@@ -370,14 +414,14 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
     return query
 
 
-@dataclass(slots=True)
 class _PartOfClosure:
-    select_once: SelectRows
-    requested: tuple[str, ...]
-    cache: dict[str, _PartOfNodeExpansion] = field(default_factory=dict, init=False)
-    expanded_codes: set[str] = field(default_factory=set, init=False)
-    request_count: int = field(default=0, init=False)
-    total_rows: int = field(default=0, init=False)
+    def __init__(self, select_once: SelectRows, requested: tuple[str, ...]) -> None:
+        self.select_once = select_once
+        self.requested = requested
+        self.cache: dict[str, _PartOfNodeExpansion] = {}
+        self.expanded_codes: set[str] = set()
+        self.request_count = 0
+        self.total_rows = 0
 
     async def _expand(self, frontier: Iterable[str]) -> None:
         missing = sorted(set(frontier) - self.cache.keys())
@@ -414,23 +458,14 @@ class _PartOfClosure:
         tile: list[str],
         rows: Sequence[Mapping[str, str | None]],
     ) -> None:
-        tile_set = set(tile)
-        parents = {code: set() for code in tile}
-        wholes = {code: set() for code in tile}
-        for expansion in part_of_expansions_from_rows(rows):
-            if expansion.node not in tile_set:
-                raise ValueError(f"unexpected R82 expansion node: {expansion.node!r}")
-            destination = (
-                parents[expansion.node]
-                if expansion.kind == "parent"
-                else wholes[expansion.node]
-            )
-            destination.add(expansion.target)
+        parents, wholes = _collect_expansion_targets(tile, rows)
+        whole_evidence = _collect_whole_evidence(tile, rows)
         self.cache.update(
             {
                 code: _PartOfNodeExpansion(
                     parents=frozenset(parents[code]),
                     wholes=frozenset(wholes[code]),
+                    whole_evidence=tuple(sorted(whole_evidence[code])),
                 )
                 for code in tile
             }
@@ -482,6 +517,365 @@ class _PartOfClosure:
             hop += 1
 
         return sorted(pairs, key=lambda pair: (pair.part, pair.whole))
+
+    async def inherited_edges(
+        self, roots: Iterable[str]
+    ) -> dict[str, dict[str, tuple[str, str]]]:
+        """Return each root's inherited one-step R82 edges with asserted evidence."""
+        root_list = tuple(sorted(set(roots)))
+        visited = {root: {root} for root in root_list}
+        frontiers = {root: {root} for root in root_list}
+        evidence: dict[str, dict[str, tuple[str, str]]] = {
+            root: {} for root in root_list
+        }
+        depth = 0
+        while True:
+            await self._expand(_frontier_nodes(frontiers))
+            next_frontiers = _advance_inherited_evidence(
+                self.cache, frontiers, visited, evidence
+            )
+            if not _frontier_nodes(next_frontiers):
+                return evidence
+            if depth == _PART_OF_MAX_SUPERCLASS_HOPS:
+                raise ValueError("R82 superclass hop bound exhausted at 20 hops")
+            frontiers = next_frontiers
+            depth += 1
+
+
+def _collect_expansion_targets(
+    tile: list[str], rows: Sequence[Mapping[str, str | None]]
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    tile_set = set(tile)
+    parents = {code: set() for code in tile}
+    wholes = {code: set() for code in tile}
+    for expansion in part_of_expansions_from_rows(rows):
+        if expansion.node not in tile_set:
+            raise ValueError(f"unexpected R82 expansion node: {expansion.node!r}")
+        destination = parents if expansion.kind == "parent" else wholes
+        destination[expansion.node].add(expansion.target)
+    return parents, wholes
+
+
+def _collect_whole_evidence(
+    tile: list[str], rows: Sequence[Mapping[str, str | None]]
+) -> dict[str, set[tuple[str, str]]]:
+    evidence: dict[str, set[tuple[str, str]]] = {code: set() for code in tile}
+    for row in rows:
+        if row.get("kind") == "whole":
+            _add_whole_evidence(evidence, row)
+    return evidence
+
+
+def _add_whole_evidence(
+    evidence: dict[str, set[tuple[str, str]]], row: Mapping[str, str | None]
+) -> None:
+    node_iri = row.get("node")
+    target_iri = row.get("target")
+    restriction = row.get("restriction")
+    if not node_iri or not node_iri.startswith(NCIT_NS):
+        raise ValueError("R82 expansion node is not an NCIt IRI")
+    if not target_iri or not target_iri.startswith(NCIT_NS):
+        raise ValueError("R82 expansion target is not an NCIt IRI")
+    if restriction:
+        evidence[node_iri.removeprefix(NCIT_NS)].add(
+            (target_iri.removeprefix(NCIT_NS), restriction)
+        )
+
+
+def _advance_inherited_evidence(
+    cache: Mapping[str, _PartOfNodeExpansion],
+    frontiers: Mapping[str, set[str]],
+    visited: dict[str, set[str]],
+    evidence: dict[str, dict[str, tuple[str, str]]],
+) -> dict[str, set[str]]:
+    next_frontiers: dict[str, set[str]] = {}
+    for root, frontier in frontiers.items():
+        parents = _collect_inherited_evidence(cache, frontier, evidence[root])
+        parents.difference_update(visited[root])
+        visited[root].update(parents)
+        next_frontiers[root] = parents
+    return next_frontiers
+
+
+def _collect_inherited_evidence(
+    cache: Mapping[str, _PartOfNodeExpansion],
+    frontier: set[str],
+    evidence: dict[str, tuple[str, str]],
+) -> set[str]:
+    parents: set[str] = set()
+    for node in sorted(frontier):
+        expansion = cache[node]
+        if len(expansion.whole_evidence) != len(expansion.wholes):
+            raise ValueError("R82 expansion is missing restriction identity")
+        for whole, restriction in expansion.whole_evidence:
+            evidence.setdefault(whole, (node, restriction))
+        parents.update(expansion.parents)
+    return parents
+
+
+@dataclass(frozen=True, slots=True)
+class PartOfPathResolution:
+    paths: dict[tuple[str, str], ResolvedR82Path]
+    query_count: int
+    max_pair_batch_size: int
+
+
+async def _resolve_path_batch(
+    client: SingleAttemptSelectRows,
+    pairs: tuple[tuple[str, str], ...],
+    source_identity: str,
+) -> tuple[dict[tuple[str, str], ResolvedR82Path], int]:
+    closure = _path_closure(client, pairs)
+    resolved: dict[tuple[str, str], ResolvedR82Path] = {}
+    targets_by_origin, paths_by_origin, frontiers, reached = _initial_path_search(pairs)
+    for _hop in range(_PART_OF_MAX_R82_HOPS):
+        active_nodes = _active_path_nodes(frontiers, targets_by_origin, resolved)
+        if not active_nodes:
+            break
+        outgoing = await closure.inherited_edges(active_nodes)
+        next_frontiers = _advance_path_search(
+            frontiers,
+            targets_by_origin,
+            resolved,
+            outgoing,
+            reached,
+            paths_by_origin,
+            source_identity,
+            ResolvedR82Path,
+        )
+        frontiers = next_frontiers
+    return resolved, closure.request_count
+
+
+def _path_closure(
+    client: SingleAttemptSelectRows, pairs: tuple[tuple[str, str], ...]
+) -> _PartOfClosure:
+    codes = _part_of_codes(code for pair in pairs for code in pair)
+    return _PartOfClosure(select_once=client.select_once, requested=codes)
+
+
+def _initial_path_search(
+    pairs: tuple[tuple[str, str], ...],
+) -> tuple[
+    dict[str, set[str]],
+    dict[str, dict[str, tuple[ResolvedR82PathEdge, ...]]],
+    dict[str, set[str]],
+    dict[str, set[str]],
+]:
+    targets = _targets_by_origin(pairs)
+    paths = {origin: {origin: ()} for origin in targets}
+    frontiers = {origin: {origin} for origin in targets}
+    reached = {origin: {origin} for origin in targets}
+    return targets, paths, frontiers, reached
+
+
+def _targets_by_origin(
+    pairs: tuple[tuple[str, str], ...],
+) -> dict[str, set[str]]:
+    targets: dict[str, set[str]] = {}
+    for part, whole in pairs:
+        targets.setdefault(part, set()).add(whole)
+    return targets
+
+
+def _origin_is_resolved(
+    origin: str,
+    targets: Mapping[str, set[str]],
+    resolved: Mapping[tuple[str, str], ResolvedR82Path],
+) -> bool:
+    return all((origin, target) in resolved for target in targets[origin])
+
+
+def _active_path_nodes(
+    frontiers: Mapping[str, set[str]],
+    targets: Mapping[str, set[str]],
+    resolved: Mapping[tuple[str, str], ResolvedR82Path],
+) -> set[str]:
+    return {
+        node
+        for origin, frontier in frontiers.items()
+        if not _origin_is_resolved(origin, targets, resolved)
+        for node in frontier
+    }
+
+
+def _advance_path_search(
+    frontiers: Mapping[str, set[str]],
+    targets: Mapping[str, set[str]],
+    resolved: dict[tuple[str, str], ResolvedR82Path],
+    outgoing: Mapping[str, Mapping[str, tuple[str, str]]],
+    reached: dict[str, set[str]],
+    paths_by_origin: dict[str, dict[str, tuple[ResolvedR82PathEdge, ...]]],
+    source_identity: str,
+    path_type: type[ResolvedR82Path],
+) -> dict[str, set[str]]:
+    next_frontiers: dict[str, set[str]] = {}
+    for origin, frontier in frontiers.items():
+        if _origin_is_resolved(origin, targets, resolved):
+            next_frontiers[origin] = set()
+            continue
+        next_paths = _advance_origin_paths(
+            origin,
+            frontier,
+            outgoing,
+            reached[origin],
+            paths_by_origin[origin],
+            source_identity,
+        )
+        _record_resolved_targets(
+            origin, targets[origin], next_paths, resolved, path_type
+        )
+        reached[origin].update(next_paths)
+        paths_by_origin[origin].update(next_paths)
+        next_frontiers[origin] = set(next_paths)
+    return next_frontiers
+
+
+def _advance_origin_paths(
+    origin: str,
+    frontier: set[str],
+    outgoing: Mapping[str, Mapping[str, tuple[str, str]]],
+    reached: set[str],
+    paths: Mapping[str, tuple[ResolvedR82PathEdge, ...]],
+    source_identity: str,
+) -> dict[str, tuple[ResolvedR82PathEdge, ...]]:
+    next_paths: dict[str, tuple[ResolvedR82PathEdge, ...]] = {}
+    for part in sorted(frontier):
+        for whole, evidence in sorted(outgoing[part].items()):
+            if whole in reached:
+                continue
+            candidate = (
+                *paths[part],
+                _make_r82_edge(part, whole, evidence, source_identity),
+            )
+            current = next_paths.get(whole)
+            if current is None or _path_sort_key(candidate) < _path_sort_key(current):
+                next_paths[whole] = candidate
+    return next_paths
+
+
+def _make_r82_edge(
+    part: str,
+    whole: str,
+    evidence: tuple[str, str],
+    source_identity: str,
+) -> ResolvedR82PathEdge:
+    asserted_part, restriction = evidence
+    return ResolvedR82PathEdge(
+        part_code=part,
+        asserted_part_code=asserted_part,
+        whole_code=whole,
+        restriction_node_id=restriction,
+        fact_identity=r82_fact_identity(
+            source_identity, asserted_part, whole, restriction
+        ),
+        source_identity=source_identity,
+    )
+
+
+def _path_sort_key(
+    path: tuple[ResolvedR82PathEdge, ...],
+) -> tuple[tuple[str, str, str], ...]:
+    return tuple((item.part_code, item.whole_code, item.fact_identity) for item in path)
+
+
+def _record_resolved_targets(
+    origin: str,
+    targets: set[str],
+    next_paths: Mapping[str, tuple[ResolvedR82PathEdge, ...]],
+    resolved: dict[tuple[str, str], ResolvedR82Path],
+    path_type: type[ResolvedR82Path],
+) -> None:
+    for target in targets:
+        if target in next_paths and (origin, target) not in resolved:
+            resolved[(origin, target)] = path_type(edges=next_paths[target])
+
+
+async def resolve_part_of_paths(
+    client: SingleAttemptSelectRows,
+    pairs: Iterable[tuple[str, str]],
+    *,
+    source_identity: str,
+) -> PartOfPathResolution:
+    """Resolve shortest directed stated-R82 paths in batches of at most eight pairs."""
+    if re.fullmatch(r"[0-9a-f]{64}", source_identity) is None:
+        raise ValueError("R82 path source identity must be SHA-256")
+    requested = tuple(sorted(set(pairs)))
+    for pair in requested:
+        _part_of_codes(pair)
+    paths, query_count = await _resolve_direct_paths(client, requested, source_identity)
+    remaining = tuple(pair for pair in requested if pair not in paths)
+    for start in range(0, len(remaining), 8):
+        batch = remaining[start : start + 8]
+        batch_paths, batch_queries = await _resolve_path_batch(
+            client, batch, source_identity
+        )
+        paths.update(batch_paths)
+        query_count += batch_queries
+    return PartOfPathResolution(
+        paths=paths,
+        query_count=query_count,
+        max_pair_batch_size=min(8, len(requested)),
+    )
+
+
+async def _resolve_direct_paths(
+    client: SingleAttemptSelectRows,
+    requested: tuple[tuple[str, str], ...],
+    source_identity: str,
+) -> tuple[dict[tuple[str, str], ResolvedR82Path], int]:
+    paths: dict[tuple[str, str], ResolvedR82Path] = {}
+    query_count = 0
+    for start in range(0, len(requested), _PART_OF_CANDIDATE_PREFLIGHT_LIMIT):
+        batch = requested[start : start + _PART_OF_CANDIDATE_PREFLIGHT_LIMIT]
+        rows = await client.select_once(
+            build_part_of_candidate_paths_query(batch),
+            required_variables={"part", "whole", "assertedPart", "restriction"},
+        )
+        query_count += 1
+        for row in rows:
+            key, candidate = _direct_path_from_row(row, batch, source_identity)
+            current = paths.get(key)
+            if current is None or _path_sort_key(candidate.edges) < _path_sort_key(
+                current.edges
+            ):
+                paths[key] = candidate
+    return paths, query_count
+
+
+def _direct_path_from_row(
+    row: Mapping[str, str | None],
+    batch: tuple[tuple[str, str], ...],
+    source_identity: str,
+) -> tuple[tuple[str, str], ResolvedR82Path]:
+    bindings = _required_path_bindings(row)
+    part, whole, asserted_part = (
+        bindings[name].removeprefix(NCIT_NS)
+        for name in ("part", "whole", "assertedPart")
+    )
+    key = (part, whole)
+    if key not in set(batch):
+        raise ValueError("R82 candidate path returned an unrequested pair")
+    edge = _make_r82_edge(
+        part,
+        whole,
+        (asserted_part, bindings["restriction"]),
+        source_identity,
+    )
+    return key, ResolvedR82Path(edges=(edge,))
+
+
+def _required_path_bindings(
+    row: Mapping[str, str | None],
+) -> dict[str, str]:
+    names = ("part", "whole", "assertedPart", "restriction")
+    bindings = {name: row.get(name) for name in names}
+    if any(value is None for value in bindings.values()):
+        raise ValueError("R82 candidate path row is missing a binding")
+    result = cast("dict[str, str]", bindings)
+    if not all(result[name].startswith(NCIT_NS) for name in names[:3]):
+        raise ValueError("R82 candidate path is not NCIt-bound")
+    return result
 
 
 async def resolve_part_of_pairs(
@@ -784,6 +1178,78 @@ async def resolve_morphology_filler(
     return None
 
 
+def _definition_genera_by_anchor(
+    complete: CompleteDefinition, max_depth: int
+) -> dict[str, set[str]]:
+    genera_by_anchor: dict[str, set[str]] = {}
+    for fact in complete.facts:
+        if isinstance(fact, GenusDefinitionFact) and fact.depth < max_depth:
+            genera_by_anchor.setdefault(fact.anchor_code, set()).add(fact.genus_code)
+    return genera_by_anchor
+
+
+async def _resolve_morphology_frontier(
+    select_fn: SelectRows,
+    frontier: tuple[str, ...],
+    genera_by_anchor: Mapping[str, set[str]],
+    visited: set[str],
+    selected: set[str],
+    preferred: str | None,
+) -> tuple[str, ...]:
+    next_frontier: set[str] = set()
+    for anchor in frontier:
+        for genus_code in sorted(genera_by_anchor.get(anchor, ())):
+            if genus_code in visited:
+                continue
+            visited.add(genus_code)
+            if genus_code == preferred:
+                selected.add(genus_code)
+                continue
+            label = await _fetch_genus_label(select_fn, f"{NCIT_NS}{genus_code}")
+            if label is not None and not _is_staging_concept_label(label):
+                selected.add(genus_code)
+            else:
+                next_frontier.add(genus_code)
+    return tuple(sorted(next_frontier))
+
+
+async def resolve_morphology_fillers(
+    select_fn: SelectRows,
+    complete: CompleteDefinition,
+    *,
+    max_depth: int = 5,
+) -> tuple[str, ...]:
+    """Resolve every co-equal first non-staging genus in a complete definition.
+
+    Anonymous nested intersections can place more than one named genus at the same
+    anchor.  Walking only the first RDF-list member loses those co-equal source facts,
+    so this projection follows all genus facts already validated by the complete reader.
+    """
+    preferred = await resolve_morphology_filler(
+        select_fn, complete.root_code, max_depth=max_depth
+    )
+    genera_by_anchor = _definition_genera_by_anchor(complete, max_depth)
+
+    selected: set[str] = set()
+    visited = {complete.root_code}
+    frontier = (complete.root_code,)
+    for _ in range(max_depth):
+        if not frontier:
+            break
+        frontier = await _resolve_morphology_frontier(
+            select_fn,
+            frontier,
+            genera_by_anchor,
+            visited,
+            selected,
+            preferred,
+        )
+    return (
+        *((preferred,) if preferred in selected else ()),
+        *(code for code in sorted(selected) if code != preferred),
+    )
+
+
 def _build_role_labels_query(role_codes: Iterable[str]) -> str:
     iris = " ".join(f"<{safe_iri(code, NCIT_NS)}>" for code in sorted(role_codes))
     return f"""{_PREFIXES}
@@ -860,25 +1326,27 @@ def _projected_restriction_facts(
 
 
 def _detector_role_projection(
+    complete: CompleteDefinition,
     restrictions: Iterable[RestrictionDefinitionFact],
     labels: Mapping[str, str | None],
 ) -> list[RoleRestriction]:
-    roles: list[RoleRestriction] = []
-    seen_pairs: set[tuple[str, str]] = set()
-    for fact in restrictions:
-        key = (fact.role_code, fact.filler_code)
-        if not _is_detector_role(fact) or key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-        roles.append(
-            RoleRestriction(
-                role_code=fact.role_code,
-                filler_code=fact.filler_code,
-                role_label=labels.get(fact.role_code),
-                anchoring_genus=fact.anchor_code,
-            )
+    occurrences_by_fact: dict[str, list[str]] = {}
+    for occurrence in complete.occurrences:
+        occurrences_by_fact.setdefault(occurrence.source_fact_id, []).append(
+            occurrence.occurrence_id
         )
-    return roles
+    return [
+        RoleRestriction(
+            role_code=fact.role_code,
+            filler_code=fact.filler_code,
+            role_label=labels.get(fact.role_code),
+            anchoring_genus=fact.anchor_code,
+            source_definition_ids=(fact.fact_id,),
+            source_occurrence_ids=tuple(occurrences_by_fact.get(fact.fact_id, ())),
+        )
+        for fact in restrictions
+        if _is_detector_role(fact)
+    ]
 
 
 def _is_detector_role(fact: RestrictionDefinitionFact) -> bool:
@@ -905,7 +1373,7 @@ async def read_complete_genus_chain(
         select_fn,
         {fact.role_code for fact in restrictions},
     )
-    return complete, _detector_role_projection(restrictions, labels)
+    return complete, _detector_role_projection(complete, restrictions, labels)
 
 
 async def walk_genus_chain(

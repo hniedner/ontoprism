@@ -70,6 +70,7 @@ GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
 UNSUPPORTED_FILLER_VERSION = "ncit-26.07d-unsupported-filler-v1"
 UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE: dict[tuple[str, str], frozenset[str]] = {
     ("C102870", "R103"): frozenset({"C54105"}),
+    ("C3264", "R103"): frozenset({"C12950"}),
     ("C27787", "R103"): frozenset({"C54105"}),
 }
 

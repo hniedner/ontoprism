@@ -21,8 +21,8 @@ from pydantic import (
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
 from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
 
-_STANDARD_RUN_SCHEMA = 2
-_SAMPLE_RUN_SCHEMA = 3
+_STANDARD_RUN_SCHEMA = 4
+_SAMPLE_RUN_SCHEMA = 5
 
 
 def _require_matching_scope_root(
@@ -74,8 +74,9 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[2, 3] = 2
+    schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -124,8 +125,6 @@ class RunFingerprint(BaseModel):
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
         payload = self.model_dump(mode="json")
-        if self.schema_version == _STANDARD_RUN_SCHEMA:
-            payload.pop("sample_manifest_identity")
         encoded = json.dumps(
             payload,
             sort_keys=True,
@@ -135,13 +134,26 @@ class RunFingerprint(BaseModel):
         return hashlib.sha256(encoded).hexdigest()
 
 
+class CompletedRunForEvidence(BaseModel):
+    """Validated completed publication fields needed by evidence generation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
+    ncit_version: str = Field(min_length=1)
+    fingerprint: RunFingerprint
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_artifact_path: str = Field(min_length=1)
+
+
 class RunResumeIdentity(BaseModel):
     """Caller-controlled dimensions that must match a persisted resumable run."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[2, 3] = 2
+    schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -174,6 +186,7 @@ class RunResumeIdentity(BaseModel):
         return cls(
             schema_version=fingerprint.schema_version,
             source_identity=fingerprint.source_identity,
+            collapse_policy_identity=fingerprint.collapse_policy_identity,
             branch=fingerprint.branch,
             scope_root=fingerprint.scope_root,
             scope_version=fingerprint.scope_version,
@@ -189,14 +202,14 @@ class RunResumeIdentity(BaseModel):
 
 
 def _require_matching_sample_schema(
-    schema_version: Literal[2, 3],
+    schema_version: Literal[4, 5],
     sample_manifest_identity: str | None,
     total_limit: int | None,
 ) -> None:
     if schema_version == _SAMPLE_RUN_SCHEMA and sample_manifest_identity is None:
-        raise ValueError("schema-v3 runs require a sample manifest identity")
+        raise ValueError("sample schema-v5 runs require a sample manifest identity")
     if schema_version == _STANDARD_RUN_SCHEMA and sample_manifest_identity is not None:
-        raise ValueError("sample manifest identity requires schema-v3")
+        raise ValueError("sample manifest identity requires sample schema-v5")
     if sample_manifest_identity is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
 
@@ -213,6 +226,41 @@ class RunOutcomeCounts(BaseModel):
     atomic_noop: int = Field(default=0, ge=0)
     unknown_outcome: int = Field(default=0, ge=0)
     minted_count: int = Field(ge=0)
+
+
+class CorpusOutcomeCounts(BaseModel):
+    """Exact outcome categories for a full-corpus baseline."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    decomposed: int = Field(ge=0)
+    residual: int = Field(ge=0)
+    semantic_excluded: int = Field(ge=0)
+    atomic_noop: int = Field(ge=0)
+    unknown: int = Field(ge=0)
+
+
+class CorpusBaselineAggregate(BaseModel):
+    """Counts derived from persisted rows in one bounded aggregate query."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    worklist_count: int = Field(ge=0)
+    outcome_counts: CorpusOutcomeCounts
+    decomposed_codes: tuple[str, ...]
+    emitted_constituent_pair_count: int = Field(ge=0)
+    complete_semantic_fact_count: int = Field(ge=0)
+    source_occurrence_count: int = Field(ge=0)
+    selected_occurrence_count: int = Field(ge=0)
+    minted_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _counts_are_complete(self) -> Self:
+        if sum(self.outcome_counts.model_dump().values()) != self.worklist_count:
+            raise ValueError("outcome counts do not sum to worklist count")
+        if len(self.decomposed_codes) != self.outcome_counts.decomposed:
+            raise ValueError("decomposed code count does not match outcome counts")
+        return self
 
 
 class PersistedRunMetrics(BaseModel):
@@ -333,7 +381,7 @@ class CompletionRunMetrics(BaseModel):
     residual: int = Field(ge=0)
     semantic_excluded: int = Field(ge=0)
     atomic_noop: int = Field(ge=0)
-    unknown_outcome: Literal[0]
+    unknown_outcome: int = Field(ge=0)
     residual_precoordinated_count: int = Field(ge=0)
     residual_precoordination: float = Field(ge=0, le=1)
     minted_count: int = Field(ge=0)
@@ -473,6 +521,8 @@ class WorkItemOutcome(BaseModel):
 class RunSummary(BaseModel):
     """One run manifest plus metrics, including immutable historical labels."""
 
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
     id: str
     branch: str
     status: str
@@ -548,6 +598,8 @@ class RunSummary(BaseModel):
 
 class MintedConcept(BaseModel):
     """A minted-concept proposal awaiting curator approval."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     id: str
     run_id: str

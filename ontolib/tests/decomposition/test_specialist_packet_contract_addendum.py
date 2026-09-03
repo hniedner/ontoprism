@@ -1,0 +1,468 @@
+from __future__ import annotations
+
+import inspect
+
+import pytest
+from pydantic import ValidationError
+from scripts.research.specialist_literature_context import (
+    LiteratureCitation,
+    LiteratureEvidenceClaim,
+    LiteratureEvidenceSignature,
+    LiteraturePairKey,
+    LiteratureQuestion,
+    LiteratureSourceConcept,
+    citation_supports_pair,
+    source_concept_identity,
+)
+from scripts.research.specialist_review_packets import (
+    ActionConsequence,
+    ClinicalStageA,
+    HumanAttestation,
+    OntologyStageB,
+    PairDisposition,
+    PairScopeInput,
+    PairScopeVerdict,
+    PartitionDisposition,
+    ReturnChannel,
+    classify_pair_scope,
+    semantic_answer_cue_findings,
+)
+
+pytestmark = pytest.mark.unit
+
+
+def _attestation(role: str, *, human: bool = True) -> HumanAttestation:
+    return HumanAttestation.model_validate(
+        {
+            "role": role,
+            "attester_name": "Dr Human",
+            "attester_capacity": "Pathologist",
+            "attestation_date": "2026-08-31",
+            "conflict_of_interest": "None",
+            "source_confirmation": "I checked the cited passages.",
+            "human_attestation": human,
+        }
+    )
+
+
+def _scope(**updates: object) -> PairScopeInput:
+    values: dict[str, object] = {
+        "relation": "expected-emitted-review-bearing",
+        "range_verdict": "valid",
+        "source_evidence_status": "available",
+        "diagnostic_classification": "emitted-review-bearing",
+        "has_clinical_claim": True,
+        "claim_contests_projection": True,
+        "action_representable": True,
+        "governance_status": "eligible",
+    }
+    values.update(updates)
+    return PairScopeInput.model_validate(values)
+
+
+def test_b1_stage_roles_use_separate_human_attestations() -> None:
+    assert ClinicalStageA.model_fields["attestation"].annotation == HumanAttestation
+    assert OntologyStageB.model_fields["attestation"].annotation == HumanAttestation
+    with pytest.raises(ValidationError, match="human"):
+        _attestation("clinical", human=False)
+
+
+def test_b2_pair_disposition_has_only_three_actions_and_no_axis_or_group_fields() -> (
+    None
+):
+    assert set(PairDisposition.model_fields) == {"pair_id", "action", "rationale"}
+    annotation = str(PairDisposition.model_fields["action"].annotation)
+    assert {"RETAIN-SCOREABLE", "PROMOTE-SCOREABLE", "REMOVE-FROM-PROJECTION"} <= set(
+        annotation.split("'")
+    )
+    assert {"ADD-SCOREABLE", "OMIT", "GROUP-TOGETHER"}.isdisjoint(annotation.split("'"))
+
+
+def test_b3_partition_disposition_is_independent_and_typed() -> None:
+    assert set(PartitionDisposition.model_fields) == {"mode", "groups", "rationale"}
+    assert "partition" in OntologyStageB.model_fields
+    assert "partition" not in PairDisposition.model_fields
+
+
+def test_b4_stage_a_defer_requires_empty_assessments_blocker_and_attestation() -> None:
+    with pytest.raises(
+        ValidationError, match="DEFERRED Stage A requires empty assessments"
+    ):
+        ClinicalStageA.model_validate(
+            {
+                "attestation": _attestation("clinical"),
+                "assessments": (
+                    {
+                        "pair_id": "P1",
+                        "status": "UNRESOLVED",
+                        "citations": ("S1",),
+                        "rationale": "Blocked.",
+                    },
+                ),
+                "clinical_stage": "DEFERRED",
+                "blocker": "Evidence conflict.",
+            }
+        )
+
+
+def test_b5_stage_b_defer_rejects_every_pair_and_partition_response() -> None:
+    with pytest.raises(ValidationError, match="DEFERRED Stage B cannot contain"):
+        OntologyStageB.model_validate(
+            {
+                "attestation": _attestation("ontology"),
+                "row_outcome": "DEFERRED",
+                "dispositions": (),
+                "partition": {
+                    "mode": "CUSTOM-CURRENT-MODEL",
+                    "groups": (("P1",),),
+                    "rationale": "Impermissible deferred response.",
+                },
+                "blocker": "Blocked.",
+                "blocker_source": "Stage A",
+                "next_action": "Resolve evidence.",
+            }
+        )
+
+
+def test_b6_return_channel_has_exact_instruction_and_deadline() -> None:
+    channel = ReturnChannel()
+    assert (
+        channel.instruction
+        == "Return the completed file, with the same filename, as a file attachment "
+        "to R. Hannes Niedner, M.D., OntoPrism project coordinator through the same "
+        "secure delivery channel by which this packet was received."
+    )
+    assert (
+        channel.deadline
+        == "No deadline assigned; coordinator will communicate changes."
+    )
+    assert channel.fallback == (
+        "If the secure delivery channel is unavailable, contact R. Hannes Niedner, "
+        "M.D., OntoPrism project coordinator before transmitting review material."
+    )
+
+
+@pytest.mark.parametrize(
+    ("updates", "status"),
+    [
+        ({"governance_status": "suppressed"}, "suppressed"),
+        ({"range_verdict": "invalid"}, "engineering-only"),
+        ({"source_evidence_status": "unavailable"}, "engineering-only"),
+        ({"diagnostic_classification": "selection-miss"}, "clinical-only"),
+        (
+            {
+                "has_clinical_claim": False,
+                "diagnostic_classification": "selection-miss",
+            },
+            "engineering-only",
+        ),
+        ({}, "actionable"),
+        ({"has_clinical_claim": False}, "context"),
+        ({"action_representable": False}, "refused-invalid"),
+    ],
+)
+def test_b7_scope_classifier_is_total_with_fail_closed_precedence(
+    updates: dict[str, object], status: str
+) -> None:
+    assert classify_pair_scope(_scope(**updates)).status == status
+
+
+def test_b8_scope_classifier_returns_exact_typed_verdict() -> None:
+    assert isinstance(classify_pair_scope(_scope()), PairScopeVerdict)
+    assert set(inspect.signature(classify_pair_scope).parameters) == {"scope_input"}
+
+
+def test_b9_consequence_names_comparison_relative_deltas_and_readiness() -> None:
+    assert set(ActionConsequence.model_fields) == {
+        "comparison_tp_delta",
+        "comparison_fp_delta",
+        "comparison_fn_delta",
+        "scoreable_emitted_delta",
+        "source_preserved",
+        "pair_after",
+        "needs_review_after",
+        "group_effect",
+        "row_readiness",
+        "publication",
+    }
+
+
+def test_b10_valid_responses_cannot_authorize_writes_or_publication() -> None:
+    assert OntologyStageB.model_fields["ontology_writes"].default is False
+    assert OntologyStageB.model_fields["readiness"].default is False
+    assert OntologyStageB.model_fields["publication"].default is False
+
+
+def _citation(
+    *,
+    status: str = "cited",
+    passage: str = "The tumor contains spindle cells.",
+    does_not: str = "No ontology action.",
+) -> LiteratureCitation:
+    restricted = status == "access-restricted"
+    return LiteratureCitation.model_validate(
+        {
+            "citation_id": "S1",
+            "status": status,
+            "authority_class": "peer-reviewed open-access pathology review",
+            "authority_order": 1,
+            "bibliography": "Source.",
+            "url": "https://example.test/source",
+            "doi": None,
+            "pmid": None,
+            "verified_on": None if restricted else "2026-08-31",
+            "exact_locator": "ACCESS RESTRICTED" if restricted else "Results",
+            "exact_passage": "NOT VERIFIED" if restricted else passage,
+            "supports": "Spindle-cell morphology is described.",
+            "does_not_support": does_not,
+            "limitations": "Review.",
+            "conflicts_or_supersession": "None.",
+        }
+    )
+
+
+def _claim(*, filler: str = "C1", citation_id: str = "S1") -> LiteratureEvidenceClaim:
+    source = _source(filler)
+    return LiteratureEvidenceClaim(
+        question_id="Q1",
+        pair_key=LiteraturePairKey(axis="op:CellType", filler=filler),
+        citation_id=citation_id,
+        support_excerpt="contains spindle cells",
+        supported_claim="The lesion contains spindle cells.",
+        source_concept_code=filler,
+        source_concept_identity=source.source_concept_identity,
+        evidence_signature=LiteratureEvidenceSignature(
+            required_source_features=("spindle cells",), passage_scope="exclusive"
+        ),
+    )
+
+
+def _source(code: str = "C1") -> LiteratureSourceConcept:
+    label = "Spindle Cells"
+    definition = "Cells with spindle morphology."
+    return LiteratureSourceConcept(
+        code=code,
+        exact_label=label,
+        exact_definition=definition,
+        source_concept_identity=source_concept_identity(code, label, definition),
+    )
+
+
+def _question(claim: LiteratureEvidenceClaim | None = None) -> LiteratureQuestion:
+    selected = claim or _claim()
+    return LiteratureQuestion(
+        question_id="Q1",
+        pair_keys=(LiteraturePairKey(axis="op:CellType", filler="C1"),),
+        text="Assess the source-bound pair.",
+        claims=(selected,),
+    )
+
+
+def test_d1_shared_citation_predicate_accepts_exact_accessible_pair_claim() -> None:
+    question = _question()
+    assert citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
+        citation=_citation(),
+        source_concept=_source(),
+    )
+
+
+def test_d2_shared_citation_predicate_rejects_wrong_pair() -> None:
+    question = _question()
+    assert not citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C2"),
+        question=question,
+        claim=question.claims[0],
+        citation=_citation(),
+        source_concept=_source(),
+    )
+
+
+def test_d3_shared_citation_predicate_rejects_restricted_source() -> None:
+    question = _question()
+    assert not citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
+        citation=_citation(status="access-restricted"),
+        source_concept=_source(),
+    )
+
+
+def test_d4_shared_citation_predicate_rejects_contradiction() -> None:
+    question = _question()
+    assert not citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=question.claims[0],
+        citation=_citation(does_not="Does not support spindle cells."),
+        source_concept=_source(),
+    )
+
+
+def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
+    claim = _claim().model_copy(
+        update={
+            "supported_claim": "The lesion contains spindle cells and is metastatic.",
+            "evidence_signature": LiteratureEvidenceSignature(
+                required_source_features=("spindle cells", "metastatic"),
+                passage_scope="exclusive",
+            ),
+        }
+    )
+    question = _question(claim)
+    assert not citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C1"),
+        question=question,
+        claim=claim,
+        citation=_citation(),
+        source_concept=_source(),
+    )
+
+
+def test_d4b_shared_citation_predicate_rejects_wrong_pair_with_same_citation() -> None:
+    question = _question()
+    assert not citation_supports_pair(
+        target=LiteraturePairKey(axis="op:CellType", filler="C2"),
+        question=question,
+        claim=question.claims[0],
+        citation=_citation(),
+        source_concept=_source(),
+    )
+
+
+def test_d5_empty_partition_mode_is_not_in_the_response_contract() -> None:
+    with pytest.raises(ValidationError, match="CUSTOM-CURRENT-MODEL"):
+        PartitionDisposition.model_validate(
+            {"mode": "EMPTY", "groups": (), "rationale": "Wrong."}
+        )
+
+
+def test_d6_custom_partition_requires_an_exact_nonempty_cover() -> None:
+    with pytest.raises(ValidationError, match="groups"):
+        PartitionDisposition(
+            mode="CUSTOM-CURRENT-MODEL", groups=(), rationale="Missing."
+        )
+
+
+def test_d7_attestation_roles_are_distinct_even_for_same_person() -> None:
+    clinical = _attestation("clinical")
+    ontology = _attestation("ontology")
+    assert clinical.attester_name == ontology.attester_name
+    assert clinical.role != ontology.role
+
+
+def test_d8_ai_role_name_cannot_attest() -> None:
+    with pytest.raises(ValidationError, match="human"):
+        _attestation("ontology").model_copy(
+            update={"attester_name": "AI agent"}
+        ).model_validate(
+            _attestation("ontology")
+            .model_copy(update={"attester_name": "AI agent"})
+            .model_dump()
+        )
+
+
+def test_d9_unknown_scope_product_fails_instead_of_defaulting() -> None:
+    with pytest.raises(ValidationError):
+        PairScopeInput.model_validate(
+            {**_scope().model_dump(), "diagnostic_classification": "mystery"}
+        )
+
+
+def test_d10_pair_action_and_partition_are_not_interchangeable() -> None:
+    with pytest.raises(ValidationError):
+        PairDisposition.model_validate(
+            {
+                "pair_id": "P1",
+                "action": "GROUP-SPECIFIED-PAIRS-TOGETHER",
+                "rationale": "Wrong layer.",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "text", "finding"),
+    [
+        (
+            "source_fact",
+            "The category is defined through mixed dysplasia, not through this "
+            "morphology.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "source_fact",
+            "The observation is characteristic but not universal.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "source_fact",
+            "The pair should be promoted.",
+            "answer cue in source_fact: pre-answered ontology action",
+        ),
+        (
+            "question",
+            "Should this pair be retained?",
+            "answer cue in question: requested ontology action instead of human "
+            "applicability",
+        ),
+        (
+            "source_fact",
+            "The finding is CLASSIFICATION-DEPENDENT.",
+            "answer cue in source_fact: pre-answered clinical status",
+        ),
+        (
+            "factual_context",
+            "The finding is universal and defining.",
+            "answer cue in factual_context: pre-answered clinical status",
+        ),
+        (
+            "question",
+            "Is this finding not universal?",
+            "answer cue in question: pre-answered clinical status",
+        ),
+    ],
+)
+def test_semantic_answer_cue_gate_rejects_structured_conclusion_classes(
+    field: str, text: str, finding: str
+) -> None:
+    assert semantic_answer_cue_findings((("C999", field, text),)) == (
+        f"C999 {finding} [{text}]",
+    )
+
+
+def test_answer_cue_gate_accepts_neutral_observations_and_questions() -> None:
+    records = (
+        (
+            "C27262",
+            "source_fact",
+            "The review places MDS/MPN within myeloid neoplasms and describes mixed "
+            "dysplastic and proliferative features.",
+        ),
+        (
+            "C27262",
+            "question",
+            "How broadly is this morphology clinically applicable across the named "
+            "entities?",
+        ),
+    )
+    assert semantic_answer_cue_findings(records) == ()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "UNIVERSAL-DEFINING",
+        "UNIVERSAL-NONDEFINING",
+        "CHARACTERISTIC-NONUNIVERSAL",
+        "CLASSIFICATION-DEPENDENT",
+        "INAPPLICABLE",
+        "UNRESOLVED",
+    ],
+)
+def test_answer_cue_gate_is_live_for_every_allowed_status(status: str) -> None:
+    assert semantic_answer_cue_findings(
+        (("C999", "source_fact", f"Observed conclusion: {status}."),)
+    )

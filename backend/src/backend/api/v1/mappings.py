@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from backend.api.v1.alignment import mapping_relative_to
 from backend.config import get_settings
@@ -11,6 +11,7 @@ from backend.dependencies import RepositoryMetadataReads, XrefReads
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
     IcdoReadIdentity,
@@ -51,7 +52,7 @@ def _is_licensed(endpoint: EndpointIdentity) -> bool:
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
 
 
-class TranslateRequest(BaseModel):
+class TranslateRequest(StrictBoundaryModel):
     """A code to translate through the mapping layer.
 
     ``code`` is an NCIt code (``C12400``) or an upstream CURIE
@@ -61,7 +62,7 @@ class TranslateRequest(BaseModel):
     code: str = Field(min_length=1)
 
 
-class TranslateConcept(BaseModel):
+class TranslateConcept(StrictBoundaryModel):
     """The target concept in a translate result entry."""
 
     code: str
@@ -69,7 +70,7 @@ class TranslateConcept(BaseModel):
     version: str | None = None
 
 
-class TranslateEntry(BaseModel):
+class TranslateEntry(StrictBoundaryModel):
     """One translate result — the equivalence and target concept."""
 
     equivalence: str
@@ -77,7 +78,7 @@ class TranslateEntry(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-class TranslateResponse(BaseModel):
+class TranslateResponse(StrictBoundaryModel):
     """Result of a ``$translate`` lookup."""
 
     result: list[TranslateEntry]

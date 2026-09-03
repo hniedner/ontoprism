@@ -3,7 +3,6 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
-from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
@@ -14,6 +13,7 @@ from backend.dependencies import (
     XrefReads,
 )
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.xref.models import (
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/v1/uberon", tags=["uberon"])
 logger = get_logger(__name__)
 
 
-class NcitAlignment(BaseModel):
+class NcitAlignment(StrictBoundaryModel):
     code: str
     system: Literal["ncit"] = "ncit"
     version: str
@@ -43,7 +43,7 @@ class NcitAlignment(BaseModel):
     lifecycle: MappingLifecycle
 
 
-class UberonAlignments(BaseModel):
+class UberonAlignments(StrictBoundaryModel):
     code: str
     repository_source_identity: str
     repository_serving_identity: str

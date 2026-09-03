@@ -8,13 +8,13 @@ import json
 import os
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 SCHEMA = "https://opencode.ai/config.json"
-PLUGIN = "@razroo/opencode-model-fallback@0.3.2"
 GPT = "github-copilot/gpt-5.6-sol"
 CLAUDE = "github-copilot/claude-opus-5"
 ROLES: dict[str, tuple[str, str, str, str]] = {
@@ -64,11 +64,11 @@ REVIEWERS = {
     "pr-comment-analyzer",
     "pr-type-design-analyzer",
 }
+SPECIALIST_ROLES = set(AUTO_SUBAGENTS) - {"implementer"}
 TRACKED_PROCESS = (
     "opencode.json",
     "AGENTS.md",
     ".gitignore",
-    ".opencode/opencode-model-fallback.jsonc",
     ".opencode/agent",
     ".opencode/command",
 )
@@ -102,7 +102,14 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "pre-commit run --all-files",
     "agent-test *",
     "agent-git *",
+    "agent-replay *",
 )
+GITHUB_READ_WRAPPER = "pdm run agent-github-read *"
+GITHUB_MUTATION_WRAPPER = "pdm run agent-github *"
+SAFE_AGENT_TEST_WRAPPER = "pdm run agent-test *"
+MUTATING_AGENT_TEST_DENY = "pdm run agent-test --safe-integration *"
+ISSUE_DELETE_DENY = "pdm run agent-github issue-de" + "lete *"
+MILESTONE_DELETE_DENY = "pdm run agent-github milestone-de" + "lete *"
 IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run test:coverage",
     "npm --prefix frontend run test:unit -- --run",
@@ -120,12 +127,31 @@ FIXED_GIT_INSPECTION = (
     "git log --oneline -10",
     "git show --stat --oneline HEAD",
 )
+SAFE_WORKTREE_DIFF = (
+    "git diff --no-ext-diff",
+    "git diff --check",
+    "git diff --no-index /dev/null *",
+)
+GH_PR_VIEW = (
+    "gh pr view * --json "
+    "title,baseRefName,headRefName,headRefOid,mergeStateStatus,statusCheckRollup"
+)
+GH_MAIN_CI_RUNS = (
+    "gh run list --workflow ci.yml --branch main --event push --json "
+    "databaseId,headSha,status,conclusion,createdAt"
+)
+GH_PR_TITLE_RUNS = (
+    "gh run list --workflow pr-title.yml --branch * --event pull_request --json "
+    "displayTitle,headSha,status,conclusion,createdAt"
+)
+GH_RUN_WATCH = "gh run watch * --exit-status"
 IMPLEMENTER_BASH_ALLOWS = (
     *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
     *IMPLEMENTER_NPM_COMMANDS,
     "git status --porcelain",
     "git status --short --branch",
     "git rev-parse HEAD",
+    *SAFE_WORKTREE_DIFF,
     "git diff --no-ext-diff main...HEAD",
     "git diff --check main...HEAD",
     "git diff --cached --check",
@@ -141,18 +167,72 @@ ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
+    GITHUB_READ_WRAPPER,
+    GITHUB_MUTATION_WRAPPER,
+    GH_PR_VIEW,
+    GH_MAIN_CI_RUNS,
+    GH_PR_TITLE_RUNS,
+    GH_RUN_WATCH,
+    "gh pr merge * --squash --delete-branch --subject *",
+)
+ORCHESTRATOR_MERGE_DENIES = tuple(
+    f"gh pr merge *{suffix}*" for suffix in ("--admin", "--auto", "--queue", "--bypass")
+)
+ORCHESTRATOR_BASH_ALLOWS += (
+    *SAFE_WORKTREE_DIFF,
+    "pdm run agent-test *",
+    "pdm run lint",
 )
 READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION
+SPECIALIST_BASH_ALLOWS = (
+    *FIXED_GIT_INSPECTION,
+    GITHUB_READ_WRAPPER,
+    SAFE_AGENT_TEST_WRAPPER,
+)
 R3_BASH_ALLOWS = (
     "cp *",
     "git status --porcelain",
     "git status --short --branch",
     "git rev-parse HEAD",
+    "git diff --no-ext-diff main...HEAD",
+    "git diff --name-only main...HEAD",
     "pdm run agent-test *",
+    GITHUB_READ_WRAPPER,
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
 ASK_ACTION = "a" + "sk"
+WRITER_HARD_DENIES = (
+    "pdm install*",
+    "pip install*",
+    "npm install*",
+    "npm ci*",
+    "rm",
+    "rm *",
+    "rmdir *",
+    "unlink *",
+    "cp *",
+    "mv *",
+    "mkdir *",
+    "touch *",
+    "env",
+    "env *",
+    "printenv*",
+    "cat *",
+    "base64 *",
+    "openssl *",
+    "curl *",
+    "python *",
+    "python3 *",
+    "node *",
+    "sh *",
+    "bash *",
+    "zsh *",
+    "opencode *",
+    "* /U?ers/*",
+    "* /var/*",
+    "* /tmp/*",
+)
 
 
 class StrictTraversalError(OSError):
@@ -323,6 +403,8 @@ def approved_bash_allows(role: str) -> tuple[str, ...]:
         return ORCHESTRATOR_BASH_ALLOWS
     if role == "pr-test-analyzer":
         return R3_BASH_ALLOWS
+    if role in SPECIALIST_ROLES:
+        return SPECIALIST_BASH_ALLOWS
     return READ_ONLY_BASH_ALLOWS
 
 
@@ -331,10 +413,11 @@ def bash_allow_contract_errors(role: str, metadata: dict[str, Any]) -> list[str]
     if not isinstance(bash, dict):
         return []
     expected = approved_bash_allows(role)
+    permitted_asks = {"*"} if role in {"ontoprism-team", "implementer"} else set()
     errors = [
         f"{role} has forbidden bash {ASK_ACTION} {pattern}"
         for pattern, action in bash.items()
-        if action == ASK_ACTION
+        if action == ASK_ACTION and pattern not in permitted_asks
     ]
     actual = tuple(pattern for pattern, action in bash.items() if action == "allow")
     errors.extend(
@@ -422,26 +505,53 @@ def validate_root(validation: Validation) -> dict[str, Any]:
         )
     if config.get("default_agent") != "ontoprism-team":
         validation.error("DEFAULT_AGENT", "default_agent must be ontoprism-team")
-    if config.get("plugin") != [PLUGIN]:
-        validation.error(
-            "ROOT_CONFIG", "plugin list must contain only the pinned fallback plugin"
-        )
-    agent = config.get("agent")
-    implementer = agent.get("implementer") if isinstance(agent, dict) else None
-    expected = ["github-copilot/gpt-5.6-sol"]
-    if (
-        not isinstance(implementer, dict)
-        or implementer.get("fallback_models") != expected
-    ):
-        validation.error(
-            "IMPLEMENTER_FALLBACK", f"implementer fallback_models must equal {expected}"
-        )
+    if "plugin" in config:
+        validation.error("ROOT_CONFIG", "external plugins are forbidden")
+    if "agent" in config:
+        validation.error("ROOT_CONFIG", "root agent overrides are forbidden")
     serialized = json.dumps(config)
     if "amazon-bedrock/" in serialized:
         validation.error(
             "IMPLEMENTER_FALLBACK", "automatic root routes must not contain Bedrock"
         )
     return config
+
+
+def validate_removed_plugin_files(validation: Validation) -> None:
+    for relative in (
+        ".opencode/opencode-model-fallback.jsonc",
+        ".opencode/opencode-model-fallback.json",
+    ):
+        if (validation.root / relative).exists():
+            validation.error("FILES", f"stale {relative} must be absent")
+
+
+def validate_github_wrappers(validation: Validation) -> None:
+    wrapper = validation.require_file("scripts/validation/run_agent_github.py")
+    if wrapper is None:
+        validation.error(
+            "GITHUB_WRAPPER",
+            "required file missing: scripts/validation/run_agent_github.py",
+        )
+    pyproject = validation.require_file("pyproject.toml")
+    if pyproject is None:
+        validation.error("GITHUB_WRAPPER", "required file missing: pyproject.toml")
+        return
+    try:
+        parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        scripts = parsed["tool"]["pdm"]["scripts"]
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError):
+        validation.error("GITHUB_WRAPPER", "cannot read PDM script configuration")
+        return
+    expected = {
+        "agent-github": "python scripts/validation/run_agent_github.py",
+        "agent-github-read": (
+            "python scripts/validation/run_agent_github.py --read-only"
+        ),
+    }
+    for name, command in expected.items():
+        if not isinstance(scripts, dict) or scripts.get(name) != command:
+            validation.error("GITHUB_WRAPPER", f"{name} script is not exact")
 
 
 def validate_tool_permissions(
@@ -502,6 +612,7 @@ def validate_shell_metacharacter_denies(
         if (
             action == "allow"
             and "*" in pattern
+            and pattern != "git diff --no-index /dev/null *"
             and pattern.startswith(
                 ("git diff", "git log", "git show", "git status", "git rev-parse")
             )
@@ -681,6 +792,43 @@ def require_terms(
         )
 
 
+def validate_full_store_timeout_contract(
+    validation: Validation, label: str, text: str
+) -> None:
+    normalized = re.sub(r"\s+", " ", text).lower()
+    required = (
+        "pdm run agent-replay podman-test-full-store",
+        "bash tool",
+        "tool call's timeout",
+        "3600000 milliseconds",
+        "first attempt",
+        "internal timeout",
+        "outer tool timeout",
+        "never start",
+        "default",
+        "shorter",
+        "retry",
+    )
+    missing = [term for term in required if term not in normalized]
+    if missing:
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} missing required semantics: {', '.join(missing)}",
+        )
+    if "1200000" in normalized:
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} contains a stale incorrect outer timeout",
+        )
+    if re.search(
+        r"pdm run agent-replay podman-test-full-store\s+--?timeout\b", normalized
+    ):
+        validation.error(
+            "FULL_STORE_TIMEOUT",
+            f"{label} must not encode the outer timeout as a shell flag",
+        )
+
+
 def validate_standard_permissions(
     validation: Validation, roles: dict[str, tuple[dict[str, Any], str]]
 ) -> None:
@@ -691,6 +839,7 @@ def validate_standard_permissions(
         **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
         **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
         **dict.fromkeys(LINE_BREAK_DENIES, "deny"),
+        **dict.fromkeys(WRITER_HARD_DENIES, "deny"),
     }
     implementer_required |= {
         "git diff --cached --check": "allow",
@@ -733,7 +882,7 @@ def validate_standard_permissions(
         "implementer",
         implementer[0],
         implementer_required,
-        catch_all="deny",
+        catch_all=ASK_ACTION,
     )
     require_bash_rules(
         validation,
@@ -743,6 +892,14 @@ def validate_standard_permissions(
             **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
             "pdm run validate-opencode-config": "allow",
             "pdm run validate-opencode-runtime": "allow",
+            GITHUB_READ_WRAPPER: "allow",
+            GITHUB_MUTATION_WRAPPER: "allow",
+            ISSUE_DELETE_DENY: "deny",
+            MILESTONE_DELETE_DENY: "deny",
+            GH_PR_VIEW: "allow",
+            GH_MAIN_CI_RUNS: "allow",
+            GH_PR_TITLE_RUNS: "allow",
+            GH_RUN_WATCH: "allow",
             "git reset": "deny",
             "git reset *": "deny",
             "git clean": "deny",
@@ -751,20 +908,36 @@ def validate_standard_permissions(
             "git push *": "deny",
             "gh pr create": "deny",
             "gh pr create*": "deny",
-            "gh pr merge": "deny",
-            "gh pr merge*": "deny",
+            "gh pr merge * --squash --delete-branch --subject *": "allow",
+            **dict.fromkeys(ORCHESTRATOR_MERGE_DENIES, "deny"),
             "npm publish": "deny",
             "npm publish*": "deny",
             "pdm publish": "deny",
             "pdm publish*": "deny",
+            **dict.fromkeys(WRITER_HARD_DENIES, "deny"),
         },
-        catch_all="deny",
+        catch_all=ASK_ACTION,
     )
-    read_only_roles = set(ROLES) - {
-        "ontoprism-team",
-        "implementer",
-        "pr-test-analyzer",
-    }
+    orchestrator_bash = permission_action(
+        roles.get("ontoprism-team", ({}, ""))[0], "bash"
+    )
+    if isinstance(orchestrator_bash, dict):
+        merge_rules = list(orchestrator_bash)
+        for pattern in ("gh pr merge", "gh pr merge *"):
+            if orchestrator_bash.get(pattern) != "deny":
+                validation.error(
+                    "ROLE_PERMISSION",
+                    f"ontoprism-team bash rule {pattern} must be deny",
+                )
+            elif merge_rules.index(pattern) > merge_rules.index(
+                "gh pr merge * --squash --delete-branch --subject *"
+            ):
+                validation.error(
+                    "ROLE_PERMISSION",
+                    "ontoprism-team broad merge deny "
+                    f"{pattern} must precede exact allow",
+                )
+    read_only_roles = SPECIALIST_ROLES - {"pr-test-analyzer"}
     for role in read_only_roles:
         require_bash_rules(
             validation,
@@ -772,6 +945,11 @@ def validate_standard_permissions(
             roles.get(role, ({}, ""))[0],
             {
                 **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
+                GITHUB_READ_WRAPPER: "allow",
+                SAFE_AGENT_TEST_WRAPPER: "allow",
+                MUTATING_AGENT_TEST_DENY: "deny",
+                GITHUB_MUTATION_WRAPPER: "deny",
+                "pdm run pytest *": "deny",
                 "git reset *": "deny",
                 "git clean *": "deny",
                 "git push *": "deny",
@@ -847,7 +1025,10 @@ def validate_r3_contract(
         "git status --porcelain",
         "git status --short --branch",
         "git rev-parse HEAD",
+        "git diff --no-ext-diff main...HEAD",
+        "git diff --name-only main...HEAD",
         "pdm run agent-test *",
+        GITHUB_READ_WRAPPER,
     ):
         if bash.get(pattern) != "allow":
             validation.error("R3_PERMISSION", f"R3 must allow {pattern}")
@@ -869,12 +1050,15 @@ def validate_role_contracts(
             "manual user action",
             "report the ready state to the user",
             "never `gh pr merge`",
+            "Never invoke raw `pdm run pytest`",
+            "pdm run agent-test --full-store <node> -v",
         ),
     )
     if "fallback_models" in implementer[0]:
-        validation.error(
-            "IMPLEMENTER_FALLBACK", "fallback_models belongs only in root opencode.json"
-        )
+        validation.error("IMPLEMENTER_FALLBACK", "fallback_models must be absent")
+    validate_full_store_timeout_contract(
+        validation, "implementer prompt", implementer[1]
+    )
 
     orchestrator = roles.get("ontoprism-team", ({}, ""))[1]
     require_terms(
@@ -887,14 +1071,31 @@ def validate_role_contracts(
             "milestone task",
             "semantic",
             "pdm run verify",
-            "git merge --no-ff",
+            "pdm run agent-git merge-no-ff <branch>",
             "R3",
             "runs alone",
             "reduced",
-            "never `gh pr merge`",
-            "human merges",
-            "manual user actions",
+            "explicitly authorizes that exact PR number",
+            "current conversation",
+            "every hard merge check",
+            "monitor every triggered post-merge workflow",
+            "missing or cancelled",
+            "exactly one event-driven reconciliation",
+            "git status --porcelain",
+            "git rev-parse HEAD",
+            "git log --oneline -10",
+            "never infer from silence",
+            "never duplicate an unresolved writer",
+            "polling loops",
+            "Never invoke raw `pdm run pytest`",
+            "pdm run agent-test --full-store <node> -v",
+            "pdm run agent-github",
+            "never de" + "lete an issue or milestone",
+            "silently rewrite unrelated issues",
         ),
+    )
+    validate_full_store_timeout_contract(
+        validation, "ontoprism-team prompt", orchestrator
     )
     validate_standard_permissions(validation, roles)
     for reserve in RESERVES:
@@ -927,54 +1128,6 @@ def validate_role_contracts(
     validate_r3_contract(validation, r3_metadata, r3_body)
 
 
-def validate_plugin(validation: Validation) -> dict[str, Any]:
-    path = validation.require_file(".opencode/opencode-model-fallback.jsonc")
-    shadow = validation.root / ".opencode" / "opencode-model-fallback.json"
-    if shadow.exists():
-        validation.error(
-            "PLUGIN_SHADOW",
-            "JSON shadow file must be absent because plugin 0.3.2 reads it first",
-        )
-    if path is None:
-        return {}
-    config = load_json(path, validation, "PLUGIN_CONFIG")
-    if config is None:
-        return {}
-    expected = {
-        "enabled": True,
-        "fallback_models": [],
-        "max_fallback_attempts": 1,
-        "cooldown_seconds": 21600,
-        "timeout_seconds": 0,
-        "notify_on_fallback": True,
-    }
-    if config != expected:
-        validation.error(
-            "PLUGIN_CONFIG",
-            "plugin config must equal the repository-required explicit settings",
-        )
-    if config.get("fallback_models") != []:
-        validation.error(
-            "GLOBAL_FALLBACK", "global fallback_models must be exactly empty"
-        )
-    comment_text = safe_read_text(path, validation, "PLUGIN_CONFIG")
-    if comment_text is None:
-        return config
-    comment = comment_text.lower()
-    if (
-        "explicit per-agent" not in comment
-        or "tracked repository" not in comment
-        or "never places aws" not in comment
-        or "automatic fallback chain" not in comment
-    ):
-        validation.error(
-            "PLUGIN_CONFIG",
-            "plugin comment must limit automation to explicit per-agent fallback "
-            "and scope the repository's exclusion of AWS",
-        )
-    return config
-
-
 def validate_command(validation: Validation) -> None:
     path = validation.require_file(".opencode/command/review-pr.md")
     if path is None:
@@ -1003,13 +1156,23 @@ def validate_command(validation: Validation) -> None:
             "reduced",
             "PRE-PR REVIEW CONVERGED",
             "no push",
-            "no PR",
-            "never `gh pr merge`",
+            "no PR creation or update",
+            "does not establish merge authorization",
+            "explicitly authorize the exact PR number",
             "launches fresh cli processes",
             "quit and restart opencode",
+            "missing or cancelled",
+            "exactly one event-driven reconciliation",
+            "git status --porcelain",
+            "git rev-parse HEAD",
+            "git log --oneline -10",
+            "never infer from silence",
+            "never duplicate an unresolved writer",
+            "polling loops",
             *tuple(sorted(REVIEWERS)),
         ),
     )
+    validate_full_store_timeout_contract(validation, "review-pr command", body)
     if "ready to merge" in body.lower() or "merge-ready" in body.lower():
         validation.error(
             "REVIEW_COMMAND", "review-pr must not make a merge-readiness claim"
@@ -1038,11 +1201,14 @@ def validate_agents_document(validation: Validation) -> None:
             *tuple(sorted(REVIEWERS)),
             "outside the worktree",
             "byte-exact",
-            "human merges",
+            "explicitly authorizes that exact PR number",
+            "current conversation",
             "Only the implementer makes lasting repository code, test, "
             "documentation, fix, or commit edits",
-            "All pushes and PR creation, updates, and mutations are manual "
-            "user actions",
+            "Pushes and PR creation or updates",
+            "remain manual user actions",
+            "pdm run agent-test --full-store <node> -v",
+            "full aggregate remains",
         ),
     )
     require_terms(
@@ -1162,12 +1328,13 @@ def validate_forbidden_content(validation: Validation) -> None:
 def validate(root: Path) -> list[str]:
     validation = Validation(root)
     root_config = validate_root(validation)
+    validate_removed_plugin_files(validation)
+    validate_github_wrappers(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )
     if not validation.read_failures:
         validate_role_contracts(validation, roles)
-    validate_plugin(validation)
     validate_command(validation)
     validate_agents_document(validation)
     validate_gitignore(validation)

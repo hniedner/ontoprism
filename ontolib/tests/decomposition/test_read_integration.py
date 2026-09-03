@@ -45,9 +45,11 @@ ncit:C6135 op:representationStatus "{vocab.LEGACY_PRECOORDINATED}" ;
     op:decomposedOn "2026-07-06" ;
     op:hasConstituent
         [ op:axis ncit:R88 ; op:filler ncit:C27970 ;
-          op:axisSource "role" ; op:mostSpecific false ] ,
+          op:axisSource "role" ; op:sourceRole ncit:R88 ;
+          op:mostSpecific false ] ,
         [ op:axis ncit:R101 ; op:filler ncit:C12400 ;
-          op:axisSource "role" ; op:mostSpecific true ] .
+          op:axisSource "role" ; op:sourceRole ncit:R101 ;
+          op:mostSpecific true ] .
 """.encode()
 
 
@@ -74,7 +76,9 @@ async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
     by_axis = {c.axis: c for c in decomposition.constituents}
     assert set(by_axis) == {"R88", "R101"}
     assert by_axis["R101"].filler == "C12400"
+    assert by_axis["R101"].source_roles == ("R101",)
     assert by_axis["R101"].most_specific is True
+    assert by_axis["R88"].source_roles == ("R88",)
     assert by_axis["R88"].most_specific is False
 
 
@@ -94,7 +98,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 most_specific=True,
                 needs_review=True,
                 group="anatomy-1",
@@ -135,7 +139,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
 
     actual = decomposition_from_rows("C6135", rows)
     assert actual.constituents[0].axis == "op:PrimarySite"
-    assert actual.constituents[0].source_role == "R101"
+    assert actual.constituents[0].source_roles == ("R101",)
     assert actual.constituents[0].group == "anatomy-1"
     assert actual.constituents[0].needs_review is True
     assert actual.constituents[0].source_definition_ids == (fact_id,)

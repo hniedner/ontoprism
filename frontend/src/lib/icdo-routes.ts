@@ -32,6 +32,10 @@ export function ncitDecompositionPath(code: string): string {
 	return `/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`;
 }
 
+export function ncitEnhancedShowcasePath(code: string): string {
+	return `/api/v1/ncit/concepts/${encodeURIComponent(code)}/enhanced-ncit-showcase`;
+}
+
 const ICDO_EXACT_PROTECTED_PATHS = new Set([
 	'/api/v1/icdo/access',
 	'/api/v1/icdo/4.0/topography/congruence',

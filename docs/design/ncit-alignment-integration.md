@@ -7,6 +7,10 @@ NCIt content and terminology alignment · **Author:** Hannes Niedner · **Date:*
 review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 **Decisions introduced here:** **D24–D26** (see [`../DECISIONS.md`](../DECISIONS.md)).
 
+The [shared terminology](../../README.md#terminology) provides a plain-language entry point.
+Because this document specifies ontology alignment, the remainder retains exact terms such as
+axis, filler, genus, semantic type, partonomy, and curated projection.
+
 > **Origin.** This document responds to review feedback (a local input memo) recommending
 > that a next-generation NCIt be built on the OBO Foundry stack (**Uberon** anatomy, **Cell
 > Ontology** cells) plus **SNOMED CT / ICD-O-3** morphology and **Mondo / DO** disease, linked by
@@ -50,16 +54,17 @@ review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 > 2. **NCIt already carries partial ICD-O-3 grounding natively.** `P334` (ICD-O-3_Code) holds
 >    **1,252 assertions across 1,161 concepts, 1,109 distinct codes**; 92.4% validate against the
 >    WHO 3.2 table. It is *not* an orthogonal-morphology subset — 1,134/1,161 share the single
->    semantic type `Neoplastic Process`, and branch `C4741 "Neoplasm by Morphology"` mixes both
+>    semantic type `Neoplastic Process`, and Neoplasm by Morphology (`C4741`) mixes both
 >    forms. But **119 of those concepts carry a site token in their NCIt label while their `P334`
->    code is the site-stripped morphology** (e.g. `C187992 "Thyroid Gland Mixed Medullary and
->    Follicular Carcinoma" → 8346/3 "Mixed medullary-follicular carcinoma"`). NCI curators have
+>    code is the site-stripped morphology** (e.g. Thyroid Gland Mixed Medullary and Follicular
+>    Carcinoma (`C187992`) → 8346/3 "Mixed medullary-follicular carcinoma"). NCI curators have
 >    already performed the fused→orthogonal reduction on those 119; they are worked examples, not
 >    merely annotations.
 > 3. **§5's anatomy grounding is already available and unused.** Of the 22 organ codes in the
 >    decomposition engine's hand-maintained `MORPHOLOGY_TO_ORGAN` table, **20 already carry a
 >    correct `oboInOwl:hasDbXref "NCIT:C…"` from Uberon itself**, in a store that has been running
->    locally. The 2 misses — `C19184 Colon,Rectum` and `C203674 Esophagus and GEJ` — are NCIt
+>    locally. The 2 misses — Colon, Rectum (`C19184`) and Esophagus and Gastroesophageal
+>    Junction (`C203674`) — are NCIt
 >    composite staging sites with no anatomical counterpart, which is the correct
 >    `no-upstream-equivalent` answer. See the D23 current-status note.
 
@@ -495,7 +500,7 @@ fillers remain NCIt; corroborating terminology IDs are provenance/alignment only
 | `op:MetastaticSite` (R102) | **Uberon** | as above | `located_in` | First-class axis per D23. |
 | `op:AssociatedSite` (R100) | **Uberon** | as above | `located_in` | Non-primary/non-metastatic. |
 | `op:CellOrigin` (R104, normal cell) | **Cell Ontology** | CL xref + lexical | `derives_from` | Defining normal-cell-origin axis; probabilistic R112 is excluded from the curated projection. |
-| `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
+| `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. Malignant Neuroendocrine Cell (`C36825`)), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
 | `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; certified NCIt `P334` for ICD-O-3.2 | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent is implemented. Certified ICD-O-3.2/P334 alignment is implemented; licensed SNOMED alignment is not started. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
 | `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; no alignment is asserted here. Axis names per D23. |

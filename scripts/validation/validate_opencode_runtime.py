@@ -25,18 +25,18 @@ if str(ROOT) not in sys.path:
 from scripts.validation.validate_opencode_config import (  # noqa: E402
     ASK_ACTION,
     AUTO_SUBAGENTS,
-    PLUGIN,
+    RESERVES,
     ROLES,
+    SPECIALIST_ROLES,
     Validation,
     bash_allow_contract_errors,
     load_agent,
     load_json,
-    strict_scandir_files,
     validate_local_configs,
 )
 
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
-READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
+READ_ONLY_ROLES = set(ROLES) - {"ontoprism-team", "implementer", "pr-test-analyzer"}
 GOVERNANCE_ENV_PREFIX = "OPENCODE_CONFIG"
 GOVERNANCE_ENV_EXACT = {"OPENCODE_PERMISSION"}
 BUILTIN_AGENT_NAMES = {
@@ -47,6 +47,31 @@ BUILTIN_AGENT_NAMES = {
     "plan",
     "summary",
     "title",
+}
+EXTRA_SAFE_COMMANDS = {
+    "ontoprism-team": (
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null policy.md", "allow"),
+        ("git diff --no-index policy.md /dev/null", "deny"),
+        (
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py",
+            "allow",
+        ),
+        (
+            "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+            "allow",
+        ),
+        ("pdm run lint", "allow"),
+        ("pdm run pytest backend/tests/test_opencode_config_validation.py", "deny"),
+        ("pdm run test-integration-full-store anything", "deny"),
+    ),
+    "implementer": (
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null policy.md", "allow"),
+        ("git diff --no-index policy.md /dev/null", "deny"),
+    ),
 }
 
 
@@ -132,15 +157,6 @@ def validate_permission_contract(
     generated_tool_output_pattern: str | None = None,
 ) -> list[str]:
     project_suffix = resolved[-len(expected) :]
-    if any(
-        isinstance(rule, dict)
-        and rule.get("permission") == "bash"
-        and rule.get("action") == ASK_ACTION
-        for rule in project_suffix
-    ):
-        return [
-            f"resolved project permission suffix contains a bash {ASK_ACTION} action"
-        ]
     if project_suffix == expected:
         return []
     if (
@@ -188,6 +204,118 @@ def configured_model(agent: dict[str, Any]) -> str | None:
     return None
 
 
+def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
+    if name == "ontoprism-team":
+        return (
+            ("git status --porcelain", "allow"),
+            (
+                "gh pr view 123 --json title,baseRefName,headRefName,headRefOid,"
+                "mergeStateStatus,statusCheckRollup",
+                "allow",
+            ),
+            (
+                "gh run list --workflow ci.yml --branch main --event push --json "
+                "databaseId,headSha,status,conclusion,createdAt",
+                "allow",
+            ),
+            (
+                "gh run list --workflow pr-title.yml --branch feat/example --event "
+                "pull_request --json displayTitle,headSha,status,conclusion,createdAt",
+                "allow",
+            ),
+            ("gh run watch 456 --exit-status", "allow"),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject fix:example",
+                "allow",
+            ),
+            ("gh pr merge 123", "deny"),
+            ("gh pr merge 123 --admin", "deny"),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject "
+                "fix:example --admin",
+                "deny",
+            ),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject fix:example --auto",
+                "deny",
+            ),
+            ("touch forbidden", "deny"),
+            ("uname -a", "ask"),
+            ("pdm run agent-github issue-close 4", "allow"),
+            ("pdm run agent-github issue-delete 4", "deny"),
+        )
+    if name in SPECIALIST_ROLES - {"pr-test-analyzer"}:
+        return (
+            ("touch forbidden", "deny"),
+            ("git status --porcelain", "allow"),
+            (
+                "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+                "allow",
+            ),
+            ("pdm run agent-github-read issue-view 4", "allow"),
+            ("pdm run agent-test --safe-integration backend/tests/test_x.py", "deny"),
+            ("pdm run agent-github issue-close 4", "deny"),
+            ("pdm run pytest ontolib/tests/test_x.py", "deny"),
+            ("pdm run test-integration-full-store anything", "deny"),
+        )
+    if name in RESERVES:
+        return (("touch forbidden", "deny"), ("git status --porcelain", "allow"))
+    if name == "pr-test-analyzer":
+        return (
+            ("cp source target", "allow"),
+            ("git status --porcelain", "allow"),
+            ("git diff --no-ext-diff main...HEAD", "allow"),
+            ("git diff --name-only main...HEAD", "allow"),
+            (
+                "pdm run agent-test backend/tests/test_opencode_config_validation.py",
+                "allow",
+            ),
+            ("pdm run agent-github-read issue-view 4", "allow"),
+            ("pdm run agent-test --safe-integration backend/tests/test_x.py", "deny"),
+            ("git commit", "deny"),
+            ("git push --force", "deny"),
+            ("gh pr merge", "deny"),
+            ("touch forbidden", "deny"),
+            ("cp source target\ngh pr merge", "deny"),
+            ("pdm run agent-test backend/tests/test_x.py\r\ngit push", "deny"),
+        )
+    return (
+        ("git commit change", "deny"),
+        ("git commit -m change", "deny"),
+        ("pdm run verify", "allow"),
+        (
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py -q",
+            "allow",
+        ),
+        (
+            "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+            "allow",
+        ),
+        ("pdm run pytest ontolib/tests/test_x.py", "deny"),
+        ("pdm run test-integration-full-store anything", "deny"),
+        ("pdm run lint", "allow"),
+        ("npm --prefix frontend run test:coverage", "allow"),
+        ("git push --force", "deny"),
+        ("gh pr merge", "deny"),
+        ("npm publish", "deny"),
+        ("pdm run gh pr merge", "deny"),
+        ("pdm run git push --force", "deny"),
+        ("pdm run publish", "deny"),
+        ("npm exec gh pr merge", "deny"),
+        ("npm run publish", "deny"),
+        ("npx gh pr merge", "deny"),
+        ("pdm run verify && gh pr merge", "deny"),
+        ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
+        ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-replay decompose-current", "allow"),
+        ("git switch --discard-changes main", "deny"),
+        ("git branch --force feat/x", "deny"),
+        ("git merge --no-ff feat/x", "deny"),
+        ("uname -a", "ask"),
+        ("pdm run agent-github issue-close 4", "deny"),
+    )
+
+
 def validate_agent_permissions(
     name: str, bash_rules: list[dict[str, Any]]
 ) -> list[str]:
@@ -197,73 +325,17 @@ def validate_agent_permissions(
         for rule in bash_rules
         if rule.get("permission") == "bash" and rule.get("pattern") == "*"
     ]
-    expected_catch_all = "deny"
+    expected_catch_all = (
+        ASK_ACTION if name in {"ontoprism-team", "implementer"} else "deny"
+    )
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
-    if name in READ_ONLY_ROLES:
-        for command in ("touch forbidden", "git status --porcelain"):
-            expected = "allow" if command == "git status --porcelain" else "deny"
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
-    elif name == "pr-test-analyzer":
-        for command, expected in (
-            ("cp source target", "allow"),
-            ("git status --porcelain", "allow"),
-            (
-                "pdm run agent-test backend/tests/test_opencode_config_validation.py",
-                "allow",
-            ),
-            ("git commit", "deny"),
-            ("git push --force", "deny"),
-            ("gh pr merge", "deny"),
-            ("touch forbidden", "deny"),
-            ("cp source target\ngh pr merge", "deny"),
-            (
-                "pdm run agent-test backend/tests/test_x.py\r\ngit push",
-                "deny",
-            ),
-        ):
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
-    else:
-        for command, expected in (
-            ("git commit change", "deny"),
-            ("git commit -m change", "deny"),
-            ("pdm run verify", "allow"),
-            (
-                "pdm run agent-test backend/tests/"
-                "test_opencode_config_validation.py -q",
-                "allow",
-            ),
-            ("pdm run lint", "allow"),
-            ("npm --prefix frontend run test:coverage", "allow"),
-            ("git push --force", "deny"),
-            ("gh pr merge", "deny"),
-            ("npm publish", "deny"),
-            ("pdm run gh pr merge", "deny"),
-            ("pdm run git push --force", "deny"),
-            ("pdm run publish", "deny"),
-            ("npm exec gh pr merge", "deny"),
-            ("npm run publish", "deny"),
-            ("npx gh pr merge", "deny"),
-            ("pdm run verify && gh pr merge", "deny"),
-            (
-                "pdm run agent-test backend/tests/test_x.py\ngh pr merge",
-                "deny",
-            ),
-            ("pdm run agent-git switch-new feat/x", "allow"),
-            ("git switch --discard-changes main", "deny"),
-            ("git branch --force feat/x", "deny"),
-            ("git merge --no-ff feat/x", "deny"),
-        ):
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
+    for command, expected in (
+        *expected_agent_commands(name),
+        *EXTRA_SAFE_COMMANDS.get(name, ()),
+    ):
+        if effective_action(bash_rules, command) != expected:
+            errors.append(f"{name} effective action for {command} must be {expected}")
     return errors
 
 
@@ -309,12 +381,11 @@ def validate_implementer_config(agents: object) -> list[str]:
     errors: list[str] = []
     if implementer.get("model") != "openai/gpt-5.6-sol":
         errors.append("resolved implementer model is incorrect")
-    fallback = implementer.get("fallback_models")
+    if "fallback_models" in implementer:
+        errors.append("resolved implementer fallback must be absent")
     options = implementer.get("options")
-    if fallback is None and isinstance(options, dict):
-        fallback = options.get("fallback_models")
-    if fallback != ["github-copilot/gpt-5.6-sol"]:
-        errors.append("resolved implementer fallback is incorrect")
+    if isinstance(options, dict) and "fallback_models" in options:
+        errors.append("resolved implementer fallback option must be absent")
     return errors
 
 
@@ -324,8 +395,8 @@ def validate_resolved_config(
     errors: list[str] = []
     if config.get("default_agent") != "ontoprism-team":
         errors.append("resolved default agent is not ontoprism-team")
-    if config.get("plugin") != [PLUGIN]:
-        errors.append("resolved plugin list is not the pinned repository plugin")
+    if config.get("plugin") not in (None, []):
+        errors.append("resolved external plugin list must be empty")
     command = config.get("command")
     review = command.get("review-pr") if isinstance(command, dict) else None
     if not isinstance(review, dict) or review.get("agent") != "ontoprism-team":
@@ -438,62 +509,6 @@ def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
         mcp_names |= local_mcp
         errors.extend(mcp_errors)
     return mcp_names, errors
-
-
-def read_plugin_evidence(isolated: Path) -> str:
-    """Read plugin evidence strictly without exposing local bytes or paths."""
-    try:
-        paths = strict_scandir_files(isolated, suffix=".log")
-        plugin_source = (
-            isolated
-            / "cache/opencode/packages/@razroo/opencode-model-fallback@0.3.2"
-            / "node_modules/@razroo/opencode-model-fallback/dist/index.js"
-        )
-        if plugin_source.is_file():
-            paths.append(plugin_source)
-    except OSError as exc:
-        raise RuntimeContractError(
-            "Plugin sentinel validation: evidence could not be read"
-        ) from exc
-    evidence = ""
-    for path in paths:
-        try:
-            evidence += path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise RuntimeContractError(
-                "Plugin sentinel validation: evidence produced undecodable output"
-            ) from exc
-        except OSError as exc:
-            raise RuntimeContractError(
-                "Plugin sentinel validation: evidence could not be read"
-            ) from exc
-    return evidence
-
-
-def validate_plugin_sentinel(
-    root: Path, env: dict[str, str], isolated: Path
-) -> str | None:
-    sentinel_env = governance_environment(
-        env,
-        controlled={
-            "OPENCODE_CONFIG_CONTENT": json.dumps(
-                {"agent": {"implementer": {"fallback_models": ["invalid-sentinel"]}}}
-            )
-        },
-    )
-    sentinel = run_command(
-        ["opencode", "debug", "config", "--print-logs", "--log-level", "DEBUG"],
-        cwd=root,
-        env=sentinel_env,
-        operation="Plugin sentinel validation",
-        display_command="opencode debug config",
-    )
-    evidence = sentinel.stdout + sentinel.stderr
-    evidence += read_plugin_evidence(isolated)
-    markers = ("Invalid fallback_models entry", "implementer", "invalid-sentinel")
-    if all(marker in evidence for marker in markers):
-        return None
-    return "fallback plugin did not report the isolated implementer sentinel"
 
 
 def validate_layered_project(
@@ -650,9 +665,6 @@ def validate_runtime(root: Path, project: Path) -> None:
             operation="Startup validation",
             display_command="opencode debug startup",
         )
-        sentinel_error = validate_plugin_sentinel(root, env, isolated)
-        if sentinel_error:
-            errors.append(sentinel_error)
         errors.extend(validate_layered_project(root, project, env, expected_mcp))
 
     if errors:

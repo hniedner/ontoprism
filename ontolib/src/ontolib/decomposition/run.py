@@ -14,9 +14,9 @@ Scope of this orchestrator (documented boundaries, not oversights):
   record later persisted as provenance. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
-  ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
-  non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
-  constituent, and ``detector.detect`` counts it as a decomposable axis.
+  ``stated_queries.resolve_morphology_fillers`` walks every co-equal genus branch to
+  its first non-staging genus, ``filler_selection._append_morphology`` adds each
+  ``op:Morphology`` constituent, and ``detector.detect`` counts the axis once.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through
   a run-scoped staging graph and one transactional update, the file is atomically
@@ -31,10 +31,12 @@ Scope of this orchestrator (documented boundaries, not oversights):
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
@@ -59,6 +61,10 @@ from ontolib.decomposition.branches import (
     branch_spec,
     parse_branch,
 )
+from ontolib.decomposition.collapse_policy import (
+    CollapseVetoPolicy,
+    load_packaged_collapse_veto_policy,
+)
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -79,6 +85,8 @@ from ontolib.decomposition.publication import (
 )
 
 logger = get_logger(__name__)
+
+_PROGRESS_HEARTBEAT_SECONDS = 15.0
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -159,7 +167,6 @@ def _validate_sample_config(config: RunConfig) -> None:
         raise ValueError("sample manifest does not match run hierarchy scope")
 
 
-@dataclass(frozen=True)
 class RunConfig:
     """Configuration for a decomposition run.
 
@@ -169,16 +176,23 @@ class RunConfig:
     equivalence-validation step can prove the complete representation is exact.
     """
 
-    branch: DecompositionBranch
-    out: Path | None = None
-    load_to_store: bool = False
-    emit_equivalence: bool = False
-    resume_from: str | None = None
-    walker_max_depth: int = 5
-    sample_manifest: DecompositionSampleManifest | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "branch", parse_branch(self.branch))
+    def __init__(
+        self,
+        branch: DecompositionBranch | str,
+        out: Path | None = None,
+        load_to_store: bool = False,
+        emit_equivalence: bool = False,
+        resume_from: str | None = None,
+        walker_max_depth: int = 5,
+        sample_manifest: DecompositionSampleManifest | None = None,
+    ) -> None:
+        self.branch = parse_branch(branch)
+        self.out = out
+        self.load_to_store = load_to_store
+        self.emit_equivalence = emit_equivalence
+        self.resume_from = resume_from
+        self.walker_max_depth = walker_max_depth
+        self.sample_manifest = sample_manifest
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -214,7 +228,6 @@ class RunConfig:
         return branch_spec(self.branch).algorithm_version
 
 
-@dataclass
 class RunMetrics:
     """Coverage metrics for a decomposition run (design §10).
 
@@ -259,21 +272,47 @@ class RunMetrics:
     a separate validation step proves exact equivalence from the complete record.
     """
 
-    total_in_scope: int = 0
-    decomposed: int = 0
-    residual: int = 0
-    semantic_excluded: int = 0
-    atomic_noop: int = 0
-    unknown_outcome: int = 0
-    residual_precoordinated_count: int = 0
-    minted_count: int = 0
-    complete_definition_count: int = 0
-    complete_fact_count: int = 0
-    projected_fact_count: int = 0
-    projection_loss_count: int = 0
-    projection_loss_rate: float = 0.0
-    pct_decomposed: float = 0.0
-    roundtrip_fidelity: None = None
+    __hash__ = None  # type: ignore[assignment]
+
+    def __init__(
+        self,
+        *,
+        total_in_scope: int = 0,
+        decomposed: int = 0,
+        residual: int = 0,
+        semantic_excluded: int = 0,
+        atomic_noop: int = 0,
+        unknown_outcome: int = 0,
+        residual_precoordinated_count: int = 0,
+        minted_count: int = 0,
+        complete_definition_count: int = 0,
+        complete_fact_count: int = 0,
+        projected_fact_count: int = 0,
+        projection_loss_count: int = 0,
+        projection_loss_rate: float = 0.0,
+        pct_decomposed: float = 0.0,
+        roundtrip_fidelity: None = None,
+    ) -> None:
+        self.total_in_scope = total_in_scope
+        self.decomposed = decomposed
+        self.residual = residual
+        self.semantic_excluded = semantic_excluded
+        self.atomic_noop = atomic_noop
+        self.unknown_outcome = unknown_outcome
+        self.residual_precoordinated_count = residual_precoordinated_count
+        self.minted_count = minted_count
+        self.complete_definition_count = complete_definition_count
+        self.complete_fact_count = complete_fact_count
+        self.projected_fact_count = projected_fact_count
+        self.projection_loss_count = projection_loss_count
+        self.projection_loss_rate = projection_loss_rate
+        self.pct_decomposed = pct_decomposed
+        self.roundtrip_fidelity = roundtrip_fidelity
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, RunMetrics) and _persisted_metrics(
+            self
+        ) == _persisted_metrics(other)
 
     @property
     def coverage(self) -> float:
@@ -326,7 +365,7 @@ def _require_residual_candidate(decomposition: Decomposition | None) -> None:
 
 def _require_candidate_mint_shape(
     outcome: ConceptOutcome,
-    minted: list[MintedConcept],
+    minted: tuple[MintedConcept, ...],
 ) -> None:
     if outcome != "decomposed" and minted:
         raise ValueError(
@@ -334,15 +373,16 @@ def _require_candidate_mint_shape(
         )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class _CandidateResult:
     decomposition: Decomposition | None
     outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
-    minted: list[MintedConcept] = field(default_factory=list)
+    minted: tuple[MintedConcept, ...] = ()
 
     def __post_init__(self) -> None:
         _require_candidate_outcome_shape(self.decomposition, self.outcome)
+        object.__setattr__(self, "minted", tuple(self.minted))
         _require_candidate_mint_shape(self.outcome, self.minted)
 
 
@@ -367,19 +407,39 @@ async def _detect_concept(
 ) -> tuple[
     detector.DetectionResult,
     list[RoleRestriction],
-    str | None,
+    tuple[str, ...],
     CompleteDefinition,
     tuple[str, ...],
 ]:
     """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
 
-    Returns the ``DetectionResult`` plus the ``roles`` and ``morphology_filler`` the
+    Returns the ``DetectionResult`` plus the ``roles`` and morphology fillers the
     caller reuses, so this same machinery classifies both a decomposition candidate
     (in :func:`_decompose_one`) and, unchanged, each emitted constituent's filler when
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = tuple(
+    semantic_types = await _semantic_types_for_concept(client, code)
+    definition, roles = await stated_queries.read_complete_genus_chain(
+        client.select, code, max_depth=walker_max_depth
+    )
+    morphology_fillers = await stated_queries.resolve_morphology_fillers(
+        client.select, definition, max_depth=walker_max_depth
+    )
+    result = detector.detect(
+        code,
+        semantic_types,
+        roles,
+        has_parent_morphology=bool(morphology_fillers),
+        label=label,
+    )
+    return result, roles, morphology_fillers, definition, semantic_types
+
+
+async def _semantic_types_for_concept(
+    client: SparqlClient, code: str
+) -> tuple[str, ...]:
+    return tuple(
         sorted(
             set(
                 extract.semantic_types_from_rows(
@@ -391,20 +451,6 @@ async def _detect_concept(
             )
         )
     )
-    definition, roles = await stated_queries.read_complete_genus_chain(
-        client.select, code, max_depth=walker_max_depth
-    )
-    morphology_filler = await stated_queries.resolve_morphology_filler(
-        client.select, code, max_depth=walker_max_depth
-    )
-    result = detector.detect(
-        code,
-        semantic_types,
-        roles,
-        has_parent_morphology=morphology_filler is not None,
-        label=label,
-    )
-    return result, roles, morphology_filler, definition, semantic_types
 
 
 def _non_candidate_outcome(
@@ -415,12 +461,49 @@ def _non_candidate_outcome(
     return "semantic-excluded"
 
 
+async def _detect_candidate_or_unknown(
+    code: str,
+    client: DecompositionSparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> (
+    tuple[
+        detector.DetectionResult,
+        list[RoleRestriction],
+        tuple[str, ...],
+        CompleteDefinition,
+        tuple[str, ...],
+    ]
+    | _CandidateResult
+):
+    try:
+        return await _detect_concept(
+            code, client, label=label, walker_max_depth=walker_max_depth
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        return _CandidateResult(
+            decomposition=None,
+            outcome="unknown",
+            semantic_types=await _semantic_types_for_concept(client, code),
+        )
+
+
+def _candidate_filler_codes(
+    roles: list[RoleRestriction], morphology_fillers: tuple[str, ...]
+) -> set[str]:
+    codes = {role.filler_code for role in roles}
+    return codes | set(morphology_fillers)
+
+
 async def _decompose_one(
     code: str,
     client: DecompositionSparqlClient,
     *,
     label: str | None,
     label_lookup: LabelLookup,
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
     walker_max_depth: int = 5,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
@@ -429,21 +512,16 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    (
-        result,
-        roles,
-        morphology_filler,
-        definition,
-        semantic_types,
-    ) = await _detect_concept(
+    detected = await _detect_candidate_or_unknown(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
+    if isinstance(detected, _CandidateResult):
+        return detected
+    result, roles, morphology_fillers, definition, semantic_types = detected
 
     # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
-    filler_codes = {r.filler_code for r in roles}
-    if morphology_filler:
-        filler_codes.add(morphology_filler)
+    filler_codes = _candidate_filler_codes(roles, morphology_fillers)
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(
@@ -482,10 +560,12 @@ async def _decompose_one(
     role_constituents = fs.select_constituents(
         roles,
         extract.make_is_ancestor(ancestor_pairs),
-        parent_morphology=morphology_filler,
+        parent_morphologies=morphology_fillers,
         semantic_type_of=_semantic_type_of,
         is_part_of=lambda part, whole: (part, whole) in part_of,
         concept_code=code,
+        source_identity=source_identity,
+        collapse_policy=collapse_policy,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)
@@ -507,7 +587,7 @@ async def _decompose_one(
         decomposition=decomposition,
         outcome="decomposed" if decomposition.constituents else "residual",
         semantic_types=semantic_types,
-        minted=minted,
+        minted=tuple(minted),
     )
 
 
@@ -554,6 +634,7 @@ async def _precoordinated_fillers(
     get_labels: GetLabels | None,
     *,
     walker_max_depth: int,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> set[str]:
     """The constituent filler codes that are themselves pre-coordinated (D37).
 
@@ -568,41 +649,76 @@ async def _precoordinated_fillers(
         return set()
     labels = await get_labels(fillers) if get_labels is not None else {}
     precoordinated: set[str] = set()
-    for filler in fillers:
-        try:
-            (
-                result,
-                _roles,
-                _morph,
-                _definition,
-                _semantic_types,
-            ) = await _detect_concept(
-                filler,
-                client,
-                label=labels.get(filler),
-                walker_max_depth=walker_max_depth,
-            )
-        except Exception:
-            # Match the main loop's contextual log-then-reraise (this pass is not in
-            # it): a bare traceback from the metric post-pass otherwise names no filler
-            # and no phase. Still fail-fast — re-raise; the metric never swallows a
-            # store error into a quiet 0.
-            logger.exception(
-                "residual-precoordination detection failed for filler_code=%s", filler
-            )
-            raise
-        if result.is_precoordinated:
+    for index, filler in enumerate(fillers):
+        if progress is not None:
+            progress(index, len(fillers), filler)
+        if await _is_precoordinated_filler(
+            filler,
+            client,
+            label=labels.get(filler),
+            walker_max_depth=walker_max_depth,
+        ):
             precoordinated.add(filler)
+        if progress is not None:
+            progress(index + 1, len(fillers), filler)
     return precoordinated
 
 
-@dataclass(frozen=True)
+async def _is_precoordinated_filler(
+    filler: str,
+    client: SparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> bool:
+    try:
+        result, _roles, _morph, _definition, _semantic_types = await _detect_concept(
+            filler,
+            client,
+            label=label,
+            walker_max_depth=walker_max_depth,
+        )
+    except Exception:
+        logger.exception(
+            "residual-precoordination detection failed for filler_code=%s", filler
+        )
+        raise
+    return result.is_precoordinated
+
+
 class _RunSetup:
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        source_snapshot: NcitSourceSnapshot,
+        fingerprint: RunFingerprint,
+        collapse_policy: CollapseVetoPolicy,
+        pending: list[str],
+        labels: dict[str, str],
+    ) -> None:
+        self.run_id = run_id
+        self.source_snapshot = source_snapshot
+        self.fingerprint = fingerprint
+        self.collapse_policy = collapse_policy
+        self.pending = list(pending)
+        self.labels = dict(labels)
+
+
+@dataclass(frozen=True, slots=True)
+class RunProgress:
+    """Observable progress over one exact persisted worklist."""
+
     run_id: str
-    source_snapshot: NcitSourceSnapshot
-    fingerprint: RunFingerprint
-    pending: list[str]
-    labels: dict[str, str]
+    phase: Literal["started", "heartbeat", "completed"]
+    concept_code: str
+    completed: int
+    total: int
+    session_completed: int
+    elapsed_seconds: float
+
+
+ProgressCallback = Callable[[RunProgress], None]
 
 
 async def _fetch_labels(
@@ -633,19 +749,21 @@ async def _require_source_snapshot(
     return snapshot
 
 
-def _resume_identity(
+def build_resume_identity(
     config: RunConfig,
     snapshot: NcitSourceSnapshot,
     *,
     semantic_types: tuple[str, ...],
     total_limit: int | None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> RunResumeIdentity:
     sample_identity = (
         config.sample_manifest.identity if config.sample_manifest is not None else None
     )
     return RunResumeIdentity(
-        schema_version=3 if sample_identity is not None else 2,
+        schema_version=5 if sample_identity is not None else 4,
         source_identity=snapshot.source_identity,
+        collapse_policy_identity=collapse_policy.policy_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -670,6 +788,7 @@ async def _create_fresh_run(
     semantic_types: tuple[str, ...],
     total_limit: int | None,
     worklist: tuple[str, ...] | None = None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> tuple[str, RunFingerprint]:
     run_id = _new_run_id(config.branch)
     codes = (
@@ -683,8 +802,9 @@ async def _create_fresh_run(
         expected=snapshot,
     )
     fingerprint = RunFingerprint(
-        schema_version=3 if config.sample_manifest is not None else 2,
+        schema_version=5 if config.sample_manifest is not None else 4,
         source_identity=snapshot.source_identity,
+        collapse_policy_identity=collapse_policy.policy_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -799,22 +919,24 @@ async def _prepare_run(
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
     total_limit: int | None,
+    snapshot: NcitSourceSnapshot,
+    collapse_policy: CollapseVetoPolicy,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
-    snapshot = await _require_source_snapshot(client, get_source_snapshot)
     semantic_types = config.semantic_types
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if config.resume_from:
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
             run_id,
-            _resume_identity(
+            build_resume_identity(
                 config,
                 snapshot,
                 semantic_types=semantic_types,
                 total_limit=total_limit,
+                collapse_policy=collapse_policy,
             ),
         )
     else:
@@ -827,6 +949,7 @@ async def _prepare_run(
             semantic_types=semantic_types,
             total_limit=total_limit,
             worklist=sample_worklist,
+            collapse_policy=collapse_policy,
         )
     pending, labels = await _load_pending_run_data(
         provenance,
@@ -837,6 +960,7 @@ async def _prepare_run(
         run_id=run_id,
         source_snapshot=snapshot,
         fingerprint=fingerprint,
+        collapse_policy=collapse_policy,
         pending=pending,
         labels=labels,
     )
@@ -860,6 +984,8 @@ async def _process_work_item(
             client,
             label=setup.labels.get(code),
             label_lookup=label_lookup,
+            source_identity=setup.source_snapshot.source_identity,
+            collapse_policy=setup.collapse_policy,
             walker_max_depth=walker_max_depth,
         )
         await provenance.complete_work_item(
@@ -869,7 +995,7 @@ async def _process_work_item(
             decomposition=result.decomposition,
             outcome=result.outcome,
             semantic_types=result.semantic_types,
-            minted=tuple(result.minted),
+            minted=result.minted,
         )
     except BaseException as exc:
         logger.exception(
@@ -893,16 +1019,80 @@ async def _process_pending_work(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     label_lookup: LabelLookup,
+    progress: ProgressCallback | None,
 ) -> None:
-    for code in setup.pending:
-        await _process_work_item(
+    total = len(setup.fingerprint.worklist)
+    initially_complete = total - len(setup.pending)
+    started_at = time.monotonic()
+    for session_index, code in enumerate(setup.pending):
+        _report_progress(
+            progress,
             setup,
-            code,
-            client,
-            provenance,
-            label_lookup=label_lookup,
-            walker_max_depth=config.walker_max_depth,
+            phase="started",
+            code=code,
+            completed=initially_complete + session_index,
+            session_completed=session_index,
+            started_at=started_at,
         )
+        task = asyncio.create_task(
+            _process_work_item(
+                setup,
+                code,
+                client,
+                provenance,
+                label_lookup=label_lookup,
+                walker_max_depth=config.walker_max_depth,
+            )
+        )
+        while not task.done():
+            done, _pending = await asyncio.wait(
+                {task}, timeout=_PROGRESS_HEARTBEAT_SECONDS
+            )
+            if not done:
+                _report_progress(
+                    progress,
+                    setup,
+                    phase="heartbeat",
+                    code=code,
+                    completed=initially_complete + session_index,
+                    session_completed=session_index,
+                    started_at=started_at,
+                )
+        await task
+        _report_progress(
+            progress,
+            setup,
+            phase="completed",
+            code=code,
+            completed=initially_complete + session_index + 1,
+            session_completed=session_index + 1,
+            started_at=started_at,
+        )
+
+
+def _report_progress(
+    callback: ProgressCallback | None,
+    setup: _RunSetup,
+    *,
+    phase: Literal["started", "heartbeat", "completed"],
+    code: str,
+    completed: int,
+    session_completed: int,
+    started_at: float,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        RunProgress(
+            run_id=setup.run_id,
+            phase=phase,
+            concept_code=code,
+            completed=completed,
+            total=len(setup.fingerprint.worklist),
+            session_completed=session_completed,
+            elapsed_seconds=time.monotonic() - started_at,
+        )
+    )
 
 
 async def _reconstructed_metrics(
@@ -912,6 +1102,7 @@ async def _reconstructed_metrics(
     provenance: ProvenanceStore,
     *,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[RunMetrics, list[Decomposition]]:
     """Rebuild metrics cumulatively from the full persisted worklist."""
     decompositions = await provenance.decompositions_for_run(setup.run_id)
@@ -947,6 +1138,7 @@ async def _reconstructed_metrics(
         client,
         get_labels,
         walker_max_depth=config.walker_max_depth,
+        progress=residual_progress,
     )
     metrics.residual_precoordinated_count = _residual_count(
         decompositions, precoordinated_fillers=precoordinated
@@ -1019,9 +1211,24 @@ async def _verify_final_source_snapshot(
 
 
 def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
-    persisted = asdict(metrics)
-    persisted["residual_precoordination"] = metrics.residual_precoordination
-    return persisted
+    return {
+        "total_in_scope": metrics.total_in_scope,
+        "decomposed": metrics.decomposed,
+        "residual": metrics.residual,
+        "semantic_excluded": metrics.semantic_excluded,
+        "atomic_noop": metrics.atomic_noop,
+        "unknown_outcome": metrics.unknown_outcome,
+        "residual_precoordinated_count": metrics.residual_precoordinated_count,
+        "minted_count": metrics.minted_count,
+        "complete_definition_count": metrics.complete_definition_count,
+        "complete_fact_count": metrics.complete_fact_count,
+        "projected_fact_count": metrics.projected_fact_count,
+        "projection_loss_count": metrics.projection_loss_count,
+        "projection_loss_rate": metrics.projection_loss_rate,
+        "pct_decomposed": metrics.pct_decomposed,
+        "roundtrip_fidelity": metrics.roundtrip_fidelity,
+        "residual_precoordination": metrics.residual_precoordination,
+    }
 
 
 async def _publish_or_complete_run(
@@ -1077,6 +1284,7 @@ async def _finish_run(
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> RunMetrics:
     metrics, decompositions = await _reconstructed_metrics(
         setup,
@@ -1084,6 +1292,7 @@ async def _finish_run(
         client,
         provenance,
         get_labels=get_labels,
+        residual_progress=residual_progress,
     )
     publication = _publication_paths(config, setup.run_id)
     await _write_staging_artifact(publication, decompositions, setup)
@@ -1108,6 +1317,44 @@ async def _finish_run(
 def _validate_run_request(config: RunConfig, total_limit: int | None) -> None:
     if config.load_to_store and total_limit is not None:
         raise ValueError("total_limit cannot be combined with load_to_store")
+    if config.sample_manifest is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
+
+
+async def _qualify_collapse_policy(
+    policy: CollapseVetoPolicy,
+    client: DecompositionSparqlClient,
+    *,
+    source_identity: str,
+    walker_max_depth: int,
+) -> None:
+    """Qualify each distinct policy concept once before any run state is written."""
+    occurrences = []
+    for concept_code in sorted({entry.concept_code for entry in policy.entries}):
+        _result, _roles, _morphology, definition, _types = await _detect_concept(
+            concept_code,
+            client,
+            label=None,
+            walker_max_depth=walker_max_depth,
+        )
+        occurrences.extend(definition.occurrences)
+    policy.qualify_live_occurrences(occurrences, source_identity=source_identity)
+
+
+async def _active_collapse_policy(
+    requested: CollapseVetoPolicy | None,
+    client: DecompositionSparqlClient,
+    snapshot: NcitSourceSnapshot,
+    walker_max_depth: int,
+) -> CollapseVetoPolicy:
+    policy = requested or load_packaged_collapse_veto_policy()
+    await _qualify_collapse_policy(
+        policy,
+        client,
+        source_identity=snapshot.source_identity,
+        walker_max_depth=walker_max_depth,
+    )
+    return policy
 
 
 async def run_pipeline(
@@ -1119,6 +1366,9 @@ async def run_pipeline(
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
     total_limit: int | None = None,
+    progress: ProgressCallback | None = None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
+    collapse_policy: CollapseVetoPolicy | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
 
@@ -1132,6 +1382,10 @@ async def run_pipeline(
     cannot publish to the configured graph.
     """
     _validate_run_request(config, total_limit)
+    snapshot = await _require_source_snapshot(client, get_source_snapshot)
+    active_collapse_policy = await _active_collapse_policy(
+        collapse_policy, client, snapshot, config.walker_max_depth
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -1139,6 +1393,8 @@ async def run_pipeline(
         get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
         total_limit=total_limit,
+        snapshot=snapshot,
+        collapse_policy=active_collapse_policy,
     )
 
     try:
@@ -1148,6 +1404,7 @@ async def run_pipeline(
             client,
             provenance,
             label_lookup,
+            progress,
         )
         return await _finish_run(
             setup,
@@ -1156,6 +1413,7 @@ async def run_pipeline(
             provenance,
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
+            residual_progress=residual_progress,
         )
     except (RunPublicationError, PublicationFinalizationError):
         # Retryable failures are already journaled; finalization failures occur after

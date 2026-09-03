@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 from pathlib import Path
+from typing import Never
 
 import pytest
 from scripts.validation.run_agent_test import (
     AgentTestInputError,
     build_pytest_invocation,
-    parse_vitest_execution_count,
     run_agent_test,
 )
 
@@ -157,6 +159,74 @@ def test_direct_mode_forces_nonintegration_marker_filter(owned_test_root: Path) 
     )
 
 
+def test_full_store_mode_builds_fixed_read_only_invocation(
+    owned_test_root: Path,
+) -> None:
+    invocation = build_pytest_invocation(
+        [
+            "--full-store",
+            "ontolib/tests/test_safe.py::test_safe",
+            "backend/tests/test_safe.py",
+            "-v",
+            "-x",
+            "--maxfail=2",
+            "-k",
+            "safe and not missing",
+        ],
+        owned_test_root,
+    )
+
+    assert invocation.arguments == (
+        "pytest",
+        "--require-full-store",
+        "ontolib/tests/test_safe.py::test_safe",
+        "backend/tests/test_safe.py",
+        "-v",
+        "-x",
+        "--maxfail=2",
+        "-k",
+        "safe and not missing",
+        "-m",
+        "integration and full_store",
+    )
+    assert invocation.cwd == owned_test_root.resolve()
+    assert invocation.mode == "full-store"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--full-store"],
+        ["--full-store", "--frontend", "frontend/src/lib/api.test.ts"],
+        ["--full-store", "--safe-integration", "backend/tests/test_safe.py::test_safe"],
+        ["--full-store", "backend/tests/test_safe.py", "--require-full-store"],
+        ["--full-store", "backend/tests/test_safe.py", "-m", "full_build"],
+        ["--full-store", "backend/tests/test_safe.py", "-m", "mutating_integration"],
+        ["--full-store", "backend/tests/test_safe.py", "--rootdir=other"],
+        ["--full-store", "backend/tests/test_safe.py", "-c=other.ini"],
+        ["--full-store", "backend/tests/test_safe.py", "-p=malicious"],
+        ["--full-store", "backend/tests/test_safe.py", "&&", "git", "push"],
+        ["--full-store", "frontend/tests/test_safe.py"],
+        ["--full-store", "backend/tests/missing.py"],
+    ],
+)
+def test_full_store_mode_rejects_unsafe_requests(
+    owned_test_root: Path, arguments: list[str]
+) -> None:
+    with pytest.raises(AgentTestInputError):
+        build_pytest_invocation(arguments, owned_test_root)
+
+
+def test_full_store_mode_requires_a_python_test_path(owned_test_root: Path) -> None:
+    non_python = owned_test_root / "backend/tests/test_data.txt"
+    non_python.write_text("not a Python test")
+
+    with pytest.raises(AgentTestInputError, match="Python test path"):
+        build_pytest_invocation(
+            ["--full-store", "backend/tests/test_data.txt"], owned_test_root
+        )
+
+
 def test_safe_integration_requires_registration_and_uses_fixed_runner(
     complete_test_root: Path,
 ) -> None:
@@ -292,6 +362,8 @@ def test_agent_test_invokes_fixed_command_without_shell(
 
     class Result:
         returncode = 0
+        stdout = None
+        stderr = None
 
     def fake_run(arguments: object, **kwargs: object) -> Result:
         observed["arguments"] = arguments
@@ -324,11 +396,56 @@ def test_agent_test_invokes_fixed_command_without_shell(
     assert os.environ["PYTEST_ADDOPTS"] == "-p malicious"
 
 
+def test_full_store_mode_invokes_fixed_command_without_shell(
+    owned_test_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: dict[str, object] = {}
+
+    class Result:
+        returncode = 0
+        stdout = None
+        stderr = None
+
+    def fake_run(arguments: object, **kwargs: object) -> Result:
+        observed["arguments"] = arguments
+        observed.update(kwargs)
+        return Result()
+
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-m mutating_integration")
+    monkeypatch.setenv("PYTEST_PLUGINS", "malicious")
+
+    assert (
+        run_agent_test(
+            ["--full-store", "ontolib/tests/test_safe.py::test_safe", "-v"],
+            owned_test_root,
+            runner=fake_run,
+        )
+        == 0
+    )
+    assert observed["arguments"] == (
+        "pytest",
+        "--require-full-store",
+        "ontolib/tests/test_safe.py::test_safe",
+        "-v",
+        "-m",
+        "integration and full_store",
+    )
+    assert observed["cwd"] == owned_test_root.resolve()
+    assert observed["shell"] is False
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "PYTEST_ADDOPTS" not in environment
+    assert "PYTEST_PLUGINS" not in environment
+    assert environment["PYTHONNOUSERSITE"] == "1"
+
+
 def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
     complete_test_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class Result:
         returncode = 0
+        stdout = b""
+        stderr = b""
 
     def write_empty_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
         output_argument = next(
@@ -336,7 +453,8 @@ def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
         )
         report_path = Path(output_argument.partition("=")[2])
         report_path.write_text(
-            '{"numPassedTests": 0, "numFailedTests": 0}', encoding="utf-8"
+            '{"numPassedTests": 0, "numFailedTests": 0, "testResults": []}',
+            encoding="utf-8",
         )
         return Result()
 
@@ -353,6 +471,353 @@ def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
     assert captured.out == ""
 
 
+def _frontend_report(
+    *, passed: int, failed_names: list[str], failed: int | None = None
+) -> str:
+    assertions = [
+        {
+            "ancestorTitles": ["showcase"],
+            "fullName": name,
+            "status": "failed",
+            "title": name,
+            "failureMessages": ["raw assertion details must not be emitted"],
+        }
+        for name in failed_names
+    ]
+    return json.dumps(
+        {
+            "numPassedTests": passed,
+            "numFailedTests": len(failed_names) if failed is None else failed,
+            "testResults": [{"assertionResults": assertions}],
+        }
+    )
+
+
+def test_agent_test_accepts_valid_successful_frontend_report_without_output(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    observed: dict[str, object] = {}
+
+    class Result:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    def write_pass_report(arguments: tuple[str, ...], **kwargs: object) -> Result:
+        observed.update(kwargs)
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=1, failed_names=[]), encoding="utf-8"
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_pass_report,
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert observed["stdout"] is subprocess.PIPE
+    assert observed["stderr"] is subprocess.PIPE
+
+
+def test_agent_test_surfaces_stable_failed_frontend_test_names_and_child_status(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Result:
+        returncode = 7
+        stdout = b"raw assertion output must stay hidden"
+        stderr = b"token=assertion-secret"
+
+    def write_failure_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(
+                passed=3,
+                failed_names=[
+                    "showcase renders the failed 404 response",
+                    "showcase keeps the existing decomposition",
+                ],
+            ),
+            encoding="utf-8",
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_failure_report,
+        )
+        == 7
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "frontend tests failed: 2\n"
+        "- showcase keeps the existing decomposition\n"
+        "- showcase renders the failed 404 response\n"
+    )
+    assert "assertion-secret" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("failed_names", "failed", "expected_lines"),
+    [
+        ([], 2, ["- 2 unnamed frontend failures"]),
+        (
+            ["showcase reports the stable assertion"],
+            3,
+            [
+                "- showcase reports the stable assertion",
+                "- 2 unnamed frontend failures",
+            ],
+        ),
+    ],
+)
+def test_agent_test_reports_named_and_unnamed_frontend_failures(
+    complete_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    failed_names: list[str],
+    failed: int,
+    expected_lines: list[str],
+) -> None:
+    class Result:
+        returncode = 1
+        stdout = b"assertion details must stay hidden"
+        stderr = b"password=assertion-secret"
+
+    def write_failure_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(
+                passed=1,
+                failed_names=failed_names,
+                failed=failed,
+            ),
+            encoding="utf-8",
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_failure_report,
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        f"frontend tests failed: {failed}",
+        *expected_lines,
+    ]
+    assert "assertion-secret" not in captured.err
+
+
+def test_agent_test_reports_nonzero_frontend_process_without_failed_tests(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Result:
+        returncode = 7
+        stdout = b"\x1b[31mBuild   crashed\x1b[0m\n"
+        stderr = b"Authorization: Bearer top-secret\nworker stopped"
+
+    def write_pass_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=1, failed_names=[]), encoding="utf-8"
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_pass_report,
+        )
+        == 7
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "frontend test process failed without a failed test\n"
+        "frontend diagnostic:\n"
+        "Build crashed\n"
+        "Authorization=[REDACTED]\n"
+        "worker stopped\n"
+    )
+
+
+def test_agent_test_preserves_nonzero_status_for_zero_test_pretest_crash(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Result:
+        returncode = 7
+        stdout = b""
+        stderr = b"configuration crashed before collection"
+
+    def write_empty_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=0, failed_names=[]), encoding="utf-8"
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_empty_report,
+        )
+        == 7
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "frontend test process failed before tests executed\n"
+        "frontend diagnostic:\n"
+        "configuration crashed before collection\n"
+    )
+
+
+@pytest.mark.parametrize("report", ["missing", "malformed"])
+@pytest.mark.parametrize("child_status", [0, 7])
+def test_agent_test_fails_closed_for_unusable_frontend_report(
+    complete_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    report: str,
+    child_status: int,
+) -> None:
+    class Result:
+        returncode = child_status
+        stdout = b"token=stdout-secret"
+        stderr = b"invalid reporter output"
+
+    def write_unusable_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        if report == "malformed":
+            output = next(
+                item for item in arguments if item.startswith("--outputFile=")
+            )
+            Path(output.partition("=")[2]).write_text("not-json", encoding="utf-8")
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_unusable_report,
+        )
+        == 3
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "frontend test report is invalid\n"
+        "frontend diagnostic:\n"
+        "token=[REDACTED]\n"
+        "invalid reporter output\n"
+    )
+
+
+def test_agent_test_bounds_and_sanitizes_frontend_failure_names(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Result:
+        returncode = 1
+        stdout = b""
+        stderr = b""
+
+    names = [f"test {index:02d} \x1b[31m" + ("x" * 300) for index in range(12)]
+
+    def write_large_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=0, failed_names=list(reversed(names))),
+            encoding="utf-8",
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_large_report,
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    lines = captured.err.splitlines()
+    assert lines[0] == "frontend tests failed: 12"
+    assert len(lines) == 12
+    assert lines[-1] == "- ... 2 more named frontend failures"
+    assert [line[2:9] for line in lines[1:11]] == [
+        f"test {index:02d}" for index in range(10)
+    ]
+    assert all(len(line) <= 162 for line in lines[1:11])
+    assert "\x1b" not in captured.err
+    assert captured.out == ""
+
+
+def test_agent_test_bounds_and_redacts_frontend_diagnostic_tail(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    worktree_path = complete_test_root / "frontend/src/lib/private.ts"
+    long_lines = "".join(
+        f"discard-{index} " + ("x" * 400) + "\n" for index in range(30)
+    )
+
+    class Result:
+        returncode = 9
+
+        def __init__(self, report_path: Path) -> None:
+            self.stdout = (long_lines + f"at {worktree_path}\n").encode()
+            self.stderr = (
+                f"temp report {report_path}\napi_key=abc123 password: hunter2\n"
+                "\x1b[31mfinal\x00 diagnostic\x1b[0m\n"
+            ).encode()
+
+    def write_pass_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=1, failed_names=[]), encoding="utf-8"
+        )
+        return Result(Path(output.partition("=")[2]))
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_pass_report,
+        )
+        == 9
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "frontend test process failed without a failed test\nfrontend diagnostic:\n"
+    )
+    diagnostic = captured.err.partition("frontend diagnostic:\n")[2]
+    assert len(diagnostic) <= 2_000
+    assert len(diagnostic.splitlines()) <= 12
+    assert "abc123" not in diagnostic
+    assert "hunter2" not in diagnostic
+    assert str(complete_test_root) not in diagnostic
+    assert "ontoprism-agent-test-" not in diagnostic
+    assert "\x1b" not in diagnostic
+    assert "\x00" not in diagnostic
+    assert "api_key=[REDACTED] password=[REDACTED]" in diagnostic
+    assert "at <WORKTREE>/frontend/src/lib/private.ts" in diagnostic
+    assert "temp report <TEMP>/vitest-report.json" in diagnostic
+    assert "final diagnostic" in diagnostic
+
+
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [
@@ -367,7 +832,8 @@ def test_agent_test_process_start_failures_are_sanitized(
     failure: OSError,
     expected: str,
 ) -> None:
-    def fail_to_start(_arguments: object, **_kwargs: object) -> object:
+    def fail_to_start(arguments: object, **_kwargs: object) -> Never:
+        del arguments
         raise failure
 
     assert (
@@ -385,8 +851,11 @@ def test_agent_test_process_start_failures_are_sanitized(
 def test_agent_test_propagates_child_nonzero(owned_test_root: Path) -> None:
     class Result:
         returncode = 7
+        stdout = None
+        stderr = None
 
-    def nonzero(_arguments: object, **_kwargs: object) -> Result:
+    def nonzero(arguments: object, **_kwargs: object) -> Result:
+        del arguments
         return Result()
 
     assert (
@@ -396,24 +865,82 @@ def test_agent_test_propagates_child_nonzero(owned_test_root: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "payload",
+    "report",
     [
         "not-json",
         "[]",
         '{"numPassedTests": "one", "numFailedTests": 0}',
         '{"numPassedTests": 0}',
         '{"numPassedTests": -1, "numFailedTests": 1}',
+        '{"numPassedTests": 0, "numFailedTests": 0, "testResults": {}}',
+        (
+            '{"numPassedTests": 1, "numFailedTests": 0, '
+            '"testResults": [{"assertionResults": {}}]}'
+        ),
+        (
+            '{"numPassedTests": 0, "numFailedTests": 1, '
+            '"testResults": [{"assertionResults": '
+            '[{"status": 1, "fullName": "bad"}]}]}'
+        ),
     ],
 )
-def test_vitest_report_parser_rejects_malformed_payload(payload: str) -> None:
-    with pytest.raises(AgentTestInputError, match="frontend test report is invalid"):
-        parse_vitest_execution_count(payload)
+def test_agent_test_rejects_malformed_frontend_report_structure(
+    complete_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    report: str,
+) -> None:
+    class Result:
+        returncode = 1
+        stdout = b""
+        stderr = b""
+
+    def write_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(report, encoding="utf-8")
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_report,
+        )
+        == 3
+    )
+    assert capsys.readouterr().err == "frontend test report is invalid\n"
 
 
-def test_vitest_report_parser_distinguishes_zero_and_executed_tests() -> None:
+@pytest.mark.parametrize(
+    "failed_names",
+    [
+        ["same failure", "same failure"],
+        ["one named failure", "another named failure"],
+    ],
+)
+def test_agent_test_rejects_misleading_frontend_failure_names(
+    complete_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    failed_names: list[str],
+) -> None:
+    class Result:
+        returncode = 1
+        stdout = b""
+        stderr = b""
+
+    def write_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        Path(output.partition("=")[2]).write_text(
+            _frontend_report(passed=0, failed_names=failed_names, failed=1),
+            encoding="utf-8",
+        )
+        return Result()
+
     assert (
-        parse_vitest_execution_count('{"numPassedTests": 0, "numFailedTests": 0}') == 0
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_report,
+        )
+        == 3
     )
-    assert (
-        parse_vitest_execution_count('{"numPassedTests": 2, "numFailedTests": 1}') == 3
-    )
+    assert capsys.readouterr().err == "frontend test report is invalid\n"

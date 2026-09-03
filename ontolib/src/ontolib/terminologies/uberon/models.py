@@ -3,7 +3,9 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 UberonSource = Literal["uberon", "cl"]
 UberonEdgeKind = Literal["subClassOf", "part_of", "other-restriction"]
@@ -40,8 +42,8 @@ def _require_closed_neighborhood(
         raise ValueError("neighborhood edges must have represented endpoints")
 
 
-class _ReadModel(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class _ReadModel(StrictFrozenBoundaryModel):
+    pass
 
 
 class _SourcedConcept(_ReadModel):
@@ -75,11 +77,11 @@ class UberonRelationship(_ReadModel):
 class UberonConceptDetail(_SourcedConcept):
     label: str | None = None
     definition: str | None = None
-    synonyms: list[str] = []
-    xrefs: list[str] = []
-    parents: list[UberonConceptRef] = []
-    children: list[UberonConceptRef] = []
-    relations: list[UberonRelationship] = []
+    synonyms: list[str] = Field(default_factory=list)
+    xrefs: list[str] = Field(default_factory=list)
+    parents: list[UberonConceptRef] = Field(default_factory=list)
+    children: list[UberonConceptRef] = Field(default_factory=list)
+    relations: list[UberonRelationship] = Field(default_factory=list)
     truncated: bool = False
 
 
@@ -93,7 +95,7 @@ class UberonSearchPage(_ReadModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
-    hits: list[UberonSearchHit] = []
+    hits: list[UberonSearchHit] = Field(default_factory=list)
 
 
 class UberonGraphNode(_SourcedConcept):
@@ -119,8 +121,8 @@ class UberonGraphEdge(_ReadModel):
 
 class UberonNeighborhood(_ReadModel):
     center: str
-    nodes: list[UberonGraphNode] = []
-    edges: list[UberonGraphEdge] = []
+    nodes: list[UberonGraphNode] = Field(default_factory=list)
+    edges: list[UberonGraphEdge] = Field(default_factory=list)
     truncated: bool = False
 
     @model_validator(mode="after")

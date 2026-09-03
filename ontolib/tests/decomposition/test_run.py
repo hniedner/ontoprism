@@ -15,6 +15,10 @@ import pytest
 
 from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
+from ontolib.decomposition.complete_definition import (
+    UnsupportedDefinitionConstructorError,
+)
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -376,6 +380,7 @@ def _mock_provenance() -> Any:
         if fingerprint is None:
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
+                collapse_policy_identity="0" * 64,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",
@@ -485,6 +490,7 @@ def _set_resume_worklist(
 ) -> None:
     provenance._test_state["fingerprint"] = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -519,6 +525,7 @@ async def run_pipeline(
         client,
         provenance,
         get_source_snapshot=get_source_snapshot,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
         **kwargs,
     )
 
@@ -654,13 +661,22 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
         # C1), with a non-staging label → morphology_filler resolves to C99
         label_rows=[{"label": "Medullary Carcinoma"}],
     )
-    # Override genus-walk rows so C1's first member is C99 (its genus),
-    # not C1 itself.
-    c1_rows = [
-        {"member": _iri("C99")},
-        _old_role_to_genus_walk_row(_role("R101", "Has_Primary_Site", "C2")),
+    role_row = client._complete_rows["C1"][0]
+    client._complete_rows["C1"] = [
+        {
+            "expression": "_:complete-C1",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "0",
+            "member": _iri("C99"),
+            "role": None,
+            "target": None,
+            "childExpression": None,
+            "nestedExpression": None,
+            "overflow": "false",
+        },
+        {**role_row, "position": "1"},
     ]
-    client._genus_walk["C1"] = c1_rows
     provenance = _mock_provenance()
     config = RunConfig(branch="neoplasm")
     metrics = await run_pipeline(config, client, provenance)
@@ -713,8 +729,7 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
 async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
     """R101 organ fillers normalize to ``op:PrimarySite`` (D20).
 
-    Fillers without a recognized organ semantic type route to
-    ``op:AssociatedRegion`` (D19).
+    Known non-organ fillers route to ``op:AssociatedRegion`` (D19).
     """
     client = _FakeClient(
         pages=[["C1"]],
@@ -729,6 +744,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
         semantic_type_of_rows=[
             {"code": "C12400", "st": "Anatomical Structure"},
             {"code": "C12400", "st": "Body Part, Organ, or Organ Component"},
+            {"code": "C13063", "st": "Anatomical Structure"},
         ],
     )
     provenance = _mock_provenance()
@@ -1307,6 +1323,43 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
 
 
 @pytest.mark.unit
+async def test_precoordinated_fillers_fail_closed_on_unsupported_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
+
+    async def unsupported(*_args: object, **_kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(run_module, "_detect_concept", unsupported)
+
+    with pytest.raises(UnsupportedDefinitionConstructorError) as raised:
+        await _precoordinated_fillers(
+            [_decomp("C1", "C9099")], MagicMock(), None, walker_max_depth=5
+        )
+    assert raised.value is error
+
+
+@pytest.mark.unit
+async def test_precoordinated_fillers_reports_post_pass_progress() -> None:
+    decompositions = [_decomp("C1", "C2", "C3")]
+    events: list[tuple[int, int, str]] = []
+    client = _FakeClient(semantic_types={"C2": [], "C3": []})
+
+    await _precoordinated_fillers(
+        decompositions,
+        client,
+        None,
+        walker_max_depth=5,
+        progress=lambda completed, total, filler: events.append(
+            (completed, total, filler)
+        ),
+    )
+
+    assert events == [(0, 2, "C2"), (1, 2, "C2"), (1, 2, "C3"), (2, 2, "C3")]
+
+
+@pytest.mark.unit
 async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     """SEAM: the metric must be set by a real ``run_pipeline`` call, not only by the
     isolated helpers. Deleting the post-pass wiring in ``run_pipeline`` leaves every
@@ -1460,7 +1513,103 @@ def test_candidate_result_preserves_typed_atomic_no_op() -> None:
     assert result.decomposition is None
     assert result.outcome == "atomic-no-op"
     assert result.semantic_types == ("Neoplastic Process",)
-    assert result.minted == []
+    assert result.minted == ()
+
+
+@pytest.mark.unit
+async def test_unsupported_definition_constructor_reaches_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.select = AsyncMock(return_value=[{"semanticType": "Neoplastic Process"}])
+    monkeypatch.setattr(
+        run_module.stated_queries,
+        "read_complete_genus_chain",
+        AsyncMock(
+            side_effect=UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
+        ),
+    )
+
+    result = await run_module._decompose_one(
+        "C114759",
+        client,
+        label=None,
+        label_lookup=AsyncMock(return_value=None),
+        source_identity="0" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    assert result.outcome == "unknown"
+    assert result.decomposition is None
+    assert result.semantic_types == ("Neoplastic Process",)
+
+
+@pytest.mark.unit
+async def test_pending_work_emits_heartbeat_while_concept_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = run_module._RunSetup(
+        run_id="run-1",
+        source_snapshot=NcitSourceSnapshot(
+            source_identity="a" * 64,
+            ontology_version="26.07d",
+        ),
+        fingerprint=RunFingerprint(
+            source_identity="a" * 64,
+            collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+            branch="neoplasm",
+            scope_root="C3262",
+            scope_version="stated-genus-subclass-v1",
+            semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+            worklist=("C1",),
+            total_limit=None,
+            algorithm_version="decomposition-v3",
+            config_version="nested-definition-v2",
+            walker_max_depth=5,
+            output_mode="file",
+            load_mode="named-graph",
+            emitted_at=datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
+        ),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        pending=["C1"],
+        labels={},
+    )
+    release = asyncio.Event()
+
+    async def blocked(*_args: object, **_kwargs: object) -> None:
+        await release.wait()
+
+    events: list[run_module.RunProgress] = []
+    heartbeat = asyncio.Event()
+
+    def record(event: run_module.RunProgress) -> None:
+        events.append(event)
+        if event.phase == "heartbeat":
+            heartbeat.set()
+
+    monkeypatch.setattr(run_module, "_process_work_item", blocked)
+    monkeypatch.setattr(run_module, "_PROGRESS_HEARTBEAT_SECONDS", 0.001)
+    task = asyncio.create_task(
+        run_module._process_pending_work(
+            setup,
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            MagicMock(),
+            AsyncMock(return_value=None),
+            record,
+        )
+    )
+    await heartbeat.wait()
+    release.set()
+    await task
+
+    assert [event.phase for event in events] == [
+        "started",
+        "heartbeat",
+        "completed",
+    ]
 
 
 @pytest.mark.unit
@@ -1519,6 +1668,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     emitted_at = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1567,8 +1717,9 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 ) -> None:
     sample = _sample_manifest("C2", "C1")
     fingerprint = RunFingerprint(
-        schema_version=3,
+        schema_version=5,
         source_identity="a" * 64,
+        collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1603,7 +1754,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 
     expected = provenance.resume_run.await_args.args[1]
     assert metrics.total_in_scope == 2
-    assert expected.schema_version == 3
+    assert expected.schema_version == 5
     assert expected.sample_manifest_identity == sample.identity
     assert expected.config_version == "nested-definition-v2"
     assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)
@@ -1675,7 +1826,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
                         axis="op:PrimarySite",
                         filler_code="C12345",
                         axis_source="role",
-                        source_role="R101",
+                        source_roles=("R101",),
                     )
                 ],
             )
@@ -1963,7 +2114,7 @@ async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
 
     fingerprint = provenance._test_state["fingerprint"]
     assert metrics.total_in_scope == 2
-    assert fingerprint.schema_version == 3
+    assert fingerprint.schema_version == 5
     assert fingerprint.worklist == ("C2", "C1")
     assert fingerprint.sample_manifest_identity == sample.identity
     assert fingerprint.total_limit is None

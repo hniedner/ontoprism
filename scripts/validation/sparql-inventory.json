@@ -1,7 +1,7 @@
 {
-  "query_shape_count": 418,
-  "query_shapes_sha256": "8a522b53f78c5a3fb786907389457b1024bfad8023007388a8778a6cedf94254",
+  "query_shape_count": 300,
+  "query_shapes_sha256": "e26716aa18751289769059138f0fc6c41e86596a0ae4b4a37223f84974ed2af6",
   "schema_version": 1,
-  "transport_operation_count": 125,
-  "transport_operations_sha256": "f1ccef43b530d63e96e1e3b8e2285c42523ef8cc665fef17690be241cd6af3c2"
+  "transport_operation_count": 151,
+  "transport_operations_sha256": "260961c5f9029b216501f7e5e9c9f56dcdc80b55650d830b4c55d02f567e38c7"
 }

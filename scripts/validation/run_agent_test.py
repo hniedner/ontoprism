@@ -12,7 +12,7 @@ import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Literal, Protocol
 
 SHELL_METACHARACTERS = frozenset("&;|><`$\n\r")
 SAFE_FLAGS = frozenset({"-q", "-v", "-x"})
@@ -23,11 +23,24 @@ OWNED_TEST_ROOTS = (PurePosixPath("backend/tests"), PurePosixPath("ontolib/tests
 FRONTEND_TEST_ROOTS = (PurePosixPath("frontend/src"), PurePosixPath("frontend/tests"))
 FRONTEND_TEST_NAME = re.compile(r".+\.(?:test|spec)\.(?:js|jsx|ts|tsx)$")
 FRONTEND_ARGUMENTS_WITH_NAME = 3
+MAX_FRONTEND_FAILURE_NAMES = 10
+MAX_FRONTEND_FAILURE_NAME_LENGTH = 160
+MAX_FRONTEND_DIAGNOSTIC_BYTES = 16_384
+MAX_FRONTEND_DIAGNOSTIC_CHARS = 1_999
+MAX_FRONTEND_DIAGNOSTIC_LINES = 12
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
+SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(api[_-]?key|authorization|auth|token|password|secret)\b"
+    r"\s*[:=]\s*(?:bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s]+)"
+)
+BEARER_CREDENTIAL = re.compile(r"(?i)\bbearer\s+[^\s]+")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TEST_IDENTIFIER = re.compile(r"test_[A-Za-z0-9_]+")
 NONINTEGRATION_MARKERS = (
     "not integration and not mutating_integration and not full_store"
 )
+FULL_STORE_MARKERS = "integration and full_store"
+type AgentTestMode = Literal["pytest", "frontend", "safe-integration", "full-store"]
 
 
 class AgentTestInputError(ValueError):
@@ -40,7 +53,7 @@ class AgentTestInvocation:
 
     arguments: tuple[str, ...]
     cwd: Path
-    mode: str
+    mode: AgentTestMode
 
 
 @dataclass(frozen=True)
@@ -52,13 +65,50 @@ class SafeIntegrationEntry:
 
 
 class CommandResult(Protocol):
-    returncode: int
+    @property
+    def returncode(self) -> int: ...
+
+    @property
+    def stdout(self) -> bytes | None: ...
+
+    @property
+    def stderr(self) -> bytes | None: ...
 
 
 class CommandRunner(Protocol):
     def __call__(
-        self, arguments: tuple[str, ...], **kwargs: object
+        self,
+        arguments: tuple[str, ...],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        shell: Literal[False],
+        check: Literal[False],
+        stdout: int | None,
+        stderr: int | None,
     ) -> CommandResult: ...
+
+
+def _subprocess_runner(
+    arguments: tuple[str, ...],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    shell: Literal[False],
+    check: Literal[False],
+    stdout: int | None,
+    stderr: int | None,
+) -> subprocess.CompletedProcess[bytes]:
+    # Arguments are the validated fixed test invocation; never shell input.
+    return subprocess.run(  # noqa: S603
+        arguments,
+        cwd=cwd,
+        env=env,
+        shell=shell,
+        check=check,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def _reject_shell_syntax(argument: str) -> None:
@@ -93,7 +143,9 @@ def _resolve_owned_node(
 
 
 def _validate_node(node: str, root: Path) -> None:
-    _resolve_owned_node(node, root, OWNED_TEST_ROOTS)
+    candidate, resolved = _resolve_owned_node(node, root, OWNED_TEST_ROOTS)
+    if candidate.suffix != ".py" or not resolved.is_file():
+        raise AgentTestInputError("test node must name a Python test path")
 
 
 def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
@@ -229,13 +281,7 @@ def _build_safe_integration_invocation(
     )
 
 
-def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
-    """Validate agent arguments and return a permitted subprocess shape."""
-    resolved_root = root.resolve()
-    if arguments[:1] == ["--frontend"]:
-        return _build_frontend_invocation(arguments[1:], resolved_root)
-    if arguments[:1] == ["--safe-integration"]:
-        return _build_safe_integration_invocation(arguments[1:], resolved_root)
+def _validated_pytest_arguments(arguments: list[str], root: Path) -> list[str]:
     validated: list[str] = []
     node_count = 0
     index = 0
@@ -256,12 +302,42 @@ def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvoca
         elif argument.startswith("-"):
             raise AgentTestInputError("unsupported pytest option")
         else:
-            _validate_node(argument, resolved_root)
+            _validate_node(argument, root)
             validated.append(argument)
             node_count += 1
         index += 1
     if node_count == 0:
         raise AgentTestInputError("at least one test node is required")
+    return validated
+
+
+def _build_full_store_invocation(
+    arguments: list[str], root: Path
+) -> AgentTestInvocation:
+    validated = _validated_pytest_arguments(arguments, root)
+    return AgentTestInvocation(
+        (
+            "pytest",
+            "--require-full-store",
+            *validated,
+            "-m",
+            FULL_STORE_MARKERS,
+        ),
+        root,
+        "full-store",
+    )
+
+
+def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
+    """Validate agent arguments and return a permitted subprocess shape."""
+    resolved_root = root.resolve()
+    if arguments[:1] == ["--frontend"]:
+        return _build_frontend_invocation(arguments[1:], resolved_root)
+    if arguments[:1] == ["--safe-integration"]:
+        return _build_safe_integration_invocation(arguments[1:], resolved_root)
+    if arguments[:1] == ["--full-store"]:
+        return _build_full_store_invocation(arguments[1:], resolved_root)
+    validated = _validated_pytest_arguments(arguments, resolved_root)
     return AgentTestInvocation(
         ("pytest", *validated, "-m", NONINTEGRATION_MARKERS),
         resolved_root,
@@ -269,14 +345,17 @@ def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvoca
     )
 
 
-def parse_vitest_execution_count(payload: str) -> int:
-    """Return passed plus failed tests from the fixed Vitest JSON reporter."""
+def _parse_vitest_report(payload: str) -> dict[str, object]:
     try:
         report = json.loads(payload)
     except json.JSONDecodeError as exc:
         raise AgentTestInputError("frontend test report is invalid") from exc
     if not isinstance(report, dict):
         raise AgentTestInputError("frontend test report is invalid")
+    return report
+
+
+def _vitest_counts(report: dict[str, object]) -> tuple[int, int]:
     passed = report.get("numPassedTests")
     failed = report.get("numFailedTests")
     if (
@@ -288,7 +367,158 @@ def parse_vitest_execution_count(payload: str) -> int:
         or failed < 0
     ):
         raise AgentTestInputError("frontend test report is invalid")
-    return passed + failed
+    return passed, failed
+
+
+def _sanitize_failure_name(name: str) -> str:
+    without_ansi = ANSI_ESCAPE.sub("", name)
+    printable = "".join(
+        character if character.isprintable() else " " for character in without_ansi
+    )
+    normalized = " ".join(printable.split())
+    return normalized[:MAX_FRONTEND_FAILURE_NAME_LENGTH]
+
+
+def _vitest_assertions(report: dict[str, object]) -> tuple[dict[object, object], ...]:
+    results = report.get("testResults")
+    if not isinstance(results, list):
+        raise AgentTestInputError("frontend test report is invalid")
+    assertions: list[dict[object, object]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            raise AgentTestInputError("frontend test report is invalid")
+        result_assertions = result.get("assertionResults")
+        if not isinstance(result_assertions, list) or not all(
+            isinstance(assertion, dict) for assertion in result_assertions
+        ):
+            raise AgentTestInputError("frontend test report is invalid")
+        assertions.extend(result_assertions)
+    return tuple(assertions)
+
+
+def _vitest_failure_names(report: dict[str, object], failed: int) -> tuple[str, ...]:
+    names: list[str] = []
+    for assertion in _vitest_assertions(report):
+        status = assertion.get("status")
+        if not isinstance(status, str):
+            raise AgentTestInputError("frontend test report is invalid")
+        if status != "failed":
+            continue
+        full_name = assertion.get("fullName")
+        if not isinstance(full_name, str):
+            raise AgentTestInputError("frontend test report is invalid")
+        sanitized = _sanitize_failure_name(full_name)
+        if not sanitized:
+            raise AgentTestInputError("frontend test report is invalid")
+        names.append(sanitized)
+    if len(names) > failed or len(set(names)) != len(names):
+        raise AgentTestInputError("frontend test report is invalid")
+    return tuple(sorted(names))
+
+
+def _print_vitest_failure_summary(failed: int, names: tuple[str, ...]) -> None:
+    print(f"frontend tests failed: {failed}", file=sys.stderr)
+    shown = names[:MAX_FRONTEND_FAILURE_NAMES]
+    for name in shown:
+        print(f"- {name}", file=sys.stderr)
+    omitted_names = len(names) - len(shown)
+    if omitted_names:
+        print(
+            f"- ... {omitted_names} more named frontend failures",
+            file=sys.stderr,
+        )
+    unnamed = failed - len(names)
+    if unnamed:
+        print(f"- {unnamed} unnamed frontend failures", file=sys.stderr)
+
+
+def _sanitize_diagnostic_stream(stream: bytes | None) -> str:
+    if not stream:
+        return ""
+    return stream[-MAX_FRONTEND_DIAGNOSTIC_BYTES:].decode("utf-8", errors="replace")
+
+
+def _sanitize_frontend_diagnostic(
+    stdout: bytes | None,
+    stderr: bytes | None,
+    *,
+    root: Path,
+    temporary: Path,
+) -> str:
+    text = "\n".join(
+        part
+        for part in (
+            _sanitize_diagnostic_stream(stdout),
+            _sanitize_diagnostic_stream(stderr),
+        )
+        if part
+    )
+    if not text:
+        return ""
+    text = ANSI_ESCAPE.sub("", text)
+    text = "".join(
+        character
+        if character == "\n" or (character.isprintable() and character != "\r")
+        else ""
+        for character in text
+    )
+    text = text.replace(str(root), "<WORKTREE>")
+    text = text.replace(str(temporary), "<TEMP>")
+    text = SECRET_ASSIGNMENT.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        text,
+    )
+    text = BEARER_CREDENTIAL.sub("Bearer [REDACTED]", text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    normalized = "\n".join(line for line in lines if line)
+    bounded_lines = "\n".join(normalized.splitlines()[-MAX_FRONTEND_DIAGNOSTIC_LINES:])
+    return bounded_lines[-MAX_FRONTEND_DIAGNOSTIC_CHARS:]
+
+
+def _print_frontend_diagnostic(diagnostic: str) -> None:
+    if diagnostic:
+        print("frontend diagnostic:", file=sys.stderr)
+        print(diagnostic, file=sys.stderr)
+
+
+def _frontend_result(
+    report_path: Path,
+    child_status: int,
+    *,
+    diagnostic: str,
+) -> int:
+    try:
+        payload = report_path.read_text(encoding="utf-8")
+        report = _parse_vitest_report(payload)
+        passed, failed = _vitest_counts(report)
+        names = _vitest_failure_names(report, failed)
+    except (OSError, UnicodeDecodeError, AgentTestInputError):
+        print("frontend test report is invalid", file=sys.stderr)
+        _print_frontend_diagnostic(diagnostic)
+        return 3
+    if passed + failed == 0:
+        if child_status == 0:
+            print("no frontend test matched the request", file=sys.stderr)
+            return 4
+        print("frontend test process failed before tests executed", file=sys.stderr)
+        _print_frontend_diagnostic(diagnostic)
+        return child_status
+    if failed == 0:
+        if child_status != 0:
+            print(
+                "frontend test process failed without a failed test",
+                file=sys.stderr,
+            )
+            _print_frontend_diagnostic(diagnostic)
+        return child_status
+    if child_status == 0:
+        print(
+            "frontend test report contradicts process status",
+            file=sys.stderr,
+        )
+        return 3
+    _print_vitest_failure_summary(failed, names)
+    return child_status
 
 
 def _controlled_environment() -> dict[str, str]:
@@ -308,9 +538,10 @@ def run_agent_test(
     arguments: list[str],
     root: Path,
     *,
-    runner: CommandRunner = subprocess.run,
+    runner: CommandRunner | None = None,
 ) -> int:
     """Execute a validated pytest command directly, never through a shell."""
+    execute: CommandRunner = runner or _subprocess_runner
     invocation = build_pytest_invocation(arguments, root)
     with tempfile.TemporaryDirectory(prefix="ontoprism-agent-test-") as temporary:
         report_path = Path(temporary) / "vitest-report.json"
@@ -322,12 +553,14 @@ def run_agent_test(
                 f"--outputFile={report_path}",
             )
         try:
-            result = runner(
+            result = execute(
                 command,
                 cwd=invocation.cwd,
                 env=_controlled_environment(),
                 shell=False,
                 check=False,
+                stdout=subprocess.PIPE if invocation.mode == "frontend" else None,
+                stderr=subprocess.PIPE if invocation.mode == "frontend" else None,
             )
         except (FileNotFoundError, PermissionError):
             print("required test executable is unavailable", file=sys.stderr)
@@ -335,18 +568,19 @@ def run_agent_test(
         except OSError:
             print("test process could not start", file=sys.stderr)
             return 3
-        if result.returncode != 0 or invocation.mode != "frontend":
+        if invocation.mode != "frontend":
             return result.returncode
-        try:
-            payload = report_path.read_text(encoding="utf-8")
-            executed = parse_vitest_execution_count(payload)
-        except (OSError, UnicodeDecodeError, AgentTestInputError):
-            print("frontend test report is invalid", file=sys.stderr)
-            return 3
-        if executed == 0:
-            print("no frontend test matched the request", file=sys.stderr)
-            return 4
-        return 0
+        diagnostic = _sanitize_frontend_diagnostic(
+            result.stdout,
+            result.stderr,
+            root=root.resolve(),
+            temporary=Path(temporary),
+        )
+        return _frontend_result(
+            report_path,
+            result.returncode,
+            diagnostic=diagnostic,
+        )
 
 
 def main() -> int:

@@ -5,6 +5,10 @@ Niedner Consulting
 
 *Working manuscript — prepared as design-informing background for the ONTOPRISM project. Version 1.0, July 2026.*
 
+Readers outside ontology engineering can use the [shared terminology](../README.md#terminology)
+for plain-language definitions. This review retains the formal terminology needed to describe
+the literature accurately.
+
 ---
 
 ## Abstract
@@ -160,13 +164,19 @@ This is precisely the failure mode the OBO Relation Ontology was created to prev
 ONTOPRISM's investigation (DECISIONS D16/D17/D19/D20; engine design §6.4–§6.6) surfaced concrete, reproducible instances against the stated OWL:
 
 **(a) `R101` (primary site) conflates literal anatomic site with tumour-lineage classification.**
-For a thyroid neoplasm such as `C6135`, the primary-site axis should resolve to the literal organ (Thyroid Gland). But the same `R101` restriction, `R101 → Endocrine Gland/System`, is inherited from the organ-agnostic tumour-family ancestor `C3010 "Endocrine Neoplasm"` — and that *identical* ancestor anchors the *same* restriction in `C35756`, a **lung** neuroendocrine tumour. One role identifier is therefore doing two jobs: asserting a literal finding site (Thyroid, Lung) *and* asserting a histogenetic/lineage classification (belongs to the endocrine-tumour family). The two senses are genuinely co-equal facts, not one being more specific than the other, so no most-specific rule can separate them.
+For Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (`C6135`), the primary-site axis should resolve to the literal organ, Thyroid Gland (`C12400`). But the same `R101` restriction to Endocrine Gland (`C12704`) or Endocrine System (`C12705`) is inherited from the organ-agnostic tumour-family ancestor Endocrine Neoplasm (`C3010`) — and that *identical* ancestor anchors the *same* restriction in Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`), a **lung** neuroendocrine tumour. One role identifier is therefore doing two jobs: asserting a literal finding site (Thyroid Gland or Lung) *and* asserting a histogenetic/lineage classification (belongs to the endocrine-tumour family). The two senses are genuinely co-equal facts, not one being more specific than the other, so no most-specific rule can separate them.
 
 **(b) `R105` (abnormal cell) shows the same lineage-vs-literal conflation.**
 The neuroendocrine pattern recurs on the abnormal-cell axis: a cell-type filler inherited from a lineage-generic ancestor coexists with the literal cell type, again as two true-but-distinct senses under one role.
 
 **(c) Region-vs-organ ties.**
-On the same primary-site axis, NCIt models an anatomical *region* and the *organ* within it (e.g., *Colorectal Region* vs *Colon*; *Endocardium* vs *Left Atrium*) as siblings that the role does not relate by specificity — a second, structurally different flavour of overload where the relationship silently mixes granularities.
+On the same primary-site axis, NCIt can present unlike anatomical kinds as siblings that the
+role does not relate by specificity. Examples include Colorectal Region versus Colon, and the
+tissue Endocardium (`C13004`) versus the organ chamber Left Atrium (`C12869`). This is a second,
+structurally different form of overload: the relationship silently mixes anatomical kinds and
+granularities. For Left Atrial Myxoma (`C4791`), the reviewed primary site is Left Atrium
+(`C12869`), not Heart (`C12727`); Endocardium is retained separately as both
+`op:AssociatedRegion` and `op:AssociatedSite` according to its source roles.
 
 **(d) Part–whole overloading (the SNOMED precedent).**
 The analogous problem in SNOMED CT is the historical **SEP-triplet** encoding, which simulated *part\_of* transitivity by overloading *is-a*. Suntisrivaraporn, Baader, Schulz and Spackman, and Schulz et al.'s broader "health check" of SNOMED, showed that overloading a subsumption relation to carry part–whole semantics is error-prone and is better replaced by a *directly and univocally defined* part-of relation with explicit logical properties [16]. NCIt's `R82` (*Anatomic\_Structure\_Is\_Physical\_Part\_Of*) is not transitively materialized, which is the same class of problem viewed from the opposite side.

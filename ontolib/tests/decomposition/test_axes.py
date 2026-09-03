@@ -166,5 +166,6 @@ def test_unsupported_filler_exclusion_is_versioned_and_role_specific() -> None:
     assert UNSUPPORTED_FILLER_VERSION == "ncit-26.07d-unsupported-filler-v1"
     assert {
         ("C102870", "R103"): frozenset({"C54105"}),
+        ("C3264", "R103"): frozenset({"C12950"}),
         ("C27787", "R103"): frozenset({"C54105"}),
     } == UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE

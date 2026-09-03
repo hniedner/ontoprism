@@ -314,9 +314,9 @@ async def _rejected_complete_definition_writes(conn: Any) -> dict[str, bool]:
     constituent = (
         "INSERT INTO decomp_constituent "
         "(run_id, concept_code, axis, filler_code, axis_source, most_specific, "
-        "needs_review, source_definition_ids) VALUES "
+        "needs_review, source_roles, source_definition_ids) VALUES "
         "('definition-checks', 'C1', 'op:PrimarySite', 'C12400', 'role', false, "
-        "false, {value}::jsonb)"
+        "false, '[\"R101\"]'::jsonb, {value}::jsonb)"
     )
     fact = (
         "INSERT INTO decomp_definition_fact "
@@ -578,7 +578,7 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_migration_upgrade_downgrade_roundtrip() -> None:
     base_url = get_settings().database_url
     dsn = _asyncpg_dsn(base_url)
@@ -598,7 +598,7 @@ def test_migration_upgrade_downgrade_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))
@@ -642,14 +642,14 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0020_icdo_record_consistency"
+    assert revision == "0022_constituent_source_roles"
     assert legacy_rows == 1
     assert publication_tables == 2
 
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))
@@ -717,7 +717,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     assert {
         "needs_review": "boolean",
         "relationship_group": "text",
-        "source_role": "text",
+        "source_roles": "jsonb",
     }.items() <= facts["constituent_columns"].items()
     constraints = " ".join(facts["constraints"])
     assert "running" in constraints
@@ -736,7 +736,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_complete_definition_migration_roundtrip() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))
@@ -783,7 +783,7 @@ def test_complete_definition_migration_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_nested_definition_group_migration_roundtrip() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))
@@ -820,7 +820,7 @@ def test_nested_definition_group_migration_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_outcome_migration_backfills_unknown_and_rejects_invalid_shape() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))
@@ -1022,7 +1022,7 @@ async def _definition_presence_is_absent(dsn: str) -> bool:
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-@pytest.mark.usefixtures("isolated_postgres_settings")
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
 def test_definition_presence_migration_roundtrip() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
     cfg = Config(str(_REPO_ROOT / "alembic.ini"))

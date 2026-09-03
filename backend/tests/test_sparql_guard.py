@@ -21,6 +21,7 @@ _APP_OPERATIONS = {
     ("GET", "/api/v1/ncit/concepts/{code}/neighborhood"),
     ("GET", "/api/v1/ncit/concepts/{code}/mappings"),
     ("GET", "/api/v1/ncit/concepts/{code}/decomposition"),
+    ("GET", "/api/v1/ncit/concepts/{code}/enhanced-ncit-showcase"),
     ("GET", "/api/v1/uberon/search"),
     ("GET", "/api/v1/uberon/list"),
     ("GET", "/api/v1/uberon/concepts/{code}"),

@@ -108,6 +108,120 @@ This loopback request is an operator check against the QLever service itself. Th
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
 is the typed API (D44).
 
+### Supported local Podman runtime
+
+The supported local workflow runs OntoPrism against the Docker-compatible API of the
+rootless Podman machine named `ontoprism-vm`. Install the currently supported Homebrew
+clients and create that machine manually; this is setup, not an agent operation:
+
+```bash
+/opt/homebrew/bin/brew install podman docker docker-compose
+/opt/homebrew/bin/podman machine init --provider applehv --cpus 8 --memory 32768 --disk-size 120 --now --update-connection ontoprism-vm
+```
+
+The supported Compose provider is Docker Compose v2 from the Homebrew
+`/opt/homebrew/bin/docker-compose` executable. Python `podman-compose` is not supported.
+Verify the installation and the non-rootful running machine without resetting it:
+
+```bash
+/opt/homebrew/bin/podman --version
+/opt/homebrew/bin/podman machine inspect ontoprism-vm
+/opt/homebrew/bin/docker --version
+/opt/homebrew/bin/docker-compose version
+```
+
+The data-service `docker-compose.yml` is exercised unchanged. The
+application smoke check uses the unchanged data and app Compose files plus a generated,
+temporary Podman override. The replay operations pin the Homebrew Docker, Podman, and
+external Docker Compose v2 provider plus PDM paths. The shared `verify` runner uses the
+current Python environment and resolves both `pdm` and `npm` from `PATH`; it does not pin
+either executable to a Homebrew path.
+
+Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
+`PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
+
+```bash
+pdm run agent-replay inspect-podman
+pdm run agent-replay check-podman-api
+pdm run agent-replay podman-compose-up
+pdm run agent-replay podman-compose-check
+pdm run agent-replay podman-health-reject
+pdm run agent-replay podman-test-integration
+pdm run agent-replay podman-test-full-store
+pdm run agent-replay podman-verify
+pdm run agent-replay podman-compose-down
+pdm run agent-replay podman-app-smoke
+```
+
+The enhanced-NCIt showcase has two fixed local operator commands:
+
+```bash
+pdm run agent-replay activate-enhanced-ncit-showcase
+pdm run agent-replay verify-enhanced-ncit-showcase
+```
+
+Activation replaces only the isolated showcase graph at the configured NCIt endpoint;
+verification is read-only. Both require exact packaged-decision readback and write ignored
+local evidence to `tmp/m1-6-enhanced-showcase-readiness.json`. This is local graph
+activation evidence, not production readiness, scientific publication, equivalence, or
+NCI adoption.
+
+To make an unwrapped, literal `pdm run verify` use Podman, activate the dedicated Docker
+context first:
+
+```bash
+pdm run agent-replay activate-podman-docker-context
+pdm run verify
+```
+
+`activate-podman-docker-context` reports the prior context, derives the endpoint only from
+the running rootless `ontoprism-vm`, creates or safely updates only the exact
+`ontoprism-podman` context, selects it, and verifies the selected endpoint and Podman API.
+It does not set persistent environment variables or edit shell configuration. The
+shell-free `verify` runner explicitly reports and removes inherited Docker selector
+variables as part of its default-context contract, so its Docker calls use the selected
+context without a per-command override. It deliberately leaves Podman selected. For a
+manual non-destructive rollback, inspect `/opt/homebrew/bin/docker context ls`, then select
+a valid operator-owned context explicitly with `/opt/homebrew/bin/docker context use
+<context-name>`. The activation output reports the prior context for this purpose. Never
+delete a context as part of rollback.
+
+Useful `inspect-podman` evidence requires an already running, valid rootless `ontoprism-vm`
+and its Docker-compatible socket. Given that prerequisite, the operation collects bounded
+best-effort runtime diagnostics: each command's output and exit code are evidence, while
+overall exit 0 means collection completed rather than every diagnostic succeeded. It does
+not turn a missing, stopped, rootful, or invalid machine into a successful runtime check.
+`check-podman-api` exercises the
+pinned Docker-compatible API and Compose provider. `podman-compose-up` rejects any occupied
+fixed data port before starting the unchanged data Compose stack. `podman-compose-check`
+validates the exact three-service inventory, health, owner labels, loopback bindings, and
+exact PostgreSQL named-volume identity. Its QLever bind-path checks validate the resolved
+host index paths mounted by both QLever containers. Separately, its
+PostgreSQL-to-QLever DNS checks prove service-name resolution.
+The PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`.
+`podman-health-reject` exercises Compose's nonzero unhealthy-service rejection.
+`podman-test-integration` and `podman-test-full-store` run the repository's integration and
+configured-corpus gates with `DOCKER_HOST` pinned to the inspected machine socket.
+`podman-verify` instead fails closed unless the selected context is exactly
+`ontoprism-podman` at that same inspected endpoint, then runs the complete default-context
+verification gate. A successful verification under any other selected runtime is not
+presented as Podman verification.
+`podman-compose-down` accepts a partial owned stack, refuses any present wrong-owner
+resource, performs project-scoped cleanup without `-v`, and then inspects the exact
+`ontoprism-podman-poc_ontoprism_pg_data` identity and owner labels to prove the populated
+volume still exists. QLever continues to use the repository's existing bind-mounted
+indexes.
+
+Run `podman-app-smoke` only after `podman-compose-down`. It enforces availability of fixed
+ports 5433, 7888, 7889, and 8080; refuses existing primary-stack containers; verifies the
+retained volume's exact ownership before mounting it; and exercises Caddy root, the C3262
+BFF response, and service DNS in the exact direction implemented: the API container resolves `web`, `postgres`, `qlever-ncit`, and `qlever-uberon`. The wrapper always scopes Compose cleanup and
+removes generated override and temporary data directories. A failed operation remains the
+primary CLI error, with each cleanup failure also printed to stderr. Do not run a second
+local stack on the same loopback ports, and never mount the PostgreSQL volume from two
+stacks concurrently. GitHub CI remains on Docker; local Podman runtime selection does not
+change CI.
+
 The M1 26.07d review uses a separately certified stated-source store on `:7890`; it does
 not replace the application store on `:7888`. Run the combined read-only corpus contracts
 with both lanes explicit:

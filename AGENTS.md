@@ -47,6 +47,12 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   `statusCheckRollup` sometimes omits `conventional commit subject` even when it has passed;
   confirm with the `gh run list --workflow pr-title.yml` command above rather than treating the
   omission as an absent check.
+  An agent may run `gh pr merge` only after the user explicitly authorizes that exact PR
+  number in the current conversation. Re-read the PR immediately before merging; any head,
+  title, base, or merge-state change invalidates the authorization. Use squash merge with the
+  exact conventional PR title and delete the merged branch. Never use `--admin`, auto-merge,
+  a queue, or any bypass. Without that exact current-conversation authorization, stop before
+  the merge command.
 - **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
   completion.** If any run fails, fix it before starting new work. Do not begin the next
   issue, create its branch, or open its PR while required post-merge runs are pending or
@@ -147,7 +153,7 @@ export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
 pdm run data-build owl
 pdm run data-build ncit-bootstrap
 pdm run data-build uberon-store
-pdm run up               # qlever-ncit :7888, qlever-uberon :7889, postgres :5433
+pdm run up               # Compose via current selected Docker context; run `pdm run agent-replay activate-podman-docker-context` for supported Podman
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
@@ -178,15 +184,16 @@ pdm run test-smoke           # frontend vitest via npm
 - CodeQL is the one gate `verify` cannot reproduce (GitHub default setup, pull requests and
   `main` pushes only). Everything else is covered locally.
 
-- **Single test / focused run**: use the `pytest` console script via pdm —
-  `pdm run pytest ontolib/tests/path/test_x.py::test_name -v`. Do **not** run
-  `python -m pytest`: the module form prepends the repo root to `sys.path`, where the
-  outer `ontolib/`/`backend/` dirs shadow the editable install (see `docs/DECISIONS.md`
-  D6). `pdm run pytest` / the `pdm run test*` scripts use the correct console-script
-  resolution; the root `conftest.py` also fixes `sys.path` for xdist workers.
+- **Single test / focused run**: use the repository's safe wrapper —
+  `pdm run agent-test ontolib/tests/path/test_x.py::test_name -v`. Agents must never invoke raw
+  `pdm run pytest` or `python -m pytest`: the wrapper constrains paths, flags, markers,
+  environment, and subprocess execution, while the module form also prepends the repo
+  root to `sys.path`, where the outer `ontolib/`/`backend/` dirs shadow the editable
+  install (see `docs/DECISIONS.md` D6).
   For a mutating/seeded integration node, retain the fail-closed lane:
-  `pdm run python scripts/run_safe_integration.py <path>::<test> -v`.
-  Run a read-only `full_store` node with `pdm run test-integration-full-store -k <name>`.
+  `pdm run agent-test --safe-integration <path>::<test> -v`.
+  Run a focused read-only `full_store` contract with
+  `pdm run agent-test --full-store <node> -v`; the full aggregate remains `pdm run test-integration-full-store`.
 - Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
   `integration` (real services), `mutating_integration` (nonce-owned disposable
@@ -364,13 +371,20 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
   not converge. Once a dimension converges, do not run it again in that review cycle.
 
-  Every round reviews a clean worktree and committed diff. All pushes and PR creation, updates, and mutations are manual user actions because agent permissions deny them.
+  Every round reviews a clean worktree and committed diff. Pushes and PR creation or updates
+  remain manual user actions. The orchestrator may manage the issue and milestone lifecycle in
+  `hniedner/ontoprism` through the repository-owned `pdm run agent-github` wrapper when the task
+  explicitly requests it: create, edit, comment, label, assign or unassign, set or remove a
+  milestone, close, or reopen issues; and create, edit, close, or reopen milestones. It never
+  deletes issues or milestones or silently rewrites unrelated records. PR merge remains separately
+  restricted to exact current-conversation authorization and the hard checks above.
   After all five dimensions
   converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
   pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
-  GitHub event. PR creation occurs only when requested. Never run `gh pr merge`; human
-  merges are the only GitHub PR merges. This does not prohibit the milestone procedure's
-  local `git merge --no-ff` integration of a verified issue branch into its milestone
+  GitHub event. PR creation occurs only when requested. Run `gh pr merge` only when the user
+  explicitly authorizes the exact PR in the current conversation and every hard merge check
+  passes. This does not prohibit the milestone procedure's
+  local `pdm run agent-git merge-no-ff <branch>` integration of a verified issue branch into its milestone
   branch. Record any genuinely unverifiable or unactionable exception and its reason.
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go

@@ -19,6 +19,39 @@ ONTOPRISM refracts NCIt's **pre-coordinated** concepts into their **atomic** con
 complex meaning can be *composed* — expressed purely as combinations of simple concepts —
 rather than baked into the terminology as thousands of named combinations.
 
+## Terminology
+
+This documentation uses plain language first and gives the ontology term in parentheses on
+first use. Specialist design sections then use the precise term directly.
+
+- **Decomposition** means exposing the distinct meanings packaged inside one complex concept
+  while retaining that original concept. The result is an additive constituent view, not a
+  deletion or a claim that the parts are already a logically equivalent replacement.
+- A **dimension of meaning (axis)** says what kind of detail a constituent supplies, such as
+  primary site, morphology, stage, or laterality.
+- An **axis value (filler)** is the concept that supplies the detail on an axis, such as Lung
+  (`C12468`) on the primary-site axis. In OWL, *filler* is the precise term for the class at
+  the value end of a restriction.
+- An **OWL statement that requires at least one relationship to a class (OWL existential
+  restriction)** has the form “has primary site some Lung.” It states that instances of the
+  disease have at least one such relationship; it is not a direct disease-to-organ data row.
+- A **named class being further specialized (genus)** is the broader class in a logical
+  definition. This is the description-logic sense of *genus*, not a biological taxonomic rank.
+- A **broad NCIt category (semantic type)** classifies what kind of entity a concept is, such
+  as `Neoplastic Process` or `Anatomical Structure`. It is coarser than the class hierarchy
+  and is used to decide which algorithm applies, not to determine every relationship.
+- A **reviewed, purpose-specific view (curated projection)** selects and organizes source facts
+  for people and applications. It can intentionally omit detail, so ONTOPRISM keeps the complete
+  source-derived record separately.
+- A **particular assertion in the source definition (source occurrence)** records where a genus,
+  role, and filler appeared in NCIt's stated OWL. Two identical-looking values can be different
+  source occurrences when they came from different definition branches or groups.
+- A **part-whole hierarchy (partonomy)** organizes structures by `part_of`, unlike the “is a kind
+  of” class hierarchy. Part-whole evidence must not be treated as ordinary subclass evidence.
+- A **set of relationships that belong together (relationship group)** preserves context among
+  co-asserted details, following the grouping pattern used by SNOMED CT. Values in different
+  groups must not be combined as though they described one clinical statement.
+
 ## Background
 
 ### NCIt — NCI Thesaurus
@@ -31,11 +64,12 @@ OWL (Web Ontology Language) as its representation language.
 
 NCIt models meaning through two kinds of relationships:
 - **Hierarchical** (`rdfs:subClassOf`) — a disease is a kind of neoplasm
-- **Role-based** (OWL existential restrictions) — a disease *has_finding_site* some organ
+- **Role-based** — a disease *has_finding_site* some organ, represented as an OWL
+  existential restriction
 
 Pre-coordination is encoded in the stated OWL as **defined classes** —
 `owl:equivalentClass` / `owl:intersectionOf` chains where each level intersects a
-genus (a named superclass) with one or more role restrictions. The decomposition
+genus with one or more role restrictions. The decomposition
 engine reads the stated graph directly to recover the intended semantic parts.
 
 ### caDSR — Cancer Data Standards Repository

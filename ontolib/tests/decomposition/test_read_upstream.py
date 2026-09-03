@@ -1,6 +1,7 @@
 """Tests for upstream xref on decomposition constituents (issues #77/#82)."""
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import (
@@ -56,8 +57,33 @@ def test_upstream_mapping_low_confidence_not_identity() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("predicate", "http://www.w3.org/2004/02/skos/core#exactMacth"),
+        ("lifecycle", "acitve"),
+    ],
+)
+def test_upstream_mapping_rejects_off_vocabulary_values(field: str, value: str) -> None:
+    payload = {
+        "object_id": "UBERON:0002046",
+        "predicate": EXACT_MATCH,
+        "lifecycle": "active",
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        UpstreamMapping.model_validate(payload)
+
+
+@pytest.mark.unit
 def test_decomposition_constituent_upstream_defaults_empty() -> None:
-    c = DecompositionConstituent(axis="R101", filler="C12400", axis_source="role")
+    c = DecompositionConstituent(
+        axis="R101",
+        filler="C12400",
+        axis_source="role",
+        source_roles=("R101",),
+    )
     assert c.upstream == []
 
 
@@ -70,6 +96,7 @@ def test_attach_upstream_populates_by_filler() -> None:
             "axis": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101",
             "filler": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12400",
             "axisSource": "role",
+            "sourceRole": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101",
             "mostSpecific": "true",
         }
     ]
@@ -95,7 +122,12 @@ def test_attach_upstream_unmapped_filler_gets_empty() -> None:
         code="C6135",
         is_legacy_precoordinated=True,
         constituents=[
-            DecompositionConstituent(axis="R101", filler="C12400", axis_source="role"),
+            DecompositionConstituent(
+                axis="R101",
+                filler="C12400",
+                axis_source="role",
+                source_roles=("R101",),
+            ),
         ],
     )
     result = attach_upstream(decomp, {})
@@ -108,7 +140,12 @@ def test_attach_upstream_does_not_mutate_input() -> None:
         code="C6135",
         is_legacy_precoordinated=True,
         constituents=[
-            DecompositionConstituent(axis="R101", filler="C12400", axis_source="role"),
+            DecompositionConstituent(
+                axis="R101",
+                filler="C12400",
+                axis_source="role",
+                source_roles=("R101",),
+            ),
         ],
     )
     upstream = {

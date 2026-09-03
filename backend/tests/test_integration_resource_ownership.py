@@ -795,9 +795,12 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
             "repository write",
             "schema migration",
         }:
-            assert "isolated_postgres_settings" in fixtures or (
-                "isolated_postgres_url" in fixtures
-            ), f"{entry['path']} has a Postgres write without an owned database"
+            assert fixtures & {
+                "isolated_postgres_settings",
+                "isolated_postgres_url",
+                "isolated_migration_postgres_settings",
+                "isolated_migration_postgres_url",
+            }, f"{entry['path']} has a Postgres write without an owned database"
         if "persistent API write" in reasons:
             assert {
                 "isolated_postgres_settings",

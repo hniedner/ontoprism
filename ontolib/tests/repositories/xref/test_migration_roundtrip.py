@@ -20,7 +20,7 @@ from ontolib.repositories.xref.vocab import CLOSE_MATCH
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_postgres_settings"),
+    pytest.mark.usefixtures("isolated_migration_postgres_settings"),
 ]
 
 

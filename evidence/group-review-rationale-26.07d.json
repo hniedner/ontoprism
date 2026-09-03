@@ -1,0 +1,175 @@
+{
+  "evidence_kind": "group-review-rationale",
+  "markdown_path": "evidence/group-review-rationale-26.07d.md",
+  "markdown_sha256": "f9af04f2852fa66000506a572ca973f6b5ad9bb1294e5132bdda0a502b0740dd",
+  "ncit_version": "26.07d",
+  "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
+  "review_date": "2026-08-28",
+  "reviewer": "R. Hannes Niedner, M.D.",
+  "rows": [
+    {
+      "concept_code": "C27262",
+      "decision": "Abstain / escalate",
+      "pair_decision": null,
+      "rationale_chars": 837,
+      "rationale_sha256": "43aef56271ec7b123d782b90d91e5438d38342d209c360d567cec783f9245505",
+      "review_row_identity": "fcd473503a580a0f3c69becb46094389fef17bcb91312aa95f0c4d24523d00a4",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C102870",
+      "decision": "Abstain / escalate",
+      "pair_decision": null,
+      "rationale_chars": 746,
+      "rationale_sha256": "700dc64e733535974738b616cb847ba0fa1d0e0b79cb2a6b0a4c4cfd9782b165",
+      "review_row_identity": "e47c025fcc59e337826cbf666ef2526ce447d3b82d63007868f088a9928bd2bb",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C115057",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 706,
+      "rationale_sha256": "bff3b6cfd4333d51b3e8ba6aeb412bad325c0358ead853216333cb327d357cf5",
+      "review_row_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C101539",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 677,
+      "rationale_sha256": "ea15462b9ecddb43339473f02ea342f6fc049ff6f2238b6ff2a84e2c90a94e19",
+      "review_row_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C132677",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 700,
+      "rationale_sha256": "36252e1f64dc326f9d436b4faeb8e20a5f801e744b51ce645d51fcda906ca9d8",
+      "review_row_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C181564",
+      "decision": "Approve intentional normalization",
+      "pair_decision": null,
+      "rationale_chars": 1149,
+      "rationale_sha256": "2d45651cf10729da3be40e7f964380a3bcb05ef0a60764aa5ba53ca4921e89a7",
+      "review_row_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C186620",
+      "decision": "Approve intentional normalization",
+      "pair_decision": null,
+      "rationale_chars": 1237,
+      "rationale_sha256": "958a5d041a2faf2894af54d7d0f090ab6723ac9ba0641501cfb1113f75c9104f",
+      "review_row_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C162226",
+      "decision": "Approve intentional normalization",
+      "pair_decision": null,
+      "rationale_chars": 569,
+      "rationale_sha256": "79e9ce48bf08ed3fc87d22d2cb569363c7be5ca24033583a8fac581a78204eb1",
+      "review_row_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C206219",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 644,
+      "rationale_sha256": "167ddac202a5bc540747b59e4d5865bd284e2502096f5d123ee7273718467b81",
+      "review_row_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C198031",
+      "decision": "Abstain / escalate",
+      "pair_decision": "Abstain / escalate",
+      "rationale_chars": 759,
+      "rationale_sha256": "4b69da7b7b7b54ac1a42635a3805cb6fbfcd6958579512df278d92fdbad1be29",
+      "review_row_identity": "cab061b128de01b0b864e5df03a5c072c98df71d8b35004d181508452e250ebb",
+      "review_type": "pair-only"
+    },
+    {
+      "concept_code": "C100054",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": "Require source-reproducible correction",
+      "rationale_chars": 652,
+      "rationale_sha256": "c5f21097e764abbdd2a4eb09baefa1e46934a6514626c222534d0e4014fe391c",
+      "review_row_identity": "4a3cbaab27d14635b0b2e257b7901697afbc44f15db4d573b41c6eeab3dda75f",
+      "review_type": "pair-only"
+    },
+    {
+      "concept_code": "C100051",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 751,
+      "rationale_sha256": "16b80d3969d57ef824afbd66f882364801cac7dba857a5e56425beaa5e241b5e",
+      "review_row_identity": "a2c1d82b2f3fb2dd1b80afbe037e0d1077dbb3a97ccd5f6adc575b099c56bd43",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C6135",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 746,
+      "rationale_sha256": "6a2f7f28c2ad395d980d0b14f35c29d35f5dc079ac45f3f11719030e19530af7",
+      "review_row_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C4791",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 733,
+      "rationale_sha256": "4baa01123b084a40d958ea1393d241ab3aa5682241f7eef3077f05dbcf870df0",
+      "review_row_identity": "757bdda95288ca65e6655334cb395d8d45e403fa0021a02bd6cdb1024dcc5293",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C35756",
+      "decision": "Abstain / escalate",
+      "pair_decision": "Abstain / escalate",
+      "rationale_chars": 714,
+      "rationale_sha256": "7dcca5b03855085119be0929e3c45288dc436b4a86a1da3d57ccabb748d17075",
+      "review_row_identity": "f3bed6b79b0c605bffe5f55b002b3478861a881246712b39025396453e6eadda",
+      "review_type": "pair-only"
+    },
+    {
+      "concept_code": "C89995",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 590,
+      "rationale_sha256": "624632d397bbbbf4e2f56a4614e91797326e76d47c37e71987fcc3c95c2c4886",
+      "review_row_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C27787",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 713,
+      "rationale_sha256": "ccc80a21f29296082b14582093ab5c66a643771dee0ea628018fa2f68140a881",
+      "review_row_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
+      "review_type": "grouping"
+    },
+    {
+      "concept_code": "C115118",
+      "decision": "Require source-reproducible correction",
+      "pair_decision": null,
+      "rationale_chars": 615,
+      "rationale_sha256": "10c4c958e870f45cd58d972d545d37e17d571e926f1f9fe01d67a02697ffd9a0",
+      "review_row_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
+      "review_type": "grouping"
+    }
+  ],
+  "schema_version": 1,
+  "sidecar_identity": "510492aea6a50f64fc940256ff815c52f3074ac36c69c60255c64efdcf420522"
+}

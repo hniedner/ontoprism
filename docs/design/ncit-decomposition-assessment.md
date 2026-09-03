@@ -9,6 +9,10 @@ This is the empirical foundation for OntoPrism's distinctive purpose — produci
 decomposed (non-pre-coordinated) NCIt. The implementable build derived from it is the
 [NCIt decomposition engine](./ncit-decomposition-engine.md) design.
 
+In plain language, decomposition exposes the distinct meanings packaged inside a complex
+concept while retaining that concept. See the [shared terminology](../../README.md#terminology)
+for definitions of the ontology terms used below.
+
 ---
 
 ## 1. Executive summary
@@ -156,23 +160,29 @@ production pipeline, and treat the inferred store only for validation/closure ch
 78% of neoplasm concepts (13,195 / 16,954) carry a primary-site role, so the branch is highly
 decomposable. Three exemplars (full data in `data/pilot_neoplasm.json`):
 
-**C6135 — "Stage III Thyroid Gland Medullary Carcinoma AJCC v7"** decomposes to:
-- Stage = `C27970` Stage III · Stage system = `C90530` AJCC v7 Stage
-- Primary site (most specific) = `C12400` Thyroid Gland
-- Abnormal cell (most specific) = `C36761` Neoplastic Neuroendocrine Cell
+**Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (`C6135`)** decomposes to:
+- Stage = Stage III (`C27970`) · Stage system = AJCC v7 Stage (`C90530`)
+- Primary site (most specific) = Thyroid Gland (`C12400`)
+- Abnormal cell (most specific) = Neoplastic Neuroendocrine Cell (`C36761`)
 - Morphology = Medullary Carcinoma (taxonomic-parent axis)
-- **Edition-related concept:** `C141045` shares the disease/site/morphology core but
+- **Edition-related concept:** Stage III Thyroid Gland Medullary Carcinoma AJCC v8
+  (`C141045`) shares the disease/site/morphology core but
   carries a distinct AJCC v8 assertion; the two concepts are not semantically equivalent
   (D39).
 
-**C35756 — "Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7"** decomposes to
+**Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`)** decomposes to
 Stage IIIB + AJCC v7 + Lung + Small Cell Carcinoma + Pleural Effusion, and sits in a **sibling
-explosion**: `C35756` (with effusion), `C35757` (without effusion), `C6681` (unspecified),
-`C6679` (Stage III parent) — four enumerated concepts for one axis of variation.
+explosion**: Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`),
+Stage IIIB Lung Small Cell Carcinoma without Pleural Effusion AJCC v7 (`C35757`), Stage IIIB
+Lung Small Cell Carcinoma AJCC v7 (`C6681`), and Stage III Lung Small Cell Carcinoma
+(`C6679`) — four enumerated concepts for one axis of variation.
 
-**C4791 — "Left Atrial Myxoma":** site = Heart (`C12727`), morphology = Myxoma, abnormal cell =
-Neoplastic Spindle Cell (`C36954`), finding = Myxoid Stroma Formation (`C35998`); *laterality
-(Left)* is label-only → NLP fallback.
+**Illustrative, non-exhaustive Left Atrial Myxoma (`C4791`) projection:** primary site =
+Left Atrium (`C12869`), morphology = Myxoma, abnormal cell includes Neoplastic Spindle
+Cell (`C36954`), and finding includes Myxoid Stroma Formation (`C35998`). Endocardium
+(`C13004`) is also retained as `op:AssociatedRegion` and `op:AssociatedSite`; this
+exemplar does not enumerate every accepted filler. *Laterality (Left)* is label-only →
+NLP fallback.
 
 These cases demonstrate both the decomposability (constituents are all present) and the payoff:
 AJCC-edition and with/without concepts can expose a shared core plus orthogonal qualifiers

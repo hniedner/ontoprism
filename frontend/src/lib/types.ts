@@ -338,6 +338,43 @@ export interface ConceptDecomposition {
 	constituents: DecompositionConstituent[];
 }
 
+export type ShowcaseDisposition = 'include' | 'exclude' | 'unresolved-visible';
+export type ShowcaseAuthority = 'source-stated' | 'project-provisional' | 'locally-approved';
+export type ShowcaseSupport = 'source-stated' | 'peer-reviewed-supported' | 'project-inference' | 'peer-reviewed-not-found';
+
+export interface ShowcaseConstituent {
+	axis: string;
+	filler: string;
+	label: string | null;
+}
+
+export interface ShowcaseDecision {
+	candidate_id: string;
+	axis: string;
+	filler: string;
+	label: string;
+	disposition: ShowcaseDisposition;
+	authority: ShowcaseAuthority;
+	support: ShowcaseSupport[];
+	rationale: string;
+	limitations: string;
+	source_occurrence_ids: string[];
+	group: string | null;
+}
+
+export interface EnhancedNcitShowcaseView {
+	representation: 'enhanced-ncit-showcase';
+	banner: string;
+	code: string;
+	base_representation_identity: string;
+	decision_set_identity: string;
+	effective_representation_identity: string;
+	base_constituents: ShowcaseConstituent[];
+	effective_constituents: ShowcaseConstituent[];
+	unresolved_visible: ShowcaseDecision[];
+	decisions: ShowcaseDecision[];
+}
+
 export interface SimilarCde extends CdeSummary {
 	score: number;
 }
