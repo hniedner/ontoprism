@@ -800,6 +800,7 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     }
     root_project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
     assert root_project["tool"]["basedpyright"]["pythonVersion"] == "3.14"
+    assert root_project["tool"]["ruff"]["target-version"] == "py314"
     assert root_project["tool"]["pytest"]["ini_options"]["filterwarnings"] == [
         "error::DeprecationWarning",
         "error::PendingDeprecationWarning",
