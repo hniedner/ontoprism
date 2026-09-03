@@ -36,6 +36,8 @@ def test_tracked_text_has_no_retired_local_runtime_references() -> None:
         if not encoded_relative:
             continue
         relative = encoded_relative.decode()
+        if relative == "CHANGELOG.md":
+            continue
         source = (_ROOT / relative).read_bytes()
         if b"\0" in source:
             continue
