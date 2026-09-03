@@ -29,12 +29,14 @@ Integration, full-store, full-build/data-build execution, and containers remain 
 than duplicating service or corpus certification in the forward-compatibility lane
 (`git grep -n python-version -- .github/workflows/ci.yml`, 2026-09-03).
 
-Deprecation warnings fail the compatibility smoke and test lane. The sole exception is the
-exact third-party Starlette `anyio.abc.BlockingPortal` alias warning currently observed during
-test collection; project-owned deprecations remain errors, and liveness tests exercise both
-branches (`pdm run agent-test backend/tests/test_python_compatibility_runner.py -v`,
-2026-09-03). The deprecated project-owned coroutine predicate was replaced without changing
-sync/async retry behavior (`pdm run agent-test
+One shared global policy makes every deprecation warning fail both the compatibility smoke and
+test lane. Its sole exception is the exact third-party Starlette
+`anyio.abc.BlockingPortal` alias message from the exact `starlette.testclient` module currently
+observed during test collection; project-owned, generic, and near-match deprecations remain
+errors, and pytest-liveness tests exercise both branches (`pdm run agent-test
+backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03). The deprecated
+project-owned coroutine predicate was replaced without changing sync/async retry behavior
+(`pdm run agent-test
 ontolib/tests/terminologies/test_retry_backoff.py -v`, 2026-09-03).
 
 ## 2026-08-30 — MINT-781c8c8c6096 lifecycle authority is reconciled

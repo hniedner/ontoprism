@@ -105,7 +105,7 @@ def assert_coverage_unchanged(root: Path, before: tuple[tuple[str, str], ...]) -
 
 @contextmanager
 def preserve_primary_environment(root: Path = _ROOT) -> Iterator[None]:
-    """Preserve primary environment content and coverage, including on failure."""
+    """Fail if primary environment content or coverage changes, even on failure."""
     environment_before = capture_primary_environment_identity(root)
     coverage_before = capture_coverage_identity(root)
     body_failure: BaseException | None = None
@@ -124,7 +124,7 @@ def preserve_primary_environment(root: Path = _ROOT) -> Iterator[None]:
         identity_failures.append(error)
     try:
         assert_coverage_unchanged(root, coverage_before)
-    except RuntimeError as error:
+    except BaseException as error:
         identity_failures.append(error)
 
     if body_failure is not None and identity_failures:
@@ -146,7 +146,16 @@ def compatibility_environment(
         key: value
         for key, value in inherited.items()
         if not key.startswith("PDM_")
-        and key not in {"VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "COVERAGE_FILE"}
+        and key
+        not in {
+            "VIRTUAL_ENV",
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "COVERAGE_FILE",
+            "PYTEST_ADDOPTS",
+            "PYTEST_PLUGINS",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        }
     }
     result.update(
         {
@@ -194,7 +203,7 @@ def _run(command: list[str], *, env: dict[str, str]) -> None:
 
 
 def main() -> None:
-    """Certify Python 3.14 while preserving primary venv and coverage content."""
+    """Certify Python 3.14 and fail if primary venv or coverage content changes."""
     pdm = shutil.which("pdm")
     python = shutil.which(PYTHON_COMPATIBILITY_INTERPRETER)
     if pdm is None or python is None:

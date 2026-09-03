@@ -9,10 +9,8 @@ import warnings
 from pathlib import Path
 
 import pytest
-from scripts.validation.python_warnings import (
-    STARLETTE_ANYIO_ALIAS_WARNING,
-    configure_compatibility_warnings,
-)
+from scripts.validation import run_python_compatibility_tests
+from scripts.validation.python_warnings import STARLETTE_ANYIO_ALIAS_WARNING
 from scripts.validation.run_python_compatibility import (
     _INVENTORY_PROGRAM,
     PrimaryEnvironmentIdentity,
@@ -118,6 +116,9 @@ def test_compatibility_environment_scrubs_selectors_and_isolates_coverage(
         "PDM_HOME": "/wrong/home",
         "PDM_CONFIG_FILE": "/wrong/config.toml",
         "COVERAGE_FILE": "/wrong/.coverage",
+        "PYTEST_ADDOPTS": "-p malicious",
+        "PYTEST_PLUGINS": "malicious_plugin",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
     }
 
     result = compatibility_environment(disposable, inherited)
@@ -204,28 +205,109 @@ def test_primary_failure_is_not_masked_when_identity_also_changes(
     assert isinstance(caught.value.exceptions[1], RuntimeError)
 
 
-def test_compatibility_warning_policy_rejects_project_deprecations() -> None:
+def test_primary_and_coverage_failures_are_aggregated_with_body_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    identity = PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "one")
+    monkeypatch.setattr(
+        "scripts.validation.run_python_compatibility.capture_primary_environment_identity",
+        lambda _root: identity,
+    )
+
+    def fail_coverage_assertion(
+        _root: Path, _before: tuple[tuple[str, str], ...]
+    ) -> None:
+        raise OSError("coverage recapture failed")
+
+    monkeypatch.setattr(
+        "scripts.validation.run_python_compatibility.assert_coverage_unchanged",
+        fail_coverage_assertion,
+    )
+
+    with (
+        pytest.raises(BaseExceptionGroup) as caught,
+        preserve_primary_environment(tmp_path),
+    ):
+        raise ValueError("compatibility body failed")
+
+    assert len(caught.value.exceptions) == 2
+    assert isinstance(caught.value.exceptions[0], ValueError)
+    assert isinstance(caught.value.exceptions[1], OSError)
+
+
+def _compatibility_test_source(message: str, module: str) -> str:
+    return (
+        "import warnings\n"
+        "def test_warning_policy() -> None:\n"
+        f"    warnings.warn_explicit({message!r}, DeprecationWarning, "
+        f"'subject.py', 1, module={module!r})\n"
+    )
+
+
+def _run_compatibility_test_main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    message: str,
+    module: str,
+) -> None:
+    subject = tmp_path / f"test_warning_subject_{tmp_path.name}.py"
+    subject.write_text(_compatibility_test_source(message, module), encoding="utf-8")
+    monkeypatch.setattr(
+        run_python_compatibility_tests,
+        "_COMPATIBILITY_TEST_PATHS",
+        (str(subject),),
+    )
+    monkeypatch.setattr(
+        run_python_compatibility_tests,
+        "_PYTEST_PARALLEL_ARGUMENTS",
+        (),
+    )
     with warnings.catch_warnings():
-        configure_compatibility_warnings()
-        with pytest.raises(DeprecationWarning, match="project-owned deprecated API"):
-            warnings.warn_explicit(
-                "project-owned deprecated API",
-                DeprecationWarning,
-                "ontolib/example.py",
-                1,
-                module="ontolib.example",
-            )
+        run_python_compatibility_tests.main()
 
 
-def test_compatibility_warning_policy_allows_only_observed_starlette_alias() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        configure_compatibility_warnings()
-        warnings.warn_explicit(
-            STARLETTE_ANYIO_ALIAS_WARNING,
-            DeprecationWarning,
-            "starlette/testclient.py",
-            53,
-            module="starlette.testclient",
+@pytest.mark.parametrize(
+    ("message", "module"),
+    [
+        ("project-owned deprecated API", "ontolib.example"),
+        ("generic deprecated API", "dependency.example"),
+        (STARLETTE_ANYIO_ALIAS_WARNING + " near match", "starlette.testclient"),
+        (STARLETTE_ANYIO_ALIAS_WARNING, "starlette.testclient.extra"),
+    ],
+)
+def test_pytest_compatibility_warning_policy_reject_branch_is_live(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    message: str,
+    module: str,
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        _run_compatibility_test_main(
+            monkeypatch, tmp_path, message=message, module=module
         )
 
-    assert caught == []
+    assert caught.value.code != 0
+    output = capsys.readouterr()
+    assert message in output.out + output.err
+    assert "DeprecationWarning" in output.out + output.err
+
+
+def test_pytest_compatibility_warning_policy_allows_exact_starlette_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        _run_compatibility_test_main(
+            monkeypatch,
+            tmp_path,
+            message=STARLETTE_ANYIO_ALIAS_WARNING,
+            module="starlette.testclient",
+        )
+        is None
+    )
+    output = capsys.readouterr()
+    assert STARLETTE_ANYIO_ALIAS_WARNING not in output.out + output.err

@@ -22,6 +22,9 @@ from scripts.validation.python_versions import (
     PYTHON_COMPATIBILITY_VERSION,
     SUPPORTED_PYTHON_REQUIREMENT,
 )
+from scripts.validation.run_python_compatibility_tests import (
+    _PYTEST_PARALLEL_ARGUMENTS,
+)
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -713,7 +716,7 @@ def test_python_314_compatibility_job_is_required_clean_and_isolated() -> None:
         _ROOT / "scripts" / "validation" / "run_python_compatibility_tests.py"
     ).read_text()
     assert '"not integration"' in compatibility_runner
-    assert '"-n",\n        "auto"' in compatibility_runner
+    assert _PYTEST_PARALLEL_ARGUMENTS == ("-n", "auto")
     assert "--cov" not in compatibility_runner
     assert "coverage.xml" not in compatibility_runner
 
@@ -751,6 +754,13 @@ def test_python_support_targets_and_ci_job_count_are_governed_once() -> None:
     assert PYTHON_COMPATIBILITY_INTERPRETER == "python3.14"
     assert DEFAULT_PYTHON_VERSION == "3.13"
     assert SUPPORTED_PYTHON_REQUIREMENT == ">=3.13,<3.15"
+    default = tuple(int(part) for part in DEFAULT_PYTHON_VERSION.split("."))
+    compatibility = tuple(int(part) for part in PYTHON_COMPATIBILITY_VERSION.split("."))
+    lower, upper = SUPPORTED_PYTHON_REQUIREMENT.split(",")
+    upper_bound = tuple(int(part) for part in upper.removeprefix("<").split("."))
+    assert lower == f">={DEFAULT_PYTHON_VERSION}"
+    assert default <= compatibility < upper_bound
+    assert upper_bound == (compatibility[0], compatibility[1] + 1)
     assert {project["project"]["requires-python"] for project in pyprojects} == {
         SUPPORTED_PYTHON_REQUIREMENT
     }

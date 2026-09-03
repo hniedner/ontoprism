@@ -33,6 +33,7 @@ _BUILTINS = {
     "TypeAlias",
     "TypeVar",
     "UUID",
+    "Warning",
     "Annotated",
     "bool",
     "bytes",

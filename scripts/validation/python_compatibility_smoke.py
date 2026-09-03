@@ -6,13 +6,14 @@ import importlib
 import pathlib
 import sys
 
+from scripts.validation.python_versions import PYTHON_COMPATIBILITY_VERSION
+from scripts.validation.python_warnings import configure_compatibility_warnings
+
 
 def main() -> None:
     """Fail unless the compatibility interpreter and required imports are usable."""
-    python_versions = importlib.import_module("scripts.validation.python_versions")
-    python_warnings = importlib.import_module("scripts.validation.python_warnings")
-    python_warnings.configure_compatibility_warnings()
-    version = python_versions.PYTHON_COMPATIBILITY_VERSION
+    configure_compatibility_warnings()
+    version = PYTHON_COMPATIBILITY_VERSION
     expected = tuple(int(value) for value in version.split("."))
     if sys.version_info[:2] != expected:
         actual = sys.version.split()[0]
