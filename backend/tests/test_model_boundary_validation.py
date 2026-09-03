@@ -139,6 +139,22 @@ def test_validator_reports_unresolved_project_annotations(tmp_path: Path) -> Non
     )
 
 
+def test_validator_does_not_treat_warning_as_an_annotation_builtin(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "models.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, slots=True)\n"
+        "class Domain:\n    warning: Warning\n",
+    )
+
+    findings = validate_model_boundaries(tmp_path)
+
+    assert any("Warning" in finding and "unresolved" in finding for finding in findings)
+
+
 def test_validator_reports_dotted_and_unparsable_forward_annotations(
     tmp_path: Path,
 ) -> None:

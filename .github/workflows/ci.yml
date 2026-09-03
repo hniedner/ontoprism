@@ -476,6 +476,8 @@ jobs:
             --env ORIGIN=http://127.0.0.1:3000 \
             --env ONTOPRISM_FASTAPI_ORIGIN=http://ontoprism-api-ci:8011 \
             ontoprism-web:ci
+          docker exec ontoprism-api-ci python -c \
+            "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"
           wait_for_command ontoprism-api-ci python -c \
             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
           wait_for_command ontoprism-web-ci node -e \

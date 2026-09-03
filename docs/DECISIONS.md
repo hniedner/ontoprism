@@ -9,55 +9,31 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ## 2026-09-03 — Python 3.14.7 is the sole runtime
 
-### D84. The pre-production platform is 3.14.7-only and supersedes D83 immediately
+### D83. The pre-production platform is 3.14.7-only
 
 **Decision:** Python 3.14.7 is the only supported local, hosted-CI, integration,
-data-build, and container runtime; this decision supersedes D83 rather than retaining a
-3.13 compatibility architecture (`git diff --no-ext-diff`, 2026-09-03). The root and both
-local package manifests require `>=3.14.7,<3.15`, while PDM canonically records the same
-lock target as `~=3.14.7` (`pdm lock --python ">=3.14.7,<3.15"`, 2026-09-03).
+data-build, and container runtime (`git grep -n "Python 3.14.7 is the only supported"
+-- AGENTS.md README.md`, 2026-09-03). Every tracked Python project manifest requires
+`>=3.14.7,<3.15` (`git grep -n requires-python -- '*pyproject.toml'`, 2026-09-03), and
+the lock target is the equivalent `~=3.14.7` (`pdm run python -c "import tomllib;
+print(tomllib.load(open('pdm.lock','rb'))['metadata']['targets'])"`, 2026-09-03).
 
-Every Python setup step uses exact 3.14.7, ordinary test configuration fails
-deprecations except for the exact observed third-party Starlette alias warning, and the
-former compatibility job, runners, warning module, version module, and special verify
-gate are removed (`git diff --no-ext-diff`, 2026-09-03). The backend base is the immutable
-multi-platform `python:3.14.7-slim` index digest
-`sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6`
-(`GET https://hub.docker.com/v2/repositories/library/python/tags/3.14.7-slim`,
+Every workflow `python-version` is exact 3.14.7, and the backend image uses the digest-pinned
+`python:3.14.7-slim` base (`git grep -nE "python-version:|^FROM python:" --
+.github/workflows backend/Dockerfile`, 2026-09-03). Pre-commit is the deliberate executable-name
+exception: it resolves `python3.14` from the selected local or CI 3.14.7 PATH while setup-python
+and the runtime requirement remain patch-exact (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
+-v`, 2026-09-03). The Docker smoke executes
+Python in the built API container and rejects any patch other than 3.14.7 before checking
+service health (`git grep -n "sys.version_info\[:3\]" -- .github/workflows/ci.yml`,
 2026-09-03).
 
-## 2026-09-03 — Python 3.14 is a required forward-compatibility lane
-
-### D83. Production stays on Python 3.13 while every locked non-integration test and runtime import is certified on 3.14
-
-**Decision:** Python 3.13 remains the production/default, integration, data-build execution,
-container, type-checker, and ordinary CI runtime; Python 3.14 is a required clean
-forward-compatibility lane for the runtime/application import smoke and complete
-non-integration Python suite (`git grep -n python-version -- .github/workflows/ci.yml` and
-`git grep -n python:3.13-slim@ -- backend/Dockerfile`, 2026-09-03). The root and both local
-package manifests support `>=3.13,<3.15`, and one lock resolves that whole interval
-(`git grep -n requires-python -- pyproject.toml ontolib/pyproject.toml
-backend/pyproject.toml` and `pdm lock`, 2026-09-03).
-
-Local certification creates a disposable PDM environment, performs a clean `--dev` sync,
-then invokes the same two smoke/test scripts as the CI job. The authoritative `verify` gate
-includes this local lane; compatibility execution writes no coverage artifact and checks that
-the primary environment and existing coverage artifacts remain byte/content-identical
-(`pdm run agent-test backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03).
-Integration, full-store, full-build/data-build execution, and containers remain 3.13 rather
-than duplicating service or corpus certification in the forward-compatibility lane
-(`git grep -n python-version -- .github/workflows/ci.yml`, 2026-09-03).
-
-One shared global policy makes every deprecation warning fail both the compatibility smoke and
-test lane. Its sole exception is the exact third-party Starlette
-`anyio.abc.BlockingPortal` alias message from the exact `starlette.testclient` module currently
-observed during test collection; project-owned, generic, and near-match deprecations remain
-errors, and pytest-liveness tests exercise both branches (`pdm run agent-test
-backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03). The deprecated stdlib
-`asyncio.iscoroutinefunction` call used by `retry_with_backoff` was replaced with
-`inspect.iscoroutinefunction` without changing sync/async retry behavior
-(`pdm run agent-test
-ontolib/tests/terminologies/test_retry_backoff.py -v`, 2026-09-03).
+Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only
+the exact Starlette `anyio.abc.BlockingPortal` warning ignored (`git grep -n
+"DeprecationWarning" -- pyproject.toml`, 2026-09-03). This runtime decision does not certify
+the separately gated full-build corpus/model contracts (`git grep -n "full_build:" --
+pyproject.toml`, 2026-09-03).
 
 ## 2026-08-30 — MINT-781c8c8c6096 lifecycle authority is reconciled
 

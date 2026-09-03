@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -66,6 +67,22 @@ def _nested_image_values(value: Any) -> list[str]:
         ]
     if isinstance(value, list):
         return [item for child in value for item in _nested_image_values(child)]
+    return []
+
+
+def _nested_values_for_key(value: Any, target: str) -> list[Any]:
+    if isinstance(value, dict):
+        return [
+            item
+            for key, child in value.items()
+            for item in (
+                [child] if key == target else _nested_values_for_key(child, target)
+            )
+        ]
+    if isinstance(value, list):
+        return [
+            item for child in value for item in _nested_values_for_key(child, target)
+        ]
     return []
 
 
@@ -672,22 +689,47 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
 
 
+def _assert_api_image_python_patch(workflow: dict[str, Any]) -> None:
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    assert (
+        "docker exec ontoprism-api-ci python -c \\\n"
+        '  "import sys; assert sys.version_info[:3] == (3, 14, 7), '
+        'sys.version"'
+    ) in runtime_step["run"]
+
+
 def test_python_3147_is_the_only_current_runtime_configuration() -> None:
-    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
+    workflows = {
+        path.relative_to(_ROOT).as_posix(): yaml.safe_load(path.read_text())
+        for path in workflow_paths
+    }
+    workflow = workflows[".github/workflows/ci.yml"]
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    tracked_pyprojects = subprocess.run(  # noqa: S603
+        [git_executable, "ls-files", "--", "*pyproject.toml"],
+        cwd=_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert tracked_pyprojects
     pyprojects = [
-        tomllib.loads((_ROOT / path).read_text())
-        for path in (
-            "pyproject.toml",
-            "ontolib/pyproject.toml",
-            "backend/pyproject.toml",
-        )
+        tomllib.loads((_ROOT / path).read_text()) for path in tracked_pyprojects
     ]
     assert {project["project"]["requires-python"] for project in pyprojects} == {
         ">=3.14.7,<3.15"
     }
-    assert pyprojects[0]["tool"]["basedpyright"]["pythonVersion"] == "3.14"
-    assert pyprojects[0]["tool"]["pytest"]["ini_options"]["filterwarnings"] == [
+    root_project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    assert root_project["tool"]["basedpyright"]["pythonVersion"] == "3.14"
+    assert root_project["tool"]["pytest"]["ini_options"]["filterwarnings"] == [
         "error::DeprecationWarning",
+        "error::PendingDeprecationWarning",
         (
             "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use "
             "anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:"
@@ -701,10 +743,9 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     assert "python-314-compatibility" not in jobs
     assert len(jobs["ci-summary"]["needs"]) == 8
     setup_versions = [
-        step["with"]["python-version"]
-        for job in jobs.values()
-        for step in job.get("steps", [])
-        if "python-version" in step.get("with", {})
+        version
+        for current_workflow in workflows.values()
+        for version in _nested_values_for_key(current_workflow, "python-version")
     ]
     assert setup_versions
     assert set(setup_versions) == {"3.14.7"}
@@ -724,29 +765,64 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
         if line.startswith("FROM ")
     )
 
-    active_configuration_paths = (
-        ".github/workflows/ci.yml",
-        ".github/workflows/update-readme-code-stats.yml",
-        ".opencode/opencode.json",
-        ".pre-commit-config.yaml",
-        ".python-version",
-        "AGENTS.md",
-        "Makefile",
-        "README.md",
-        "backend/Dockerfile",
-        "backend/pyproject.toml",
-        "ontolib/pyproject.toml",
-        "pyproject.toml",
-    )
-    for relative_path in active_configuration_paths:
-        current = (_ROOT / relative_path).read_text()
-        assert "3.13" not in current, relative_path
-        assert "python-314-compatibility" not in current, relative_path
+    pre_commit = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text())
+    pre_commit_python = pre_commit["default_language_version"]["python"]
+    assert pre_commit_python == "python3.14"
+    pre_commit_executable = shutil.which(pre_commit_python)
+    assert pre_commit_executable is not None
+    pre_commit_version = subprocess.run(  # noqa: S603
+        [
+            pre_commit_executable,
+            "-c",
+            "import sys; print('.'.join(map(str, sys.version_info[:3])))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert pre_commit_version == "3.14.7"
+    opencode = json.loads((_ROOT / ".opencode" / "opencode.json").read_text())
+    mcp_command = opencode["mcp"]["sqlite-cadsr-repo"]["command"]
+    assert mcp_command[mcp_command.index("--python") + 1] == "3.14.7"
+
+    agents = (_ROOT / "AGENTS.md").read_text()
+    assert f"all {len(jobs)} `CI` jobs" in agents
+    assert "python 3.14 compatibility" not in agents
+    assert "Python 3.14.7 is the only supported local, CI" in agents
+    readme = (_ROOT / "README.md").read_text()
+    assert "Python 3.14.7 is the only supported local, CI" in readme
+    assert "requires Python >=3.14.7,<3.15" in (_ROOT / "Makefile").read_text()
 
     decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
-    d84 = decisions.partition("### D84.")[2].partition("\n### D83.")[0]
-    assert "3.14.7-only" in d84
-    assert "supersedes D83" in d84
+    assert "### D84." not in decisions
+    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
+    assert "3.14.7-only" in d83
+    assert "python3.14" in d83
+    assert "full-build mismatch" not in d83
+
+    _assert_api_image_python_patch(workflow)
+
+
+def test_api_image_runtime_contract_rejects_wrong_expected_patch(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    expected_patch = "sys.version_info[:3] == (3, 14, 7)"
+    assert expected_patch in runtime_step["run"]
+    runtime_step["run"] = runtime_step["run"].replace(
+        expected_patch,
+        "sys.version_info[:3] == (3, 14, 8)",
+    )
+    mutated = tmp_path / "ci.yml"
+    mutated.write_text(yaml.safe_dump(workflow))
+
+    with pytest.raises(AssertionError):
+        _assert_api_image_python_patch(yaml.safe_load(mutated.read_text()))
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:

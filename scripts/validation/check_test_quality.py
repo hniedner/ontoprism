@@ -257,10 +257,7 @@ def check_cli_output_assertions(
 
 def check_file(filepath: Path) -> tuple[list[str], list[str]]:
     """Check a test file for quality anti-patterns."""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-    except OSError, UnicodeDecodeError:
-        return [], []
+    content = filepath.read_text(encoding="utf-8")
 
     if not content.strip():
         return [], []
