@@ -94,8 +94,8 @@ test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov
 # selection) were run instead of the real gate commands.
 # The one gate it cannot reproduce is
 # CodeQL, which is GitHub default setup and runs only on pull requests and pushes to
-# main; `workflow_dispatch` on ci.yml runs all nine CI jobs whose path filters match;
-# Docker and the embedding model contract remain path-gated.
+# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every ordinary job;
+# only Docker and the pinned embedding-model contract remain path-gated.
 verify = "python -m scripts.validation.run_verify"
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
@@ -202,8 +202,9 @@ select = [
 ignore = [
     "PLR0913",          # too many args (FastAPI DI, query builders)
     "ASYNC240", "ASYNC250",  # sync Path/os ops in async are fine (we use asyncio)
-    # TC rules propose moving framework-resolved annotation names out of runtime scope.
-    # FastAPI/Pydantic inspect those names, so the global ignore replaces prior line
+    # TC rules propose moving annotation names out of runtime scope. FastAPI, Pydantic,
+    # typer, and pytest resolve annotations at runtime, and imports also have direct
+    # runtime uses such as Path; the global ignore replaces prior line and per-file
     # suppressions.
     "TC001", "TC002", "TC003",
 ]

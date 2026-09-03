@@ -5,9 +5,13 @@ Hard failures (block the commit):
 1. Tests whose only assertions are mock.assert_called* / assert_awaited* / call_count
 2. Module docstrings containing "improve coverage" or "to X%"
 3. Tests whose only assertion is assert callable(...)
+4. Tests with no observable assertion
+5. Substring assertions against unnormalized Typer/Click CLI output
+6. Syntactically invalid (unparseable) test files
+7. Unreadable or non-UTF-8 test files propagate their read error and abort the hook
 
 Warnings (advisory):
-4. Tests with >5 @patch / with patch(...) usages
+8. Tests with >5 @patch / with patch(...) usages
 """
 
 import ast

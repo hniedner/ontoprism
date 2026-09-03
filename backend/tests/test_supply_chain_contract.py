@@ -54,6 +54,52 @@ _BRACE_EXPANSION_ADVISORIES = (
 )
 
 
+def test_python_gate_documentation_describes_current_failure_and_ci_semantics() -> None:
+    quality_source = (_ROOT / "scripts/validation/check_test_quality.py").read_text()
+    quality_docstring = ast.get_docstring(ast.parse(quality_source))
+    pyproject = (_ROOT / "pyproject.toml").read_text()
+    ci_workflow = (_ROOT / ".github/workflows/ci.yml").read_text()
+    decisions = (_ROOT / "docs/DECISIONS.md").read_text()
+    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
+
+    assert quality_docstring is not None
+    assert (
+        "6. Syntactically invalid (unparseable) test files\n"
+        "7. Unreadable or non-UTF-8 test files propagate their read error and abort "
+        "the hook"
+    ) in quality_docstring
+    assert (
+        "# TC rules propose moving annotation names out of runtime scope. FastAPI, "
+        "Pydantic,\n"
+        "    # typer, and pytest resolve annotations at runtime, and imports also have "
+        "direct\n"
+        "    # runtime uses such as Path; the global ignore replaces prior line and "
+        "per-file\n"
+        "    # suppressions."
+    ) in pyproject
+    assert (
+        "# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every "
+        "ordinary job;\n"
+        "# only Docker and the pinned embedding-model contract remain path-gated."
+    ) in pyproject
+    assert (
+        "# On-demand CI for a feature branch that has no pull request yet: "
+        "workflow_dispatch\n"
+        "  # runs every ordinary job; only Docker and the pinned embedding-model "
+        "contract remain\n"
+        "  # path-gated."
+    ) in ci_workflow
+    assert (
+        "# Single aggregate status: it accepts `success` and any `skipped` result and "
+        "does not\n"
+        "  # distinguish the skip cause. The merge operator must validate skipped "
+        "checks against\n"
+        "  # documented path conditions. Use this as the branch-protection required "
+        "check."
+    ) in ci_workflow
+    assert "Workflow Python setup inputs" in d83
+
+
 def _nested_image_values(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [

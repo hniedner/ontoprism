@@ -18,7 +18,7 @@ data-build, and container runtime (`git grep -n "Python 3.14.7 is the only suppo
 the lock target is the equivalent `~=3.14.7` (`pdm run python -c "import tomllib;
 print(tomllib.load(open('pdm.lock','rb'))['metadata']['targets'])"`, 2026-09-03).
 
-Workflow setup-python values, `.python-version`, the backend base image, and the container
+Workflow Python setup inputs, `.python-version`, the backend base image, and the container
 smoke assertion are patch-exact 3.14.7; project manifests declare the supported floor and
 minor-series bound `>=3.14.7,<3.15` rather than an exact upper patch (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration

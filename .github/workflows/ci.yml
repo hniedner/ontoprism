@@ -5,8 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # On-demand CI for a feature branch that has no pull request yet. It runs jobs whose
-  # path filters match; Docker and the embedding model contract remain path-gated.
+  # On-demand CI for a feature branch that has no pull request yet: workflow_dispatch
+  # runs every ordinary job; only Docker and the pinned embedding-model contract remain
+  # path-gated.
   # CI must be the last bar, not the discovery mechanism.
   workflow_dispatch:
 
@@ -485,8 +486,9 @@ jobs:
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then(r => { if (r.status !== 404) throw new Error(String(r.status)) })"
 
-  # Single aggregate status: only success and skipped (path-filtered) are accepted.
-  # Use this as the branch-protection required check.
+  # Single aggregate status: it accepts `success` and any `skipped` result and does not
+  # distinguish the skip cause. The merge operator must validate skipped checks against
+  # documented path conditions. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
     needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
