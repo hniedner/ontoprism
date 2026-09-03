@@ -3,7 +3,7 @@ name = "ontoprism"
 version = "0.21.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.13,<3.15"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Hannes Niedner" }]
 
@@ -36,6 +36,9 @@ dependencies = [
 # with `pdm install -G data-build`. The runtime only reads vectors from pgvector.
 data-build = [
     "sentence-transformers>=3.0,<6",
+]
+python-compatibility = [
+    "lxml>=6.0,<7",
 ]
 
 [tool.pdm]
@@ -87,6 +90,7 @@ test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests back
 test-integration-ci-coverage = { shell = "COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report=" }
 test-ci = { shell = "COVERAGE_FILE=.coverage.unit pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report= && coverage combine .coverage.unit .coverage.integration && python scripts/validation/strict_coverage_gate.py python --coverage-data .coverage --root ." }
 test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
+python-314-compatibility = "python scripts/validation/run_python_compatibility.py"
 # The single pre-PR gate: everything CI enforces, in CI's own commands. Run this before
 # opening or updating a pull request, and before each merge into a milestone branch.
 # "Gates green" means this command exited 0 — not a subset of it. Three defects reached

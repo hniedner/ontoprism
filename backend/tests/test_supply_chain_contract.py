@@ -672,6 +672,56 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
 
 
+def test_python_314_compatibility_job_is_required_clean_and_isolated() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    jobs = workflow["jobs"]
+    job = jobs["python-314-compatibility"]
+    steps = job["steps"]
+
+    assert job["name"] == "python 3.14 compatibility"
+    assert job["needs"] == ["changes"]
+    assert job["if"] == (
+        "${{ needs.changes.outputs.backend == 'true' || "
+        "github.event_name != 'pull_request' }}"
+    )
+
+    setup = next(step for step in steps if step.get("uses") == _SETUP_PDM_ACTION)
+    assert setup["with"] == {
+        "python-version": "3.14",
+        "version": _PDM_VERSION,
+        "cache": True,
+    }
+
+    sync_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("run") == "pdm sync --clean-unselected --dev"
+    )
+    test_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("run") == "pdm run test-ci-no-gate"
+    )
+    assert sync_index < test_index
+
+    summary_needs = jobs["ci-summary"]["needs"]
+    assert "python-314-compatibility" in summary_needs
+
+    compatibility_artifacts = {
+        step.get("with", {}).get("name")
+        for step in steps
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    }
+    coverage_artifacts = {
+        step.get("with", {}).get("name")
+        for job_name in ("backend-tests", "integration-tests")
+        for step in jobs[job_name]["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    }
+    assert compatibility_artifacts == set()
+    assert compatibility_artifacts.isdisjoint(coverage_artifacts)
+
+
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:
     assert _MINIMUM_BRACE_EXPANSION_VERSION == (5, 0, 9), (
         "brace-expansion security floor must remain at the patched boundary for "

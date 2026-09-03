@@ -179,6 +179,32 @@ jobs:
             coverage.xml
             coverage-unit.identity.json
 
+  # Required forward-compatibility lane. Python 3.13 remains the production/default
+  # runtime and owns coverage; this job certifies the complete hermetic Python suite
+  # without publishing coverage artifacts or duplicating service integration.
+  python-314-compatibility:
+    name: python 3.14 compatibility
+    needs: [changes]
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PDM with Python 3.14 (cached)
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
+        with:
+          python-version: "3.14"
+          version: "2.28.0"
+          cache: true
+
+      - name: Install dependencies from lock
+        run: pdm sync --clean-unselected --dev
+
+      - name: Run complete non-integration Python suite
+        run: pdm run test-ci-no-gate
+
   coverage-verify:
     name: coverage verify (ontolib + backend)
     needs: [backend-tests, integration-tests]
@@ -198,7 +224,7 @@ jobs:
       # In particular, no editable ontolib/backend install is needed.
       # relative_files=true (pyproject) keeps uploaded .coverage portable across jobs.
       - name: Install coverage report dependencies
-        run: pip install 'coverage==7.15.4' 'pydantic==2.13.4'
+        run: pip install 'coverage==7.16.0' 'pydantic==2.13.5'
 
       - name: Verify coverage report dependency versions
         run: python -m scripts.validation.verify_coverage_runtime --lock pdm.lock
@@ -487,7 +513,7 @@ jobs:
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
-    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
+    needs: [changes, quality, backend-tests, python-314-compatibility, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
