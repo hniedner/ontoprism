@@ -202,8 +202,11 @@ jobs:
       - name: Install dependencies from lock
         run: pdm sync --clean-unselected --dev
 
+      - name: Smoke runtime and application imports
+        run: pdm run test-python-compatibility-smoke
+
       - name: Run complete non-integration Python suite
-        run: pdm run test-ci-no-gate
+        run: pdm run test-python-compatibility
 
   coverage-verify:
     name: coverage verify (ontolib + backend)

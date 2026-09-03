@@ -7,6 +7,36 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-03 — Python 3.14 is a required forward-compatibility lane
+
+### D83. Production stays on Python 3.13 while every locked non-integration test and runtime import is certified on 3.14
+
+**Decision:** Python 3.13 remains the production/default, integration, data-build execution,
+container, type-checker, and ordinary CI runtime; Python 3.14 is a required clean
+forward-compatibility lane for the runtime/application import smoke and complete
+non-integration Python suite (`git grep -n python-version -- .github/workflows/ci.yml` and
+`git grep -n python:3.13-slim@ -- backend/Dockerfile`, 2026-09-03). The root and both local
+package manifests support `>=3.13,<3.15`, and one lock resolves that whole interval
+(`git grep -n requires-python -- pyproject.toml ontolib/pyproject.toml
+backend/pyproject.toml` and `pdm lock`, 2026-09-03).
+
+Local certification creates a disposable PDM environment, performs a clean `--dev` sync,
+then invokes the same two smoke/test scripts as the CI job. The authoritative `verify` gate
+includes this local lane; compatibility execution writes no coverage artifact and checks that
+the primary environment and existing coverage artifacts remain byte/content-identical
+(`pdm run agent-test backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03).
+Integration, full-store, full-build/data-build execution, and containers remain 3.13 rather
+than duplicating service or corpus certification in the forward-compatibility lane
+(`git grep -n python-version -- .github/workflows/ci.yml`, 2026-09-03).
+
+Deprecation warnings fail the compatibility smoke and test lane. The sole exception is the
+exact third-party Starlette `anyio.abc.BlockingPortal` alias warning currently observed during
+test collection; project-owned deprecations remain errors, and liveness tests exercise both
+branches (`pdm run agent-test backend/tests/test_python_compatibility_runner.py -v`,
+2026-09-03). The deprecated project-owned coroutine predicate was replaced without changing
+sync/async retry behavior (`pdm run agent-test
+ontolib/tests/terminologies/test_retry_backoff.py -v`, 2026-09-03).
+
 ## 2026-08-30 — MINT-781c8c8c6096 lifecycle authority is reconciled
 
 ### D82. The strict proposal registry is the sole current governance record for the C27787 mint

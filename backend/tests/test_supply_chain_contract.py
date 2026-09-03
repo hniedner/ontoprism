@@ -16,6 +16,12 @@ from typing import Any
 import pytest
 import yaml
 from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
+from scripts.validation.python_versions import (
+    DEFAULT_PYTHON_VERSION,
+    PYTHON_COMPATIBILITY_INTERPRETER,
+    PYTHON_COMPATIBILITY_VERSION,
+    SUPPORTED_PYTHON_REQUIREMENT,
+)
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -692,17 +698,24 @@ def test_python_314_compatibility_job_is_required_clean_and_isolated() -> None:
         "cache": True,
     }
 
-    sync_index = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("run") == "pdm sync --clean-unselected --dev"
+    commands = [step["run"] for step in steps if "run" in step]
+    assert commands == [
+        "pdm sync --clean-unselected --dev",
+        "pdm run test-python-compatibility-smoke",
+        "pdm run test-python-compatibility",
+    ]
+    pyproject = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    scripts = pyproject["tool"]["pdm"]["scripts"]
+    assert scripts["test-python-compatibility"] == (
+        "python -m scripts.validation.run_python_compatibility_tests"
     )
-    test_index = next(
-        index
-        for index, step in enumerate(steps)
-        if step.get("run") == "pdm run test-ci-no-gate"
-    )
-    assert sync_index < test_index
+    compatibility_runner = (
+        _ROOT / "scripts" / "validation" / "run_python_compatibility_tests.py"
+    ).read_text()
+    assert '"not integration"' in compatibility_runner
+    assert '"-n",\n        "auto"' in compatibility_runner
+    assert "--cov" not in compatibility_runner
+    assert "coverage.xml" not in compatibility_runner
 
     summary_needs = jobs["ci-summary"]["needs"]
     assert "python-314-compatibility" in summary_needs
@@ -720,6 +733,38 @@ def test_python_314_compatibility_job_is_required_clean_and_isolated() -> None:
     }
     assert compatibility_artifacts == set()
     assert compatibility_artifacts.isdisjoint(coverage_artifacts)
+
+
+def test_python_support_targets_and_ci_job_count_are_governed_once() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    pyprojects = [
+        tomllib.loads((_ROOT / path).read_text())
+        for path in (
+            "pyproject.toml",
+            "ontolib/pyproject.toml",
+            "backend/pyproject.toml",
+        )
+    ]
+    root_project = pyprojects[0]
+
+    assert PYTHON_COMPATIBILITY_VERSION == "3.14"
+    assert PYTHON_COMPATIBILITY_INTERPRETER == "python3.14"
+    assert DEFAULT_PYTHON_VERSION == "3.13"
+    assert SUPPORTED_PYTHON_REQUIREMENT == ">=3.13,<3.15"
+    assert {project["project"]["requires-python"] for project in pyprojects} == {
+        SUPPORTED_PYTHON_REQUIREMENT
+    }
+    assert (
+        root_project["tool"]["basedpyright"]["pythonVersion"] == DEFAULT_PYTHON_VERSION
+    )
+    assert len(workflow["jobs"]) == 10
+    assert (
+        workflow["jobs"]["python-314-compatibility"]["steps"][1]["with"][
+            "python-version"
+        ]
+        == PYTHON_COMPATIBILITY_VERSION
+    )
+    assert "python:3.13-slim@" in (_ROOT / "backend" / "Dockerfile").read_text()
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:

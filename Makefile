@@ -7,7 +7,7 @@ help:
 	@echo "  test-unit       Unit tests only"
 	@echo "  test-integration  Integration tests (owned disposable services)"
 	@echo "  test-ci         Tests with coverage (xml + term-missing)"
-	@echo "  python-314-compatibility  Clean locked non-integration suite in disposable Python 3.14"
+	@echo "  python-314-compatibility  Clean locked import + non-integration suite in disposable Python 3.14"
 	@echo "  lint            ruff check + basedpyright"
 	@echo "  fmt             ruff format"
 	@echo "  api-dev         Run the FastAPI backend (uvicorn, reload)"

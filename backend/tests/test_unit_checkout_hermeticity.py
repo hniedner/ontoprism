@@ -251,3 +251,39 @@ def test_non_full_store_unit_tests_do_not_read_fixed_gitignored_inputs() -> None
     assert violations == (), "\n".join(
         f"{item.path}:{item.line}: {item.message}" for item in violations
     )
+
+
+@pytest.mark.unit
+def test_unit_surface_scan_retries_when_a_concurrent_probe_disappears(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tests = tmp_path / "backend/tests"
+    tests.mkdir(parents=True)
+    (tests / "test_stable.py").write_text(
+        "import pytest\npytestmark = pytest.mark.unit\n"
+    )
+    probe = tests / "test_transient_probe.py"
+    probe.write_text("import pytest\npytestmark = pytest.mark.unit\n")
+    original_read_text = pathlib.Path.read_text
+    disappeared = False
+
+    def read_with_concurrent_removal(
+        path: pathlib.Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> str:
+        nonlocal disappeared
+        if path == probe and not disappeared:
+            disappeared = True
+            probe.unlink()
+            raise FileNotFoundError(probe)
+        return original_read_text(
+            path, encoding=encoding, errors=errors, newline=newline
+        )
+
+    monkeypatch.setattr(pathlib.Path, "read_text", read_with_concurrent_removal)
+
+    assert unit_test_surface_violations(tmp_path) == ()
+    assert disappeared

@@ -31,7 +31,7 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
   workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
   successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
-  checks are all nine `CI` jobs, `conventional commit subject`, `dependency review`, all
+  checks are all ten `CI` jobs (including `python 3.14 compatibility`), `conventional commit subject`, `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
   `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
   because of a documented path condition, including a dependent job skipped when its
@@ -166,6 +166,7 @@ defaults point at the services above.
 
 ```bash
 pdm run verify              # THE pre-PR gate: everything CI enforces, in CI's own commands
+pdm run python-314-compatibility  # clean 3.14 import + non-integration forward-compatibility lane
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
 pdm run test-integration     # safe default: nonce-owned disposable PG/QLever

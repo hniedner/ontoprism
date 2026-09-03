@@ -1,5 +1,8 @@
 """Real behavioral tests for retry_with_backoff (no mocks — real counters/functions)."""
 
+import asyncio
+import inspect
+
 import pytest
 
 from ontolib.common.error_handling import retry_with_backoff
@@ -95,3 +98,25 @@ def test_non_retryable_exception_propagates_immediately() -> None:
 def test_invalid_max_attempts_rejected() -> None:
     with pytest.raises(ValueError, match="max_attempts"):
         retry_with_backoff(max_attempts=0)
+
+
+@pytest.mark.unit
+def test_wrapper_selection_uses_the_supported_inspect_coroutine_predicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_deprecated_predicate(_function: object) -> bool:
+        raise AssertionError("asyncio.iscoroutinefunction must not be called")
+
+    monkeypatch.setattr(asyncio, "iscoroutinefunction", reject_deprecated_predicate)
+
+    @retry_with_backoff(base_delay=0.0)
+    async def async_function() -> str:
+        return "async"
+
+    @retry_with_backoff(base_delay=0.0)
+    def sync_function() -> str:
+        return "sync"
+
+    assert inspect.iscoroutinefunction(async_function)
+    assert not inspect.iscoroutinefunction(sync_function)
+    assert sync_function() == "sync"

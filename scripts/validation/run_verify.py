@@ -24,6 +24,7 @@ def _gates(pdm_executable: str) -> tuple[tuple[str, ...], ...]:
             ".",
         ),
         (sys.executable, "-m", "pre_commit", "run", "--all-files"),
+        (pdm_executable, "run", "python-314-compatibility"),
         (pdm_executable, "run", "test-ci"),
         ("npm", "--prefix", "frontend", "run", "test:coverage"),
         (

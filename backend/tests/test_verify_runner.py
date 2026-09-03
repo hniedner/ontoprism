@@ -59,6 +59,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
             ".",
         ],
         [sys.executable, "-m", "pre_commit", "run", "--all-files"],
+        [pdm_executable, "run", "python-314-compatibility"],
         [pdm_executable, "run", "test-ci"],
         ["npm", "--prefix", "frontend", "run", "test:coverage"],
         [
@@ -101,14 +102,14 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
     )
 
     assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
-    assert len(runner.calls) == 5
+    assert len(runner.calls) == 6
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("fail_at", "expected_calls"), [(2, 2), (5, 5)])
+@pytest.mark.parametrize(("fail_at", "expected_calls"), [(2, 2), (6, 6)])
 def test_verify_runner_stops_at_first_failed_gate_including_hierarchy_report(
     monkeypatch: pytest.MonkeyPatch,
     fail_at: int,

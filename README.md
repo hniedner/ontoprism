@@ -298,6 +298,7 @@ pdm run data-build uberon-store  # build the Uberon/CL QLever index
 pdm run up                       # start QLever + Postgres
 pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
+pdm run python-314-compatibility # isolated 3.14 import + non-integration certification
 ```
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
@@ -347,6 +348,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 | `pdm run start-all` / `stop-all` / `restart-all` | Backend + frontend process supervision |
 | `pdm run start-backend` / `stop-backend` / `restart-backend` | FastAPI on :8011 |
 | `pdm run start-frontend` / `stop-frontend` / `restart-frontend` | SvelteKit on :5175 |
+| `pdm run python-314-compatibility` | Clean locked Python 3.14 runtime-import and non-integration lane; also included by `verify` |
 | `pdm run migrate` | Alembic schema migration |
 
 Background logs go to `.dev-logs/`. Ports are offset from the sibling `fairdata` app — see

@@ -2,45 +2,45 @@
 
 from __future__ import annotations
 
+import importlib
+import pathlib
 import sys
-from pathlib import Path
-
-import alembic
-import asyncpg
-import fastapi
-import greenlet
-import lxml
-import openpyxl
-import pydantic
-import pydantic_core
-import rdflib
-import xlrd
-from alembic.config import Config
-
-from backend.main import app
 
 
 def main() -> None:
     """Fail unless the compatibility interpreter and required imports are usable."""
-    if sys.version_info[:2] != (3, 14):
-        raise RuntimeError(f"expected Python 3.14, got {sys.version.split()[0]}")
-    config = Config(Path(__file__).resolve().parents[2] / "alembic.ini")
+    python_versions = importlib.import_module("scripts.validation.python_versions")
+    python_warnings = importlib.import_module("scripts.validation.python_warnings")
+    python_warnings.configure_compatibility_warnings()
+    version = python_versions.PYTHON_COMPATIBILITY_VERSION
+    expected = tuple(int(value) for value in version.split("."))
+    if sys.version_info[:2] != expected:
+        actual = sys.version.split()[0]
+        raise RuntimeError(f"expected Python {version}, got {actual}")
+    module_names = (
+        "alembic",
+        "asyncpg",
+        "fastapi",
+        "greenlet",
+        "openpyxl",
+        "pydantic",
+        "pydantic_core",
+        "rdflib",
+        "sqlalchemy",
+        "uvicorn",
+        "uvloop",
+        "watchfiles",
+        "websockets",
+        "xlrd",
+    )
+    imported = tuple(importlib.import_module(name) for name in module_names)
+    config_type = importlib.import_module("alembic.config").Config
+    app = importlib.import_module("backend.main").app
+    config = config_type(pathlib.Path(__file__).resolve().parents[2] / "alembic.ini")
     if config.get_main_option("script_location") != "migrations":
         raise RuntimeError("Alembic script metadata is unavailable")
     if app.title != "ontoprism":
         raise RuntimeError("FastAPI application import returned the wrong app")
-    imported = (
-        alembic,
-        asyncpg,
-        fastapi,
-        greenlet,
-        lxml,
-        openpyxl,
-        pydantic,
-        pydantic_core,
-        rdflib,
-        xlrd,
-    )
     print(
         f"Python {sys.version.split()[0]} compatibility imports: "
         + ", ".join(module.__name__ for module in imported)
