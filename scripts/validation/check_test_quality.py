@@ -291,7 +291,7 @@ def check_file(filepath: Path) -> tuple[list[str], list[str]]:
 
 
 def _collect_results(filepaths: list[str]) -> tuple[list[str], list[str]]:
-    """Collect failures and warnings from a list of file path strings."""
+    """Collect results, aborting when a supplied Python path cannot be read."""
     all_failures: list[str] = []
     all_warnings: list[str] = []
     for filepath_str in filepaths:
@@ -325,7 +325,7 @@ def _print_failures(all_failures: list[str]) -> None:
 
 
 def main() -> int:
-    """Run test quality checks on provided files."""
+    """Run checks, failing closed for missing, dangling, or unreadable test paths."""
     if len(sys.argv) < MIN_ARGS:
         print("Usage: check_test_quality.py <file1.py> [file2.py ...]")
         return 0

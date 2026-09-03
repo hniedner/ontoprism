@@ -1,4 +1,4 @@
-"""Clean-checkout contracts for unit-test inputs."""
+"""Contracts for unit markers, inventories, and checkout-owned unit inputs."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 from scripts.validation.unit_checkout_hermeticity import (
+    TestInventory,
+    TrackedInventory,
     _call_candidates,
     _ResolvedPath,
     _run_git,
@@ -31,6 +33,10 @@ if TYPE_CHECKING:
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
+
+
+def _inventory(*files: str) -> TrackedInventory:
+    return TrackedInventory.from_files(frozenset(files))
 
 
 @contextmanager
@@ -105,7 +111,7 @@ def git_root(tmp_path: Path) -> Path:
 )
 def test_fixed_untracked_input_detector_reject_branch_is_live(source: str) -> None:
     assert fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
 
@@ -141,7 +147,7 @@ def test_safe() -> None:
 def test_detector_exempts_owned_temp_outputs_and_non_inputs(source: str) -> None:
     assert (
         fixed_untracked_input_violations(
-            source, filename="test_subject.py", tracked_paths=frozenset()
+            source, filename="test_subject.py", inventory=_inventory()
         )
         == ()
     )
@@ -157,7 +163,7 @@ def test_generated() -> None:
 """
 
     violations = fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
     assert len(violations) == 1
@@ -176,7 +182,7 @@ def test_manifest() -> None:
 """
 
     violations = fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
     assert len(violations) == 1
@@ -199,7 +205,7 @@ def test_temporary_manifest(tmp_path: Path) -> None:
 """
 
     violations = fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
     assert [(item.kind, item.line) for item in violations] == [("input", 7)]
@@ -217,7 +223,7 @@ def test_manifest() -> None:
     violations = fixed_untracked_input_violations(
         source,
         filename="backend/tests/test_subject.py",
-        tracked_paths=frozenset(),
+        inventory=_inventory(),
     )
 
     assert len(violations) == 1
@@ -242,21 +248,43 @@ def test_tracked_classification_replaces_ignore_rule_classification(
     violations = fixed_untracked_input_violations(
         source,
         filename="test_subject.py",
-        tracked_paths=frozenset(tracked_paths),
+        inventory=_inventory(*tracked_paths),
     )
 
     assert (violations == ()) is expected_clean
 
 
 @pytest.mark.unit
-def test_tracked_directory_is_a_valid_checkout_input() -> None:
-    source = 'def test_read() -> None:\n    Path("goldens").read_text()\n'
+@pytest.mark.parametrize(
+    "statement",
+    ['Path("goldens").read_text()', 'open("goldens")'],
+)
+def test_file_reader_rejects_a_tracked_directory_as_a_file_input(
+    statement: str,
+) -> None:
+    source = f"def test_read() -> None:\n    {statement}\n"
+
+    violations = fixed_untracked_input_violations(
+        source,
+        filename="test_subject.py",
+        inventory=_inventory("goldens/result.json"),
+    )
+
+    assert [item.kind for item in violations] == ["input"]
+
+
+@pytest.mark.unit
+def test_directory_loader_accepts_a_tracked_directory_input() -> None:
+    source = (
+        'def test_read() -> None:\n    load_directory(Path("goldens"))\n'
+        '    consume(source_dir=Path("goldens"))\n'
+    )
 
     assert (
         fixed_untracked_input_violations(
             source,
             filename="test_subject.py",
-            tracked_paths=frozenset({"goldens/result.json"}),
+            inventory=_inventory("goldens/result.json"),
         )
         == ()
     )
@@ -271,7 +299,7 @@ def test_path_open_write_modes_are_not_checkout_inputs(mode: str) -> None:
 
     assert (
         fixed_untracked_input_violations(
-            source, filename="test_subject.py", tracked_paths=frozenset()
+            source, filename="test_subject.py", inventory=_inventory()
         )
         == ()
     )
@@ -283,7 +311,7 @@ def test_path_open_read_modes_remain_checkout_inputs(mode: str) -> None:
     source = f'def test_read() -> None:\n    Path("private/in.txt").open("{mode}")\n'
 
     violations = fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
     assert [item.kind for item in violations] == ["input"]
@@ -347,7 +375,7 @@ def test_repository_has_no_mixed_unit_and_real_boundary_markers() -> None:
 
 
 @pytest.mark.unit
-def test_boundary_only_module_is_excluded_but_mixed_unit_module_is_scanned(
+def test_unit_unmarked_boundary_module_is_skipped_while_mixed_module_is_scanned(
     git_root: Path,
 ) -> None:
     _tracked_test(
@@ -456,8 +484,13 @@ def test_tracking_the_same_input_changes_the_verdict(git_root: Path) -> None:
 def test_untracked_test_file_is_rejected_then_scanned_when_tracked(
     git_root: Path,
 ) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_existing.py",
+        "def test_existing() -> None:\n    assert True\n",
+    )
     probe = git_root / "backend/tests/test_new.py"
-    probe.parent.mkdir(parents=True)
+    probe.parent.mkdir(parents=True, exist_ok=True)
     probe.write_text(
         "import pytest\nfrom pathlib import Path\npytestmark = pytest.mark.unit\n"
         "def test_new() -> None:\n"
@@ -478,8 +511,38 @@ def test_untracked_test_file_is_rejected_then_scanned_when_tracked(
 
 
 @pytest.mark.unit
+def test_ignored_untracked_test_file_is_inventoried_and_rejected(
+    git_root: Path,
+) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_existing.py",
+        "def test_existing() -> None:\n    assert True\n",
+    )
+    (git_root / ".gitignore").write_text(
+        "backend/tests/test_ignored.py\n", encoding="utf-8"
+    )
+    probe = git_root / "backend/tests/test_ignored.py"
+    probe.parent.mkdir(parents=True, exist_ok=True)
+    probe.write_text(
+        "import pytest\npytestmark = pytest.mark.unit\n"
+        "def test_ignored() -> None:\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert [(item.kind, item.path) for item in violations] == [
+        ("untracked_test", "backend/tests/test_ignored.py")
+    ]
+
+
+@pytest.mark.unit
 def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) -> None:
     calls: list[tuple[tuple[str, ...], Path, float]] = []
+    probe = tmp_path / "backend/tests/test_unit_checkout_hermeticity.py"
+    probe.parent.mkdir(parents=True)
+    probe.write_text("def test_probe() -> None:\n    assert True\n", encoding="utf-8")
 
     def recording_runner(
         arguments: Sequence[str],
@@ -487,7 +550,7 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
         cwd: Path,
         timeout: float,
         env: dict[str, str],
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> bytes:
         assert (
             not {
                 "GIT_CEILING_DIRECTORIES",
@@ -498,7 +561,9 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
             & env.keys()
         )
         calls.append((tuple(arguments), cwd, timeout))
-        return subprocess.CompletedProcess(arguments, 0, stdout=b"", stderr=b"")
+        if "--others" in arguments:
+            return b""
+        return b"backend/tests/test_unit_checkout_hermeticity.py\0"
 
     assert unit_test_surface_violations(tmp_path, runner=recording_runner) == ()
     assert calls == [
@@ -520,7 +585,6 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "ls-files",
                 "-z",
                 "--others",
-                "--exclude-standard",
                 "--",
                 "ontolib/tests",
                 "backend/tests",
@@ -550,7 +614,7 @@ def test_git_inventory_failures_fail_closed(
         cwd: Path,
         timeout: float,
         env: dict[str, str],
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> bytes:
         del arguments, cwd, timeout, env
         raise failure
 
@@ -647,7 +711,7 @@ def test_git_failure_diagnostic_is_bounded_and_sanitized(tmp_path: Path) -> None
     secret_path = f"{tmp_path}/private/token.txt"
     failure = subprocess.CalledProcessError(
         7,
-        "git",
+        ("git", "ls-files", "--others"),
         stderr=(
             f"fatal: {secret_path} /outside/index Authorization=Bearer-secret "
             + "x" * 500
@@ -660,7 +724,7 @@ def test_git_failure_diagnostic_is_bounded_and_sanitized(tmp_path: Path) -> None
         cwd: Path,
         timeout: float,
         env: dict[str, str],
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> bytes:
         del arguments, cwd, timeout, env
         raise failure
 
@@ -668,6 +732,7 @@ def test_git_failure_diagnostic_is_bounded_and_sanitized(tmp_path: Path) -> None
 
     assert violation.kind == "inventory_error"
     assert "returncode=7" in violation.message
+    assert "--others" in violation.message
     assert "stderr=" in violation.message
     assert str(tmp_path) not in violation.message
     assert "/outside/index" not in violation.message
@@ -687,13 +752,11 @@ def test_production_git_runner_scrubs_injected_git_environment(
     monkeypatch.setenv("GIT_INDEX_FILE", str(malicious_index))
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(git_root))
 
-    result = _run_git(
+    payload = _run_git(
         ("git", "rev-parse", "--git-dir"), cwd=git_root, timeout=10.0, env=None
     )
 
-    assert result.returncode == 0
-    assert result.stdout.strip() == b".git"
-    assert result.stderr == b""
+    assert payload.strip() == b".git"
     assert not malicious_index.exists()
 
 
@@ -722,7 +785,7 @@ def test_parent_escape_is_an_exact_invalid_path_violation(
     violations = fixed_untracked_input_violations(
         source,
         filename="backend/tests/test_subject.py",
-        tracked_paths=frozenset(),
+        inventory=_inventory(),
     )
 
     assert len(violations) == 1
@@ -731,9 +794,20 @@ def test_parent_escape_is_an_exact_invalid_path_violation(
 
 
 @pytest.mark.unit
-def test_resolved_path_flags_are_keyword_only() -> None:
-    with pytest.raises(TypeError):
-        _ResolvedPath("manifest.json", False, True, False)  # type: ignore[misc]
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"state": "unresolved", "value": "manifest.json"},
+        {"state": "pytest_owned", "invalid_reason": "impossible"},
+        {"state": "checkout", "value": ""},
+        {"state": "invalid", "invalid_reason": ""},
+    ],
+)
+def test_resolved_path_discriminator_rejects_invalid_combinations(
+    arguments: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError, match="path"):
+        _ResolvedPath(**arguments)  # type: ignore[arg-type]
 
 
 @pytest.mark.unit
@@ -766,7 +840,7 @@ def test_input_semantics_override_output_words_and_allow_spaced_paths(
     source: str,
 ) -> None:
     violations = fixed_untracked_input_violations(
-        source, filename="test_subject.py", tracked_paths=frozenset()
+        source, filename="test_subject.py", inventory=_inventory()
     )
 
     assert [item.kind for item in violations] == ["input"]
@@ -782,10 +856,48 @@ def test_repository_unit_surface_uses_only_tracked_checkout_inputs() -> None:
 
 
 @pytest.mark.unit
-def test_repository_gate_is_unit_marked_and_test_ci_selects_unit_tests(
+def test_repository_gate_is_unit_marked_and_nonintegration_collection_selects_it(
     request: pytest.FixtureRequest,
 ) -> None:
     assert request.node.get_closest_marker("unit") is not None
     configuration = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "test-ci =" in configuration
     assert "-m 'not integration'" in configuration
+
+
+@pytest.mark.unit
+def test_empty_tracked_test_inventory_fails_closed(tmp_path: Path) -> None:
+    calls = 0
+
+    def empty_runner(
+        arguments: tuple[str, ...],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: dict[str, str],
+    ) -> bytes:
+        nonlocal calls
+        del arguments, cwd, timeout, env
+        calls += 1
+        return b""
+
+    violations = unit_test_surface_violations(tmp_path, runner=empty_runner)
+
+    assert calls == 2
+    assert [(item.kind, item.path) for item in violations] == [
+        ("inventory_error", "<git inventory>")
+    ]
+
+
+@pytest.mark.unit
+def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
+    tests = TestInventory(
+        tracked=frozenset({"backend/tests/test_gate.py"}),
+        untracked=frozenset({"backend/tests/test_new.py"}),
+    )
+    tracked = _inventory("goldens/result.json")
+
+    assert tests.count == 1
+    assert tracked.has_file("goldens/result.json")
+    assert tracked.has_directory("goldens")
+    assert not tracked.has_file("goldens")

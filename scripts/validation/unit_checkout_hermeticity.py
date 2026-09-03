@@ -1,8 +1,9 @@
-"""Reject non-checkout inputs and mixed boundary markers in unit-test code.
+"""Reject invalid checkout inputs and mixed boundary markers in unit-test code.
 
-The gate analyzes only statically resolvable paths. It inventories tracked tests plus
-untracked ``test_*.py`` worktree files, rejects every untracked test module, and rejects
-effective ``unit`` markers combined with any declared real-boundary marker.
+The gate inventories tracked tests and every untracked ``test_*.py`` below the test
+roots, including ignored modules. It rejects those untracked modules, statically
+resolvable untracked or invalid checkout inputs in unit-marked nodes and module-level
+statements, and effective ``unit`` markers mixed with any real-boundary marker.
 """
 
 from __future__ import annotations
@@ -14,9 +15,9 @@ import posixpath
 import re
 import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 _TEST_ROOTS = ("ontolib/tests", "backend/tests")
 _PATH_READ_METHODS = frozenset({"open", "read_bytes", "read_text"})
@@ -51,12 +52,57 @@ class Violation:
     line: int | None
     message: str
 
+    def __post_init__(self) -> None:
+        if self.kind in {"input", "invalid_path"} and (
+            self.line is None or self.line < 1
+        ):
+            raise ValueError(f"{self.kind} violations require a positive line")
+        if self.kind == "inventory_error" and self.line is not None:
+            raise ValueError("inventory errors cannot have a source line")
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class UnitSurface:
     module_scope: bool
     nodes: tuple[ast.AST, ...]
     module_statements: tuple[ast.stmt, ...]
+
+    def __post_init__(self) -> None:
+        if self.module_scope and not self.nodes:
+            raise ValueError("a module unit surface must contain its module nodes")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TestInventory:
+    __test__: ClassVar[bool] = False
+    tracked: frozenset[str]
+    untracked: frozenset[str]
+
+    @property
+    def count(self) -> int:
+        return len(self.tracked)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TrackedInventory:
+    files: frozenset[str]
+    directories: frozenset[str]
+
+    @classmethod
+    def from_files(cls, files: frozenset[str]) -> TrackedInventory:
+        directories: set[str] = set()
+        for tracked in files:
+            parent = posixpath.dirname(tracked)
+            while parent:
+                directories.add(parent)
+                parent = posixpath.dirname(parent)
+        return cls(files=files, directories=frozenset(directories))
+
+    def has_file(self, path: str) -> bool:
+        return path in self.files
+
+    def has_directory(self, path: str) -> bool:
+        return (path == "." and bool(self.files)) or path in self.directories
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,17 +120,50 @@ class GitRunner(Protocol):
         cwd: Path,
         timeout: float,
         env: dict[str, str],
-    ) -> subprocess.CompletedProcess[bytes]: ...
+    ) -> bytes: ...
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ResolvedPath:
+    state: Literal["unresolved", "pytest_owned", "checkout", "invalid"]
     value: str = ""
-    pytest_owned: bool = False
-    invalid: bool = False
     explicit: bool = False
-    at_floor: bool = False
     invalid_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if self.state not in {"unresolved", "pytest_owned", "checkout", "invalid"}:
+            raise ValueError(f"unknown resolved-path state: {self.state}")
+        if self.state in {"unresolved", "pytest_owned"}:
+            if self.value or self.explicit or self.invalid_reason:
+                raise ValueError(f"{self.state} paths cannot carry checkout fields")
+        elif self.state == "checkout":
+            if not self.value or self.invalid_reason:
+                raise ValueError("checkout paths require only a value")
+        elif not self.invalid_reason:
+            raise ValueError("invalid paths require a reason")
+
+    @classmethod
+    def unresolved(cls) -> _ResolvedPath:
+        return cls(state="unresolved")
+
+    @classmethod
+    def pytest_owned_path(cls) -> _ResolvedPath:
+        return cls(state="pytest_owned")
+
+    @classmethod
+    def checkout(cls, value: str, *, explicit: bool = False) -> _ResolvedPath:
+        return cls(state="checkout", value=value, explicit=explicit)
+
+    @classmethod
+    def invalid_path(
+        cls, value: str, reason: str, *, explicit: bool = False
+    ) -> _ResolvedPath:
+        return cls(
+            state="invalid",
+            value=value,
+            explicit=explicit,
+            invalid_reason=reason,
+        )
 
 
 def _git_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -102,23 +181,16 @@ def _run_git(
     cwd: Path,
     timeout: float,
     env: Mapping[str, str] | None = None,
-) -> subprocess.CompletedProcess[bytes]:
+) -> bytes:
     result = subprocess.run(  # noqa: S603 - fixed inventory commands
         arguments,
         cwd=cwd,
         timeout=timeout,
-        check=False,
+        check=True,
         capture_output=True,
         env=_git_environment(env),
     )
-    if result.returncode:
-        raise subprocess.CalledProcessError(
-            result.returncode,
-            arguments,
-            output=result.stdout,
-            stderr=result.stderr,
-        )
-    return result
+    return result.stdout
 
 
 def _marker_name(node: ast.AST) -> str | None:
@@ -224,6 +296,9 @@ def _sanitize_diagnostic(value: str, root: Path) -> str:
 
 def _inventory_error(error: BaseException, root: Path) -> tuple[Violation, ...]:
     details = [type(error).__name__]
+    error_detail = _sanitize_diagnostic(str(error), root)
+    if error_detail:
+        details.append(f"error={error_detail}")
     returncode = getattr(error, "returncode", None)
     if isinstance(returncode, int):
         details.append(f"returncode={returncode}")
@@ -244,29 +319,19 @@ def _inventory_error(error: BaseException, root: Path) -> tuple[Violation, ...]:
 
 
 def _git_payload(root: Path, runner: GitRunner, arguments: tuple[str, ...]) -> bytes:
-    result = runner(
+    return runner(
         arguments,
         cwd=root,
         timeout=_GIT_TIMEOUT_SECONDS,
         env=_git_environment(),
     )
-    if result.returncode:
-        raise subprocess.CalledProcessError(
-            result.returncode,
-            arguments,
-            output=result.stdout,
-            stderr=result.stderr,
-        )
-    return result.stdout
 
 
 def _decode_inventory(payload: bytes) -> frozenset[str]:
     return frozenset(entry for entry in payload.decode("utf-8").split("\0") if entry)
 
 
-def _test_inventory(
-    root: Path, runner: GitRunner
-) -> tuple[frozenset[str], frozenset[str]]:
+def _test_inventory(root: Path, runner: GitRunner) -> TestInventory:
     tracked = _decode_inventory(
         _git_payload(root, runner, ("git", "ls-files", "-z", "--", *_TEST_ROOTS))
     )
@@ -279,7 +344,6 @@ def _test_inventory(
                 "ls-files",
                 "-z",
                 "--others",
-                "--exclude-standard",
                 "--",
                 *_TEST_ROOTS,
             ),
@@ -293,11 +357,16 @@ def _test_inventory(
             if Path(path).name.startswith("test_") and path.endswith(".py")
         )
 
-    return tests(tracked), tests(untracked)
+    inventory = TestInventory(tracked=tests(tracked), untracked=tests(untracked))
+    if inventory.count == 0:
+        raise OSError("tracked test inventory is empty")
+    return inventory
 
 
-def _all_tracked_inventory(root: Path, runner: GitRunner) -> frozenset[str]:
-    return _decode_inventory(_git_payload(root, runner, ("git", "ls-files", "-z")))
+def _all_tracked_inventory(root: Path, runner: GitRunner) -> TrackedInventory:
+    return TrackedInventory.from_files(
+        _decode_inventory(_git_payload(root, runner, ("git", "ls-files", "-z")))
+    )
 
 
 def _read_failure(relative: str, error: BaseException, root: Path) -> Violation:
@@ -316,14 +385,14 @@ def _read_failure(relative: str, error: BaseException, root: Path) -> Violation:
 def mixed_test_marker_surface_violations(
     root: Path, *, runner: GitRunner = _run_git
 ) -> tuple[Violation, ...]:
-    """Inspect tracked repository test modules without importing them."""
+    """Report inventory/read/parse errors and mixed markers without imports."""
     try:
-        test_paths, _untracked = _test_inventory(root, runner)
+        inventory = _test_inventory(root, runner)
     except (OSError, subprocess.SubprocessError, UnicodeError) as error:
         return _inventory_error(error, root)
 
     violations: list[Violation] = []
-    for relative in sorted(test_paths):
+    for relative in sorted(inventory.tracked):
         try:
             source = (root / relative).read_text(encoding="utf-8")
         except (OSError, UnicodeError) as error:
@@ -350,7 +419,11 @@ def _unit_nodes(tree: ast.Module) -> UnitSurface:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     )
     if "unit" in _module_markers(tree):
-        return UnitSurface(True, tuple(tree.body), module_statements)
+        return UnitSurface(
+            module_scope=True,
+            nodes=tuple(tree.body),
+            module_statements=module_statements,
+        )
 
     selected: list[ast.AST] = []
     for node in tree.body:
@@ -367,7 +440,11 @@ def _unit_nodes(tree: ast.Module) -> UnitSurface:
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
                     and "unit" in _decorator_markers(child)
                 )
-    return UnitSurface(False, tuple(selected), module_statements)
+    return UnitSurface(
+        module_scope=False,
+        nodes=tuple(selected),
+        module_statements=module_statements,
+    )
 
 
 def _path_constructor_aliases(tree: ast.Module) -> set[str]:
@@ -380,7 +457,7 @@ def _path_constructor_aliases(tree: ast.Module) -> set[str]:
     return aliases
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True, eq=False)
 class _Scope:
     parent: _Scope | None
     assignments: dict[str, ast.AST | None]
@@ -440,39 +517,32 @@ class _ScopeBuilder(ast.NodeVisitor):
 
 def _literal_path(value: str, *, explicit: bool = False) -> _ResolvedPath:
     if "://" in value:
-        return _ResolvedPath()
+        return _ResolvedPath.unresolved()
     slash_normalized = value.replace("\\", "/")
     normalized = posixpath.normpath(slash_normalized).removeprefix("./")
     if posixpath.isabs(slash_normalized) or ntpath.isabs(value):
-        return _ResolvedPath(value=normalized, invalid=True, explicit=explicit)
+        return _ResolvedPath.invalid_path(normalized, normalized, explicit=explicit)
     if normalized == ".." or normalized.startswith("../"):
-        return _ResolvedPath(value=normalized, invalid=True, explicit=explicit)
+        return _ResolvedPath.invalid_path(normalized, normalized, explicit=explicit)
     if normalized in {"", "."}:
-        return _ResolvedPath()
-    return _ResolvedPath(value=normalized, explicit=explicit)
+        return _ResolvedPath.unresolved()
+    return _ResolvedPath.checkout(normalized, explicit=explicit)
 
 
 def _combine(base: _ResolvedPath, child: _ResolvedPath) -> _ResolvedPath:
-    if base.invalid or child.invalid:
-        return _ResolvedPath(
-            value=child.value or base.value,
-            invalid=True,
+    if base.state == "invalid" or child.state == "invalid":
+        invalid = child if child.state == "invalid" else base
+        return replace(
+            invalid,
             explicit=base.explicit or child.explicit,
-            invalid_reason=child.invalid_reason or base.invalid_reason,
         )
-    if base.pytest_owned:
-        return _ResolvedPath(pytest_owned=True)
-    if child.pytest_owned:
+    if base.state == "pytest_owned":
+        return base
+    if child.state == "pytest_owned":
         return child
-    if not base.value:
-        return _ResolvedPath(
-            value=child.value,
-            pytest_owned=child.pytest_owned,
-            invalid=child.invalid,
-            explicit=base.explicit or child.explicit,
-            at_floor=False,
-        )
-    if not child.value:
+    if base.state == "unresolved":
+        return child
+    if child.state == "unresolved":
         return base
     return _literal_path(
         f"{base.value}/{child.value}", explicit=base.explicit or child.explicit
@@ -498,7 +568,7 @@ class _PathResolver:
     def resolve(  # noqa: PLR0911 - one branch per supported AST form
         self,
         node: ast.AST,
-        resolving: frozenset[tuple[int, str]] = frozenset(),
+        resolving: frozenset[tuple[_Scope, str]] = frozenset(),
         scope: _Scope | None = None,
     ) -> _ResolvedPath | None:
         current_scope = scope or self._scopes.get(node, self._module_scope)
@@ -512,14 +582,9 @@ class _PathResolver:
             if left is None or right is None:
                 return None
             combined = _combine(left, right)
-            return _ResolvedPath(
-                value=combined.value,
-                pytest_owned=combined.pytest_owned,
-                invalid=combined.invalid,
-                explicit=True,
-                at_floor=combined.at_floor,
-                invalid_reason=combined.invalid_reason,
-            )
+            if combined.state in {"checkout", "invalid"}:
+                return replace(combined, explicit=True)
+            return combined
         if isinstance(node, ast.Attribute):
             return self._resolve_attribute(node, resolving, current_scope)
         if isinstance(node, ast.Subscript):
@@ -529,17 +594,17 @@ class _PathResolver:
         return None
 
     def _resolve_name(
-        self, node: ast.Name, resolving: frozenset[tuple[int, str]], scope: _Scope
+        self, node: ast.Name, resolving: frozenset[tuple[_Scope, str]], scope: _Scope
     ) -> _ResolvedPath | None:
         if node.id in {"tmp_path", "tmpdir"}:
-            return _ResolvedPath(pytest_owned=True)
+            return _ResolvedPath.pytest_owned_path()
         if node.id == "__file__":
             return _literal_path(self._filename)
         candidate_scope: _Scope | None = scope
         while candidate_scope is not None:
             if node.id in candidate_scope.assignments:
                 value = candidate_scope.assignments[node.id]
-                identity = (id(candidate_scope), node.id)
+                identity = (candidate_scope, node.id)
                 if value is None or identity in resolving:
                     return None
                 return self.resolve(value, resolving | {identity}, candidate_scope)
@@ -548,26 +613,24 @@ class _PathResolver:
 
     @staticmethod
     def _parent(base: _ResolvedPath) -> _ResolvedPath:
-        if base.pytest_owned or base.invalid:
+        if base.state in {"pytest_owned", "invalid", "unresolved"}:
             return base
-        if base.at_floor or not base.value:
-            return _ResolvedPath(
-                value=base.value or ".",
-                invalid=True,
+        if base.value == ".":
+            return _ResolvedPath.invalid_path(
+                base.value,
+                "parent traversal above checkout root",
                 explicit=base.explicit,
-                invalid_reason="parent traversal above checkout root",
             )
-        parent = posixpath.dirname(base.value)
-        return _ResolvedPath(
-            value=parent,
+        parent = posixpath.dirname(base.value) or "."
+        return _ResolvedPath.checkout(
+            parent,
             explicit=base.explicit,
-            at_floor=not parent,
         )
 
     def _resolve_attribute(
         self,
         node: ast.Attribute,
-        resolving: frozenset[tuple[int, str]],
+        resolving: frozenset[tuple[_Scope, str]],
         scope: _Scope,
     ) -> _ResolvedPath | None:
         base = self.resolve(node.value, resolving, scope)
@@ -578,13 +641,13 @@ class _PathResolver:
     def _resolve_subscript(
         self,
         node: ast.Subscript,
-        resolving: frozenset[tuple[int, str]],
+        resolving: frozenset[tuple[_Scope, str]],
         scope: _Scope,
     ) -> _ResolvedPath | None:
         if not isinstance(node.value, ast.Attribute) or node.value.attr != "parents":
             return None
         base = self.resolve(node.value.value, resolving, scope)
-        if base is None or base.pytest_owned or base.invalid:
+        if base is None or base.state in {"pytest_owned", "invalid", "unresolved"}:
             return base
         if not isinstance(node.slice, ast.Constant) or not isinstance(
             node.slice.value, int
@@ -592,14 +655,14 @@ class _PathResolver:
             return None
         for _unused in range(node.slice.value + 1):
             base = self._parent(base)
-            if base.invalid:
+            if base.state == "invalid":
                 break
         return base
 
     def _resolve_call(
         self,
         node: ast.Call,
-        resolving: frozenset[tuple[int, str]],
+        resolving: frozenset[tuple[_Scope, str]],
         scope: _Scope,
     ) -> _ResolvedPath | None:
         if isinstance(node.func, ast.Name) and node.func.id in self._constructors:
@@ -625,26 +688,21 @@ class _PathResolver:
     def _join_arguments(
         self,
         arguments: list[ast.expr],
-        resolving: frozenset[tuple[int, str]],
+        resolving: frozenset[tuple[_Scope, str]],
         scope: _Scope,
         *,
         base: _ResolvedPath | None = None,
         explicit: bool = False,
     ) -> _ResolvedPath | None:
-        result = base or _ResolvedPath(explicit=explicit)
+        result = base or _ResolvedPath.unresolved()
         for argument in arguments:
             part = self.resolve(argument, resolving, scope)
             if part is None:
                 return None
             result = _combine(result, part)
-        return _ResolvedPath(
-            value=result.value,
-            pytest_owned=result.pytest_owned,
-            invalid=result.invalid,
-            explicit=result.explicit or explicit,
-            at_floor=result.at_floor,
-            invalid_reason=result.invalid_reason,
-        )
+        if result.state in {"checkout", "invalid"}:
+            return replace(result, explicit=result.explicit or explicit)
+        return result
 
     @staticmethod
     def _is_os_path_join(node: ast.AST) -> bool:
@@ -727,12 +785,20 @@ def _keyword_candidates(node: ast.Call, call_name: str) -> list[_Candidate]:
         if keyword.arg is None:
             continue
         keyword_name = keyword.arg.lower()
-        is_input = any(term in keyword_name for term in _INPUT_TERMS)
+        is_directory_input = keyword_name in {
+            "directory",
+            "input_directory",
+            "source_dir",
+            "source_directory",
+        }
+        is_input = is_directory_input or any(
+            term in keyword_name for term in _INPUT_TERMS
+        )
         is_output = any(term in keyword_name for term in _OUTPUT_TERMS)
         if is_output and not is_input:
             continue
         is_path = "path" in keyword_name or "manifest" in keyword_name
-        if is_input and (is_path or input_call):
+        if is_input and (is_path or input_call or is_directory_input):
             candidates.append(_Candidate(keyword.value, node.lineno, is_path))
     return candidates
 
@@ -770,28 +836,17 @@ def _looks_like_path(value: str) -> bool:
     )
 
 
-def _tracked_directories(tracked_paths: frozenset[str]) -> frozenset[str]:
-    directories: set[str] = set()
-    for tracked in tracked_paths:
-        parent = posixpath.dirname(tracked)
-        while parent:
-            directories.add(parent)
-            parent = posixpath.dirname(parent)
-    return frozenset(directories)
-
-
 def _fixed_untracked_input_violations(
     tree: ast.Module,
     *,
     filename: str,
-    tracked_paths: frozenset[str],
+    inventory: TrackedInventory,
 ) -> tuple[Violation, ...]:
     resolver = _PathResolver(tree, filename)
-    tracked_directories = _tracked_directories(tracked_paths)
     violations: set[tuple[int, ViolationKind, str]] = set()
     for candidate in _candidate_calls(tree):
         resolved = resolver.resolve(candidate.expression)
-        if resolved is None or resolved.pytest_owned or not resolved.value:
+        if resolved is None or resolved.state in {"unresolved", "pytest_owned"}:
             continue
         if not (
             candidate.force_path
@@ -799,13 +854,12 @@ def _fixed_untracked_input_violations(
             or _looks_like_path(resolved.value)
         ):
             continue
-        if resolved.invalid:
+        if resolved.state == "invalid":
             kind: ViolationKind = "invalid_path"
             detail = resolved.invalid_reason or resolved.value
             message = f"invalid statically resolvable checkout input path: {detail}"
-        elif (
-            resolved.value not in tracked_paths
-            and resolved.value not in tracked_directories
+        elif not inventory.has_file(resolved.value) and (
+            candidate.force_path or not inventory.has_directory(resolved.value)
         ):
             kind = "input"
             message = (
@@ -824,12 +878,12 @@ def fixed_untracked_input_violations(
     source: str,
     *,
     filename: str,
-    tracked_paths: frozenset[str],
+    inventory: TrackedInventory,
 ) -> tuple[Violation, ...]:
-    """Return statically resolvable checkout inputs absent from Git inventory."""
+    """Return invalid paths and checkout inputs absent from typed Git inventory."""
     tree = ast.parse(source, filename=filename)
     return _fixed_untracked_input_violations(
-        tree, filename=filename, tracked_paths=tracked_paths
+        tree, filename=filename, inventory=inventory
     )
 
 
@@ -847,10 +901,10 @@ def _node_ranges(surface: UnitSurface) -> list[tuple[int, int]]:
 def unit_test_surface_violations(
     root: Path, *, runner: GitRunner = _run_git
 ) -> tuple[Violation, ...]:
-    """Inspect unit-marked module statements and test nodes for checkout inputs."""
+    """Reject inventory errors, untracked modules, and invalid unit-test inputs."""
     try:
-        tracked_tests, untracked_tests = _test_inventory(root, runner)
-        tracked_paths = _all_tracked_inventory(root, runner)
+        tests = _test_inventory(root, runner)
+        tracked = _all_tracked_inventory(root, runner)
     except (OSError, subprocess.SubprocessError, UnicodeError) as error:
         return _inventory_error(error, root)
 
@@ -861,9 +915,9 @@ def unit_test_surface_violations(
             line=None,
             message="untracked test module is outside the checkout inventory",
         )
-        for relative in sorted(untracked_tests)
+        for relative in sorted(tests.untracked)
     ]
-    for relative in sorted(tracked_tests):
+    for relative in sorted(tests.tracked):
         try:
             source = (root / relative).read_text(encoding="utf-8")
         except (OSError, UnicodeError) as error:
@@ -885,7 +939,7 @@ def unit_test_surface_violations(
         if not surface.module_scope and not surface.nodes:
             continue
         discovered = _fixed_untracked_input_violations(
-            tree, filename=relative, tracked_paths=tracked_paths
+            tree, filename=relative, inventory=tracked
         )
         if surface.module_scope:
             violations.extend(discovered)

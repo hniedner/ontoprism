@@ -166,7 +166,7 @@ filterwarnings = [
     "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:starlette\\.testclient",
 ]
 markers = [
-    "unit: Fast unit tests with mocked externalities only",
+    "unit: Fast hermetic tests; external network/services are mocked, deterministic local tools may be real",
     "integration: Tests against real services; mutators use run-owned disposables",
     "mutating_integration: Tests that require exact current-run-owned disposable persistent resources",
     "full_store: Read-only contracts that explicitly require configured full-corpus stores",

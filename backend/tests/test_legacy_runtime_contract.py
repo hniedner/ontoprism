@@ -1,4 +1,4 @@
-"""Reject retired runtimes in tracked authored text and authored CHANGELOG text."""
+"""Reject retired runtimes and missing paths in tracked authored text."""
 
 from __future__ import annotations
 
@@ -49,6 +49,7 @@ def _retired_runtime_violations(relative: str, source: bytes) -> list[str]:
 
 
 def test_tracked_text_has_no_retired_local_runtime_references() -> None:
+    """Scan every tracked path; missing, unreadable, and malformed text fail closed."""
     git = shutil.which("git")
     assert git is not None
     tracked = subprocess.run(  # noqa: S603 -- fixed repository inventory command
