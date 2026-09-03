@@ -19,6 +19,389 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.21.0 (2026-09-03)
+
+### Bug Fixes
+
+- Close review contract gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **ci**: Bind coverage report toolchain
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **ci**: Install coverage report dependencies
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **ci**: Make split coverage jobs hermetic
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **ci**: Unify coverage runtime contract
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **config**: Require full-store outer timeout
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Align exact pair metric counts
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Apply terminal R103 exclusion
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Bind C100054 evidence claims
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Bind R101 human occurrence count
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Bind R101 review guidance
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Classify unsupported source structures
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close final milestone findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close final pre-SME readiness gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close final readiness findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close milestone review gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close specialist packet addendum
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close specialist packet release gates
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Compare R82 paths at report boundary
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Converge specialist review packets
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Distinguish review evidence semantics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Enforce readiness cohort invariants
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Exclude unsupported fillers from residual metric
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Fail closed on stale verify evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Finalize C100054 dispatch release
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Finalize specialist packet approval
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Finalize specialist packet gates
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Generate specialist review packets
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Harden final readiness contracts
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Harden pre-SME readiness evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Improve SME review workbooks
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Make R101 review human-readable
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Make specialist dispatch evidence-gated
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Make specialist packets externally usable
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Persist typed unknown completion metrics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Preserve grouping diagnostics provenance
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Preserve routed veto context
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Reconcile mint lifecycle authority
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Reconcile R101 occurrence conservation
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Repair C100054 specialist dispatch
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Require lexical evidence signatures
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Resolve milestone review findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Resolve second-round milestone findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Retain authorized broader sites
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Retain coequal morphology genera
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Route R101 before specificity collapse
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Select current readiness packet
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Streamline R101 review decisions
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Tighten showcase readiness evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Validate final C100054 evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Allow focused full-store tests
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Restore governed GitHub workflows
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Close final Podman review findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Close Podman review findings
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Eliminate verification gate drift
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Harden Podman replay operations
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **test**: Detect fixed unit input constants
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **test**: Detect prefixed ignored path segments
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **test**: Preserve frontend failure diagnostics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **test**: Separate unit and full-store markers
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **test**: Surface focused frontend failures
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **validation**: Clarify boundary diagnostics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **validation**: Consume promoted R103 readiness state
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+### Build System
+
+- **deps**: Refresh application and CI dependencies
+  ([#302](https://github.com/hniedner/ontoprism/pull/302),
+  [`1236336`](https://github.com/hniedner/ontoprism/commit/1236336800cdd58b987010aff5dd71154dd40e64))
+
+### Chores
+
+- Refresh SPARQL inventory contract
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Allow explicitly authorized PR merges
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Allow safe policy inspection commands
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Restore native task supervision
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Add fixed Podman PoC operations
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Complete Podman compatibility PoC
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Remove obsolete local runtime references
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **validation**: Govern obsolete artifact consolidation
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+### Continuous Integration
+
+- Bump pdm-project/setup-pdm
+  ([`560b436`](https://github.com/hniedner/ontoprism/commit/560b436a3cfe80ca25fa02c5d2ef482cea218a62))
+
+- Bump pdm-project/setup-pdm from 4.5 to 4.6 in the github-actions group across 1 directory
+  ([`560b436`](https://github.com/hniedner/ontoprism/commit/560b436a3cfe80ca25fa02c5d2ef482cea218a62))
+
+### Documentation
+
+- Update README code line-count table
+  ([`fb00a1f`](https://github.com/hniedner/ontoprism/commit/fb00a1fc9b06104387c5d23e837d8c90aa35865e))
+
+- Update README code line-count table
+  ([`59e865a`](https://github.com/hniedner/ontoprism/commit/59e865a56ce541312cbc77bc42b1724264589e7d))
+
+- **decisions**: Record decomposition evidence contracts
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Clarify axis diagnostics boundaries
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Clarify collapse policy guarantees
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Correct axis diagnostic error contract
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Correct C4791 anatomy description
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Correct evidence guarantees
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Qualify rollback guarantees
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Reconcile M1.6 release gates
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **validation**: Correct boundary contract wording
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+### Features
+
+- **decomposition**: Add current replay evaluation foundation
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Add enhanced NCIt showcase
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Add group evidence review boundary
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Add pre-SME readiness evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Add R103 SME review boundary
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Admit group review rationale evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Build axis validity diagnostics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Build normalized group review packet
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Classify current row replay outcomes
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Deliver source-bound M1.6 showcase
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Generate current-run comparison evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Generate full-corpus impact baseline
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Generate R101 review packets
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Govern showcase activation
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Preserve plural source roles
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Preserve source restriction occurrences
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Promote durable R103 review state
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Report long-run progress heartbeats
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Report residual metric progress
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Add read-only stack diagnostics
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Collect host-side stack evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Collect in-guest stack evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **opencode**: Report safe Colima config
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **runtime**: Activate Podman Docker context
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+### Testing
+
+- **ci**: Bind setup-pdm 4.6 identity
+  ([`560b436`](https://github.com/hniedner/ontoprism/commit/560b436a3cfe80ca25fa02c5d2ef482cea218a62))
+
+- **ci**: Close coverage lock verifier gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **ci**: Close split-gate mutation gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Bind highest-fanout scale baseline
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Certify current replay evidence
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close graph budget liveness
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Close showcase mutation gaps
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Cover duplicate R103 restrictions
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Fix final milestone verification
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **decomposition**: Replay corrected golden cohort
+  ([`ecbd895`](https://github.com/hniedner/ontoprism/commit/ecbd8956bd5c3ade4ef4f470f54ae73dd1f6d73f))
+
+- **deps**: Bind supply chain guard identities
+  ([#302](https://github.com/hniedner/ontoprism/pull/302),
+  [`1236336`](https://github.com/hniedner/ontoprism/commit/1236336800cdd58b987010aff5dd71154dd40e64))
+
+- **deps**: Close application image pinning gate
+  ([#302](https://github.com/hniedner/ontoprism/pull/302),
+  [`1236336`](https://github.com/hniedner/ontoprism/commit/1236336800cdd58b987010aff5dd71154dd40e64))
+
+
 ## v0.20.2 (2026-08-21)
 
 ### Bug Fixes
