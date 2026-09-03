@@ -296,7 +296,7 @@ def _collect_results(filepaths: list[str]) -> tuple[list[str], list[str]]:
     all_warnings: list[str] = []
     for filepath_str in filepaths:
         filepath = Path(filepath_str)
-        if not filepath.exists() or filepath.suffix != ".py":
+        if filepath.suffix != ".py":
             continue
         failures, warnings = check_file(filepath)
         all_failures.extend(failures)

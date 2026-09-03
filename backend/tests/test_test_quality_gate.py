@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from scripts.validation.check_test_quality import check_file
+from scripts.validation.check_test_quality import check_file, main
 
 pytestmark = pytest.mark.unit
 
@@ -51,9 +51,10 @@ def test_quality_gate_fails_closed_when_test_file_is_unreadable(
         return original_read_text(self, encoding=encoding, errors=errors)
 
     monkeypatch.setattr(Path, "read_text", raise_for_target)
+    monkeypatch.setattr("sys.argv", ["check_test_quality.py", str(path)])
 
     with pytest.raises(OSError, match="permission denied"):
-        check_file(path)
+        main()
 
 
 def test_quality_gate_fails_closed_on_non_utf8_test_file(tmp_path: Path) -> None:
@@ -72,3 +73,13 @@ def test_quality_gate_rejects_a_test_file_with_invalid_syntax(tmp_path: Path) ->
 
     assert warnings == []
     assert failures == [f"{path}:1: syntax error: invalid syntax"]
+
+
+def test_quality_gate_main_fails_when_a_python_argument_vanishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vanished = tmp_path / "test_vanished.py"
+    monkeypatch.setattr("sys.argv", ["check_test_quality.py", str(vanished)])
+
+    with pytest.raises(FileNotFoundError):
+        main()

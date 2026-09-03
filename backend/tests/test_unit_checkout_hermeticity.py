@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import ast
+import dataclasses
+import fcntl
+import os
 import pathlib
 import subprocess
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from scripts.validation.unit_checkout_hermeticity import (
+    _call_candidates,
+    _ResolvedPath,
+    _run_git,
+    _unit_nodes,
     fixed_untracked_input_violations,
     mixed_test_marker_surface_violations,
     mixed_test_marker_violations,
@@ -15,19 +26,42 @@ from scripts.validation.unit_checkout_hermeticity import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from pathlib import Path
+    from collections.abc import Iterator, Sequence
 
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
+_TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
+
+
+@contextmanager
+def _exclusive_tree_scan() -> Iterator[None]:
+    """Serialize the real-tree gate against the collection-hook probe test."""
+    with _TREE_SCAN_LOCK.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _git(root: Path, *arguments: str) -> None:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "GIT_CEILING_DIRECTORIES",
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_WORK_TREE",
+        }
+    }
     subprocess.run(  # noqa: S603 - fixed Git test-repository command
         ("git", *arguments),  # noqa: S607 - intentional Git PATH lookup
         cwd=root,
         check=True,
         capture_output=True,
+        env=environment,
     )
 
 
@@ -150,6 +184,28 @@ def test_manifest() -> None:
 
 
 @pytest.mark.unit
+def test_assignment_resolution_is_lexical_between_test_functions() -> None:
+    source = """
+import pytest
+from pathlib import Path
+@pytest.mark.unit
+def test_checkout_manifest() -> None:
+    manifest = Path("private-corpus/manifest.json")
+    manifest.read_text()
+@pytest.mark.unit
+def test_temporary_manifest(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.read_text()
+"""
+
+    violations = fixed_untracked_input_violations(
+        source, filename="test_subject.py", tracked_paths=frozenset()
+    )
+
+    assert [(item.kind, item.line) for item in violations] == [("input", 7)]
+
+
+@pytest.mark.unit
 def test_detector_resolves_segmented_repository_anchors() -> None:
     source = """
 from pathlib import Path
@@ -193,6 +249,47 @@ def test_tracked_classification_replaces_ignore_rule_classification(
 
 
 @pytest.mark.unit
+def test_tracked_directory_is_a_valid_checkout_input() -> None:
+    source = 'def test_read() -> None:\n    Path("goldens").read_text()\n'
+
+    assert (
+        fixed_untracked_input_violations(
+            source,
+            filename="test_subject.py",
+            tracked_paths=frozenset({"goldens/result.json"}),
+        )
+        == ()
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["w", "a", "x"])
+def test_path_open_write_modes_are_not_checkout_inputs(mode: str) -> None:
+    source = (
+        f'def test_write() -> None:\n    Path("generated/out.txt").open("{mode}")\n'
+    )
+
+    assert (
+        fixed_untracked_input_violations(
+            source, filename="test_subject.py", tracked_paths=frozenset()
+        )
+        == ()
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["r", "r+", "w+"])
+def test_path_open_read_modes_remain_checkout_inputs(mode: str) -> None:
+    source = f'def test_read() -> None:\n    Path("private/in.txt").open("{mode}")\n'
+
+    violations = fixed_untracked_input_violations(
+        source, filename="test_subject.py", tracked_paths=frozenset()
+    )
+
+    assert [item.kind for item in violations] == ["input"]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("source", "expected_test"),
     [
@@ -212,6 +309,21 @@ def test_tracked_classification_replaces_ignore_rule_classification(
             "    @pytest.mark.unit\n"
             "    def test_endpoint(self) -> None:\n        pass\n",
             "TestService::test_endpoint",
+        ),
+        (
+            "import pytest\n@pytest.mark.mutating_integration\n"
+            "@pytest.mark.unit\ndef test_mutating() -> None:\n    pass\n",
+            "test_mutating",
+        ),
+        (
+            "import pytest\n@pytest.mark.full_build\n"
+            "@pytest.mark.unit\ndef test_build() -> None:\n    pass\n",
+            "test_build",
+        ),
+        (
+            "import pytest\n@pytest.mark.e2e\n"
+            "@pytest.mark.unit\ndef test_browser() -> None:\n    pass\n",
+            "test_browser",
         ),
     ],
 )
@@ -235,7 +347,7 @@ def test_repository_has_no_mixed_unit_and_real_boundary_markers() -> None:
 
 
 @pytest.mark.unit
-def test_full_store_only_is_excluded_but_mixed_unit_is_scanned(
+def test_boundary_only_module_is_excluded_but_mixed_unit_module_is_scanned(
     git_root: Path,
 ) -> None:
     _tracked_test(
@@ -264,6 +376,39 @@ def test_full_store_only_is_excluded_but_mixed_unit_is_scanned(
 
 
 @pytest.mark.unit
+def test_method_level_unit_in_an_unmarked_class_is_scanned(git_root: Path) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_method.py",
+        "import pytest\nfrom pathlib import Path\nclass TestManifest:\n"
+        "    @pytest.mark.unit\n"
+        "    def test_manifest(self) -> None:\n"
+        '        Path("private-corpus/method.json").read_text()\n',
+    )
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert [(item.kind, item.path) for item in violations] == [
+        ("input", "backend/tests/test_method.py")
+    ]
+
+
+@pytest.mark.unit
+def test_unit_surface_has_a_typed_shape_for_module_statements() -> None:
+    tree = ast.parse(
+        "import pytest\nVALUE = 1\n"
+        "@pytest.mark.unit\ndef test_value() -> None:\n    assert VALUE\n"
+    )
+
+    surface = _unit_nodes(tree)
+
+    assert dataclasses.is_dataclass(surface)
+    assert surface.module_scope is False
+    assert len(surface.nodes) == 1
+    assert len(surface.module_statements) == 2
+
+
+@pytest.mark.unit
 def test_untracked_absent_and_present_inputs_have_same_verdict(
     git_root: Path,
 ) -> None:
@@ -283,7 +428,7 @@ def test_untracked_absent_and_present_inputs_have_same_verdict(
 
     assert absent == present
     assert len(absent) == 1
-    assert "fixed untracked checkout input path" in absent[0].message
+    assert absent[0].kind == "input"
 
 
 @pytest.mark.unit
@@ -308,7 +453,9 @@ def test_tracking_the_same_input_changes_the_verdict(git_root: Path) -> None:
 
 
 @pytest.mark.unit
-def test_tracked_inventory_discovers_a_new_test_file(git_root: Path) -> None:
+def test_untracked_test_file_is_rejected_then_scanned_when_tracked(
+    git_root: Path,
+) -> None:
     probe = git_root / "backend/tests/test_new.py"
     probe.parent.mkdir(parents=True)
     probe.write_text(
@@ -318,12 +465,16 @@ def test_tracked_inventory_discovers_a_new_test_file(git_root: Path) -> None:
         encoding="utf-8",
     )
 
-    assert unit_test_surface_violations(git_root) == ()
+    before = unit_test_surface_violations(git_root)
+    assert [(item.kind, item.path) for item in before] == [
+        ("untracked_test", "backend/tests/test_new.py")
+    ]
     _git(git_root, "add", "-f", "--", "backend/tests/test_new.py")
 
     violations = unit_test_surface_violations(git_root)
-    assert len(violations) == 1
-    assert violations[0].path == "backend/tests/test_new.py"
+    assert [(item.kind, item.path) for item in violations] == [
+        ("input", "backend/tests/test_new.py")
+    ]
 
 
 @pytest.mark.unit
@@ -331,10 +482,23 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
     calls: list[tuple[tuple[str, ...], Path, float]] = []
 
     def recording_runner(
-        arguments: Sequence[str], *, cwd: Path, timeout: float
-    ) -> bytes:
+        arguments: Sequence[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: dict[str, str],
+    ) -> subprocess.CompletedProcess[bytes]:
+        assert (
+            not {
+                "GIT_CEILING_DIRECTORIES",
+                "GIT_DIR",
+                "GIT_INDEX_FILE",
+                "GIT_WORK_TREE",
+            }
+            & env.keys()
+        )
         calls.append((tuple(arguments), cwd, timeout))
-        return b""
+        return subprocess.CompletedProcess(arguments, 0, stdout=b"", stderr=b"")
 
     assert unit_test_surface_violations(tmp_path, runner=recording_runner) == ()
     assert calls == [
@@ -343,6 +507,20 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "git",
                 "ls-files",
                 "-z",
+                "--",
+                "ontolib/tests",
+                "backend/tests",
+            ),
+            tmp_path,
+            10.0,
+        ),
+        (
+            (
+                "git",
+                "ls-files",
+                "-z",
+                "--others",
+                "--exclude-standard",
                 "--",
                 "ontolib/tests",
                 "backend/tests",
@@ -366,14 +544,22 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
 def test_git_inventory_failures_fail_closed(
     tmp_path: Path, failure: BaseException
 ) -> None:
-    def failing_runner(arguments: Sequence[str], *, cwd: Path, timeout: float) -> bytes:
-        del arguments, cwd, timeout
+    def failing_runner(
+        arguments: Sequence[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: dict[str, str],
+    ) -> subprocess.CompletedProcess[bytes]:
+        del arguments, cwd, timeout, env
         raise failure
 
     violations = unit_test_surface_violations(tmp_path, runner=failing_runner)
 
     assert len(violations) == 1
+    assert violations[0].kind == "inventory_error"
     assert violations[0].path == "<git inventory>"
+    assert violations[0].line is None
     assert "unable to inventory tracked checkout" in violations[0].message
 
 
@@ -418,15 +604,185 @@ def test_tracked_test_read_and_parse_failures_fail_closed(
 
 
 @pytest.mark.unit
+def test_read_failure_diagnostic_is_bounded_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch, git_root: Path
+) -> None:
+    probe = _tracked_test(
+        git_root,
+        "backend/tests/test_unreadable.py",
+        "import pytest\npytestmark = pytest.mark.unit\n",
+    )
+    original_read_text = pathlib.Path.read_text
+
+    def read_with_secret_failure(
+        path: pathlib.Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> str:
+        if path == probe:
+            raise PermissionError(
+                f"cannot read {probe} via /outside/private.txt token=super-secret "
+                + "x" * 500
+            )
+        return original_read_text(
+            path, encoding=encoding, errors=errors, newline=newline
+        )
+
+    monkeypatch.setattr(pathlib.Path, "read_text", read_with_secret_failure)
+
+    violation = unit_test_surface_violations(git_root)[0]
+
+    assert violation.kind == "read_error"
+    assert "PermissionError" in violation.message
+    assert "cannot read" in violation.message
+    assert str(git_root) not in violation.message
+    assert "/outside/private.txt" not in violation.message
+    assert "super-secret" not in violation.message
+    assert len(violation.message) <= 320
+
+
+@pytest.mark.unit
+def test_git_failure_diagnostic_is_bounded_and_sanitized(tmp_path: Path) -> None:
+    secret_path = f"{tmp_path}/private/token.txt"
+    failure = subprocess.CalledProcessError(
+        7,
+        "git",
+        stderr=(
+            f"fatal: {secret_path} /outside/index Authorization=Bearer-secret "
+            + "x" * 500
+        ).encode(),
+    )
+
+    def failing_runner(
+        arguments: Sequence[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: dict[str, str],
+    ) -> subprocess.CompletedProcess[bytes]:
+        del arguments, cwd, timeout, env
+        raise failure
+
+    violation = unit_test_surface_violations(tmp_path, runner=failing_runner)[0]
+
+    assert violation.kind == "inventory_error"
+    assert "returncode=7" in violation.message
+    assert "stderr=" in violation.message
+    assert str(tmp_path) not in violation.message
+    assert "/outside/index" not in violation.message
+    assert "Bearer-secret" not in violation.message
+    assert len(violation.message) <= 320
+
+
+@pytest.mark.unit
+def test_production_git_runner_scrubs_injected_git_environment(
+    monkeypatch: pytest.MonkeyPatch, git_root: Path
+) -> None:
+    # This intentionally executes real Git: the contract protects the checkout index,
+    # which an in-process fake cannot certify.
+    malicious_index = git_root / "outside.index"
+    monkeypatch.setenv("GIT_DIR", str(git_root / "missing-git-dir"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(git_root / "missing-work-tree"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(malicious_index))
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(git_root))
+
+    result = _run_git(
+        ("git", "rev-parse", "--git-dir"), cwd=git_root, timeout=10.0, env=None
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == b".git"
+    assert result.stderr == b""
+    assert not malicious_index.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source", "expected_kind", "expected_message"),
+    [
+        (
+            "def test_path() -> None:\n"
+            '    Path("public/../../private.json").read_text()\n',
+            "invalid_path",
+            "invalid statically resolvable checkout input path: ../private.json",
+        ),
+        (
+            "def test_path() -> None:\n"
+            "    Path(__file__).resolve().parents[50].read_text()\n",
+            "invalid_path",
+            "invalid statically resolvable checkout input path: "
+            "parent traversal above checkout root",
+        ),
+    ],
+)
+def test_parent_escape_is_an_exact_invalid_path_violation(
+    source: str, expected_kind: str, expected_message: str
+) -> None:
+    violations = fixed_untracked_input_violations(
+        source,
+        filename="backend/tests/test_subject.py",
+        tracked_paths=frozenset(),
+    )
+
+    assert len(violations) == 1
+    assert violations[0].kind == expected_kind
+    assert violations[0].message == expected_message
+
+
+@pytest.mark.unit
+def test_resolved_path_flags_are_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        _ResolvedPath("manifest.json", False, True, False)  # type: ignore[misc]
+
+
+@pytest.mark.unit
+def test_candidate_is_a_named_frozen_dataclass() -> None:
+    statement = ast.parse('open("manifest.json")').body[0]
+    assert isinstance(statement, ast.Expr)
+    call = statement.value
+    assert isinstance(call, ast.Call)
+
+    candidate = _call_candidates(call)[0]
+
+    assert dataclasses.is_dataclass(candidate)
+    assert candidate.expression is call.args[0]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        candidate.line = 99  # type: ignore[misc]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "source",
+    [
+        'def test_read() -> None:\n    load_cached_manifest("private/a.json")\n',
+        'def test_read() -> None:\n    read_target_manifest("private/b.json")\n',
+        'def test_read() -> None:\n    parse_directory_manifest("private/c.json")\n',
+        'def test_read() -> None:\n    consume(cache_source_path="private/d.json")\n',
+        'def test_read() -> None:\n    open("golden files/result.json")\n',
+    ],
+)
+def test_input_semantics_override_output_words_and_allow_spaced_paths(
+    source: str,
+) -> None:
+    violations = fixed_untracked_input_violations(
+        source, filename="test_subject.py", tracked_paths=frozenset()
+    )
+
+    assert [item.kind for item in violations] == ["input"]
+
+
+@pytest.mark.unit
 def test_repository_unit_surface_uses_only_tracked_checkout_inputs() -> None:
-    violations = unit_test_surface_violations(_ROOT)
+    with _exclusive_tree_scan():
+        violations = unit_test_surface_violations(_ROOT)
     assert violations == (), "\n".join(
         f"{item.path}:{item.line}: {item.message}" for item in violations
     )
 
 
 @pytest.mark.unit
-def test_repository_gate_is_in_the_test_ci_collection(
+def test_repository_gate_is_unit_marked_and_test_ci_selects_unit_tests(
     request: pytest.FixtureRequest,
 ) -> None:
     assert request.node.get_closest_marker("unit") is not None

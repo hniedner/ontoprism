@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -62,9 +63,6 @@ def test_tracked_text_has_no_retired_local_runtime_references() -> None:
             continue
         relative = encoded_relative.decode()
         path = _ROOT / relative
-        # Index entries deleted by the current change are not current authored text.
-        if not path.exists():
-            continue
         source = path.read_bytes()
         violations.extend(_retired_runtime_violations(relative, source))
 
@@ -106,3 +104,48 @@ def test_other_tracked_file_reference_is_reported() -> None:
     assert _retired_runtime_violations("docs/runtime.md", source) == [
         f"docs/runtime.md:1: setup {_RETIRED_ENGINE} runtime"
     ]
+
+
+def test_tracked_runtime_contract_fails_when_an_index_entry_vanishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Real Git is intentional: index/worktree deletion semantics are the contract.
+    git = shutil.which("git")
+    assert git is not None
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "GIT_CEILING_DIRECTORIES",
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_WORK_TREE",
+        }
+    }
+    subprocess.run(  # noqa: S603 -- resolved Git executable, fixed test command
+        [git, "init", "--quiet"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        env=environment,
+    )
+    vanished = tmp_path / "docs/runtime.md"
+    vanished.parent.mkdir()
+    vanished.write_text("current runtime\n", encoding="utf-8")
+    subprocess.run(  # noqa: S603 -- resolved Git executable, fixed test command
+        [git, "add", "--", "docs/runtime.md"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        env=environment,
+    )
+    vanished.unlink()
+    monkeypatch.setitem(
+        test_tracked_text_has_no_retired_local_runtime_references.__globals__,
+        "_ROOT",
+        tmp_path,
+    )
+
+    with pytest.raises(FileNotFoundError):
+        test_tracked_text_has_no_retired_local_runtime_references()
