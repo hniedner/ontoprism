@@ -276,6 +276,8 @@ def _decorator_frozen(decorator: ast.expr) -> bool:
 
 
 def _decorator_identity_mutable(decorator: ast.expr) -> bool:
+    # Identity-keyed mutable private implementation state is safe from value-hash drift;
+    # public data models still require immutable value semantics.
     if not isinstance(decorator, ast.Call):
         return False
     values = {

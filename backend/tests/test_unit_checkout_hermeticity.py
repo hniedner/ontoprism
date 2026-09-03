@@ -1,4 +1,4 @@
-"""Contracts for unit markers, inventories, and checkout-owned unit inputs."""
+"""Contracts for markers, Python test/support inventory, and checkout-owned inputs."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ import scripts.validation.unit_checkout_hermeticity as checkout_gate
 from scripts.validation.unit_checkout_hermeticity import (
     TestInventory,
     TrackedInventory,
-    Violation,
     _call_candidates,
     _node_ranges,
     _ResolvedPath,
@@ -373,7 +372,8 @@ def test_repository_has_no_mixed_unit_and_real_boundary_markers() -> None:
     violations = mixed_test_marker_surface_violations(_ROOT)
 
     assert violations == (), "\n".join(
-        f"{item.path}:{item.line}: {item.message}" for item in violations
+        f"{item.path}:{getattr(item, 'line', '-')}: {item.message}"
+        for item in violations
     )
 
 
@@ -559,6 +559,77 @@ def test_ignored_untracked_test_file_is_inventoried_and_rejected(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("relative", "ignored"),
+    [("backend/tests/conftest.py", True), ("ontolib/tests/helpers.py", False)],
+)
+def test_untracked_test_support_is_inventoried_and_rejected(
+    git_root: Path, relative: str, ignored: bool
+) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_existing.py",
+        "def test_existing() -> None:\n    assert True\n",
+    )
+    if ignored:
+        (git_root / ".gitignore").write_text(f"/{relative}\n", encoding="utf-8")
+    probe = git_root / relative
+    probe.parent.mkdir(parents=True, exist_ok=True)
+    probe.write_text("VALUE = 1\n", encoding="utf-8")
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert [(item.kind, item.path) for item in violations] == [
+        ("untracked_test", relative)
+    ]
+
+
+@pytest.mark.unit
+def test_tracked_support_module_with_untracked_checkout_read_is_rejected(
+    git_root: Path,
+) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_existing.py",
+        "def test_existing() -> None:\n    assert True\n",
+    )
+    _tracked_test(
+        git_root,
+        "backend/tests/helpers.py",
+        "from pathlib import Path\n"
+        "def load_manifest() -> str:\n"
+        '    return Path("private-corpus/manifest.json").read_text()\n',
+    )
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert [(item.kind, item.path) for item in violations] == [
+        ("input", "backend/tests/helpers.py")
+    ]
+
+
+@pytest.mark.unit
+def test_tracked_support_module_with_tracked_checkout_read_is_safe(
+    git_root: Path,
+) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_existing.py",
+        "def test_existing() -> None:\n    assert True\n",
+    )
+    _tracked_test(
+        git_root,
+        "ontolib/tests/helpers.py",
+        "from pathlib import Path\n"
+        "def load_manifest() -> str:\n"
+        '    return Path("fixtures/manifest.json").read_text()\n',
+    )
+    _tracked_test(git_root, "fixtures/manifest.json", "{}\n")
+
+    assert unit_test_surface_violations(git_root) == ()
+
+
+@pytest.mark.unit
 def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) -> None:
     calls: list[tuple[tuple[str, ...], Path, float]] = []
     probe = tmp_path / "backend/tests/test_unit_checkout_hermeticity.py"
@@ -644,7 +715,7 @@ def test_git_inventory_failures_fail_closed(
     assert len(violations) == 1
     assert violations[0].kind == "inventory_error"
     assert violations[0].path == "<git inventory>"
-    assert violations[0].line is None
+    assert not hasattr(violations[0], "line")
     assert "unable to inventory tracked checkout" in violations[0].message
 
 
@@ -832,6 +903,20 @@ def test_resolved_path_discriminator_rejects_invalid_combinations(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "value", ["/manifest.json", "../manifest.json", "a/../manifest.json"]
+)
+def test_checkout_resolved_path_rejects_non_normalized_or_escaping_values(
+    value: str,
+) -> None:
+    reason = "checkout paths must be normalized relative paths without parent traversal"
+    with pytest.raises(ValueError, match=f"^{reason}$"):
+        _ResolvedPath(state="checkout", value=value)
+    with pytest.raises(ValueError, match=f"^{reason}$"):
+        _ResolvedPath.checkout(value)
+
+
+@pytest.mark.unit
 def test_candidate_is_a_keyword_only_named_frozen_dataclass() -> None:
     statement = ast.parse('open("manifest.json")').body[0]
     assert isinstance(statement, ast.Expr)
@@ -874,7 +959,8 @@ def test_repository_unit_surface_uses_only_tracked_checkout_inputs() -> None:
     with _exclusive_tree_scan():
         violations = unit_test_surface_violations(_ROOT)
     assert violations == (), "\n".join(
-        f"{item.path}:{item.line}: {item.message}" for item in violations
+        f"{item.path}:{getattr(item, 'line', '-')}: {item.message}"
+        for item in violations
     )
 
 
@@ -913,6 +999,26 @@ def test_empty_tracked_test_inventory_fails_closed(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_empty_inventory_raises_dedicated_inventory_error(tmp_path: Path) -> None:
+    def empty_runner(
+        arguments: tuple[str, ...],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: dict[str, str],
+    ) -> bytes:
+        del arguments, cwd, timeout, env
+        return b""
+
+    with pytest.raises(
+        checkout_gate.InventoryError, match="tracked Python test inventory is empty"
+    ) as captured:
+        checkout_gate._test_inventory(tmp_path, empty_runner)
+
+    assert type(captured.value).__name__ == "InventoryError"
+
+
+@pytest.mark.unit
 def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
     tests = TestInventory(
         tracked=frozenset({"backend/tests/test_gate.py"}),
@@ -933,14 +1039,14 @@ def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("kind", ["inventory_error", "untracked_test", "read_error"])
-def test_non_source_violations_reject_source_lines(kind: str) -> None:
-    with pytest.raises(ValueError, match="cannot have a source line"):
-        Violation(
-            kind=kind,  # type: ignore[arg-type]
-            path="test_subject.py",
-            line=1,
-            message="failure",
-        )
+def test_file_violations_have_no_source_line(kind: str) -> None:
+    violation = checkout_gate.FileViolation(
+        kind=kind,  # type: ignore[arg-type]
+        path="test_subject.py",
+        message="failure",
+    )
+
+    assert not hasattr(violation, "line")
 
 
 @pytest.mark.unit
@@ -950,9 +1056,26 @@ def test_non_source_violations_reject_source_lines(kind: str) -> None:
 @pytest.mark.parametrize("line", [None, 0])
 def test_source_violations_require_positive_lines(kind: str, line: int | None) -> None:
     with pytest.raises(ValueError, match="require a positive line"):
-        Violation(
+        checkout_gate.SourceViolation(
             kind=kind,  # type: ignore[arg-type]
             path="test_subject.py",
-            line=line,
+            line=line,  # type: ignore[arg-type]
+            message="failure",
+        )
+
+
+@pytest.mark.unit
+def test_violation_variants_keep_kinds_closed() -> None:
+    with pytest.raises(ValueError, match="source violation kind"):
+        checkout_gate.SourceViolation(
+            kind="read_error",  # type: ignore[arg-type]
+            path="test_subject.py",
+            line=1,
+            message="failure",
+        )
+    with pytest.raises(ValueError, match="file violation kind"):
+        checkout_gate.FileViolation(
+            kind="parse_error",  # type: ignore[arg-type]
+            path="test_subject.py",
             message="failure",
         )

@@ -746,6 +746,9 @@ def _assert_api_image_python_patch(workflow: dict[str, Any]) -> None:
         '  "import sys; assert sys.version_info[:3] == (3, 14, 7), '
         'sys.version"'
     ) in runtime_step["run"]
+    assert runtime_step["run"].index(
+        "docker exec ontoprism-api-ci python -c"
+    ) < runtime_step["run"].index("wait_for_command ontoprism-api-ci")
 
 
 def _assert_ci_job_contract(
@@ -768,7 +771,10 @@ def _assert_ci_job_contract(
 
 def _assert_ci_summary_allow_list(workflow: dict[str, Any]) -> None:
     summary = workflow["jobs"]["ci-summary"]
+    assert summary["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == len(summary["needs"])
     run = summary["steps"][0]["run"]
+    assert "set -- $RESULTS" in run
+    assert '[ "$#" -eq "$EXPECTED_JOB_COUNT" ]' in run
     assert "success|skipped)" in run
     assert 'echo "::error::Unexpected CI job result: $r"' in run
     assert "failure" not in run
@@ -903,6 +909,38 @@ def test_ci_summary_contract_rejects_a_new_non_passing_result() -> None:
         _assert_ci_summary_allow_list(workflow)
 
 
+def test_ci_summary_contract_rejects_missing_arity_check() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    summary_step = workflow["jobs"]["ci-summary"]["steps"][0]
+    summary_step["run"] = summary_step["run"].replace(
+        '[ "$#" -eq "$EXPECTED_JOB_COUNT" ]', "true"
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_ci_summary_allow_list(workflow)
+
+
+@pytest.mark.parametrize("results", ["", "success skipped"])
+def test_ci_summary_rejects_empty_or_short_result_lists(results: str) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    step = workflow["jobs"]["ci-summary"]["steps"][0]
+
+    completed = subprocess.run(  # noqa: S603 - repository-owned workflow contract
+        ("/bin/sh", "-c", step["run"]),
+        env={
+            **os.environ,
+            "RESULTS": results,
+            "EXPECTED_JOB_COUNT": str(step["env"]["EXPECTED_JOB_COUNT"]),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "Unexpected CI job result count" in completed.stdout
+
+
 def test_api_image_runtime_contract_rejects_wrong_expected_patch(
     tmp_path: Path,
 ) -> None:
@@ -923,6 +961,23 @@ def test_api_image_runtime_contract_rejects_wrong_expected_patch(
 
     with pytest.raises(AssertionError):
         _assert_api_image_python_patch(yaml.safe_load(mutated.read_text()))
+
+
+def test_api_image_runtime_contract_rejects_version_check_after_health_wait() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    version = (
+        "docker exec ontoprism-api-ci python -c \\\n"
+        '  "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"\n'
+    )
+    runtime_step["run"] = runtime_step["run"].replace(version, "") + version
+
+    with pytest.raises(AssertionError):
+        _assert_api_image_python_patch(workflow)
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:

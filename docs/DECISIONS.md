@@ -25,7 +25,8 @@ backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_curren
 -v`, 2026-09-03). Pre-commit is the deliberate executable-name exception: it resolves
 `python3.14` from the selected local or CI 3.14.7 PATH. The Docker smoke executes Python in
 the built API container and rejects any patch other than 3.14.7 before checking service
-health (`pdm run agent-test backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
+health; the contract asserts that command ordering (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
 -v`, 2026-09-03).
 
 Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only

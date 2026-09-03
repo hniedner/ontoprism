@@ -498,8 +498,14 @@ jobs:
       - name: Check job results
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          EXPECTED_JOB_COUNT: 8
         run: |
           echo "job results: $RESULTS"
+          set -- $RESULTS
+          if ! [ "$#" -eq "$EXPECTED_JOB_COUNT" ]; then
+            echo "::error::Unexpected CI job result count: $# (expected $EXPECTED_JOB_COUNT)"
+            exit 1
+          fi
           for r in $RESULTS; do
             case "$r" in
               success|skipped) ;;

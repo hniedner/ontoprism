@@ -1,9 +1,9 @@
-"""Reject invalid checkout inputs and mixed boundary markers in unit-test code.
+"""Reject invalid checkout inputs and mixed boundary markers in test code.
 
-The gate inventories tracked tests and every untracked ``test_*.py`` below the test
-roots, including ignored modules. It rejects those untracked modules, statically
-resolvable untracked or invalid checkout inputs in unit-marked nodes and module-level
-statements, and effective ``unit`` markers mixed with any real-boundary marker.
+The gate inventories every tracked and untracked Python module below the test roots,
+including ignored support modules. It rejects untracked modules, statically resolvable
+untracked or invalid checkout inputs in support modules and unit-test surfaces, and
+effective ``unit`` markers mixed with any effective real-boundary marker.
 """
 
 from __future__ import annotations
@@ -34,33 +34,44 @@ _SCRUBBED_GIT_ENVIRONMENT = frozenset(
 _GIT_TIMEOUT_SECONDS = 10.0
 _DIAGNOSTIC_LIMIT = 240
 
-ViolationKind = Literal[
-    "input",
-    "invalid_path",
-    "untracked_test",
-    "inventory_error",
-    "read_error",
-    "parse_error",
-    "marker_error",
-]
+SourceViolationKind = Literal["input", "invalid_path", "marker_error", "parse_error"]
+FileViolationKind = Literal["inventory_error", "untracked_test", "read_error"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Violation:
-    kind: ViolationKind
+class SourceViolation:
+    kind: SourceViolationKind
     path: str
-    line: int | None
+    line: int
     message: str
 
     def __post_init__(self) -> None:
-        if self.kind in {"input", "invalid_path", "marker_error", "parse_error"} and (
-            self.line is None or self.line < 1
+        if self.kind not in {"input", "invalid_path", "marker_error", "parse_error"}:
+            raise ValueError(f"invalid source violation kind: {self.kind}")
+        if (
+            not isinstance(self.line, int)
+            or isinstance(self.line, bool)
+            or self.line < 1
         ):
             raise ValueError(f"{self.kind} violations require a positive line")
-        if self.kind in {"inventory_error", "untracked_test", "read_error"} and (
-            self.line is not None
-        ):
-            raise ValueError(f"{self.kind} violations cannot have a source line")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FileViolation:
+    kind: FileViolationKind
+    path: str
+    message: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"inventory_error", "untracked_test", "read_error"}:
+            raise ValueError(f"invalid file violation kind: {self.kind}")
+
+
+type Violation = SourceViolation | FileViolation
+
+
+class InventoryError(RuntimeError):
+    """Raised when Git reports no tracked Python test inventory."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -153,6 +164,17 @@ class _ResolvedPath:
         elif self.state == "checkout":
             if not self.value or self.invalid_reason:
                 raise ValueError("checkout paths require only a value")
+            if (
+                posixpath.isabs(self.value)
+                or ntpath.isabs(self.value)
+                or "\\" in self.value
+                or posixpath.normpath(self.value) != self.value
+                or ".." in self.value.split("/")
+            ):
+                raise ValueError(
+                    "checkout paths must be normalized relative paths without "
+                    "parent traversal"
+                )
         elif self.state == "invalid" and not self.invalid_reason:
             raise ValueError("invalid paths require a reason")
 
@@ -259,7 +281,7 @@ def _decorator_markers(
 def mixed_test_marker_violations(
     source: str, *, filename: str
 ) -> tuple[Violation, ...]:
-    """Reject effective unit markers combined with declared real-boundary markers."""
+    """Reject effective unit markers combined with effective real-boundary markers."""
     tree = ast.parse(source, filename=filename)
     module_markers = _module_markers(tree)
     violations: list[Violation] = []
@@ -276,7 +298,7 @@ def mixed_test_marker_violations(
         if "unit" in effective and boundary_markers:
             conflicts = ", ".join(sorted(boundary_markers))
             violations.append(
-                Violation(
+                SourceViolation(
                     kind="marker_error",
                     path=filename,
                     line=node.lineno,
@@ -323,10 +345,9 @@ def _inventory_error(error: BaseException, root: Path) -> tuple[Violation, ...]:
         details.append(f"stderr={_sanitize_diagnostic(stderr, root)}")
     message = "unable to inventory tracked checkout: " + "; ".join(details)
     return (
-        Violation(
+        FileViolation(
             kind="inventory_error",
             path="<git inventory>",
-            line=None,
             message=message[:320],
         ),
     )
@@ -364,16 +385,14 @@ def _test_inventory(root: Path, runner: GitRunner) -> TestInventory:
         )
     )
 
-    def tests(paths: frozenset[str]) -> frozenset[str]:
-        return frozenset(
-            path
-            for path in paths
-            if Path(path).name.startswith("test_") and path.endswith(".py")
-        )
+    def python_modules(paths: frozenset[str]) -> frozenset[str]:
+        return frozenset(path for path in paths if path.endswith(".py"))
 
-    inventory = TestInventory(tracked=tests(tracked), untracked=tests(untracked))
+    inventory = TestInventory(
+        tracked=python_modules(tracked), untracked=python_modules(untracked)
+    )
     if inventory.count == 0:
-        raise OSError("tracked test inventory is empty")
+        raise InventoryError("tracked Python test inventory is empty")
     return inventory
 
 
@@ -383,13 +402,12 @@ def _all_tracked_inventory(root: Path, runner: GitRunner) -> TrackedInventory:
     )
 
 
-def _read_failure(relative: str, error: BaseException, root: Path) -> Violation:
+def _read_failure(relative: str, error: BaseException, root: Path) -> FileViolation:
     detail = _sanitize_diagnostic(str(error), root)
     suffix = f"; error={detail}" if detail else ""
-    return Violation(
+    return FileViolation(
         kind="read_error",
         path=relative,
-        line=None,
         message=(f"unable to read test candidate: {type(error).__name__}{suffix}")[
             :320
         ],
@@ -402,7 +420,7 @@ def mixed_test_marker_surface_violations(
     """Report inventory/read/parse errors and mixed markers without imports."""
     try:
         inventory = _test_inventory(root, runner)
-    except (OSError, subprocess.SubprocessError, UnicodeError) as error:
+    except (InventoryError, OSError, subprocess.SubprocessError, UnicodeError) as error:
         return _inventory_error(error, root)
 
     violations: list[Violation] = []
@@ -416,10 +434,10 @@ def mixed_test_marker_surface_violations(
             violations.extend(mixed_test_marker_violations(source, filename=relative))
         except SyntaxError as error:
             violations.append(
-                Violation(
+                SourceViolation(
                     kind="parse_error",
                     path=relative,
-                    line=error.lineno,
+                    line=error.lineno or 1,
                     message=f"unable to parse test marker candidate: {error.msg}",
                 )
             )
@@ -867,9 +885,9 @@ def _fixed_untracked_input_violations(
     *,
     filename: str,
     inventory: TrackedInventory,
-) -> tuple[Violation, ...]:
+) -> tuple[SourceViolation, ...]:
     resolver = _PathResolver(tree, filename)
-    violations: set[tuple[int, ViolationKind, str]] = set()
+    violations: set[tuple[int, SourceViolationKind, str]] = set()
     for candidate in _candidate_calls(tree):
         resolved = resolver.resolve(candidate.expression)
         if resolved is None or resolved.state in {"unresolved", "pytest_owned"}:
@@ -881,7 +899,7 @@ def _fixed_untracked_input_violations(
         ):
             continue
         if resolved.state == "invalid":
-            kind: ViolationKind = "invalid_path"
+            kind: SourceViolationKind = "invalid_path"
             detail = resolved.invalid_reason or resolved.value
             message = f"invalid statically resolvable checkout input path: {detail}"
         elif not inventory.has_file(resolved.value) and (
@@ -895,7 +913,7 @@ def _fixed_untracked_input_violations(
             continue
         violations.add((candidate.line, kind, message))
     return tuple(
-        Violation(kind=kind, path=filename, line=line, message=message)
+        SourceViolation(kind=kind, path=filename, line=line, message=message)
         for line, kind, message in sorted(violations)
     )
 
@@ -905,7 +923,7 @@ def fixed_untracked_input_violations(
     *,
     filename: str,
     inventory: TrackedInventory,
-) -> tuple[Violation, ...]:
+) -> tuple[SourceViolation, ...]:
     """Return invalid paths and checkout inputs absent from typed Git inventory."""
     tree = ast.parse(source, filename=filename)
     return _fixed_untracked_input_violations(
@@ -932,19 +950,18 @@ def _node_ranges(surface: UnitSurface) -> list[tuple[int, int]]:
 def unit_test_surface_violations(
     root: Path, *, runner: GitRunner = _run_git
 ) -> tuple[Violation, ...]:
-    """Reject inventory errors, untracked modules, and invalid unit-test inputs."""
+    """Reject inventory errors, untracked modules, and invalid test-code inputs."""
     try:
         tests = _test_inventory(root, runner)
         tracked = _all_tracked_inventory(root, runner)
-    except (OSError, subprocess.SubprocessError, UnicodeError) as error:
+    except (InventoryError, OSError, subprocess.SubprocessError, UnicodeError) as error:
         return _inventory_error(error, root)
 
     violations: list[Violation] = [
-        Violation(
+        FileViolation(
             kind="untracked_test",
             path=relative,
-            line=None,
-            message="untracked test module is outside the checkout inventory",
+            message="untracked test/support module is outside the checkout inventory",
         )
         for relative in sorted(tests.untracked)
     ]
@@ -958,30 +975,37 @@ def unit_test_surface_violations(
             tree = ast.parse(source, filename=relative)
         except SyntaxError as error:
             violations.append(
-                Violation(
+                SourceViolation(
                     kind="parse_error",
                     path=relative,
-                    line=error.lineno,
+                    line=error.lineno or 1,
                     message=f"unable to parse unit-test candidate: {error.msg}",
                 )
             )
             continue
-        surface = _unit_nodes(tree)
-        if surface is None:
-            continue
         discovered = _fixed_untracked_input_violations(
             tree, filename=relative, inventory=tracked
         )
+        if not Path(relative).name.startswith("test_"):
+            violations.extend(discovered)
+            continue
+        surface = _unit_nodes(tree)
+        if surface is None:
+            continue
         ranges = _node_ranges(surface)
         violations.extend(
             violation
             for violation in discovered
-            if violation.line is not None
-            and any(start <= violation.line <= end for start, end in ranges)
+            if any(start <= violation.line <= end for start, end in ranges)
         )
     return tuple(
         sorted(
             set(violations),
-            key=lambda item: (item.path, item.line or 0, item.kind, item.message),
+            key=lambda item: (
+                item.path,
+                item.line if isinstance(item, SourceViolation) else 0,
+                item.kind,
+                item.message,
+            ),
         )
     )
