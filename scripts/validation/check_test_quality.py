@@ -264,8 +264,9 @@ def check_file(filepath: Path) -> tuple[list[str], list[str]]:
 
     try:
         tree = ast.parse(content, filename=str(filepath))
-    except SyntaxError:
-        return [], []
+    except SyntaxError as error:
+        line = error.lineno or 1
+        return [f"{filepath}:{line}: syntax error: {error.msg}"], []
 
     failures: list[str] = []
     warnings: list[str] = []

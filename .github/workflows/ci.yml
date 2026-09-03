@@ -5,9 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # On-demand full CI for a feature branch that has no pull request yet. Without this,
-  # `ci.yml` never runs during branch development, so defects batch up and are first
-  # discovered when the PR opens. CI must be the last bar, not the discovery mechanism.
+  # On-demand CI for a feature branch that has no pull request yet. It runs jobs whose
+  # path filters match; Docker and the embedding model contract remain path-gated.
+  # CI must be the last bar, not the discovery mechanism.
   workflow_dispatch:
 
 concurrency:
@@ -485,8 +485,8 @@ jobs:
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then(r => { if (r.status !== 404) throw new Error(String(r.status)) })"
 
-  # Single aggregate status: fails if any job failed/was cancelled; treats skipped
-  # (path-filtered) jobs as OK. Use this as the branch-protection required check.
+  # Single aggregate status: only success and skipped (path-filtered) are accepted.
+  # Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
     needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
@@ -499,9 +499,12 @@ jobs:
         run: |
           echo "job results: $RESULTS"
           for r in $RESULTS; do
-            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "::error::A CI job failed or was cancelled."
-              exit 1
-            fi
+            case "$r" in
+              success|skipped) ;;
+              *)
+                echo "::error::Unexpected CI job result: $r"
+                exit 1
+                ;;
+            esac
           done
           echo "All CI jobs passed or were skipped."

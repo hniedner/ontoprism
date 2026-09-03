@@ -702,6 +702,33 @@ def _assert_api_image_python_patch(workflow: dict[str, Any]) -> None:
     ) in runtime_step["run"]
 
 
+def _assert_ci_job_contract(
+    workflow: dict[str, Any], agents: str, project: str
+) -> None:
+    jobs = workflow["jobs"]
+    assert len(jobs) == 9
+    assert f"all {len(jobs)} `CI` jobs" in agents
+    count_words = {9: "nine"}
+    assert f"all {count_words[len(jobs)]} CI jobs" in project
+
+    legacy_job_id = "python-314-compatibility"
+    legacy_display_name = "python 3.14 compatibility"
+    assert legacy_job_id not in jobs
+    assert all(
+        str(job.get("name", "")).casefold() != legacy_display_name
+        for job in jobs.values()
+    )
+
+
+def _assert_ci_summary_allow_list(workflow: dict[str, Any]) -> None:
+    summary = workflow["jobs"]["ci-summary"]
+    run = summary["steps"][0]["run"]
+    assert "success|skipped)" in run
+    assert 'echo "::error::Unexpected CI job result: $r"' in run
+    assert "failure" not in run
+    assert "cancelled" not in run
+
+
 def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
     workflows = {
@@ -739,8 +766,6 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     assert (_ROOT / ".python-version").read_text().strip() == "3.14.7"
 
     jobs = workflow["jobs"]
-    assert len(jobs) == 9
-    assert "python-314-compatibility" not in jobs
     assert len(jobs["ci-summary"]["needs"]) == 8
     setup_versions = [
         version
@@ -786,8 +811,8 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     assert mcp_command[mcp_command.index("--python") + 1] == "3.14.7"
 
     agents = (_ROOT / "AGENTS.md").read_text()
-    assert f"all {len(jobs)} `CI` jobs" in agents
-    assert "python 3.14 compatibility" not in agents
+    project = (_ROOT / "pyproject.toml").read_text()
+    _assert_ci_job_contract(workflow, agents, project)
     assert "Python 3.14.7 is the only supported local, CI" in agents
     readme = (_ROOT / "README.md").read_text()
     assert "Python 3.14.7 is the only supported local, CI" in readme
@@ -801,6 +826,38 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     assert "full-build mismatch" not in d83
 
     _assert_api_image_python_patch(workflow)
+    _assert_ci_summary_allow_list(workflow)
+
+
+@pytest.mark.parametrize("legacy_kind", ["id", "display"])
+def test_ci_job_contract_rejects_a_legacy_compatibility_job(
+    legacy_kind: str,
+) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    jobs = workflow["jobs"]
+    jobs.pop("embedding-model-contract")
+    if legacy_kind == "id":
+        jobs["python-314-compatibility"] = {"name": "supported runtime"}
+    else:
+        jobs["supported-runtime"] = {"name": "Python 3.14 compatibility"}
+
+    with pytest.raises(AssertionError):
+        _assert_ci_job_contract(
+            workflow,
+            (_ROOT / "AGENTS.md").read_text(),
+            (_ROOT / "pyproject.toml").read_text(),
+        )
+
+
+def test_ci_summary_contract_rejects_a_new_non_passing_result() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    summary_step = workflow["jobs"]["ci-summary"]["steps"][0]
+    summary_step["run"] = summary_step["run"].replace(
+        "success|skipped)", "success|skipped|neutral)"
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_ci_summary_allow_list(workflow)
 
 
 def test_api_image_runtime_contract_rejects_wrong_expected_patch(

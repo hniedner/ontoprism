@@ -18,16 +18,15 @@ data-build, and container runtime (`git grep -n "Python 3.14.7 is the only suppo
 the lock target is the equivalent `~=3.14.7` (`pdm run python -c "import tomllib;
 print(tomllib.load(open('pdm.lock','rb'))['metadata']['targets'])"`, 2026-09-03).
 
-Every workflow `python-version` is exact 3.14.7, and the backend image uses the digest-pinned
-`python:3.14.7-slim` base (`git grep -nE "python-version:|^FROM python:" --
-.github/workflows backend/Dockerfile`, 2026-09-03). Pre-commit is the deliberate executable-name
-exception: it resolves `python3.14` from the selected local or CI 3.14.7 PATH while setup-python
-and the runtime requirement remain patch-exact (`pdm run agent-test
+Workflow setup-python values, `.python-version`, the backend base image, and the container
+smoke assertion are patch-exact 3.14.7; project manifests declare the supported floor and
+minor-series bound `>=3.14.7,<3.15` rather than an exact upper patch (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
--v`, 2026-09-03). The Docker smoke executes
-Python in the built API container and rejects any patch other than 3.14.7 before checking
-service health (`git grep -n "sys.version_info\[:3\]" -- .github/workflows/ci.yml`,
-2026-09-03).
+-v`, 2026-09-03). Pre-commit is the deliberate executable-name exception: it resolves
+`python3.14` from the selected local or CI 3.14.7 PATH. The Docker smoke executes Python in
+the built API container and rejects any patch other than 3.14.7 before checking service
+health (`pdm run agent-test backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
+-v`, 2026-09-03).
 
 Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only
 the exact Starlette `anyio.abc.BlockingPortal` warning ignored (`git grep -n

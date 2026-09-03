@@ -62,3 +62,13 @@ def test_quality_gate_fails_closed_on_non_utf8_test_file(tmp_path: Path) -> None
 
     with pytest.raises(UnicodeDecodeError):
         check_file(path)
+
+
+def test_quality_gate_rejects_a_test_file_with_invalid_syntax(tmp_path: Path) -> None:
+    path = tmp_path / "test_invalid.py"
+    path.write_text("def test_contract(:\n    pass\n", encoding="utf-8")
+
+    failures, warnings = check_file(path)
+
+    assert warnings == []
+    assert failures == [f"{path}:1: syntax error: invalid syntax"]
