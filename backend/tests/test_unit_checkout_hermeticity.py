@@ -49,6 +49,9 @@ def test_fixed_ignored_path_detector_reject_branch_is_live(source: str) -> None:
         ("tmpdata/x.json", False),
         ("data/fixture.json", True),
         ("tmp/fixture.json", True),
+        (".opencode/opencode.json", True),
+        (".opencode/opencode.jsonc", True),
+        ("opencode.json", False),
     ],
 )
 def test_fixed_ignored_path_detector_matches_complete_root_segments(

@@ -853,10 +853,6 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
         text=True,
     ).stdout.strip()
     assert pre_commit_version == "3.14.7"
-    opencode = json.loads((_ROOT / ".opencode" / "opencode.json").read_text())
-    mcp_command = opencode["mcp"]["sqlite-cadsr-repo"]["command"]
-    assert mcp_command[mcp_command.index("--python") + 1] == "3.14.7"
-
     agents = (_ROOT / "AGENTS.md").read_text()
     project = (_ROOT / "pyproject.toml").read_text()
     _assert_ci_job_contract(workflow, agents, project)

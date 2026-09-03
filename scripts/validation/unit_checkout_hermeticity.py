@@ -11,6 +11,9 @@ if TYPE_CHECKING:
 
 _TEST_ROOTS = ("ontolib/tests", "backend/tests")
 _IGNORED_ROOTS = frozenset({"data", "tmp"})
+_IGNORED_EXACT_PATHS = frozenset(
+    {".opencode/opencode.json", ".opencode/opencode.jsonc"}
+)
 _PATH_READ_METHODS = frozenset({"open", "read_bytes", "read_text"})
 _INPUT_KEYWORD_TERMS = ("input", "source", "manifest")
 
@@ -155,7 +158,9 @@ def _unit_nodes(tree: ast.Module) -> tuple[ast.AST, ...]:
 def _ignored_literal(value: str) -> bool:
     normalized = value.replace("\\", "/").removeprefix("./")
     root, separator, _remainder = normalized.partition("/")
-    return bool(separator) and root in _IGNORED_ROOTS
+    return normalized in _IGNORED_EXACT_PATHS or (
+        bool(separator) and root in _IGNORED_ROOTS
+    )
 
 
 def _ignored_literal_or_root(value: str) -> bool:
@@ -212,10 +217,13 @@ def _segmented_ignored_path(node: ast.BinOp, anchors: set[str]) -> str | None:
         for segment in _path_segments(node)
         if isinstance(segment, ast.Constant) and isinstance(segment.value, str)
     ]
-    for index, value in enumerate(values):
-        if _ignored_literal_or_root(value):
-            normalized = value.replace("\\", "/").removeprefix("./")
-            return "/".join((normalized, *values[index + 1 :]))
+    normalized_values = [
+        value.replace("\\", "/").removeprefix("./") for value in values
+    ]
+    for index in range(len(normalized_values)):
+        candidate = "/".join(normalized_values[index:])
+        if _ignored_literal_or_root(candidate):
+            return candidate
     return None
 
 
@@ -270,7 +278,7 @@ def _outer_segmented_ignored_path(
 def fixed_ignored_path_violations(
     source: str, *, filename: str
 ) -> tuple[Violation, ...]:
-    """Return fixed ``data``/``tmp`` path uses in one parsed source document."""
+    """Return fixed gitignored input paths in one parsed source document."""
     tree = ast.parse(source, filename=filename)
     anchors = _repo_anchors(tree)
     parents = {
