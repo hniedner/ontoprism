@@ -336,15 +336,7 @@ def unit_test_surface_violations(root: Path) -> tuple[Violation, ...]:
     violations: list[Violation] = []
     for test_root in _TEST_ROOTS:
         paths = sorted((root / test_root).rglob("test_*.py"))
-        sources: dict[Path, str] | None = None
-        for _attempt in range(3):
-            try:
-                sources = {path: path.read_text(encoding="utf-8") for path in paths}
-                break
-            except FileNotFoundError:
-                paths = sorted((root / test_root).rglob("test_*.py"))
-        if sources is None:
-            raise RuntimeError(f"unit test surface remained unstable: {test_root}")
+        sources = {path: path.read_text(encoding="utf-8") for path in paths}
         for path, source in sources.items():
             relative = path.relative_to(root).as_posix()
             try:

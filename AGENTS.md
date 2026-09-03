@@ -145,7 +145,7 @@ decisions — see D60 for the full statement.
 ## Setup & dev servers
 
 ```bash
-pdm install --dev       # Requires Python 3.13–3.14; installs editable packages
+pdm install --dev       # Use Python 3.13 for the production/default environment
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -157,6 +157,11 @@ pdm run up               # Compose via current selected Docker context; run `pdm
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
+
+Keep `python3.14` discoverable on `PATH`: mandatory `pdm run verify` includes its
+compatibility lane. Python 3.14 certification covers hermetic imports and the
+non-integration unit suite; integration, data-build execution, and the production
+container remain on Python 3.13.
 
 Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
 so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;

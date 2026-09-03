@@ -287,7 +287,7 @@ proof-bearing contract (#153), not a property claimed by this projection.
 ## Quickstart
 
 ```bash
-pdm install --dev                # Requires Python 3.13–3.14; 3.13 is the default
+pdm install --dev                # Use Python 3.13 for the production/default environment
 npm ci --prefix frontend         # SvelteKit deps
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -300,6 +300,11 @@ pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
 pdm run python-314-compatibility # isolated 3.14 import + non-integration certification
 ```
+
+Keep `python3.14` discoverable on `PATH`: mandatory `pdm run verify` includes that
+compatibility lane. Python 3.14 certification covers hermetic imports and the
+non-integration unit suite; integration, data-build execution, and the production
+container remain on Python 3.13.
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
 for first-run provisioning. Entitled ICD-O operators set the server-only

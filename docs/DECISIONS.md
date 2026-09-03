@@ -34,8 +34,9 @@ test lane. Its sole exception is the exact third-party Starlette
 `anyio.abc.BlockingPortal` alias message from the exact `starlette.testclient` module currently
 observed during test collection; project-owned, generic, and near-match deprecations remain
 errors, and pytest-liveness tests exercise both branches (`pdm run agent-test
-backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03). The deprecated
-project-owned coroutine predicate was replaced without changing sync/async retry behavior
+backend/tests/test_python_compatibility_runner.py -v`, 2026-09-03). The deprecated stdlib
+`asyncio.iscoroutinefunction` call used by `retry_with_backoff` was replaced with
+`inspect.iscoroutinefunction` without changing sync/async retry behavior
 (`pdm run agent-test
 ontolib/tests/terminologies/test_retry_backoff.py -v`, 2026-09-03).
 

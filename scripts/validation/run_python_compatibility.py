@@ -134,6 +134,11 @@ def preserve_primary_environment(root: Path = _ROOT) -> Iterator[None]:
         )
     if body_failure is not None:
         raise body_failure
+    if len(identity_failures) > 1:
+        raise BaseExceptionGroup(
+            "compatibility isolation checks failed",
+            identity_failures,
+        )
     if identity_failures:
         raise identity_failures[0]
 
@@ -170,7 +175,7 @@ def compatibility_environment(
 
 
 def compatibility_commands(pdm: str, python: str) -> tuple[tuple[str, ...], ...]:
-    """Return the clean sync, import smoke, and non-coverage compatibility commands."""
+    """Create a disposable venv and clean-sync it, then run smoke/noncoverage suites."""
     return (
         (pdm, "venv", "create", "--name", "compatibility", python),
         (

@@ -209,10 +209,15 @@ def test_primary_and_coverage_failures_are_aggregated_with_body_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    identity = PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "one")
+    identities = iter(
+        [
+            PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "one"),
+            PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "two"),
+        ]
+    )
     monkeypatch.setattr(
         "scripts.validation.run_python_compatibility.capture_primary_environment_identity",
-        lambda _root: identity,
+        lambda _root: next(identities),
     )
 
     def fail_coverage_assertion(
@@ -231,8 +236,45 @@ def test_primary_and_coverage_failures_are_aggregated_with_body_failure(
     ):
         raise ValueError("compatibility body failed")
 
-    assert len(caught.value.exceptions) == 2
+    assert len(caught.value.exceptions) == 3
     assert isinstance(caught.value.exceptions[0], ValueError)
+    assert isinstance(caught.value.exceptions[1], RuntimeError)
+    assert isinstance(caught.value.exceptions[2], OSError)
+
+
+def test_primary_and_coverage_failures_are_aggregated_without_body_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    identities = iter(
+        [
+            PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "one"),
+            PrimaryEnvironmentIdentity(Path("/python"), (3, 13), b"a", b"b", "two"),
+        ]
+    )
+    monkeypatch.setattr(
+        "scripts.validation.run_python_compatibility.capture_primary_environment_identity",
+        lambda _root: next(identities),
+    )
+
+    def fail_coverage_assertion(
+        _root: Path, _before: tuple[tuple[str, str], ...]
+    ) -> None:
+        raise OSError("coverage recapture failed")
+
+    monkeypatch.setattr(
+        "scripts.validation.run_python_compatibility.assert_coverage_unchanged",
+        fail_coverage_assertion,
+    )
+
+    with (
+        pytest.raises(BaseExceptionGroup) as caught,
+        preserve_primary_environment(tmp_path),
+    ):
+        pass
+
+    assert len(caught.value.exceptions) == 2
+    assert isinstance(caught.value.exceptions[0], RuntimeError)
     assert isinstance(caught.value.exceptions[1], OSError)
 
 

@@ -254,36 +254,34 @@ def test_non_full_store_unit_tests_do_not_read_fixed_gitignored_inputs() -> None
 
 
 @pytest.mark.unit
-def test_unit_surface_scan_retries_when_a_concurrent_probe_disappears(
+@pytest.mark.parametrize("failure_type", [FileNotFoundError, PermissionError])
+def test_unit_surface_scan_propagates_unreadable_discovered_test(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    failure_type: type[OSError],
 ) -> None:
     tests = tmp_path / "backend/tests"
     tests.mkdir(parents=True)
-    (tests / "test_stable.py").write_text(
-        "import pytest\npytestmark = pytest.mark.unit\n"
-    )
-    probe = tests / "test_transient_probe.py"
+    probe = tests / "test_unreadable.py"
     probe.write_text("import pytest\npytestmark = pytest.mark.unit\n")
     original_read_text = pathlib.Path.read_text
-    disappeared = False
+    failure = failure_type(probe)
 
-    def read_with_concurrent_removal(
+    def read_with_failure(
         path: pathlib.Path,
         encoding: str | None = None,
         errors: str | None = None,
         newline: str | None = None,
     ) -> str:
-        nonlocal disappeared
-        if path == probe and not disappeared:
-            disappeared = True
-            probe.unlink()
-            raise FileNotFoundError(probe)
+        if path == probe:
+            raise failure
         return original_read_text(
             path, encoding=encoding, errors=errors, newline=newline
         )
 
-    monkeypatch.setattr(pathlib.Path, "read_text", read_with_concurrent_removal)
+    monkeypatch.setattr(pathlib.Path, "read_text", read_with_failure)
 
-    assert unit_test_surface_violations(tmp_path) == ()
-    assert disappeared
+    with pytest.raises(failure_type) as caught:
+        unit_test_surface_violations(tmp_path)
+
+    assert caught.value is failure
