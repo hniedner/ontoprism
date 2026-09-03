@@ -460,6 +460,24 @@ def test_frontend_transitive_security_and_install_script_policy() -> None:
     assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
 
 
+def test_frontend_vitest_manifest_matches_coverage_peer_and_lock() -> None:
+    package = json.loads(
+        (_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+    )
+    lock = json.loads(
+        (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
+    )
+    root_lock = lock["packages"][""]["devDependencies"]
+    coverage_lock = lock["packages"]["node_modules/@vitest/coverage-v8"]
+
+    assert package["devDependencies"]["vitest"] == "^4.1.11"
+    assert package["devDependencies"]["@vitest/coverage-v8"] == "^4.1.11"
+    assert root_lock == package["devDependencies"]
+    assert lock["packages"]["node_modules/vitest"]["version"] == "4.1.11"
+    assert coverage_lock["version"] == "4.1.11"
+    assert coverage_lock["peerDependencies"]["vitest"] == "4.1.11"
+
+
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
     tmp_path: Path,
 ) -> None:
