@@ -145,7 +145,7 @@ decisions — see D60 for the full statement.
 ## Setup & dev servers
 
 ```bash
-pdm install --dev       # Python 3.13–3.14 (3.13 production/default), editable packages
+pdm install --dev       # Requires Python 3.13–3.14; installs editable packages
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"

@@ -287,7 +287,7 @@ proof-bearing contract (#153), not a property claimed by this projection.
 ## Quickstart
 
 ```bash
-pdm install --dev                # Python 3.13–3.14; 3.13 is the default
+pdm install --dev                # Requires Python 3.13–3.14; 3.13 is the default
 npm ci --prefix frontend         # SvelteKit deps
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"

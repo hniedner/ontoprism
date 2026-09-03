@@ -2,12 +2,12 @@
 
 help:
 	@echo "ontoprism — common targets:"
-	@echo "  install         PDM install (Python 3.13–3.14; 3.13 default) + editable local packages"
+	@echo "  install         PDM install (requires Python 3.13–3.14) + editable local packages"
 	@echo "  test            Run the full test suite (pdm run test)"
 	@echo "  test-unit       Unit tests only"
 	@echo "  test-integration  Integration tests (owned disposable services)"
 	@echo "  test-ci         Tests with coverage (xml + term-missing)"
-	@echo "  python-314-compatibility  Clean locked unit suite in disposable Python 3.14"
+	@echo "  python-314-compatibility  Clean locked non-integration suite in disposable Python 3.14"
 	@echo "  lint            ruff check + basedpyright"
 	@echo "  fmt             ruff format"
 	@echo "  api-dev         Run the FastAPI backend (uvicorn, reload)"
