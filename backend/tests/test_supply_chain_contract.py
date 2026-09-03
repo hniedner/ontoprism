@@ -32,6 +32,20 @@ _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+_REVIEWED_UPDATED_ACTION_PINS = {
+    ".github/workflows/ci.yml": {
+        "docker/setup-buildx-action": (
+            "37fe631027851001ddb9b187196cc803df7f5f0e",
+            "v4.3.0",
+        ),
+    },
+    ".github/workflows/scorecard.yml": {
+        "github/codeql-action/upload-sarif": (
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28",
+            "v4.37.8",
+        ),
+    },
+}
 _MINIMUM_BRACE_EXPANSION_VERSION = (5, 0, 9)
 _BRACE_EXPANSION_ADVISORIES = (
     "GHSA-mh99-v99m-4gvg",
@@ -207,6 +221,133 @@ def test_workflow_images_and_robot_install_are_immutable() -> None:
     assert "curl" not in "\n".join(
         line for line in ci.splitlines() if "robot" in line.lower()
     )
+
+
+def _assert_workflow_action_pins(root: Path) -> None:
+    action_line = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<value>.+?)\s*$")
+    immutable_action = re.compile(
+        r"^(?P<action>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+        r"(?:/[A-Za-z0-9_.-]+)*)@(?P<sha>[0-9a-f]{40})$"
+    )
+    version_comment = re.compile(r"^v\d+\.\d+(?:\.\d+)?$")
+    reviewed_pins_seen: set[tuple[str, str]] = set()
+
+    workflow_paths = sorted((root / ".github" / "workflows").glob("*.y*ml"))
+    assert workflow_paths, "no workflow files found"
+    for workflow_path in workflow_paths:
+        relative_path = workflow_path.relative_to(root).as_posix()
+        for line_number, line in enumerate(
+            workflow_path.read_text().splitlines(), start=1
+        ):
+            match = action_line.match(line)
+            if match is None:
+                continue
+            value = match.group("value")
+            action_ref, separator, comment = value.partition("#")
+            action_ref = action_ref.strip()
+            if action_ref.startswith("./"):
+                continue
+            location = f"{relative_path}:{line_number}"
+            pin = immutable_action.fullmatch(action_ref)
+            assert pin is not None, (
+                f"{location}: external action must use a 40-character lowercase "
+                "commit SHA"
+            )
+            version = comment.strip()
+            assert separator, (
+                f"{location}: action pin must have an inline version comment"
+            )
+            assert version_comment.fullmatch(version), (
+                f"{location}: action pin must have an inline version comment"
+            )
+
+            action = pin.group("action")
+            expected = _REVIEWED_UPDATED_ACTION_PINS.get(relative_path, {}).get(action)
+            if expected is None:
+                continue
+            actual = (pin.group("sha"), version)
+            assert actual == expected, (
+                f"{location}: {action} does not match reviewed pin {expected!r}"
+            )
+            reviewed_pins_seen.add((relative_path, action))
+
+    expected_reviewed_pins = {
+        (relative_path, action)
+        for relative_path, actions in _REVIEWED_UPDATED_ACTION_PINS.items()
+        for action in actions
+    }
+    assert reviewed_pins_seen == expected_reviewed_pins, (
+        f"reviewed action pins missing from workflows: "
+        f"{sorted(expected_reviewed_pins - reviewed_pins_seen)}"
+    )
+
+
+def test_workflow_actions_are_sha_pinned_with_bound_version_comments() -> None:
+    _assert_workflow_action_pins(_ROOT)
+
+
+@pytest.fixture
+def workflow_action_contract_root(tmp_path: Path) -> Path:
+    for relative_path in _REVIEWED_UPDATED_ACTION_PINS:
+        destination = tmp_path / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((_ROOT / relative_path).read_text())
+    return tmp_path
+
+
+def _mutate_workflow(root: Path, relative_path: str, old: str, new: str) -> None:
+    workflow = root / relative_path
+    original = workflow.read_text()
+    assert original.count(old) == 1
+    workflow.write_text(original.replace(old, new))
+
+
+def test_workflow_action_contract_rejects_changed_sha_with_same_comment(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/ci.yml",
+        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+        "docker/setup-buildx-action@47fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+    )
+
+    with pytest.raises(AssertionError, match="does not match reviewed pin"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
+
+
+def test_workflow_action_contract_rejects_changed_comment_with_same_sha(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/scorecard.yml",
+        (
+            "github/codeql-action/upload-sarif@"
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28  # v4.37.8"
+        ),
+        (
+            "github/codeql-action/upload-sarif@"
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28  # v4.37.9"
+        ),
+    )
+
+    with pytest.raises(AssertionError, match="does not match reviewed pin"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
+
+
+def test_workflow_action_contract_rejects_mutable_tag(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/ci.yml",
+        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+        "docker/setup-buildx-action@v4.3.0  # v4.3.0",
+    )
+
+    with pytest.raises(AssertionError, match="40-character lowercase commit SHA"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
 
 
 def _npm_script_bodies(
