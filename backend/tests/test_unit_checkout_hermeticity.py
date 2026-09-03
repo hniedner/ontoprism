@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
 import pytest
 import scripts.validation.unit_checkout_hermeticity as checkout_gate
@@ -368,6 +368,37 @@ def test_mixed_marker_contract_rejects_effective_marker_combinations(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source", "expected_test"),
+    [
+        (
+            "import pytest\npytestmark = pytest.mark.unit\n"
+            "class TestCorpus:\n"
+            "    pytestmark = pytest.mark.full_store\n"
+            "    def test_real_store(self) -> None:\n        pass\n",
+            "TestCorpus::test_real_store",
+        ),
+        (
+            "import pytest\nclass TestCorpus:\n"
+            "    pytestmark = pytest.mark.unit\n"
+            "    @pytest.mark.full_store\n"
+            "    def test_real_store(self) -> None:\n        pass\n",
+            "TestCorpus::test_real_store",
+        ),
+    ],
+)
+def test_class_pytestmark_contributes_to_effective_method_markers(
+    source: str, expected_test: str
+) -> None:
+    violations = mixed_test_marker_violations(source, filename="test_subject.py")
+
+    assert len(violations) == 1
+    assert expected_test in violations[0].message
+    assert "unit" in violations[0].message
+    assert "full_store" in violations[0].message
+
+
+@pytest.mark.unit
 def test_repository_has_no_mixed_unit_and_real_boundary_markers() -> None:
     violations = mixed_test_marker_surface_violations(_ROOT)
 
@@ -425,6 +456,58 @@ def test_method_level_unit_in_an_unmarked_class_is_scanned(git_root: Path) -> No
 
 
 @pytest.mark.unit
+def test_class_pytestmark_unit_surface_scans_class_body_path_inputs(
+    git_root: Path,
+) -> None:
+    _tracked_test(
+        git_root,
+        "backend/tests/test_class_mark.py",
+        "import pytest\nfrom pathlib import Path\nclass TestManifest:\n"
+        "    pytestmark = [pytest.mark.unit, "
+        "pytest.mark.parametrize('manifest', [Path('private/class.json')])]\n"
+        "    def test_manifest(self, manifest: Path) -> None:\n"
+        "        assert manifest\n",
+    )
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert [(item.kind, item.path) for item in violations] == [
+        ("input", "backend/tests/test_class_mark.py")
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("module_marked", "tracked", "expected_count"),
+    [(True, False, 1), (False, False, 1), (False, True, 0)],
+)
+def test_unit_decorator_arguments_are_inside_the_effective_unit_surface(
+    git_root: Path, module_marked: bool, tracked: bool, expected_count: int
+) -> None:
+    relative_input = "fixtures/decorator.json"
+    module_marker = "pytestmark = pytest.mark.unit\n" if module_marked else ""
+    function_marker = "" if module_marked else "@pytest.mark.unit\n"
+    _tracked_test(
+        git_root,
+        "backend/tests/test_decorator_input.py",
+        "import pytest\nfrom pathlib import Path\n"
+        f"{module_marker}{function_marker}"
+        "@pytest.mark.parametrize("
+        f"'manifest', [Path('{relative_input}')])\n"
+        "def test_manifest(manifest: Path) -> None:\n    assert manifest\n",
+    )
+    if tracked:
+        _tracked_test(git_root, relative_input, "{}\n")
+
+    violations = unit_test_surface_violations(git_root)
+
+    assert len(violations) == expected_count
+    if violations:
+        assert violations[0].kind == "input"
+        assert relative_input in violations[0].message
+
+
+@pytest.mark.unit
 def test_unit_surface_variants_reject_impossible_selected_state() -> None:
     tree = ast.parse(
         "import pytest\nVALUE = 1\n"
@@ -437,7 +520,7 @@ def test_unit_surface_variants_reject_impossible_selected_state() -> None:
     assert dataclasses.is_dataclass(surface)
     assert len(surface.nodes) == 1
     assert len(surface.module_statements) == 2
-    assert _node_ranges(surface) == [(4, 5), (1, 1), (2, 2)]
+    assert _node_ranges(surface) == [(3, 5), (1, 1), (2, 2)]
     with pytest.raises(ValueError, match="selected unit surface"):
         checkout_gate.SelectedUnitSurface(nodes=(), module_statements=())
 
@@ -452,7 +535,7 @@ def test_module_unit_surface_is_a_distinct_keyword_only_variant() -> None:
     surface = _unit_nodes(tree)
 
     assert isinstance(surface, checkout_gate.ModuleUnitSurface)
-    assert _node_ranges(surface) == [(1, 1), (2, 2), (3, 4)]
+    assert _node_ranges(surface) == [(1, 4)]
     with pytest.raises(TypeError):
         checkout_gate.ModuleUnitSurface(tuple(tree.body))  # type: ignore[call-arg]
 
@@ -1026,7 +1109,7 @@ def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
     )
     tracked = _inventory("goldens/result.json")
 
-    assert tests.count == 1
+    assert len(tests.tracked) == 1
     assert tracked.has_file("goldens/result.json")
     assert tracked.has_directory("goldens")
     assert not tracked.has_file("goldens")
@@ -1034,6 +1117,15 @@ def test_inventory_types_preserve_file_and_directory_distinctions() -> None:
         TrackedInventory(
             files=frozenset({"goldens/result.json"}),
             directories=frozenset({"inconsistent"}),  # type: ignore[call-arg]
+        )
+
+
+@pytest.mark.unit
+def test_test_inventory_rejects_paths_in_both_inventory_sets() -> None:
+    with pytest.raises(ValueError, match="disjoint"):
+        TestInventory(
+            tracked=frozenset({"backend/tests/test_gate.py"}),
+            untracked=frozenset({"backend/tests/test_gate.py"}),
         )
 
 
@@ -1066,6 +1158,30 @@ def test_source_violations_require_positive_lines(kind: str, line: int | None) -
 
 @pytest.mark.unit
 def test_violation_variants_keep_kinds_closed() -> None:
+    assert get_args(checkout_gate.SourceViolationKind) == (
+        "input",
+        "invalid_path",
+        "marker_error",
+        "parse_error",
+    )
+    assert get_args(checkout_gate.FileViolationKind) == (
+        "inventory_error",
+        "untracked_test",
+        "read_error",
+    )
+    for kind in get_args(checkout_gate.SourceViolationKind):
+        checkout_gate.SourceViolation(
+            kind=kind,
+            path="test_subject.py",
+            line=1,
+            message="failure",
+        )
+    for kind in get_args(checkout_gate.FileViolationKind):
+        checkout_gate.FileViolation(
+            kind=kind,
+            path="test_subject.py",
+            message="failure",
+        )
     with pytest.raises(ValueError, match="source violation kind"):
         checkout_gate.SourceViolation(
             kind="read_error",  # type: ignore[arg-type]

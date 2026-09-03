@@ -17,7 +17,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, Protocol, get_args
 
 _TEST_ROOTS = ("ontolib/tests", "backend/tests")
 _PATH_READ_METHODS = frozenset({"open", "read_bytes", "read_text"})
@@ -33,9 +33,12 @@ _SCRUBBED_GIT_ENVIRONMENT = frozenset(
 )
 _GIT_TIMEOUT_SECONDS = 10.0
 _DIAGNOSTIC_LIMIT = 240
+_PARAMETRIZE_REQUIRED_ARGUMENTS = 2
 
 SourceViolationKind = Literal["input", "invalid_path", "marker_error", "parse_error"]
 FileViolationKind = Literal["inventory_error", "untracked_test", "read_error"]
+_SOURCE_VIOLATION_KINDS = frozenset(get_args(SourceViolationKind))
+_FILE_VIOLATION_KINDS = frozenset(get_args(FileViolationKind))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -46,7 +49,7 @@ class SourceViolation:
     message: str
 
     def __post_init__(self) -> None:
-        if self.kind not in {"input", "invalid_path", "marker_error", "parse_error"}:
+        if self.kind not in _SOURCE_VIOLATION_KINDS:
             raise ValueError(f"invalid source violation kind: {self.kind}")
         if (
             not isinstance(self.line, int)
@@ -63,7 +66,7 @@ class FileViolation:
     message: str
 
     def __post_init__(self) -> None:
-        if self.kind not in {"inventory_error", "untracked_test", "read_error"}:
+        if self.kind not in _FILE_VIOLATION_KINDS:
             raise ValueError(f"invalid file violation kind: {self.kind}")
 
 
@@ -76,7 +79,7 @@ class InventoryError(RuntimeError):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ModuleUnitSurface:
-    nodes: tuple[ast.AST, ...]
+    nodes: tuple[ast.stmt, ...]
 
     def __post_init__(self) -> None:
         if not self.nodes:
@@ -85,7 +88,7 @@ class ModuleUnitSurface:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SelectedUnitSurface:
-    nodes: tuple[ast.AST, ...]
+    nodes: tuple[ast.stmt, ...]
     module_statements: tuple[ast.stmt, ...]
 
     def __post_init__(self) -> None:
@@ -102,9 +105,9 @@ class TestInventory:
     tracked: frozenset[str]
     untracked: frozenset[str]
 
-    @property
-    def count(self) -> int:
-        return len(self.tracked)
+    def __post_init__(self) -> None:
+        if self.tracked & self.untracked:
+            raise ValueError("tracked and untracked test inventories must be disjoint")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -244,28 +247,35 @@ def _marker_name(node: ast.AST) -> str | None:
     return None
 
 
-def _module_markers(tree: ast.Module) -> set[str]:
-    markers: set[str] = set()
-    for statement in tree.body:
-        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
-            continue
+def _pytestmark_value(statement: ast.stmt) -> ast.expr | None:
+    if isinstance(statement, (ast.Assign, ast.AnnAssign)):
         targets = (
             statement.targets
             if isinstance(statement, ast.Assign)
             else [statement.target]
         )
-        if not any(
+        if any(
             isinstance(target, ast.Name) and target.id == "pytestmark"
             for target in targets
         ):
-            continue
-        if statement.value is not None:
+            return statement.value
+    return None
+
+
+def _pytestmark_markers(statements: list[ast.stmt]) -> set[str]:
+    markers: set[str] = set()
+    for statement in statements:
+        if (value := _pytestmark_value(statement)) is not None:
             markers.update(
                 marker
-                for node in ast.walk(statement.value)
+                for node in ast.walk(value)
                 if (marker := _marker_name(node)) is not None
             )
     return markers
+
+
+def _module_markers(tree: ast.Module) -> set[str]:
+    return _pytestmark_markers(tree.body)
 
 
 def _decorator_markers(
@@ -310,7 +320,11 @@ def mixed_test_marker_violations(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             inspect_function(node, module_markers, node.name)
         elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-            class_markers = module_markers | _decorator_markers(node)
+            class_markers = (
+                module_markers
+                | _pytestmark_markers(node.body)
+                | _decorator_markers(node)
+            )
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     inspect_function(child, class_markers, f"{node.name}::{child.name}")
@@ -391,7 +405,7 @@ def _test_inventory(root: Path, runner: GitRunner) -> TestInventory:
     inventory = TestInventory(
         tracked=python_modules(tracked), untracked=python_modules(untracked)
     )
-    if inventory.count == 0:
+    if not inventory.tracked:
         raise InventoryError("tracked Python test inventory is empty")
     return inventory
 
@@ -455,13 +469,14 @@ def _unit_nodes(tree: ast.Module) -> UnitSurface | None:
             nodes=tuple(tree.body),
         )
 
-    selected: list[ast.AST] = []
+    selected: list[ast.stmt] = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if "unit" in _decorator_markers(node):
                 selected.append(node)
         elif isinstance(node, ast.ClassDef):
-            if "unit" in _decorator_markers(node):
+            class_markers = _pytestmark_markers(node.body) | _decorator_markers(node)
+            if "unit" in class_markers:
                 selected.append(node)
             else:
                 selected.extend(
@@ -766,6 +781,91 @@ def _candidate_calls(tree: ast.Module) -> list[_Candidate]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             candidates.extend(_call_candidates(node))
+    candidates.extend(_marker_path_candidates(tree))
+    return candidates
+
+
+def _marker_path_candidates(tree: ast.Module) -> list[_Candidate]:
+    marker_expressions: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            marker_expressions.extend(node.decorator_list)
+        if (
+            isinstance(node, ast.stmt)
+            and (value := _pytestmark_value(node)) is not None
+        ):
+            marker_expressions.append(value)
+    return [
+        candidate
+        for expression in marker_expressions
+        for candidate in _marker_expression_path_candidates(expression)
+    ]
+
+
+def _marker_expression_path_candidates(node: ast.AST) -> list[_Candidate]:
+    if isinstance(node, ast.Call) and _marker_name(node) == "parametrize":
+        return _parametrize_path_candidates(node)
+    candidates = (
+        [_Candidate(expression=node, line=node.lineno, force_path=True)]
+        if isinstance(node, ast.Call)
+        else []
+    )
+    for child in ast.iter_child_nodes(node):
+        candidates.extend(_marker_expression_path_candidates(child))
+    return candidates
+
+
+def _parametrize_names(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return tuple(name.strip() for name in node.value.split(","))
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return tuple(
+            item.value
+            for item in node.elts
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        )
+    return ()
+
+
+def _output_only_parameter(name: str) -> bool:
+    lowered = name.lower()
+    is_input = any(term in lowered for term in _INPUT_TERMS)
+    is_output = lowered == "out" or any(term in lowered for term in _OUTPUT_TERMS)
+    return is_output and not is_input
+
+
+def _named_marker_path_candidates(node: ast.AST, name: str) -> list[_Candidate]:
+    if _output_only_parameter(name):
+        return []
+    if isinstance(node, ast.Dict):
+        candidates: list[_Candidate] = []
+        for key, value in zip(node.keys, node.values, strict=True):
+            key_name = key.value if isinstance(key, ast.Constant) else name
+            candidates.extend(
+                _named_marker_path_candidates(
+                    value, key_name if isinstance(key_name, str) else name
+                )
+            )
+        return candidates
+    return _marker_expression_path_candidates(node)
+
+
+def _parametrize_path_candidates(node: ast.Call) -> list[_Candidate]:
+    if len(node.args) < _PARAMETRIZE_REQUIRED_ARGUMENTS or not (
+        names := _parametrize_names(node.args[0])
+    ):
+        return []
+    values = node.args[1]
+    rows = values.elts if isinstance(values, (ast.List, ast.Tuple)) else [values]
+    candidates: list[_Candidate] = []
+    for row in rows:
+        row_values = (
+            row.elts
+            if len(names) > 1 and isinstance(row, (ast.List, ast.Tuple))
+            else [row]
+        )
+        for name, value in zip(names, row_values, strict=False):
+            candidates.extend(_named_marker_path_candidates(value, name))
     return candidates
 
 
@@ -932,18 +1032,21 @@ def fixed_untracked_input_violations(
 
 
 def _node_ranges(surface: UnitSurface) -> list[tuple[int, int]]:
-    nodes = (
-        surface.nodes
-        if isinstance(surface, ModuleUnitSurface)
-        else (*surface.nodes, *surface.module_statements)
-    )
+    if isinstance(surface, ModuleUnitSurface):
+        return [(1, max(node.end_lineno or node.lineno for node in surface.nodes))]
+
+    nodes = (*surface.nodes, *surface.module_statements)
     return [
         (
-            getattr(node, "lineno", 0),
-            getattr(node, "end_lineno", None) or getattr(node, "lineno", 0),
+            min(
+                (decorator.lineno for decorator in node.decorator_list),
+                default=node.lineno,
+            )
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            else node.lineno,
+            node.end_lineno or node.lineno,
         )
         for node in nodes
-        if hasattr(node, "lineno")
     ]
 
 
