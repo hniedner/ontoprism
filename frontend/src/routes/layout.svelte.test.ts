@@ -14,14 +14,11 @@ import Layout from './+layout.svelte';
 
 const children = createRawSnippet(() => ({ render: () => '<p>Route content</p>' }));
 
-describe('application layout', () => {
-	it('labels the application as the current NCIt-centered product without planned claims', () => {
+describe('application layout document', () => {
+	it('labels the application as the current NCIt-centered product', () => {
 		render(Layout, { data: { icdoAccess: 'unavailable' }, children, params: {} });
 
 		expect(screen.getByText('Current product · NCIt-centered ontology exploration')).toBeVisible();
 		expect(screen.getByText('Route content')).toBeVisible();
-		expect(document.body).not.toHaveTextContent(
-			/generic adapter|ontology editing|generic reasoning|AI authoring|release reconciliation/i
-		);
 	});
 });

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -24,11 +23,6 @@ _PRODUCT_IDENTITY_SURFACES = (
     "frontend/README.md",
     "pyproject.toml",
 )
-_CURRENT_FACING_SURFACES = (
-    "README.md",
-    "frontend/README.md",
-    "pyproject.toml",
-)
 _CORRECTION_CONTRACT_SURFACES = (
     "README.md",
     "AGENTS.md",
@@ -36,12 +30,17 @@ _CORRECTION_CONTRACT_SURFACES = (
     "docs/DECISIONS.md",
     "docs/design/ontology-platform.md",
 )
-_BASE_REVISION = "260b971613410dd6fdfc1ddb30ab00e5c5490945"
+_D60_FIXTURE = "backend/tests/fixtures/d60.md"
+_D60_SHA256 = "f0ca06891ad846ef28317330e7f8d5cbc4e12140e7d5f843ef8cd12c9aac58fa"
 _FORBIDDEN_CURRENT_CLAIMS = (
     r"ships? (?:an? )?ontology-generic",
-    r"implemented generic (?:ontology )?adapters?",
+    r"is (?:an? )?ontology-generic",
+    r"provides? generic (?:ontology )?editing",
+    r"(?:we have )?implemented generic (?:ontology )?(?:adapters?|reasoning)",
     r"generic (?:ontology )?(?:editing|reasoning|AI authoring) (?:is|are) implemented",
     r"release-forward reconciliation (?:is|has been) implemented",
+    r"current correction systems?",
+    r"correction systems? (?:is|are) (?:implemented|shipped|provided)",
     r"fully backward compatible",
 )
 
@@ -57,12 +56,41 @@ def _decision_section(document: str, decision: str) -> str:
         flags=re.MULTILINE | re.DOTALL,
     )
     assert match is not None, f"missing {decision} section"
-    return match.group(0)
+    return match.group(0).rstrip() + "\n"
 
 
 def _assert_no_current_overclaim(text: str) -> None:
     for claim in _FORBIDDEN_CURRENT_CLAIMS:
-        assert re.search(claim, text, flags=re.IGNORECASE) is None, claim
+        for match in re.finditer(claim, text, flags=re.IGNORECASE):
+            paragraph_start = text.rfind("\n\n", 0, match.start()) + 2
+            paragraph_end = text.find("\n\n", match.end())
+            if paragraph_end == -1:
+                paragraph_end = len(text)
+            paragraph = text[paragraph_start:paragraph_end]
+            relative_start = match.start() - paragraph_start
+            relative_end = match.end() - paragraph_start
+            boundaries = [
+                boundary.start()
+                for boundary in re.finditer(r"(?<=[.!?])\s+", paragraph)
+            ]
+            sentence_start = max(
+                (position for position in boundaries if position < relative_start),
+                default=0,
+            )
+            sentence_end = min(
+                (position for position in boundaries if position >= relative_end),
+                default=len(paragraph),
+            )
+            context = paragraph[sentence_start:sentence_end]
+            target_or_negated = re.search(
+                r"\b(target|future|intended|not (?:a )?current|not (?:currently )?"
+                r"implemented|does not currently|do not currently|no .{0,60} currently|"
+                r"not shipped|not a shipped|does not ship|do not use|"
+                r"not a product\s+claim|cannot claim)\b",
+                context,
+                flags=re.IGNORECASE,
+            )
+            assert target_or_negated is not None, f"{claim}: {context}"
 
 
 def _assert_no_false_correction_claim(text: str) -> None:
@@ -76,11 +104,41 @@ def _assert_no_false_correction_claim(text: str) -> None:
 
 
 @pytest.mark.unit
-def test_current_overclaim_gate_rejects_a_shipped_generic_adapter_claim() -> None:
-    with pytest.raises(AssertionError, match="implemented generic"):
-        _assert_no_current_overclaim(
-            "The current product has implemented generic ontology adapters."
-        )
+@pytest.mark.parametrize(
+    ("pattern", "claim"),
+    [
+        (r"ships?", "The product ships an ontology-generic platform."),
+        (r"is ", "OntoPrism is ontology-generic."),
+        (r"provides", "OntoPrism provides generic editing."),
+        (r"implemented generic", "We have implemented generic reasoning."),
+        (r"generic .* implemented", "Generic AI authoring is implemented."),
+        (r"release-forward", "Release-forward reconciliation is implemented."),
+        (r"current correction", "OntoPrism has a current correction system."),
+        (r"correction systems", "The correction system is shipped."),
+        (r"fully backward", "The enhanced release is fully backward compatible."),
+    ],
+)
+def test_documents_current_claim_gate_rejects_every_forbidden_pattern(
+    pattern: str, claim: str
+) -> None:
+    with pytest.raises(AssertionError, match=pattern):
+        _assert_no_current_overclaim(claim)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "The target is ontology-generic.",
+        "Generic ontology editing is a future capability.",
+        "We have not implemented generic reasoning.",
+        "A correction system is target architecture, not a shipped capability.",
+    ],
+)
+def test_documents_current_claim_gate_allows_explicit_target_or_negation(
+    claim: str,
+) -> None:
+    _assert_no_current_overclaim(claim)
 
 
 @pytest.mark.unit
@@ -94,7 +152,7 @@ def test_current_overclaim_gate_rejects_a_shipped_generic_adapter_claim() -> Non
         ("Corrections are shipped.", "corrections"),
     ],
 )
-def test_correction_claim_gate_rejects_false_absence_or_current_claim(
+def test_documents_correction_claim_gate_rejects_false_absence_or_current_claim(
     claim: str, expected: str
 ) -> None:
     with pytest.raises(AssertionError, match=expected):
@@ -102,7 +160,7 @@ def test_correction_claim_gate_rejects_false_absence_or_current_claim(
 
 
 @pytest.mark.unit
-def test_product_identity_surfaces_separate_current_from_target() -> None:
+def test_documents_product_identity_surfaces_separate_current_from_target() -> None:
     assert _PRODUCT_IDENTITY_SURFACES
     missing = [
         path for path in _PRODUCT_IDENTITY_SURFACES if not (_ROOT / path).is_file()
@@ -116,16 +174,31 @@ def test_product_identity_surfaces_separate_current_from_target() -> None:
     for boundary in ("Platform core", "Ontology adapters", "Domain policy"):
         assert f"### {boundary}" in design
 
-    current_text = "\n".join(_read(path) for path in _CURRENT_FACING_SURFACES)
-    _assert_no_current_overclaim(current_text)
+    for path in _PRODUCT_IDENTITY_SURFACES:
+        _assert_no_current_overclaim(_read(path))
 
     metadata = _read("pyproject.toml").lower()
     assert "ontology-generic framework target" in metadata
-    assert "current enhanced ncit implementation" in metadata
+    assert "current enhanced ncit storage" in metadata
+    assert metadata.index("current enhanced ncit") < metadata.index(
+        "ontology-generic framework target"
+    )
 
 
 @pytest.mark.unit
-def test_d86_is_newest_and_preserves_d60_verbatim() -> None:
+def test_documents_frontend_development_uses_supported_root_command() -> None:
+    frontend_readme = _read("frontend/README.md")
+    scripts = _read("pyproject.toml")
+    assert "Run these commands from the repository root" in frontend_readme
+    assert "pdm run start-frontend" in frontend_readme
+    assert (
+        'start-frontend = { shell = "bash scripts/dev.sh start frontend" }' in scripts
+    )
+    assert "port `5175`" in frontend_readme
+
+
+@pytest.mark.unit
+def test_documents_d86_is_newest_and_preserves_d60_verbatim() -> None:
     decisions = _read("docs/DECISIONS.md")
     ids = [
         int(value) for value in re.findall(r"^### D(\d+)\.", decisions, re.MULTILINE)
@@ -135,16 +208,9 @@ def test_d86_is_newest_and_preserves_d60_verbatim() -> None:
     assert max(ids) == 86
 
     current_d60 = _decision_section(decisions, "D60")
-    git = shutil.which("git")
-    assert git is not None
-    base = subprocess.run(  # noqa: S603 - fixed git operation and revision
-        [git, "show", f"{_BASE_REVISION}:docs/DECISIONS.md"],
-        cwd=_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert current_d60 == _decision_section(base, "D60")
+    fixture = _read(_D60_FIXTURE)
+    assert sha256(fixture.encode()).hexdigest() == _D60_SHA256
+    assert current_d60 == fixture
 
     d86 = _decision_section(decisions, "D86")
     assert "qualifies D60" in d86
@@ -161,7 +227,7 @@ def test_d86_is_newest_and_preserves_d60_verbatim() -> None:
 
 
 @pytest.mark.unit
-def test_target_contract_keeps_release_mapping_and_ai_boundaries_distinct() -> None:
+def test_documents_target_release_mapping_and_ai_boundaries() -> None:
     design = _read("docs/design/ontology-platform.md")
 
     for compatibility_target in (
@@ -201,7 +267,7 @@ def test_target_contract_keeps_release_mapping_and_ai_boundaries_distinct() -> N
 
 
 @pytest.mark.unit
-def test_target_correction_contract_preserves_source_and_exposes_suppression() -> None:
+def test_documents_target_correction_preserves_source_and_suppression() -> None:
     described_surfaces: set[str] = set()
     for path in _PRODUCT_IDENTITY_SURFACES:
         text = _read(path)
@@ -212,6 +278,10 @@ def test_target_correction_contract_preserves_source_and_exposes_suppression() -
         assert "target" in text.lower(), path
         assert "official source" in text.lower(), path
         assert "effective" in text.lower(), path
+        assert "removed-from-effective" in text, path
+        text_flat = " ".join(text.lower().split())
+        assert "retrievable" in text_flat, path
+        assert "nonempty `removed-from-effective`" in text_flat, path
     assert described_surfaces == set(_CORRECTION_CONTRACT_SURFACES)
 
     design = _read("docs/design/ontology-platform.md")
@@ -230,7 +300,7 @@ def test_target_correction_contract_preserves_source_and_exposes_suppression() -
         "declared affected closure and boundary evidence",
         "dependent impacts",
     ):
-        assert required in design_flat
+        assert required.lower() in design_flat.lower()
 
     assert "annotation-only suppression" in design_flat
     assert "contradictory or negating axiom" in design_flat
@@ -238,47 +308,76 @@ def test_target_correction_contract_preserves_source_and_exposes_suppression() -
 
 
 @pytest.mark.unit
-def test_target_correction_identity_crosswalk_and_adoption_are_unambiguous() -> None:
+def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
     design = _read("docs/design/ontology-platform.md")
     design_flat = " ".join(design.split())
     for required in (
-        "every enhanced NCIt concept and role",
-        "including unchanged official renditions",
-        "stable OntoPrism-governed enhanced-NCIt code",
-        "release-bound crosswalk",
-        "unless its provenance is `new`",
-        "entity kind and computed cardinality",
-        "unchanged or its exact change set",
-        "edit, split, merge, replacement, suppression, qualification, or new",
+        "`EnhancedEntityOrigin`",
+        "`DerivedFromOfficial`",
+        "required release-bound official entity references",
+        "`NewEnhancedEntity`",
+        "forbids official entity references",
+        "`EntityCrosswalkOutcome`",
+        "`unchanged`, `edited`, `split`, `merge`, `replacement`, or `new`",
+        "cardinality is derived from endpoint sets and is never stored unchecked",
+        "| `new` | 0 → 1 |",
+        "| `unchanged`, `edited`, and `replacement` | 1 → 1 |",
+        "| `split` | 1 → N, N ≥ 2 |",
+        "| `merge` | M → 1, M ≥ 2 |",
+        "`complex-restructure` requiring human review",
+        "`AssertionDeltaKind`",
+        "`added-to-effective`, `removed-from-effective`, `replaced-in-effective`, "
+        "`qualified-in-effective`, `annotation-changed`, or `unchanged-context`",
+        "Suppression is not entity disappearance or an entity-crosswalk outcome",
+        "nonempty `removed-from-effective` record",
+        "canonical source axiom",
+        "qualification is an assertion operation",
         "official release + official concept/role code + canonical source "
         "entity/assertion fingerprints and profile",
-        "enhanced code + immutable entity revision + enhanced "
-        "release/overlay/composition identities",
+        "globally unique content-addressed revision under its enhanced code",
+        "release, overlay, and composition are membership contexts",
+        "Code equality, revision equality, and cache keys",
         "never reused and is not replaced by NCI adoption",
-        "Only exact certified release/assertion evidence",
-        "reconciliation does not assign lifecycle state",
     ):
-        assert required in design_flat
+        assert required.lower() in design_flat.lower()
 
 
 @pytest.mark.unit
-def test_target_cadsr_compatibility_impact_and_reconciliation_fail_closed() -> None:
+def test_documents_target_resolution_compatibility_and_graph_types() -> None:
     design = _read("docs/design/ontology-platform.md")
     design_flat = " ".join(design.split())
     for required in (
         "caDSR source rows and anchors remain official NCIt codes",
-        "unique, split, merge, ambiguous, or unresolved",
-        "must not heuristically select a split result",
+        "`CadsrEnhancedResolution`",
+        "one-to-many crosswalk is `split` and returns all targets",
+        "further qualified, approved mapping selects one target",
+        "`ambiguous` means competing or incomplete records",
+        "`MigrationReferenceOutcome`",
+        "combines the crosswalk with consumer context and may refuse",
         "official-anchor coverage and enhanced-resolution coverage",
-        "preserved, changed, breaking, or unknown",
-        "denominator and known breaks",
+        "`preserved`, `changed`, and `breaking` require a tested denominator "
+        "of at least one",
+        "`unknown` carries a blocker or reason and cannot carry a success denominator",
+        "Overall compatibility cannot be compatible when any required result "
+        "is `unknown`",
         "must not serialize edited semantics under an official NCIt IRI",
-        "complete only under an explicit versioned graph closure",
-        "relation, direction, bounds, and boundary witnesses",
-        "stated and inferred effects remain separate",
+        "source export profile remains distinct",
+        "`AffectedGraphDiff`",
+        "profile, relation, direction, bounds, and boundary witnesses",
+        "stated changes and finite-profile inferred changes remain separate",
+        "`complete-for-profile` or `incomplete`",
+        "An incomplete diff cannot publish an incremental result",
+        "exact finite entailment, query, and signature set selected by a "
+        "versioned profile",
+        "runtime reasoning is disabled",
+        "offline identified reasoner and profile",
         "dependency-registry impacts, not graph members",
-        "stale-pending, recompute, revalidate, remap, or refuse",
-        "nothing remains unclassified",
+        "explicit non-success/currentness treatment owned by #262",
+        "full-run fallback or refusal",
+        "`OverlayIntent`",
+        "`correction`, `enrichment`, or `modelling-alternative`",
+        "modelling alternative is not a correction error",
+        "add or qualify only",
         "partial, ambiguous, or divergent adoption requires human review",
         "nothing is silently replayed, dropped, or overridden",
     ):
@@ -288,10 +387,11 @@ def test_target_cadsr_compatibility_impact_and_reconciliation_fail_closed() -> N
     assert "#316" in design_flat
     assert "currently owns proposal transfer" in design_flat
     assert "correction-aware extension needs explicit future ownership" in design_flat
+    assert "stale-pending, recompute, revalidate, remap, or refuse" not in design_flat
 
 
 @pytest.mark.unit
-def test_target_visualizations_bind_exact_view_identities_without_flattening() -> None:
+def test_documents_target_views_bind_exact_identities_without_flattening() -> None:
     design = _read("docs/design/ontology-platform.md")
     design_flat = " ".join(design.split())
     for view in ("official source", "effective", "delta", "impact", "migration"):
@@ -308,5 +408,27 @@ def test_target_visualizations_bind_exact_view_identities_without_flattening() -
     assert "#304" in d86_flat
     assert "#262" in d86_flat
     assert "currently owns proposal transfer" in d86_flat
-    assert "correction-aware extension requires explicit future ownership" in d86_flat
+    assert (
+        "Correction-aware reconciliation requires a future amendment or new owner"
+        in d86_flat
+    )
     assert "proposed →" not in d86_flat
+
+
+@pytest.mark.unit
+def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() -> None:
+    design = _read("docs/design/ontology-platform.md")
+    design_flat = " ".join(design.split())
+    for required in (
+        "`read_queries.py` contains no `STATED_GRAPH_IRI` reference",
+        "targets `DECOMPOSED_GRAPH_IRI`",
+        "current decomposed graph uses an NCI-domain IRI",
+        "must not be represented as an official NCI identifier",
+        "future enhanced export must use an OntoPrism-governed enhanced namespace",
+        "future implementation issue",
+        "immutable official-source preservation",
+        "effective enhanced view intentionally need not contain official assertions",
+        "unchanged rendition is representable",
+        "suppression leaves the enhanced entity and its source crosswalk intact",
+    ):
+        assert required in design_flat

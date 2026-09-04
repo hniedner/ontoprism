@@ -125,7 +125,10 @@ for local usefulness/publication, while official/NCI-authored/accepted claims re
 from an identified certified official NCIt release. Everything emitted is OntoPrism-governed
 enhanced NCIt content; release-bound official identifiers are source anchors and crosswalk
 endpoints, not necessarily enhanced primary identifiers. A target effective correction preserves
-the official source plane and composes a separately identified effective view. D86 qualifies
+the official source plane and composes a separately identified effective view: every suppressed
+canonical axiom remains retrievable in the official source and is shown in a nonempty
+`removed-from-effective` delta, never deleted or returned as absent. The effective enhanced view
+intentionally need not contain that assertion. D86 qualifies
 rather than supersedes D60; #304 owns exact lifecycle-vocabulary convergence, #262 owns exact
 impact types, and #316 currently owns proposal transfer rather than correction-aware
 reconciliation.

@@ -22,7 +22,10 @@ to the additive graph rather than the source (`git grep -n STATED_GRAPH_IRI --
 ontolib/src/ontolib/terminologies/ncit/owl_load.py
 ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n DECOMPOSED_GRAPH_IRI --
 ontolib/src/ontolib/decomposition/vocab.py ontolib/src/ontolib/decomposition/read_queries.py`,
-2026-09-04). This protects the official stated plane from overlay mutation. It does not establish
+2026-09-04; expected result: the first command returns the definition in `owl_load.py` and no
+`STATED_GRAPH_IRI` result in `read_queries.py`, while the second returns the constant in `vocab.py`
+and shows `read_queries.py` targeting `DECOMPOSED_GRAPH_IRI`). This protects the official stated
+plane from overlay mutation. It does not establish
 that every enhanced release already has an independently selectable, certified recoverable source
 view.
 
@@ -37,9 +40,10 @@ reconciliation are implemented.
 
 An enhanced NCIt release is targeted as the composition of one identified official release source
 plane and separately identified/versioned OntoPrism overlays or derived views. Compatibility means
-**source containment** only for the official source plane, use of source identifiers as
+**source containment** only as immutable official-source preservation, use of source identifiers as
 **release-bound anchors**, target **source-view recoverability**, and an explicit **provenance and
-view distinction**. An effective view may intentionally differ. It does not mean
+view distinction**. An effective enhanced view intentionally need not contain official assertions.
+It does not mean
 conservative extension, logical equivalence, query equivalence, identical hierarchy/search/reasoner
 behavior, arbitrary drop-in substitution, D43 reversibility, or official endorsement. Byte recovery
 requires retention of the original artifact and digest; no current certified byte-recovery guarantee
@@ -55,23 +59,29 @@ modelling preference alone is not an error and cannot justify destructive suppre
 replacement. Suppression is named effective-view composition subtraction before reasoning, never
 source mutation/deletion, an annotation-only fiction, or a contradictory/negating axiom. The exact
 composition is re-reasoned, and inconsistency or unsupported/missing targets refuse publication.
-The original axiom remains official-source retrievable and appears in target delta/impact as
-`removed-from-effective`, with exact identities, correction/evidence/decision, before/after effects,
-closure/boundary evidence, and dependent impacts.
+The original canonical axiom remains retrievable in the official source and appears in target
+delta/impact as a nonempty `removed-from-effective` record, never deleted, absent, not-found, or
+empty, with exact identities, correction/evidence/decision, before/after effects, closure/boundary
+evidence, and dependent impacts.
 
 Every target enhanced NCIt concept and role, including an unchanged official rendition, has a
 stable OntoPrism-governed enhanced-NCIt code and a release-bound crosswalk to its official source
 anchor unless new. Official identity is the official release plus official concept/role code and
-canonical source fingerprints/profile; enhanced identity adds immutable entity revision and exact
-enhanced release/overlay/composition identities. Codes are never reused or replaced by later NCI
-adoption. Everything emitted is OntoPrism-governed enhanced NCIt content; official identifiers are
-source anchors/crosswalk endpoints, not necessarily emitted enhanced primary identifiers. This
+canonical source fingerprints/profile. An enhanced entity revision is globally unique and
+content-addressed under its enhanced code; enhanced release, overlay, and composition identities are
+membership contexts rather than entity-revision identity components. Codes are never reused or
+replaced by later NCI adoption. Everything emitted is OntoPrism-governed enhanced NCIt content;
+official identifiers are source anchors/crosswalk endpoints, not necessarily emitted enhanced
+primary identifiers. This
 qualifies D60's product identity without changing D60's derivation, alignment, corroboration, or
 ownership rule.
 
 Target impact claims are complete only for a declared versioned graph closure with relation,
-direction, bounds, and boundary witnesses; stated and inferred effects remain separate. Other
-dependents are registry impacts, not graph members, and require explicit non-success treatment.
+direction, bounds, and boundary witnesses; stated and finite-profile inferred effects remain
+separate. The inferred comparison uses an identified offline reasoner and an exact finite
+entailment/query/signature set selected by a versioned profile; runtime reasoning remains disabled.
+Other dependents are registry impacts, not graph members, and require explicit non-success/currentness
+treatment. Unknown dependency coverage triggers the #262 full-run fallback or refusal.
 [#262](https://github.com/hniedner/ontoprism/issues/262) owns the exact impact vocabulary. All
 official-to-enhanced references require typed, non-success-like outcomes for split, merge,
 ambiguous, and unresolved cases. caDSR source anchors remain untouched official codes and resolve
@@ -100,8 +110,8 @@ authority approves semantic publication. AI cannot approve, publish, submit, ado
 confidence into evidence. The current product does not ship generic AI authoring.
 
 [#316](https://github.com/hniedner/ontoprism/issues/316) currently owns proposal transfer, not this
-whole correction contract. Its correction-aware extension requires explicit future ownership. That
-extension must reconcile every correction against exact old/new official-release assertions,
+whole correction contract. Correction-aware reconciliation requires a future amendment or new owner.
+That future work must reconcile every correction against exact old/new official-release assertions,
 classify every reference, refuse automatic replay/publication for unresolved, unsupported, split,
 or ambiguous outcomes, retain human review, and never assign adoption. Exact certified adoption
 evidence may make an override redundant; partial, ambiguous, or divergent adoption cannot. Nothing

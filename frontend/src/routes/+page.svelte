@@ -59,7 +59,7 @@
 </script>
 
 <svelte:head>
-	<title>ONTOPRISM · Ontology Explorer</title>
+	<title>ONTOPRISM · Current ontology capabilities</title>
 </svelte:head>
 
 <section class="mb-8">

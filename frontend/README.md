@@ -11,12 +11,14 @@ AI authoring, or release-forward reconciliation.
 
 ## Development
 
+Run these commands from the repository root:
+
 ```sh
 npm ci --prefix frontend
-npm --prefix frontend run dev
+pdm run start-frontend
 ```
 
-The default development server uses port `5175`; the same-origin `/api` BFF reads the private
+The supported development command starts the frontend on port `5175`; the same-origin `/api` BFF reads the private
 `ONTOPRISM_FASTAPI_ORIGIN`. Set environment values in the repository root `.env` as described
 in [`../docs/DATA_SETUP.md`](../docs/DATA_SETUP.md).
 

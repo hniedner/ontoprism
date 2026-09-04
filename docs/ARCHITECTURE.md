@@ -55,7 +55,10 @@ Independent source-view selection and recoverability for every enhanced release 
 guarantees, not current certification; byte recovery additionally requires retaining the original
 artifact and digest. In the target data plane, an effective correction preserves the official source
 plane and creates a named effective view by subtracting suppressed source axioms before
-reasoning, then exposes those axioms as `removed-from-effective` rather than deleting them.
+reasoning. Each suppressed canonical axiom remains retrievable in the immutable official source
+and is shown in a nonempty `removed-from-effective` delta rather than deleted, absent, not-found,
+or empty. Source containment means only immutable official-source preservation; the effective
+enhanced view intentionally need not contain every official assertion.
 
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL

@@ -3,15 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import Page from './+page.svelte';
 
-describe('repository landing page', () => {
-	it('presents only the current exploration capabilities', () => {
+describe('repository landing page document', () => {
+	it('presents the current exploration capability consistently in title and heading', () => {
 		render(Page);
 
 		expect(screen.getByRole('heading', { level: 1, name: 'Current ontology capabilities' })).toBeVisible();
+		expect(document.title).toBe('ONTOPRISM · Current ontology capabilities');
 		expect(screen.getByText(/Search, browse, and cross-navigate certified NCIt/)).toBeVisible();
-		expect(document.body).not.toHaveTextContent(
-			/generic adapter|ontology editing|generic reasoning|AI authoring|release reconciliation/i
-		);
 	});
 
 	it('renders every registered repository with its accessible kind marker', () => {

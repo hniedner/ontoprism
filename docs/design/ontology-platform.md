@@ -17,17 +17,25 @@ ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
 frontend/src/routes/repositories/ncit`, 2026-09-04).
 
 No generic ontology-adapter type/system, generic editing or reasoning implementation, generic AI
-authoring, or permanent release-forward reconciliation currently ships (`git grep -n
+authoring, correction system, or permanent release-forward reconciliation currently ships (`git grep -n
 OntologyAdapter -- ontolib/src backend/src frontend/src`, which returned no matches,
 2026-09-04). Graph/storage separation
 protects the official stated NCIt plane from overlay mutation: the source and additive
 decomposition graphs have distinct constants and the decomposition reader targets only its
 additive graph (`git grep -n STATED_GRAPH_IRI --
 ontolib/src/ontolib/terminologies/ncit/owl_load.py
-ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/read_queries.py`, expected result: the definition in
+`owl_load.py`; `read_queries.py` contains no `STATED_GRAPH_IRI` reference. The command `git grep -n
+DECOMPOSED_GRAPH_IRI --
 ontolib/src/ontolib/decomposition/vocab.py ontolib/src/ontolib/decomposition/read_queries.py`,
-2026-09-04). Current certification does not promise independently selectable source views or byte
-recovery for every enhanced release.
+expected result: the constant in `vocab.py` and its use in `read_queries.py`, which targets
+`DECOMPOSED_GRAPH_IRI`, 2026-09-04). The current decomposed graph uses an NCI-domain IRI
+(`git grep -n 'DECOMPOSED_GRAPH_IRI =' -- ontolib/src/ontolib/decomposition/vocab.py`, expected
+result: `http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-decomposed.owl`, 2026-09-04). That is current
+technical debt and must not be represented as an official NCI identifier. A future enhanced export
+must use an OntoPrism-governed enhanced namespace; a future implementation issue must own that
+change before export delivery. Current certification does not promise independently selectable
+source views or byte recovery for every enhanced release.
 
 ## Target architecture
 
@@ -66,7 +74,7 @@ The target enhanced release composes:
 2. separately identified and versioned OntoPrism overlays or derived views.
 
 The official source and each overlay keep distinct identities. The target compatibility contract
-is limited to **source containment**, source identifiers as **release-bound anchors**,
+is limited to **source containment** as immutable official-source preservation, source identifiers as **release-bound anchors**,
 **source-view recoverability**, and explicit **provenance and view distinction**. A consumer can
 name whether it requests the official source view or a particular enhanced composition.
 
@@ -80,34 +88,46 @@ identical hierarchy, search, or reasoner behavior, arbitrary drop-in substitutio
 reversibility, or official endorsement. “Fully backward compatible” is therefore not a product
 claim. Each stronger property requires its own evidence and contract.
 
-Source containment applies only to the official source plane. The effective view may intentionally
-differ. Best-effort migration and compatibility are reported for each named consumer profile and
-dimension as preserved, changed, breaking, or unknown, with the denominator and known breaks;
+Source containment applies only to immutable official-source preservation. The effective enhanced
+view intentionally need not contain official assertions. Best-effort migration and compatibility
+are reported for each named consumer profile and dimension. `preserved`, `changed`, and `breaking`
+require a tested denominator of at least one and evidence; `changed` identifies its differences and
+`breaking` has a nonempty known-break set;
+`unknown` carries a blocker or reason and cannot carry a success denominator. Overall compatibility
+cannot be compatible when any required result is `unknown`;
 there is no blanket compatibility Boolean. An enhanced export must not serialize edited semantics
-under an official NCIt IRI. The distinct official source export remains available. Target byte
+under an official NCIt IRI. The source export profile remains distinct and the official source
+export remains available. Target byte
 recovery is promised only when the original artifact and its digest were retained.
 
 ## Target effective corrections
 
 This section is a target contract, not shipped functionality. Official source authority means
 authoritative evidence of what NCI published, not a claim of scientific or logical infallibility.
-The source plane is protected from overlay mutation and remains independently viewable where
-current surfaces support it; this does not overclaim current source-view or byte recoverability.
+The target source plane is protected from overlay mutation and independently viewable. This target
+does not overclaim current source-view or byte recoverability.
 
-An evidence-backed and accountably reviewed effective correction can add assertions, suppress exact
-official source axioms from composition, replace them, or qualify them. Its eligible error class is
-exactly one of source publication/representation error, empirical/scientific error, or
-logical/ontological error. Modelling preference is not an error and cannot destructively suppress or
-replace official content. These classes classify decisions; they do not create another lifecycle.
+`OverlayIntent` is exactly `correction`, `enrichment`, or `modelling-alternative`. A correction has
+exactly one error class: source publication/representation error, empirical/scientific error, or
+logical/ontological error. Enrichment requires no error class. A modelling alternative is not a
+correction error and may add or qualify only; it cannot suppress or replace official content. These
+classes classify decisions; they do not create another lifecycle.
+
+```text
+OverlayIntent =
+  correction { errorClass: exactly one of the three error classes }
+  | enrichment
+  | modelling-alternative { permittedOperations: add | qualify }
+```
 
 Suppression is **named effective-view composition subtraction before reasoning**. It never mutates or
 deletes the official source, and annotation-only suppression or a contradictory or negating axiom
 must not represent suppression. Re-reasoning the exact composition is mandatory. Any inconsistency,
 unsupported targets, or missing targets refuse publication.
 
-The suppressed axiom always remains retrievable in the official source view. It also always appears
-in the target delta/impact view as `removed-from-effective`, never as deleted, not-found, or an empty
-result. The delta binds:
+The suppressed canonical axiom always remains retrievable in the official source view. It also
+always appears in the target delta/impact view as a nonempty `removed-from-effective` record, never
+as deleted, absent, not-found, or an empty result. The delta binds:
 
 - source release and canonical assertion identity;
 - the correction evidence and accountable decision;
@@ -121,15 +141,47 @@ from official source authority.
 
 ## Enhanced identity and release-bound crosswalks
 
-In the target, every enhanced NCIt concept and role, including unchanged official renditions, has a stable OntoPrism-governed enhanced-NCIt code.
-Every code has a release-bound crosswalk to the original official concept or role unless its provenance is `new`.
-The crosswalk records entity kind and computed cardinality, whether the rendition is unchanged or its exact change set, and an outcome of edit, split, merge, replacement, suppression, qualification, or new.
+`EnhancedEntityOrigin` is a discriminated union:
+
+- `DerivedFromOfficial` has required release-bound official entity references; and
+- `NewEnhancedEntity` forbids official entity references.
+
+That shape makes an inconsistent optional source mapping unrepresentable. An unchanged rendition is
+representable as derived. `EntityCrosswalkOutcome` is exactly `unchanged`, `edited`, `split`,
+`merge`, `replacement`, or `new`; cardinality is derived from endpoint sets and is never stored
+unchecked:
+
+```text
+EnhancedEntityOrigin =
+  DerivedFromOfficial { officialEntityRefs: NonEmptySet<ReleaseBoundOfficialEntityRef> }
+  | NewEnhancedEntity { officialEntityRefs: Absent }
+```
+
+| Outcome | Official → enhanced arity |
+|---|---|
+| `new` | 0 → 1 |
+| `unchanged`, `edited`, and `replacement` | 1 → 1 |
+| `split` | 1 → N, N ≥ 2 |
+| `merge` | M → 1, M ≥ 2 |
+
+`unchanged` is valid if and only if one official endpoint maps to one enhanced endpoint and the exact
+change set is empty. A many-to-many case cannot inhabit `EntityCrosswalkOutcome`; if required, it is
+routed to a distinct `complex-restructure` requiring human review rather than overloaded onto split
+or merge. Qualification is an assertion operation, not necessarily an entity-crosswalk change.
+
+Suppression is not entity disappearance or an entity-crosswalk outcome. `AssertionDeltaKind` is
+exactly `added-to-effective`, `removed-from-effective`, `replaced-in-effective`,
+`qualified-in-effective`, `annotation-changed`, or `unchanged-context`. Every suppression requires a
+nonempty `removed-from-effective` record containing the canonical source axiom; suppression leaves
+the enhanced entity and its source crosswalk intact.
 
 OntoPrism does not invent official entity-level versions. Official identity is:
 **official release + official concept/role code + canonical source entity/assertion fingerprints and profile**.
-Enhanced identity is:
-**enhanced code + immutable entity revision + enhanced release/overlay/composition identities**.
-An enhanced code is never reused and is not replaced by NCI adoption.
+Each immutable enhanced entity revision is a globally unique content-addressed revision under its
+enhanced code. Enhanced release, overlay, and composition are membership contexts, not identity
+components. Code equality, revision equality, and cache keys compare the enhanced code and content
+revision; composition membership uses its separate context identity. An enhanced code is never reused
+and is not replaced by NCI adoption.
 
 Everything emitted is OntoPrism-governed enhanced NCIt content. Release-bound official NCIt
 identifiers are source anchors and crosswalk endpoints, not necessarily the emitted enhanced primary
@@ -139,32 +191,65 @@ provenance does not transfer ownership. D86 qualifies D60 and does not supersede
 ## caDSR resolution and compatibility
 
 caDSR source rows and anchors remain official NCIt codes; they are never rewritten. Enhanced
-resolution derives through the release-bound crosswalk and reports exactly one typed outcome:
-unique, split, merge, ambiguous, or unresolved.
-Resolution must not heuristically select a split result, and ambiguous or unresolved outcomes cannot
-look successful. Reports distinguish official-anchor coverage and enhanced-resolution coverage.
+resolution derives through the release-bound crosswalk. `CadsrEnhancedResolution` reports a unique
+target, split, merge, ambiguous, or unresolved result. A one-to-many crosswalk is `split` and returns
+all targets unless a further qualified, approved mapping selects one target. `ambiguous` means
+competing or incomplete records, not a correctly represented split. Ambiguous or unresolved outcomes
+cannot look successful. Reports distinguish official-anchor coverage and enhanced-resolution coverage.
 
-Compatibility is evaluated against a named consumer profile and dimension, with the result,
-denominator and known breaks. Edited enhanced semantics are never published under an official NCIt
-IRI. Official-source and enhanced exports remain distinct.
+The four result families are not interchangeable: `EntityCrosswalkOutcome` describes entity endpoint
+structure, `AssertionDeltaKind` describes an exact axiom operation, `CadsrEnhancedResolution` resolves
+a caDSR official anchor through the crosswalk, and `MigrationReferenceOutcome` combines that result
+with consumer context and may refuse. A caDSR one-to-many result remains a split with all targets
+unless a further qualified, approved mapping makes it unique; multiple competing or incomplete
+records are ambiguous rather than split.
+
+Compatibility uses the discriminated result shape above against a named consumer profile and
+dimension. Edited enhanced content must not serialize edited semantics under an official NCIt IRI.
+The source export profile remains distinct from enhanced exports.
+
+```text
+CompatibilityResult =
+  preserved { testedDenominator: PositiveInt, evidence: NonEmptySet<Evidence> }
+  | changed { testedDenominator: PositiveInt, evidence: NonEmptySet<Evidence>, changes: NonEmptySet<Change> }
+  | breaking { testedDenominator: PositiveInt, evidence: NonEmptySet<Evidence>, knownBreaks: NonEmptySet<Break> }
+  | unknown { blockerOrReason: NonEmptyText }
+```
+
+The `unknown` variant has no success-denominator field. The other variants cannot represent a zero
+denominator, and an overall result with any required `unknown` member cannot be compatible.
 
 ## Affected graph and dependent impacts
 
-An affected-graph claim is complete only under an explicit versioned graph closure with its
-relation, direction, bounds, and boundary witnesses.
-Stated and inferred effects remain separate. Anything outside that declared graph boundary is not
-silently enumerated as a graph member. Non-graph dependents are dependency-registry impacts, not
-graph members, and receive an explicit outcome: stale-pending, recompute, revalidate, remap, or refuse.
-[#262](https://github.com/hniedner/ontoprism/issues/262) owns exact impact types; this design does not
-duplicate that vocabulary.
+`AffectedGraphDiff` requires a closure descriptor containing profile, relation, direction, bounds,
+and boundary witnesses. Stated changes and finite-profile inferred changes remain separate. The diff
+has completeness `complete-for-profile` or `incomplete`. An incomplete diff cannot publish an
+incremental result. Its required shape is:
+
+```text
+AffectedGraphDiff {
+  closure: { profile, relation, direction, bounds, boundaryWitnesses },
+  statedChanges,
+  finiteProfileInferredChanges,
+  completeness: complete-for-profile | incomplete
+}
+```
+
+The inferred comparison is the exact finite entailment, query, and signature set selected by a
+versioned profile. Current runtime reasoning is disabled; target correction certification runs an
+offline identified reasoner and profile over the exact effective composition.
+
+Anything outside the declared graph boundary is not silently enumerated as a graph member. Non-graph
+dependents are dependency-registry impacts, not graph members, and receive explicit
+non-success/currentness treatment owned by #262. Unknown dependency coverage triggers #262's full-run
+fallback or refusal. This design does not duplicate #262's impact vocabulary.
 
 ## Migration, reconciliation, and adoption
 
-Every official-to-enhanced reference receives an explicit typed outcome; nothing remains
-unclassified.
-Split, merge, ambiguous, and unresolved outcomes cannot be presented as success. On every later
-official release, every correction is reconciled against exact source and enhanced identities.
-Nothing is silently replayed, dropped, or overridden.
+`MigrationReferenceOutcome` combines the crosswalk with consumer context and may refuse. Split,
+merge, ambiguous, and unresolved outcomes cannot be presented as success. On every later official
+release, every correction is reconciled against exact source and enhanced identities. Nothing is
+silently replayed, dropped, or overridden.
 
 [#316](https://github.com/hniedner/ontoprism/issues/316) currently owns proposal transfer. A
 correction-aware extension needs explicit future ownership rather than being attributed to #316
