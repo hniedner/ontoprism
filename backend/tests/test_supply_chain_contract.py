@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 import yaml
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
 
 from ontolib.core.data_build_tools import (
@@ -781,13 +783,7 @@ def _assert_ci_summary_allow_list(workflow: dict[str, Any]) -> None:
     assert "cancelled" not in run
 
 
-def test_python_3147_is_the_only_current_runtime_configuration() -> None:
-    workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
-    workflows = {
-        path.relative_to(_ROOT).as_posix(): yaml.safe_load(path.read_text())
-        for path in workflow_paths
-    }
-    workflow = workflows[".github/workflows/ci.yml"]
+def _assert_python_metadata_contract() -> None:
     git_executable = shutil.which("git")
     assert git_executable is not None
     tracked_pyprojects = subprocess.run(  # noqa: S603
@@ -798,12 +794,36 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
         text=True,
     ).stdout.splitlines()
     assert tracked_pyprojects
-    pyprojects = [
-        tomllib.loads((_ROOT / path).read_text()) for path in tracked_pyprojects
-    ]
-    assert {project["project"]["requires-python"] for project in pyprojects} == {
-        ">=3.14.7,<3.15"
+    manifest_specifiers = {
+        tomllib.loads((_ROOT / path).read_text())["project"]["requires-python"]
+        for path in tracked_pyprojects
     }
+    assert manifest_specifiers == {">=3.14.5,<3.15"}
+    metadata_specifier = SpecifierSet(manifest_specifiers.pop())
+    assert Version("3.14.4") not in metadata_specifier
+    assert Version("3.14.5") in metadata_specifier
+    assert Version("3.14.7") in metadata_specifier
+    assert Version("3.15") not in metadata_specifier
+
+    operational_runtime = Version((_ROOT / ".python-version").read_text().strip())
+    assert operational_runtime == Version("3.14.7")
+    metadata_floor = Version("3.14.5")
+    assert metadata_floor.release[:2] == operational_runtime.release[:2]
+    assert metadata_floor <= operational_runtime
+
+    lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
+    # PDM canonicalizes >=3.14.5,<3.15 to the equivalent compatible-release form.
+    assert lock["metadata"]["targets"] == [{"requires_python": "~=3.14.5"}]
+
+
+def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> None:
+    workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
+    workflows = {
+        path.relative_to(_ROOT).as_posix(): yaml.safe_load(path.read_text())
+        for path in workflow_paths
+    }
+    workflow = workflows[".github/workflows/ci.yml"]
+    _assert_python_metadata_contract()
     root_project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
     assert root_project["tool"]["basedpyright"]["pythonVersion"] == "3.14"
     assert root_project["tool"]["ruff"]["target-version"] == "py314"
@@ -816,8 +836,6 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
             "starlette\\.testclient"
         ),
     ]
-    assert (_ROOT / ".python-version").read_text().strip() == "3.14.7"
-
     jobs = workflow["jobs"]
     assert len(jobs["ci-summary"]["needs"]) == 8
     setup_versions = [
@@ -827,10 +845,6 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     ]
     assert setup_versions
     assert set(setup_versions) == {"3.14.7"}
-
-    lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
-    # PDM canonicalizes >=3.14.7,<3.15 to the equivalent compatible-release form.
-    assert lock["metadata"]["targets"] == [{"requires_python": "~=3.14.7"}]
 
     dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
     base_image = re.compile(
@@ -862,13 +876,22 @@ def test_python_3147_is_the_only_current_runtime_configuration() -> None:
     agents = (_ROOT / "AGENTS.md").read_text()
     project = (_ROOT / "pyproject.toml").read_text()
     _assert_ci_job_contract(workflow, agents, project)
-    assert "Python 3.14.7 is the only supported local, CI" in agents
+    assert "declared Python metadata floor is 3.14.5" in agents
+    assert "Python 3.14.7 remains the only supported\nlocal, CI" in agents
     readme = (_ROOT / "README.md").read_text()
-    assert "Python 3.14.7 is the only supported local, CI" in readme
-    assert "requires Python >=3.14.7,<3.15" in (_ROOT / "Makefile").read_text()
+    assert "declared Python metadata floor is 3.14.5" in readme
+    assert "Python 3.14.7 remains the only supported\nlocal, CI" in readme
+    assert "declares Python >=3.14.5,<3.15" in (_ROOT / "Makefile").read_text()
+    assert "operational runtime 3.14.7" in (_ROOT / "Makefile").read_text()
 
     decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
-    assert "### D84." not in decisions
+    d84 = decisions.partition("### D84.")[2].partition("\n## 2026-09-03")[0]
+    assert "metadata floor" in d84
+    assert "intended to unblock" in d84
+    assert "33839863700" in d84
+    assert (
+        "test_python_metadata_floor_and_exact_operational_runtime_configuration" in d84
+    )
     d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
     assert "3.14.7-only" in d83
     assert "python3.14" in d83

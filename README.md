@@ -300,8 +300,9 @@ pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
 ```
 
-Python 3.14.7 is the only supported local, CI, data-build, integration, and container
-runtime. Recreate an older project environment before installing from the lock.
+The declared Python metadata floor is 3.14.5. Python 3.14.7 remains the only supported
+local, CI, data-build, integration, and container runtime. Recreate an older project
+environment before installing from the lock.
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
 for first-run provisioning. Entitled ICD-O operators set the server-only

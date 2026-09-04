@@ -2,7 +2,7 @@
 name = "ontoprism-backend"
 version = "0.21.0"
 description = "FastAPI backend for ontoprism (imported as `backend`)."
-requires-python = ">=3.14.7,<3.15"
+requires-python = ">=3.14.5,<3.15"
 dependencies = ["ontolib"]
 
 [build-system]

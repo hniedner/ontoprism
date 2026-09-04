@@ -7,6 +7,32 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-04 — Python metadata admits Dependabot's interpreter
+
+### D84. The metadata floor is 3.14.5 while execution stays on 3.14.7
+
+**Decision:** every tracked Python project declares `>=3.14.5,<3.15`, and PDM locks
+the equivalent `~=3.14.5` target (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04). The semantic boundary rejects 3.14.4 and 3.15 while accepting 3.14.5
+and the operational 3.14.7 patch (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
+
+The local selector, hosted workflows, pre-commit's resolved interpreter, backend image,
+and container runtime assertion remain patch-exact 3.14.7 (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04). The metadata floor remains in the same minor series and does not
+replace the supported setup runtime (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
+
+GitHub run 33839863700 failed when Dependabot's Python 3.14.5 did not satisfy the former
+manifest floor (`gh run view 33839863700 --log-failed`, 2026-09-04). This metadata-only
+relaxation is intended to unblock that external dependency-graph execution; it does not
+claim Dependabot is fixed before a post-merge external run succeeds (`gh run view
+33839863700 --log-failed`, 2026-09-04).
+
 ## 2026-09-03 — Python 3.14.7 is the sole runtime
 
 ### D83. The pre-production platform is 3.14.7-only
