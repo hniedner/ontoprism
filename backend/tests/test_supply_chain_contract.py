@@ -845,14 +845,10 @@ def _assert_python_metadata_contract() -> None:
         and Version("3.14.1") not in SpecifierSet(package["requires_python"])
     ]
     assert incompatible == []
-    networkx = next(
-        package for package in data_build_packages if package["name"] == "networkx"
-    )
-    assert networkx["version"] == "3.6"
-    assert Version("3.14.1") in SpecifierSet(networkx["requires_python"])
+    assert any(package["name"] == "networkx" for package in data_build_packages)
 
 
-def _assert_python_runtime_documentation() -> tuple[str, str]:
+def _assert_python_runtime_documentation() -> None:
     agents = (_ROOT / "AGENTS.md").read_text()
     normalized_agents = _normalized_whitespace(agents)
     assert "package metadata accepts the Python 3.14 minor series" in normalized_agents
@@ -874,6 +870,8 @@ def _assert_python_runtime_documentation() -> tuple[str, str]:
     assert "conservative regression guard" in d84
     assert "do not establish spelling sensitivity" in d84
     assert "networkx" in d84
+    assert "PR #321's post-merge Dependency Graph result must be checked" in d84
+    assert "failure must be fixed before new work" in d84
     assert (
         "test_python_metadata_floor_and_exact_operational_runtime_configuration" in d84
     )
@@ -885,7 +883,6 @@ def _assert_python_runtime_documentation() -> tuple[str, str]:
     assert "Superseded in part by D84" in d83
     assert "metadata and lock target" in d83
     assert "full-build mismatch" not in d83
-    return agents, (_ROOT / "pyproject.toml").read_text()
 
 
 def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> None:
@@ -945,7 +942,9 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
         text=True,
     ).stdout.strip()
     assert pre_commit_version == "3.14.7"
-    agents, project = _assert_python_runtime_documentation()
+    _assert_python_runtime_documentation()
+    agents = (_ROOT / "AGENTS.md").read_text()
+    project = (_ROOT / "pyproject.toml").read_text()
     _assert_ci_job_contract(workflow, agents, project)
 
     _assert_api_image_python_patch(workflow)

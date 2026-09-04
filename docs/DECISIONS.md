@@ -29,16 +29,20 @@ runtime; the metadata lower bound remains in the same minor series and is no hig
 than that runtime (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
-`pdm run verify` now rejects any executing interpreter other than 3.14.7 before its
-substantive verification runner (`pdm run agent-test
+PDM's global `pre_run` hook now reads `.python-version` and rejects any executing
+interpreter other than its exact value before every repository-owned `pdm run` workflow,
+including `verify`, `test-ci`, `agent-test`, `pre-commit`, lint, data-build, and migration
+scripts (`pdm run agent-test
 backend/tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
-backend/tests/test_verify_runner.py::test_verify_runner_uses_portable_tools_and_runs_exact_gates
+backend/tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
 -v`, 2026-09-04). This operational gate does not narrow package metadata.
 
-The broadened lock resolves networkx 3.6 rather than 3.6.1 because 3.6.1 excludes
-Python 3.14.1, which the project metadata accepts (`git diff main...HEAD -- pdm.lock`,
-2026-09-04). The lock contract checks both the selected networkx version and eligibility
-of locked data-build packages on 3.14.1 (`pdm run agent-test
+The broadened lock resolved networkx 3.6 on 2026-09-04 rather than 3.6.1 because 3.6.1
+excludes Python 3.14.1, which the project metadata accepts (`git diff
+1691981b05e338722cc4727715a7fba1fcbddfc4 ee446f9b0d8bbccaa699bff4997be550d54e2270
+-- pdm.lock`, 2026-09-04). The lock contract requires networkx to remain present and
+checks eligibility of every locked data-build package on 3.14.1 without freezing a
+future compatible networkx update (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
@@ -49,7 +53,11 @@ context about exact-pin version detection, not evidence about this project's ran
 its spelling. Neither citation prescribes this exact metadata spelling.
 This change is intended to unblock Dependency Graph processing. The external fix
 remains unverified until a post-merge Dependency Graph run succeeds (`gh run view
-33839863700 --log-failed`, 2026-09-04).
+33839863700 --log-failed`, 2026-09-04). PR #321's post-merge Dependency Graph result must
+be checked before this work is considered externally validated, and any failure must be
+fixed before new work under the hard post-merge rule in `AGENTS.md` (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
 
 ## 2026-09-03 — Python 3.14.7 is the sole runtime
 

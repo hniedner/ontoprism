@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import json
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -85,12 +87,8 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
         )
     )
     scripts = pyproject["tool"]["pdm"]["scripts"]
-    assert scripts["verify"] == {
-        "composite": [
-            "validate-python-runtime",
-            "python -m scripts.validation.run_verify",
-        ]
-    }
+    assert scripts["pre_run"] == "python -m scripts.validation.validate_python_runtime"
+    assert scripts["verify"] == "python -m scripts.validation.run_verify"
     assert scripts["validate-python-runtime"] == (
         "python -m scripts.validation.validate_python_runtime"
     )
@@ -147,6 +145,9 @@ def test_verify_runner_discovers_pdm_only_when_verification_runs(
 def test_operational_runtime_validator_accepts_only_python_3147(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    assert validate_python_runtime() == 0
+    assert capsys.readouterr().err == ""
+
     assert validate_python_runtime((3, 14, 7)) == 0
     assert capsys.readouterr().err == ""
 
@@ -155,3 +156,119 @@ def test_operational_runtime_validator_accepts_only_python_3147(
         "OntoPrism operational workflows require Python 3.14.7; "
         "executing interpreter is 3.14.6.\n"
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("version_info", [(), (3, 14), (3, 14, 7, 1)])
+def test_operational_runtime_validator_rejects_malformed_runtime_tuple(
+    version_info: tuple[int, ...],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert validate_python_runtime(version_info) == 1
+    assert capsys.readouterr().err == (
+        "Cannot validate OntoPrism's operational Python runtime: executing interpreter "
+        f"version must contain exactly three integers; got {version_info!r}.\n"
+    )
+
+
+@pytest.mark.unit
+def test_operational_runtime_validator_fails_closed_for_missing_selector(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing_selector = tmp_path / ".python-version"
+
+    assert validate_python_runtime((3, 14, 7), missing_selector) == 1
+    assert capsys.readouterr().err == (
+        "Cannot validate OntoPrism's operational Python runtime: required runtime "
+        f"selector {missing_selector} is missing.\n"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("selector_text", ["", "3.14", "3.14.x", "3.14.7.1"])
+def test_operational_runtime_validator_fails_closed_for_malformed_selector(
+    selector_text: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    selector = tmp_path / ".python-version"
+    selector.write_text(selector_text, encoding="utf-8")
+
+    assert validate_python_runtime((3, 14, 7), selector) == 1
+    assert capsys.readouterr().err == (
+        "Cannot validate OntoPrism's operational Python runtime: required runtime "
+        f"selector {selector} must contain exactly three dot-separated integers; "
+        f"got {selector_text.strip()!r}.\n"
+    )
+
+
+@pytest.mark.unit
+def test_runtime_validator_module_rejects_wrong_process_version() -> None:
+    command = [
+        sys.executable,
+        "-c",
+        (
+            "import runpy, sys; "
+            "sys.version_info = (3, 14, 6); "
+            "runpy.run_module('scripts.validation.validate_python_runtime', "
+            "run_name='__main__')"
+        ),
+    ]
+
+    result = subprocess.run(  # noqa: S603
+        command,
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "OntoPrism operational workflows require Python 3.14.7; "
+        "executing interpreter is 3.14.6.\n"
+    )
+
+
+@pytest.mark.unit
+def test_pdm_pre_run_failure_prevents_substantive_script(tmp_path: Path) -> None:
+    pdm_executable = shutil.which("pdm")
+    assert pdm_executable is not None
+    marker = tmp_path / "substantive-ran"
+    rejecting_hook = (
+        "python -c \"import sys; print('PRE_RUN_REJECTED', file=sys.stderr); "
+        'raise SystemExit(23)"'
+    )
+    substantive_script = (
+        "python -c \"from pathlib import Path; Path('substantive-ran').touch()\""
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        f"""\
+[project]
+name = "pdm-pre-run-contract"
+version = "0.0.0"
+requires-python = ">=3.14,<3.15"
+
+[tool.pdm]
+distribution = false
+
+[tool.pdm.scripts]
+pre_run = {json.dumps(rejecting_hook)}
+substantive = {json.dumps(substantive_script)}
+""",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(  # noqa: S603
+        [pdm_executable, "run", "substantive"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "PRE_RUN_REJECTED" in result.stderr
+    assert not marker.exists()
