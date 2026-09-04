@@ -9,28 +9,33 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ## 2026-09-04 — Python metadata admits Dependabot's interpreter
 
-### D84. The metadata floor is 3.14.5 while execution stays on 3.14.7
+### D84. Metadata accepts the Python 3.14 minor series while execution stays on 3.14.7
 
-**Decision:** every tracked Python project declares `>=3.14.5,<3.15`, and PDM locks
-the equivalent `~=3.14.5` target (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
--v`, 2026-09-04). The semantic boundary rejects 3.14.4 and 3.15 while accepting 3.14.5
-and the operational 3.14.7 patch (`pdm run agent-test
+**Decision:** the metadata floor in every tracked Python project uses the exact spelling
+`>=3.14,<3.15` (`git grep -n requires-python -- '*pyproject.toml'`, 2026-09-04).
+The spelling, not merely an equivalent specifier, is
+part of the Dependabot regression contract because its external parser has a version
+detection limitation. Semantically, the metadata rejects 3.13.99 and 3.15 while
+accepting 3.14.0, Dependabot's installed 3.14.5, and the operational 3.14.7 patch
+(`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
-The local selector, hosted workflows, pre-commit's resolved interpreter, backend image,
-and container runtime assertion remain patch-exact 3.14.7 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
--v`, 2026-09-04). The metadata floor remains in the same minor series and does not
-replace the supported setup runtime (`pdm run agent-test
+The local selector, hosted workflows, pre-commit's observed interpreter, Ruff,
+basedpyright, backend image, and container runtime assertion remain exact 3.14.7 (or
+the tool-specific 3.14 target where patch spelling is unavailable). Python 3.14.7 is
+the only certified and supported local, CI, integration, data-build, and container
+runtime; the metadata lower bound remains in the same minor series and is no higher
+than that runtime (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
-GitHub run 33839863700 failed when Dependabot's Python 3.14.5 did not satisfy the former
-manifest floor (`gh run view 33839863700 --log-failed`, 2026-09-04). This metadata-only
-relaxation is intended to unblock that external dependency-graph execution; it does not
-claim Dependabot is fixed before a post-merge external run succeeds (`gh run view
+Dependabot run 33839863700 rejected the patch-floor `>=3.14.7,<3.15` while running
+Python 3.14.5 (`gh run view 33839863700 --log-failed`, 2026-09-04). Dependabot-core
+issue #13274 confirms Python 3.14 support landed; issue #14593 documents the version
+detection bug, but neither is treated as prescribing this exact metadata spelling.
+This change is intended to unblock Dependency Graph processing. The external fix
+remains unverified until a post-merge Dependency Graph run succeeds (`gh run view
 33839863700 --log-failed`, 2026-09-04).
 
 ## 2026-09-03 — Python 3.14.7 is the sole runtime

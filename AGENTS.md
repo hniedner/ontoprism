@@ -158,9 +158,9 @@ pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a p
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
 
-The declared Python metadata floor is 3.14.5. Python 3.14.7 remains the only supported
-local, CI, integration, data-build, and container runtime. Recreate an older project
-environment before installing from the lock.
+The package metadata accepts the Python 3.14 minor series. Python 3.14.7 remains the only supported
+local, CI, integration, data-build, and container runtime. Recreate an older project environment
+before installing from the lock.
 
 Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
 so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;

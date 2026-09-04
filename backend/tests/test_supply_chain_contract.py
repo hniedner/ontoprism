@@ -798,22 +798,24 @@ def _assert_python_metadata_contract() -> None:
         tomllib.loads((_ROOT / path).read_text())["project"]["requires-python"]
         for path in tracked_pyprojects
     }
-    assert manifest_specifiers == {">=3.14.5,<3.15"}
+    assert manifest_specifiers == {">=3.14,<3.15"}
     metadata_specifier = SpecifierSet(manifest_specifiers.pop())
-    assert Version("3.14.4") not in metadata_specifier
+    assert Version("3.13.99") not in metadata_specifier
+    assert Version("3.14.0") in metadata_specifier
     assert Version("3.14.5") in metadata_specifier
     assert Version("3.14.7") in metadata_specifier
     assert Version("3.15") not in metadata_specifier
 
     operational_runtime = Version((_ROOT / ".python-version").read_text().strip())
     assert operational_runtime == Version("3.14.7")
-    metadata_floor = Version("3.14.5")
+    metadata_floor = Version("3.14.0")
     assert metadata_floor.release[:2] == operational_runtime.release[:2]
     assert metadata_floor <= operational_runtime
 
     lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
-    # PDM canonicalizes >=3.14.5,<3.15 to the equivalent compatible-release form.
-    assert lock["metadata"]["targets"] == [{"requires_python": "~=3.14.5"}]
+    lock_targets = lock["metadata"]["targets"]
+    assert len(lock_targets) == 1
+    assert SpecifierSet(lock_targets[0]["requires_python"]) == metadata_specifier
 
 
 def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> None:
@@ -876,12 +878,12 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
     agents = (_ROOT / "AGENTS.md").read_text()
     project = (_ROOT / "pyproject.toml").read_text()
     _assert_ci_job_contract(workflow, agents, project)
-    assert "declared Python metadata floor is 3.14.5" in agents
+    assert "package metadata accepts the Python 3.14 minor series" in agents
     assert "Python 3.14.7 remains the only supported\nlocal, CI" in agents
     readme = (_ROOT / "README.md").read_text()
-    assert "declared Python metadata floor is 3.14.5" in readme
+    assert "package metadata accepts the Python 3.14 minor series" in readme
     assert "Python 3.14.7 remains the only supported\nlocal, CI" in readme
-    assert "declares Python >=3.14.5,<3.15" in (_ROOT / "Makefile").read_text()
+    assert "accepts Python >=3.14,<3.15 metadata" in (_ROOT / "Makefile").read_text()
     assert "operational runtime 3.14.7" in (_ROOT / "Makefile").read_text()
 
     decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
