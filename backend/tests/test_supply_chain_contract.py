@@ -870,6 +870,8 @@ def _assert_python_runtime_documentation() -> None:
     assert "conservative regression guard" in d84
     assert "do not establish spelling sensitivity" in d84
     assert "networkx" in d84
+    assert "every repository-owned named PDM script" in d84
+    assert "`agent-test`, `pre-commit`, lint" not in d84
     assert "PR #321's post-merge Dependency Graph result must be checked" in d84
     assert "failure must be fixed before new work" in d84
     assert (

@@ -88,10 +88,8 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     )
     scripts = pyproject["tool"]["pdm"]["scripts"]
     assert scripts["pre_run"] == "python -m scripts.validation.validate_python_runtime"
+    assert "validate-python-runtime" not in scripts
     assert scripts["verify"] == "python -m scripts.validation.run_verify"
-    assert scripts["validate-python-runtime"] == (
-        "python -m scripts.validation.validate_python_runtime"
-    )
     assert "test-ci" in scripts
     assert "pdm run verify" not in scripts["test-ci"]["shell"]
 
