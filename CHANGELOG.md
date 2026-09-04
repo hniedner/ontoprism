@@ -19,6 +19,38 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.2 (2026-09-04)
+
+### Bug Fixes
+
+- **governance**: Clarify diagnostic and scanner contracts
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+- **governance**: Harden agent mutation boundaries
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+- **governance**: Harden runtime diagnostics
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+- **governance**: Sanitize runtime command failures
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+### Chores
+
+- **governance**: Allow orchestrator remote wrappers
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+### Documentation
+
+- Update README code line-count table
+  ([`5e49cde`](https://github.com/hniedner/ontoprism/commit/5e49cde95382feca2b7854b66e6a8223606393d4))
+
+### Refactoring
+
+- **governance**: Derive git operation classes
+  ([`fe1c5a0`](https://github.com/hniedner/ontoprism/commit/fe1c5a05988a7657500b3331e01478f0e34b588c))
+
+
 ## v0.22.1 (2026-09-04)
 
 ### Bug Fixes
