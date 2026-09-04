@@ -63,7 +63,7 @@
 </svelte:head>
 
 <section class="mb-8">
-	<h1 class="text-3xl font-semibold text-default">Ontology Explorer</h1>
+	<h1 class="text-3xl font-semibold text-default">Current ontology capabilities</h1>
 	<p class="mt-2 max-w-2xl text-secondary">
 		Search, browse, and cross-navigate certified NCIt, caDSR, Uberon/CL, and ICD-O
 		repositories, alongside live clinical-trial and literature services.

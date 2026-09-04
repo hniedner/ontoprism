@@ -26,6 +26,12 @@ Everything OntoPrism emits is NCIt. Describe provenance using **derived from**,
 **aligned to**, **corroborated by**, or **proposed, evidenced by** language; do not
 describe emitted NCIt content as externally owned.
 
+For the ontology-platform target (D86), evidence must also identify the view it supports.
+Official/NCI-authored/`accepted-in-ncit` claims require evidence in an identified certified
+official NCIt release; local approval or publication is not that evidence. Mapping and AI
+evidence bind source, tool/model where applicable, and endpoint release identities rather than
+mutable URLs or unqualified confidence.
+
 ## Group-review rationale admission (#274)
 
 `evidence/group-review-packet-26.07d-schema3.json` is the byte-frozen historical schema-3

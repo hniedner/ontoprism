@@ -11,6 +11,12 @@ The [shared terminology](../../README.md#terminology) provides a plain-language 
 Because this document specifies ontology alignment, the remainder retains exact terms such as
 axis, filler, genus, semantic type, partonomy, and curated projection.
 
+> **D86 scope.** This is the NCIt product's alignment strategy, not a generic ontology-adapter
+> specification and not a claim that OntoPrism is NCI Metathesaurus. The target mapping/link-out
+> capability is defined in [ontology-platform.md](./ontology-platform.md); independently identified
+> terminology releases supply typed evidence and alignments without becoming emitted NCIt or an
+> undisclosed runtime dependency.
+
 > **Origin.** This document responds to review feedback (a local input memo) recommending
 > that a next-generation NCIt be built on the OBO Foundry stack (**Uberon** anatomy, **Cell
 > Ontology** cells) plus **SNOMED CT / ICD-O-3** morphology and **Mondo / DO** disease, linked by

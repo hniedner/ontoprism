@@ -7,6 +7,11 @@ NCI Clinical Trials Reporting Program + oncology trials in ClinicalTrials.gov; N
 Extends: [`../design/ncit-alignment-integration.md`](../design/ncit-alignment-integration.md)
 (the NCIt alignment layer, §13 caDSR coverage) and DECISIONS **D24–D29, D27, D38, D60**.
 
+> **D86 scope.** This strategy describes one NCIt domain-policy and interoperability use case.
+> It neither defines the target generic adapter contract nor makes NCI adoption a prerequisite for
+> locally governed usefulness or publication. Official/NCI-authored/accepted-in-NCIt assertions
+> remain evidence-bound to an identified certified official NCIt release.
+
 The [shared terminology](../../README.md#terminology) defines decomposition, axes, fillers,
 and curated projections for readers who do not work directly with OWL. This strategy uses
 those precise terms after their first introduction.

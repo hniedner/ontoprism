@@ -1,7 +1,7 @@
 [project]
 name = "ontoprism"
 version = "0.22.2"
-description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
+description = "Ontology-generic framework target with a current enhanced NCIt implementation for storage, exploration, alignment, and decomposition."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 license = { text = "Apache-2.0" }

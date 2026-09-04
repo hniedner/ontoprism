@@ -1,9 +1,16 @@
 # Architecture
 
-ONTOPRISM is an ontology storage, query, and graph-visualization platform whose
-distinctive output is a **decomposed (non-pre-coordinated) NCIt**. It is built by lifting
+ONTOPRISM's current implementation is an NCIt-centered ontology storage, query, and
+graph-visualization product whose distinctive output is a **decomposed
+(non-pre-coordinated) NCIt**. It is built by lifting
 the ontology vertical slice of the `fairdata` platform (see [DECISIONS.md](DECISIONS.md)
 D1–D2) and adding a decomposition engine.
+
+Its [target architecture](design/ontology-platform.md) is ontology-generic: a platform core
+provides shared management capabilities, ontology adapters declare supported ontology-specific
+capabilities, and domain policy controls semantic governance. No generic adapter type/system
+currently exists. The implemented certified local repositories and adapters, curation, and
+decomposition surfaces remain NCIt-centered (D86).
 
 For plain-language definitions of decomposition, axes, fillers, genera, semantic types,
 curated projections, source occurrences, partonomies, and relationship groups, see the
@@ -40,6 +47,13 @@ ontoprism/
 ```
 
 ## Data planes
+
+For enhanced NCIt, these are distinct views rather than one blended identity. The official
+release source plane and every OntoPrism overlay or derived view require separate identities.
+Graph/storage separation currently protects the official stated plane from overlay mutation.
+Independent source-view selection and recoverability for every enhanced release are target
+guarantees, not current certification; byte recovery additionally requires retaining the original
+artifact and digest.
 
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL

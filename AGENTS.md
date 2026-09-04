@@ -118,6 +118,13 @@ exactly matches, and was derived from, something in Uberon, Cell Ontology, SNOME
 All of it is provisional until NCI adopts it: `proposed → locally-approved → submitted →
 accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
 
+**D86 qualification:** NCIt is the current primary product, not OntoPrism's architectural
+limit. The target is an ontology-generic core plus capability-declaring ontology adapters and
+domain policy; those generic facilities are not currently implemented. NCI adoption is optional
+for local usefulness/publication, while official/NCI-authored/accepted claims require evidence
+from an identified certified official NCIt release. D86 qualifies rather than supersedes D60;
+#304 owns exact lifecycle-vocabulary convergence.
+
 Derivation is recorded as provenance and alignment, never as ownership — the pattern
 `AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
 what it aligns to. Provenance exists so Metathesaurus integration and cross-terminology mapping

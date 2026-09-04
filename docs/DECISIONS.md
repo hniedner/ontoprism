@@ -7,6 +7,72 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
+
+### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
+
+**Current observation:** the repository contains implemented NCIt local-store readers,
+backend endpoints, frontend routes, curation support, and decomposition surfaces; it does not
+contain a generic ontology-adapter type or system (`git ls-files
+ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
+frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontolib/src
+backend/src frontend/src`, which returned no matches, 2026-09-04). The official stated NCIt and additive
+decomposition graphs have distinct identifiers, and decomposition reads are explicitly confined
+to the additive graph rather than the source (`git grep -n STATED_GRAPH_IRI --
+ontolib/src/ontolib/terminologies/ncit/owl_load.py
+ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/vocab.py ontolib/src/ontolib/decomposition/read_queries.py`,
+2026-09-04). This protects the official stated plane from overlay mutation. It does not establish
+that every enhanced release already has an independently selectable, certified recoverable source
+view.
+
+**Decision:** OntoPrism's target architecture is an ontology-generic platform core, capability-
+declaring ontology adapters, and domain policy. The target core covers view and navigation,
+visualization, editing and authoring, reasoning, validation, and release/version/provenance/alignment
+management. An adapter supplies only the capabilities and ontology-specific contracts it declares;
+domain policy governs what may be proposed, validated, approved, and published. NCIt is the first
+and primary product, not an architectural limit. These are normative target boundaries, not claims
+that generic adapters, generic editing or reasoning, generic AI authoring, or generic release
+reconciliation are implemented.
+
+An enhanced NCIt release is targeted as the composition of one identified official release source
+plane and separately identified/versioned OntoPrism overlays or derived views. Compatibility means
+only **source containment**, use of source identifiers as **release-bound anchors**, target
+**source-view recoverability**, and an explicit **provenance and view distinction**. It does not mean
+conservative extension, logical equivalence, query equivalence, identical hierarchy/search/reasoner
+behavior, arbitrary drop-in substitution, D43 reversibility, or official endorsement. Byte recovery
+requires retention of the original artifact and digest; no current certified byte-recovery guarantee
+is created by this decision. Do not use “fully backward compatible” without immediately narrowing it
+to a separately evidenced guarantee.
+
+NCI adoption is optional and non-blocking for local usefulness and locally governed publication.
+Only evidence from an identified, certified official NCIt release can support “official,”
+“NCI-authored,” or `accepted-in-ncit`. Local approval and local publication do not establish any of
+those claims, and OntoPrism never assigns adoption to NCI. D60 remains authoritative for emitted NCIt
+enhancement: this decision **qualifies D60** and **does not supersede D60**. The exact lifecycle
+vocabulary and current model divergence belong to [#304](https://github.com/hniedner/ontoprism/issues/304);
+this decision neither enumerates a replacement lifecycle nor claims convergence is implemented.
+
+The Metathesaurus-interoperability target is a typed, evidence-bearing mapping and link-out
+capability, not a claim that OntoPrism is NCI Metathesaurus. Every relation binds the endpoint
+ontology/release/identity, relation type and direction, evidence/provenance/status, license, and
+remote availability/cache/freshness. A mutable URL is not identity, a link-out is not import or a
+runtime dependency, a shared CUI is not equivalence, and relation types remain distinct. Per D60,
+the emitted enhancement remains OntoPrism-governed NCIt, derived from, aligned to, or corroborated
+by independently identified terminology releases; provenance transfers no ownership.
+
+AI-enhanced ontology management is likewise a target for adapter-supported ontologies. AI outcomes
+must distinguish candidate, abstain, and failure and bind evidence plus model, tool, and source
+identity. Deterministic validation decides machine-checkable claims, while a human accountable
+authority approves semantic publication. AI cannot approve, publish, submit, adopt, or turn model
+confidence into evidence. The current product does not ship generic AI authoring.
+
+Permanent release-forward reconciliation is owned by
+[#316](https://github.com/hniedner/ontoprism/issues/316): it must bind exact old/new official-release
+and overlay identities, record per-assertion outcomes, automate detection/rebase/proposals/validation,
+refuse automatic replay or publication for unresolved, unsupported, or ambiguous conflicts, retain
+human review, and never assign adoption. Nothing may be silently dropped or carried forward.
+
 ## 2026-09-04 — Remote operations remain orchestrator-separated
 
 ### D85. Explicit requests permit only fixed remote wrappers before separately authorized merge

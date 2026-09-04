@@ -160,7 +160,7 @@
 		<div
 			class="mx-auto flex flex-col items-center justify-between gap-1 px-[2%] py-4 text-xs text-muted sm:flex-row"
 		>
-			<span>ONTOPRISM · Ontology vertical slice</span>
+			<span>Current product · NCIt-centered ontology exploration</span>
 			<span>NCIt · caDSR · Uberon/CL · ICD-O</span>
 		</div>
 	</footer>

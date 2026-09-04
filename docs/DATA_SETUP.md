@@ -4,6 +4,10 @@ ontoprism runs its **own** isolated data services (see `docker-compose.yml`). A 
 checkout uses digest-pinned official service images and does not require another
 repository or a locally built image:
 
+In this document, **repository/index** names an implemented storage or query surface;
+**ontology adapter** names D86's future capability-declaring platform boundary. The presence of
+NCIt, Uberon/CL, caDSR, or ICD-O repositories does not imply that a generic adapter system exists.
+
 | Service | ontoprism | fairdata |
 |---|---|---|
 | QLever NCIt | `:7888` | `:7878` |
