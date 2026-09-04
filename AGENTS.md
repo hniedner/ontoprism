@@ -375,8 +375,14 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
   not converge. Once a dimension converges, do not run it again in that review cycle.
 
-  Every round reviews a clean worktree and committed diff. Pushes and PR creation or updates
-  remain manual user actions. The orchestrator may manage the issue and milestone lifecycle in
+  Every round reviews a clean worktree and committed diff. Only when explicitly requested may the
+  orchestrator pull its attached current branch with `pdm run agent-git pull-origin <branch>`, push
+  a dedicated non-main branch with `pdm run agent-git push-origin <branch>`, create a PR in the fixed
+  repository with `pdm run agent-github pr-create --title <title> --body-file <tmp/plans/path> --head
+  <branch>`, or update the exact user-supplied PR number and content with `pdm run agent-github pr-edit
+  <number>`. It must fail closed on repository, branch, PR, input, or scope uncertainty and must never
+  directly push main/master, force-push, delete a remote ref, select another remote/repository, or
+  update an unrelated PR. The orchestrator may manage the issue and milestone lifecycle in
   `hniedner/ontoprism` through the repository-owned `pdm run agent-github` wrapper when the task
   explicitly requests it: create, edit, comment, label, assign or unassign, set or remove a
   milestone, close, or reopen issues; and create, edit, close, or reopen milestones. It never
@@ -385,7 +391,7 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   After all five dimensions
   converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
   pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
-  GitHub event. PR creation occurs only when requested. Run `gh pr merge` only when the user
+  GitHub event. PR creation or update occurs only when requested. Run `gh pr merge` only when the user
   explicitly authorizes the exact PR in the current conversation and every hard merge check
   passes. This does not prohibit the milestone procedure's
   local `pdm run agent-git merge-no-ff <branch>` integration of a verified issue branch into its milestone

@@ -28,6 +28,8 @@ MUTATION_OPERATIONS = frozenset(
         "milestone-edit",
         "milestone-close",
         "milestone-reopen",
+        "pr-create",
+        "pr-edit",
     }
 )
 PROCESS_TIMEOUT_SECONDS = 30
@@ -87,6 +89,24 @@ def _positive_number(value: str, label: str) -> int:
 
 def _safe_name(value: str, label: str) -> str:
     if SAFE_NAME.fullmatch(value) is None:
+        raise AgentGitHubInputError(f"{label} is invalid")
+    return value
+
+
+def _safe_branch(value: str, label: str) -> str:
+    components = value.split("/")
+    if (
+        SAFE_BRANCH.fullmatch(value) is None
+        or ".." in value
+        or "@{" in value
+        or value in {"main", "master"}
+        or any(
+            not component
+            or component.endswith(".")
+            or component.casefold().endswith(".lock")
+            for component in components
+        )
+    ):
         raise AgentGitHubInputError(f"{label} is invalid")
     return value
 
@@ -244,6 +264,20 @@ def _get_milestone(number: int, root: Path, runner: CommandRunner) -> dict[str, 
     value = _api("GET", f"{API_ROOT}/milestones/{number}", root, runner)
     if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub milestone response is invalid")
+    return value
+
+
+def _get_pull(number: int, root: Path, runner: CommandRunner) -> dict[str, Any]:
+    value = _api("GET", f"{API_ROOT}/pulls/{number}", root, runner)
+    base = value.get("base") if isinstance(value, dict) else None
+    repo = base.get("repo") if isinstance(base, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("number") != number
+        or not isinstance(repo, dict)
+        or repo.get("full_name") != REPOSITORY
+    ):
+        raise AgentGitHubProcessError("GitHub pull request response is invalid")
     return value
 
 
@@ -655,6 +689,82 @@ def _issue_mutation(
     )
 
 
+def _pr_create(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
+    options = _flags(arguments, singles=frozenset({"--title", "--body-file", "--head"}))
+    if set(options) != {"--title", "--body-file", "--head"}:
+        raise AgentGitHubInputError(
+            "pr-create requires --title, --body-file, and --head"
+        )
+    title = _validate_text(
+        str(options["--title"]), "pull request title", maximum=MAX_TITLE_LENGTH
+    )
+    body = _body_file(root, str(options["--body-file"]))
+    head = _safe_branch(str(options["--head"]), "head branch")
+    existing = _flatten_pages(
+        _api(
+            "GET",
+            f"{API_ROOT}/pulls",
+            root,
+            runner,
+            fields=(
+                ("state", "open"),
+                ("head", f"hniedner:{head}"),
+                ("per_page", "100"),
+            ),
+            paginate=True,
+        )
+    )
+    if existing:
+        raise AgentGitHubInputError("open pull request already exists for head branch")
+    result = _api(
+        "POST",
+        f"{API_ROOT}/pulls",
+        root,
+        runner,
+        payload={"title": title, "body": body, "head": head, "base": "main"},
+    )
+    return _validate_pr_mutation_result(result)
+
+
+def _pr_edit(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
+    if not arguments:
+        raise AgentGitHubInputError("pr-edit requires a pull request number")
+    number = _positive_number(arguments[0], "pull request number")
+    options = _flags(arguments[1:], singles=frozenset({"--title", "--body-file"}))
+    if not options:
+        raise AgentGitHubInputError("pr-edit requires at least one change")
+    payload: dict[str, object] = {}
+    if "--title" in options:
+        payload["title"] = _validate_text(
+            str(options["--title"]),
+            "pull request title",
+            maximum=MAX_TITLE_LENGTH,
+        )
+    if "--body-file" in options:
+        payload["body"] = _body_file(root, str(options["--body-file"]))
+    _get_pull(number, root, runner)
+    result = _api("PATCH", f"{API_ROOT}/pulls/{number}", root, runner, payload=payload)
+    return _validate_pr_mutation_result(result, expected_number=number)
+
+
+def _validate_pr_mutation_result(
+    value: Any, *, expected_number: int | None = None
+) -> dict[str, Any]:
+    number = value.get("number") if isinstance(value, dict) else None
+    url = value.get("html_url") if isinstance(value, dict) else None
+    if (
+        type(number) is not int
+        or number < 1
+        or (expected_number is not None and number != expected_number)
+        or url != f"https://github.com/{REPOSITORY}/pull/{number}"
+    ):
+        raise AgentGitHubProcessError(
+            "GitHub mutation response is invalid; inspect the repository before "
+            "retrying"
+        )
+    return value
+
+
 def _milestone_create(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
     options = _flags(
         arguments,
@@ -758,6 +868,10 @@ def run_agent_github(
         value = _run_read(operation, arguments[1:], resolved_root, command_runner)
     elif operation.startswith("issue-"):
         value = _issue_mutation(operation, arguments[1:], resolved_root, command_runner)
+    elif operation == "pr-create":
+        value = _pr_create(arguments[1:], resolved_root, command_runner)
+    elif operation == "pr-edit":
+        value = _pr_edit(arguments[1:], resolved_root, command_runner)
     else:
         value = _milestone_mutation(
             operation, arguments[1:], resolved_root, command_runner

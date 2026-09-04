@@ -7,6 +7,36 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-04 — Remote operations remain orchestrator-separated
+
+### D85. Explicit requests permit only fixed remote wrappers before separately authorized merge
+
+**Decision:** the orchestrator may pull its attached current branch, push a dedicated
+non-protected branch, and create or edit a pull request only after an explicit user request.
+Pull and push go through `pdm run agent-git pull-origin <branch>` and `pdm run agent-git
+push-origin <branch>`; pull-request creation and editing go through `pdm run agent-github
+pr-create ...` and `pdm run agent-github pr-edit ...`. The wrappers fix `origin` and
+`hniedner/ontoprism`, validate branch and repository identity, reject unclean or mismatched
+worktrees, and fail closed when a mutation outcome is unknown. Their behavioral contracts
+execute successfully (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and
+`pdm run agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+
+The orchestrator's effective permission contract allows those wrapper invocations while raw
+Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote
+mutations remain denied (`pdm run agent-test
+backend/tests/test_opencode_runtime_validation.py -v`, 2026-09-04). The static repository
+configuration accepts that exact surface (`pdm run validate-opencode-config`, 2026-09-04).
+The runtime validator did not complete its model-catalog boundary and reported exactly
+`OpenCode runtime validation failed: Model catalog validation: opencode models exited 1`
+(`pdm run validate-opencode-runtime`, 2026-09-04); this is recorded as a failed external
+validation result, not a successful policy observation.
+
+Pull-request merge remains a separate exception: only the exact PR number explicitly
+authorized in the current conversation may be squash-merged, and only after every existing
+target-branch and PR check passes. This decision does not broaden merge arguments, permit
+force/admin/auto/queue/bypass behavior, or authorize remote operations for implementers or
+reviewers.
+
 ## 2026-09-04 — Python metadata admits Dependabot's interpreter
 
 ### D84. Metadata accepts the Python 3.14 minor series while execution stays on 3.14.7

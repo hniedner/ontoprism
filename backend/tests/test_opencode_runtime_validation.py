@@ -679,6 +679,35 @@ def test_governed_writer_shell_contract(role: str, command: str, expected: str) 
     assert effective_action(rules, command) == expected
 
 
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        ("ontoprism-team", "pdm run agent-git pull-origin feat/x", "allow"),
+        ("ontoprism-team", "pdm run agent-git push-origin feat/x", "allow"),
+        (
+            "ontoprism-team",
+            "pdm run agent-github pr-create --title x --body-file "
+            "tmp/plans/pr.md --head feat/x",
+            "allow",
+        ),
+        ("ontoprism-team", "pdm run agent-github pr-edit 12 --title x", "allow"),
+        ("ontoprism-team", "git pull origin feat/x", "deny"),
+        ("ontoprism-team", "git push origin feat/x", "deny"),
+        ("ontoprism-team", "gh pr create --title x", "deny"),
+        ("ontoprism-team", "gh pr edit 12 --title x", "deny"),
+        ("implementer", "pdm run agent-git push-origin feat/x", "deny"),
+        ("pr-code-reviewer", "pdm run agent-git pull-origin feat/x", "deny"),
+        ("pr-code-reviewer", "pdm run agent-github pr-edit 12 --title x", "deny"),
+    ],
+)
+def test_remote_mutations_are_available_only_through_orchestrator_wrappers(
+    role: str, command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], role)
+
+    assert effective_action(rules, command) == expected
+
+
 SPECIALISTS = sorted(set(ROLES) - {"ontoprism-team", "implementer", *RESERVES})
 
 

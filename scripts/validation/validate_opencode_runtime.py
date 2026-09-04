@@ -208,6 +208,10 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
     if name == "ontoprism-team":
         return (
             ("git status --porcelain", "allow"),
+            ("pdm run agent-git pull-origin feat/example", "allow"),
+            ("pdm run agent-git push-origin feat/example", "allow"),
+            ("git pull origin feat/example", "deny"),
+            ("git push origin feat/example", "deny"),
             (
                 "gh pr view 123 --json title,baseRefName,headRefName,headRefOid,"
                 "mergeStateStatus,statusCheckRollup",
@@ -307,6 +311,8 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         ("pdm run verify && gh pr merge", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
         ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-git pull-origin feat/x", "deny"),
+        ("pdm run agent-git push-origin feat/x", "deny"),
         ("pdm run agent-replay decompose-current", "allow"),
         ("git switch --discard-changes main", "deny"),
         ("git branch --force feat/x", "deny"),

@@ -11,11 +11,22 @@ from typing import Protocol
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 UNSAFE_MESSAGE_CHARACTERS = frozenset("&;|><`$\\")
 PROTECTED_BRANCHES = frozenset({"main", "master"})
+ACCEPTED_ORIGIN_URLS = frozenset(
+    {
+        "https://github.com/hniedner/ontoprism",
+        "https://github.com/hniedner/ontoprism.git",
+        "git@github.com:hniedner/ontoprism.git",
+    }
+)
 OPERATION_ARGUMENT_COUNT = 2
 COMMIT_ARGUMENT_COUNT = 3
 MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
 MUTATION_TIMEOUT_SECONDS = 600
+REMOTE_UNKNOWN_MESSAGE = (
+    "Git operation outcome is unknown; inspect repository and remote state "
+    "before retrying"
+)
 MUTATION_FAILURE_MESSAGES = {
     "switch-existing": (
         "Git switch failed and may have changed repository state; inspect git status"
@@ -33,6 +44,14 @@ MUTATION_FAILURE_MESSAGES = {
     ),
     "commit-staged": (
         "Git commit failed and may have changed repository state; inspect git status"
+    ),
+    "pull-origin": (
+        "Git pull failed and its outcome may be unknown; inspect repository and remote "
+        "state before retrying"
+    ),
+    "push-origin": (
+        "Git push failed and its outcome may be unknown; inspect repository and remote "
+        "state before retrying"
     ),
 }
 
@@ -68,6 +87,7 @@ def _invoke(
     runner: CommandRunner,
     *,
     mutating: bool = False,
+    remote_mutation: bool = False,
 ) -> CommandResult:
     try:
         result = runner(
@@ -81,21 +101,27 @@ def _invoke(
         )
     except UnicodeDecodeError as exc:
         message = (
-            "Git operation outcome is unknown; inspect git status"
+            REMOTE_UNKNOWN_MESSAGE
+            if remote_mutation
+            else "Git operation outcome is unknown; inspect git status"
             if mutating
             else "Git produced undecodable output"
         )
         raise AgentGitProcessError(message) from exc
     except subprocess.TimeoutExpired as exc:
         message = (
-            "Git operation outcome is unknown; inspect git status"
+            REMOTE_UNKNOWN_MESSAGE
+            if remote_mutation
+            else "Git operation outcome is unknown; inspect git status"
             if mutating
             else "Git operation timed out"
         )
         raise AgentGitProcessError(message) from exc
     except OSError as exc:
         message = (
-            "Git operation outcome is unknown; inspect git status"
+            REMOTE_UNKNOWN_MESSAGE
+            if remote_mutation
+            else "Git operation outcome is unknown; inspect git status"
             if mutating
             else "Git process could not start"
         )
@@ -162,6 +188,39 @@ def _require_mutable_current_branch(root: Path, runner: CommandRunner) -> None:
         raise AgentGitInputError("Git operation cannot target a protected branch")
 
 
+def _prepare_remote_command(
+    operation: str, branch: str, root: Path, runner: CommandRunner
+) -> list[str]:
+    _validate_branch(branch, root, runner)
+    if operation == "push-origin" and branch in PROTECTED_BRANCHES:
+        raise AgentGitInputError("Git push cannot target a protected branch")
+    origin = _invoke(["git", "remote", "get-url", "origin"], root, runner)
+    _require_success(origin, "Git origin could not be determined")
+    if origin.stdout.strip() not in ACCEPTED_ORIGIN_URLS:
+        raise AgentGitInputError("Git origin is not the ONTOPRISM repository")
+    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    _require_success(current, "Git current branch could not be determined")
+    current_branch = current.stdout.strip()
+    if not current_branch:
+        raise AgentGitInputError("Git operation requires an attached branch")
+    if current_branch != branch:
+        raise AgentGitInputError("requested branch is not the current branch")
+    status = _invoke(["git", "status", "--porcelain"], root, runner)
+    _require_success(status, "Git worktree status could not be determined")
+    if status.stdout:
+        raise AgentGitInputError("Git remote operation requires a clean worktree")
+    full_ref = f"refs/heads/{branch}"
+    if operation == "pull-origin":
+        return ["git", "pull", "--ff-only", "origin", full_ref]
+    return [
+        "git",
+        "push",
+        "--set-upstream",
+        "origin",
+        f"{full_ref}:{full_ref}",
+    ]
+
+
 def _prepare_branch_command(
     operation: str, branch: str, root: Path, runner: CommandRunner
 ) -> list[str]:
@@ -214,6 +273,7 @@ def run_agent_git(
         "delete-merged",
         "merge-no-ff",
     }
+    remote_operations = {"pull-origin", "push-origin"}
     if operation == "commit-staged":
         if len(arguments) != COMMIT_ARGUMENT_COUNT or arguments[1] != "--message":
             raise AgentGitInputError(
@@ -229,10 +289,22 @@ def run_agent_git(
         command = _prepare_branch_command(
             operation, arguments[1], resolved_root, runner
         )
+    elif operation in remote_operations:
+        if len(arguments) != OPERATION_ARGUMENT_COUNT:
+            raise AgentGitInputError("Git operation requires exactly one branch")
+        command = _prepare_remote_command(
+            operation, arguments[1], resolved_root, runner
+        )
     else:
         raise AgentGitInputError("Git operation is unsupported")
     _require_success(
-        _invoke(command, resolved_root, runner, mutating=True),
+        _invoke(
+            command,
+            resolved_root,
+            runner,
+            mutating=True,
+            remote_mutation=operation in remote_operations,
+        ),
         MUTATION_FAILURE_MESSAGES[operation],
     )
     return 0
