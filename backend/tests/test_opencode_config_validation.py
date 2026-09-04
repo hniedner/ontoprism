@@ -49,8 +49,8 @@ def config_root(tmp_path: Path) -> Path:
         scripts / "run_agent_github.py",
     )
     shutil.copy2(
-        ROOT / "scripts/validation/run_agent_frontend_test.py",
-        scripts / "run_agent_frontend_test.py",
+        ROOT / "scripts/validation/run_agent_test.py",
+        scripts / "run_agent_test.py",
     )
     return tmp_path
 
@@ -712,7 +712,7 @@ def test_r3_frontend_unit_permission_is_wrapper_only_and_last_match_safe(
         Validation(config_root),
     )
     bash = metadata["permission"]["bash"]
-    allow = "pdm run agent-frontend-test *"
+    allow = "pdm run agent-test *"
 
     assert bash[allow] == "allow"
     assert bash["npm *"] == "deny"
@@ -720,6 +720,7 @@ def test_r3_frontend_unit_permission_is_wrapper_only_and_last_match_safe(
     assert list(bash).index("*&*") > list(bash).index(allow)
     assert list(bash)[-2:] == ["*\n*", "*\r*"]
     assert "changed deterministic frontend tests" in body
+    assert "pdm run agent-test --frontend <tracked-test-file>" in body
     assert "no raw npm/npx arguments" in body.lower()
 
 
@@ -727,9 +728,9 @@ def test_r3_frontend_unit_permission_is_wrapper_only_and_last_match_safe(
     ("old", "new", "expected"),
     [
         (
-            '    "pdm run agent-frontend-test *": allow\n',
+            '    "pdm run agent-test *": allow\n',
             "",
-            "R3_PERMISSION: R3 must allow pdm run agent-frontend-test *",
+            "R3_PERMISSION: R3 must allow pdm run agent-test *",
         ),
         (
             '    "npm *": deny\n',
@@ -1225,9 +1226,8 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     assert pyproject["tool"]["pdm"]["scripts"]["agent-test"] == (
         "python scripts/validation/run_agent_test.py"
     )
-    assert pyproject["tool"]["pdm"]["scripts"]["agent-frontend-test"] == (
-        "python scripts/validation/run_agent_frontend_test.py"
-    )
+    assert "agent-frontend-test" not in pyproject["tool"]["pdm"]["scripts"]
+    assert not (ROOT / "scripts/validation/run_agent_frontend_test.py").exists()
     assert pyproject["tool"]["pdm"]["scripts"]["agent-git"] == (
         "python scripts/validation/run_agent_git.py"
     )
@@ -1241,13 +1241,26 @@ def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> No
     install = "      - name: Install\n        run: npm ci\n"
     contract = (
         "      - name: Real agent frontend wrapper contract\n"
-        "        run: pdm run agent-frontend-test "
+        "        run: pdm run agent-test --frontend "
         "frontend/src/lib/vitest-examples/greet.spec.ts\n"
         "        working-directory: ${{ github.workspace }}\n"
     )
 
     assert workflow.count(contract) == 1
     assert workflow.index(install) < workflow.index(contract)
+    frontend_filter = workflow.split("            frontend:\n", 1)[1].split(
+        "            embeddings:\n", 1
+    )[0]
+    for path in (
+        "scripts/validation/run_agent_test.py",
+        "scripts/validation/validate_opencode_config.py",
+        "scripts/validation/validate_opencode_runtime.py",
+        "pyproject.toml",
+        "AGENTS.md",
+        ".opencode/**",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in frontend_filter
 
 
 @pytest.mark.parametrize(
@@ -1323,6 +1336,21 @@ def test_generic_permission_shadow_gate_rejects_unknown_leading_glob() -> None:
 
     assert validation.errors == [
         "TEST: role bash command pattern is unclassifiable: *unknown-future-guard*"
+    ]
+
+
+def test_generic_permission_shadow_gate_rejects_late_allow_catch_all() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"git push *": "deny", "*": "allow"},
+    )
+
+    assert validation.errors == [
+        "TEST: role catch-all allow shadows earlier command rules"
     ]
 
 
@@ -1452,7 +1480,6 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
     for required in (
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
-        '"pdm run agent-frontend-test *": allow',
         '"pdm run agent-git switch-existing *": allow',
         '"pdm run agent-git switch-new *": allow',
         '"pdm run agent-git delete-merged *": allow',

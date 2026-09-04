@@ -628,7 +628,9 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 ### 8.2 Named graphs and indexes (QLever)
 
 Each source publishes an immutable named graph under
-`Thesaurus-upstream-xref.owl/generation/{source}/{generation_id}`. A separate
+`Thesaurus-upstream-xref.owl/generation/{component}/{generation_id}`, where `component` is
+`source.casefold()` with each non-alphanumeric run replaced by `-` and leading/trailing `-`
+removed. A separate
 source-specific pointer graph identifies the active generation. Publication reconciles
 the PostgreSQL and RDF pointers under one source lock; reads never combine inactive
 graphs. Terminology repositories used for corroboration retain their separate indexes.

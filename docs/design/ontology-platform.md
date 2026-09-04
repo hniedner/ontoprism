@@ -62,8 +62,9 @@ two literal graph IRIs and the showcase IRI derived beneath the decomposed IRI, 
 authored scoped derivative shares that debt: decomposition uses
 `DECOMPOSED_GRAPH_IRI/staging/{sha256(run_id)}`; showcase uses
 `SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`; and xref publication uses
-`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{source}/{generation_id}` plus
-`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{source}`. These shapes are shown by `git grep -n
+`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{component}/{generation_id}` plus
+`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{component}`. Here `component` is `source.casefold()` with each
+non-alphanumeric run replaced by `-` and leading/trailing `-` removed. These shapes are shown by `git grep -n
 "def staging_graph_iri\|def showcase_staging_graph_iri\|def generation_graph_iri\|def active_graph_iri" --
 ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
@@ -212,8 +213,8 @@ CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure
 ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true, reason: NonEmptyText }
 ```
 
-Crosswalk arity remains derived from the endpoint sets. `ComplexRestructure` is the fifth arity
-family and cannot be treated as an ordinary entity-crosswalk outcome.
+Crosswalk arity remains derived from the endpoint sets. `ComplexRestructure` is an additional
+many-to-many arity family and cannot be treated as an ordinary entity-crosswalk outcome.
 
 Suppression is not entity disappearance or an entity-crosswalk outcome. `AssertionDeltaKind` is
 exactly `added-to-effective`, `removed-from-effective`, `replaced-in-effective`,
@@ -237,8 +238,8 @@ provenance does not transfer ownership. D86 qualifies D60 and does not supersede
 ## caDSR resolution and compatibility
 
 caDSR source rows and anchors remain official NCIt codes; they are never rewritten. Enhanced
-resolution derives through the release-bound crosswalk. `CadsrEnhancedResolution` reports a unique
-target, split, merge, ambiguous, or unresolved result. A one-to-many crosswalk is `split` and returns
+resolution derives through the release-bound crosswalk. `CadsrEnhancedResolution` reports exactly
+one of `unique`, `split`, `merged`, `ambiguous`, `unresolved`, or `complex-restructure`. A one-to-many crosswalk is `split` and returns
 all targets unless a further qualified, approved mapping selects one target. `ambiguous` means
 competing or incomplete records, not a correctly represented split. Ambiguous or unresolved outcomes
 cannot look successful. Reports distinguish official-anchor coverage and enhanced-resolution coverage.
@@ -257,10 +258,11 @@ CadsrEnhancedResolution =
 Split, merged, and ambiguous results retain their cardinality distinctions. Complex restructuring
 preserves both endpoint sets and refuses automatic resolution pending human review.
 
-The four result families are not interchangeable: `EntityCrosswalkOutcome` describes entity endpoint
-structure, `AssertionDeltaKind` describes an exact axiom operation, `CadsrEnhancedResolution` resolves
-a caDSR official anchor through the crosswalk, and `MigrationReferenceOutcome` combines that result
-with consumer context and may refuse. A caDSR one-to-many result remains a split with all targets
+The three routing/resolution result families are not interchangeable: `CrosswalkRouting` describes
+entity endpoint structure or explicit many-to-many restructuring, `CadsrEnhancedResolution` resolves
+a caDSR official anchor through the crosswalk, and `MigrationReferenceOutcome` combines routing with
+consumer context and may refuse. Separately, `AssertionDeltaKind` describes an exact axiom operation.
+A caDSR one-to-many result remains a split with all targets
 unless a further qualified, approved mapping makes it unique; multiple competing or incomplete
 records are ambiguous rather than split.
 
@@ -290,10 +292,10 @@ sets or publication permission. Its required shape is:
 ```text
 AffectedGraphDiff =
   CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }
-  | Incomplete { closure, atLeastOneOf(blockers: NonEmptySet, missingBoundaries: NonEmptySet) }
+  | Incomplete { closure, causes: NonEmptySet<Blocker | MissingBoundary> }
 ```
 
-The incomplete variant must identify at least one blocker or missing boundary.
+The incomplete variant's nonempty cause set identifies blockers, missing boundaries, or both.
 
 The inferred comparison is the exact finite entailment, query, and signature set selected by a
 versioned profile. Current runtime reasoning is disabled; target correction certification runs an
@@ -313,13 +315,13 @@ the crosswalk with consumer context and may refuse:
 MigrationReferenceOutcome =
   retained { source, target }
   | redirected { source, target, crosswalk }
-  | expanded { allTargets: Set<N>, N ≥ 2, reviewRequired: true }
-  | suppressed { source, replacement?, reason: NonEmptyText, reviewRequired: true }
+  | expanded { source, allTargets: Set<N>, N ≥ 2, crosswalk, humanReviewRequired: true }
+  | suppressed { source, replacement?, reason: NonEmptyText, humanReviewRequired: true }
   | ambiguous { candidates: NonEmptySet, reason: NonEmptyText }
   | unsupported { reason: NonEmptyText }
   | unresolved { reason: NonEmptyText }
   | complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2,
-      reviewRequired: true, reason: NonEmptyText }
+      humanReviewRequired: true, reason: NonEmptyText }
 ```
 
 Expanded, suppressed, and complex-restructure references require review. Ambiguous, unsupported, and unresolved variants

@@ -102,7 +102,6 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-runtime",
     "pre-commit run --all-files",
     "agent-test *",
-    "agent-frontend-test *",
     "agent-replay *",
 )
 IMPLEMENTER_LOCAL_GIT_WRAPPERS = (
@@ -201,7 +200,6 @@ SPECIALIST_BASH_ALLOWS = (
     SAFE_AGENT_TEST_WRAPPER,
 )
 R3_BASH_ALLOWS = (
-    "pdm run agent-frontend-test *",
     "cp *",
     "git status --porcelain",
     "git status --short --branch",
@@ -213,6 +211,8 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
+# These are the only leading-wildcard command patterns classified as intentional
+# cross-family guards. Any other leading wildcard is unclassifiable and rejected.
 CROSS_COMMAND_DENIES = (
     "*agent-git*",
     "* /U?ers/*",
@@ -508,7 +508,10 @@ def require_bash_rules(
 
 
 def _command_family(pattern: str) -> str | None:
-    """Return any ordinary pattern's first literal command token."""
+    """Return a generic literal family.
+
+    Leading globs require an explicit cross-command guard.
+    """
     if pattern == "*" or pattern in {
         *SHELL_METACHARACTER_DENIES,
         *LINE_BREAK_DENIES,
@@ -556,8 +559,14 @@ def validate_permission_shadow_order(
     role: str,
     bash: dict[str, Any],
 ) -> None:
-    """Check deny/allow last-match overlap within each literal command family."""
+    """Check catch-all and same-family deny/allow overlaps under last-match rules."""
     rules = list(bash.items())
+    for index, (pattern, action) in enumerate(rules):
+        if pattern == "*" and action == "allow" and index > 0:
+            validation.error(
+                code, f"{role} catch-all allow shadows earlier command rules"
+            )
+            break
     reported: set[str] = set()
     families: dict[str, str | None] = {}
     for pattern, _ in rules:
@@ -646,12 +655,12 @@ def validate_github_wrappers(validation: Validation) -> None:
             validation.error("GITHUB_WRAPPER", f"{name} script is not exact")
 
 
-def validate_frontend_test_wrapper(validation: Validation) -> None:
-    wrapper = validation.require_file("scripts/validation/run_agent_frontend_test.py")
+def validate_agent_test_wrapper(validation: Validation) -> None:
+    wrapper = validation.require_file("scripts/validation/run_agent_test.py")
     if wrapper is None:
         validation.error(
             "FRONTEND_TEST_WRAPPER",
-            "required file missing: scripts/validation/run_agent_frontend_test.py",
+            "required file missing: scripts/validation/run_agent_test.py",
         )
     pyproject = validation.require_file("pyproject.toml")
     if pyproject is None:
@@ -667,11 +676,13 @@ def validate_frontend_test_wrapper(validation: Validation) -> None:
             "FRONTEND_TEST_WRAPPER", "cannot read PDM script configuration"
         )
         return
-    if not isinstance(scripts, dict) or scripts.get("agent-frontend-test") != (
-        "python scripts/validation/run_agent_frontend_test.py"
+    if (
+        not isinstance(scripts, dict)
+        or scripts.get("agent-test") != ("python scripts/validation/run_agent_test.py")
+        or "agent-frontend-test" in scripts
     ):
         validation.error(
-            "FRONTEND_TEST_WRAPPER", "agent-frontend-test script is not exact"
+            "FRONTEND_TEST_WRAPPER", "agent-test script surface is not exact"
         )
 
 
@@ -1106,7 +1117,7 @@ def validate_r3_contract(
             "git rev-parse HEAD",
             "never fix",
             "changed deterministic frontend tests",
-            "pdm run agent-frontend-test <tracked-test-file>",
+            "pdm run agent-test --frontend <tracked-test-file>",
             "no raw npm/npx arguments",
         ),
     )
@@ -1156,7 +1167,6 @@ def validate_r3_contract(
         bash,
     )
     for pattern in (
-        "pdm run agent-frontend-test *",
         "git status --porcelain",
         "git status --short --branch",
         "git rev-parse HEAD",
@@ -1468,7 +1478,7 @@ def validate(root: Path) -> list[str]:
     root_config = validate_root(validation)
     validate_removed_plugin_files(validation)
     validate_github_wrappers(validation)
-    validate_frontend_test_wrapper(validation)
+    validate_agent_test_wrapper(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )

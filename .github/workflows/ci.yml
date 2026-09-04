@@ -63,9 +63,15 @@ jobs:
             frontend:
               - 'frontend/**'
               - 'coverage-surfaces.toml'
+              - 'AGENTS.md'
+              - '.opencode/**'
+              - 'pyproject.toml'
               - 'scripts/validation/coverage_hierarchy.py'
               - 'scripts/validation/frontend_coverage_hierarchy.py'
+              - 'scripts/validation/run_agent_test.py'
               - 'scripts/validation/strict_coverage_gate.py'
+              - 'scripts/validation/validate_opencode_config.py'
+              - 'scripts/validation/validate_opencode_runtime.py'
               - '.github/workflows/ci.yml'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
@@ -285,7 +291,7 @@ jobs:
         run: npm ci
 
       - name: Real agent frontend wrapper contract
-        run: pdm run agent-frontend-test frontend/src/lib/vitest-examples/greet.spec.ts
+        run: pdm run agent-test --frontend frontend/src/lib/vitest-examples/greet.spec.ts
         working-directory: ${{ github.workspace }}
 
       - name: Unit tests with coverage

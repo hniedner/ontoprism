@@ -28,12 +28,17 @@ _PRODUCT_IDENTITY_SURFACES = (
 _GENERATED_IDENTITY_SURFACES = ("CHANGELOG.md",)
 _FROZEN_IDENTITY_SURFACES = ("backend/tests/fixtures/d60.md",)
 _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES = {
-    "docs/design/ncit-alignment-integration.md": "Historical strategy",
-    "docs/design/ncit-decomposition-assessment.md": "Data basis:",
-    "docs/design/ncit-decomposition-engine.md": "NCIt Decomposition Engine",
-    "docs/postcoordination-literature-review.md": "Working manuscript",
-    "ontolib/tests/decomposition/golden/README.md": "evidence record",
+    "docs/design/ncit-alignment-integration.md": "D86 scope",
+    "docs/design/ncit-decomposition-assessment.md": "not a blanket",
+    "docs/design/ncit-decomposition-engine.md": (
+        "not an enhanced-product compatibility claim"
+    ),
+    "docs/postcoordination-literature-review.md": (
+        "not a blanket backward-compatibility guarantee"
+    ),
+    "ontolib/tests/decomposition/golden/README.md": "historical promotion",
 }
+_HISTORICAL_OVERCLAIM_DECISIONS = frozenset({"D24"})
 _CORRECTION_CONTRACT_SURFACES = (
     "README.md",
     "AGENTS.md",
@@ -189,23 +194,16 @@ def _canonical_type_block(document: str, type_name: str) -> str:
 
 
 def _assert_no_current_overclaim(text: str) -> None:
-    current_identity = re.search(
-        r"\b(?:OntoPrism|the product|this product|the platform) "
-        r"is (?:an? )?ontology-generic\b",
-        text,
-        flags=re.IGNORECASE,
-    )
-    assert current_identity is None, (
-        r"is (?:an? )?ontology-generic: " + current_identity.group(0)
-        if current_identity is not None
-        else ""
-    )
     for claim in _FORBIDDEN_CURRENT_CLAIMS:
         for match in re.finditer(claim, text, flags=re.IGNORECASE):
             heading_start = text.rfind("\n### ", 0, match.start())
             heading_end = text.find("\n", heading_start + 1)
             heading = text[heading_start:heading_end] if heading_start >= 0 else ""
-            if re.search(r"\b(?:historical|superseded)\b", heading, re.IGNORECASE):
+            decision = re.match(r"\n### (D\d+)\.", heading)
+            if (
+                decision is not None
+                and decision.group(1) in _HISTORICAL_OVERCLAIM_DECISIONS
+            ):
                 continue
             separator = text.rfind("\n\n", 0, match.start())
             paragraph_start = separator + 2 if separator >= 0 else 0
@@ -246,7 +244,8 @@ def _assert_no_current_overclaim(text: str) -> None:
 
 def _assert_no_false_correction_claim(text: str) -> None:
     forbidden = (
-        r"suppressed axioms? (?:are|is) (?:absent|deleted|empty|missing|not[- ]found)",
+        r"suppressed axioms? (?:(?:are|is) (?:absent|deleted|empty|missing|"
+        r"not[- ]found|not retrievable|no longer present)|returns? 404)",
         r"suppression (?:is|uses) (?:a )?(?:contradictory|negating) axiom",
         r"corrections? (?:are|is) shipped",
     )
@@ -280,6 +279,10 @@ def _assert_no_false_correction_claim(text: str) -> None:
             r"provides? generic",
             "OntoPrism for target ontologies provides generic ontology editing.",
         ),
+        (
+            r"backwards?[- ]compatib",
+            "Our target consumers get backward-compatible behavior today.",
+        ),
     ],
 )
 def test_documents_current_claim_gate_rejects_every_forbidden_pattern(
@@ -307,12 +310,29 @@ def test_documents_current_claim_gate_allows_explicit_target_or_negation(
 
 
 @pytest.mark.unit
+def test_only_explicit_load_bearing_historical_decision_is_exempt() -> None:
+    _assert_no_current_overclaim(
+        "\n### D24. Historical proposal\n\n"
+        "The product is an ontology-generic platform.\n"
+    )
+    for decision in ("D76", "D81"):
+        with pytest.raises(AssertionError, match="ontology-generic"):
+            _assert_no_current_overclaim(
+                f"\n### {decision}. Historical record\n\n"
+                "The product is an ontology-generic platform.\n"
+            )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("claim", "expected"),
     [
         ("Suppressed axioms are deleted.", "deleted"),
         ("Suppressed axiom is not found.", "not\\[- \\]found"),
         ("Suppressed axiom is absent.", "absent"),
+        ("Suppressed axiom is not retrievable.", "not retrievable"),
+        ("Suppressed axiom is no longer present.", "no longer present"),
+        ("Suppressed axiom returns 404.", "404"),
         ("Suppression is a contradictory axiom.", "contradictory"),
         ("Corrections are shipped.", "corrections"),
     ],
@@ -555,7 +575,7 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
         "ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
         "humanReviewRequired: true, reason: NonEmptyText }"
     ) in " ".join(routing.split())
-    assert "fifth arity family" in design_flat.lower()
+    assert "additional many-to-many arity family" in design_flat.lower()
 
 
 @pytest.mark.unit
@@ -624,14 +644,15 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
     for variant in (
         "retained { source, target }",
         "redirected { source, target, crosswalk }",
-        "expanded { allTargets: Set<N>, N ≥ 2, reviewRequired: true }",
+        "expanded { source, allTargets: Set<N>, N ≥ 2, crosswalk, "
+        "humanReviewRequired: true }",
         "suppressed { source, replacement?, reason: NonEmptyText, "
-        "reviewRequired: true }",
+        "humanReviewRequired: true }",
         "ambiguous { candidates: NonEmptySet, reason: NonEmptyText }",
         "unsupported { reason: NonEmptyText }",
         "unresolved { reason: NonEmptyText }",
         "complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
-        "reviewRequired: true, reason: NonEmptyText }",
+        "humanReviewRequired: true, reason: NonEmptyText }",
     ):
         assert variant in migration
 
@@ -641,8 +662,7 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
         in graph
     )
     assert (
-        "Incomplete { closure, atLeastOneOf(blockers: NonEmptySet, "
-        "missingBoundaries: NonEmptySet) }"
+        "Incomplete { closure, causes: NonEmptySet<Blocker | MissingBoundary> }"
     ) in graph
     assert "completeness:" not in graph
 
@@ -684,8 +704,10 @@ def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() 
         "staging/generation graphs",
         "`DECOMPOSED_GRAPH_IRI/staging/{sha256(run_id)}`",
         "`SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`",
-        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{source}/{generation_id}`",
-        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{source}`",
+        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{component}/{generation_id}`",
+        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{component}`",
+        "`component` is `source.casefold()` with each non-alphanumeric run replaced "
+        "by `-` and leading/trailing `-` removed",
         "must not be represented as an official NCI identifier",
         "future enhanced export must use an OntoPrism-governed enhanced namespace",
         "future implementation issue",
@@ -695,6 +717,13 @@ def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() 
         "suppression leaves the enhanced entity and its source crosswalk intact",
     ):
         assert required in design_flat
+
+    alignment = " ".join(_read("docs/design/ncit-alignment-integration.md").split())
+    assert "generation/{component}/{generation_id}" in alignment
+    assert (
+        "`component` is `source.casefold()` with each non-alphanumeric run replaced "
+        "by `-` and leading/trailing `-` removed"
+    ) in alignment
 
 
 @pytest.mark.unit

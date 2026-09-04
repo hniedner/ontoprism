@@ -609,7 +609,7 @@ def test_r3_literal_line_break_denies_override_wildcard_allows(command: str) -> 
     ("command", "expected"),
     [
         (
-            "pdm run agent-frontend-test "
+            "pdm run agent-test --frontend "
             "frontend/src/lib/components/ConceptCard.test.ts",
             "allow",
         ),
@@ -623,12 +623,12 @@ def test_r3_literal_line_break_denies_override_wildcard_allows(command: str) -> 
         ("npm --prefix frontend run test:coverage", "deny"),
         ("npx vitest run frontend/src/lib/components/ConceptCard.test.ts", "deny"),
         (
-            "pdm run agent-frontend-test "
+            "pdm run agent-test --frontend "
             "frontend/src/lib/components/ConceptCard.test.ts && npm publish",
             "deny",
         ),
         (
-            "pdm run agent-frontend-test "
+            "pdm run agent-test --frontend "
             "frontend/src/lib/components/ConceptCard.test.ts\nnpm publish",
             "deny",
         ),

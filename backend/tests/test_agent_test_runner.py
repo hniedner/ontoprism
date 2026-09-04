@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Never
@@ -9,6 +10,7 @@ from typing import Never
 import pytest
 from scripts.validation.run_agent_test import (
     AgentTestInputError,
+    _subprocess_runner,
     build_pytest_invocation,
     run_agent_test,
 )
@@ -27,9 +29,15 @@ def owned_test_root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def complete_test_root(owned_test_root: Path) -> Path:
-    frontend_test = owned_test_root / "frontend/src/lib/api.test.ts"
-    frontend_test.parent.mkdir(parents=True)
-    frontend_test.write_text("import { test } from 'vitest'; test('safe', () => {});\n")
+    for relative in (
+        "frontend/src/lib/api.test.ts",
+        "frontend/src/lib/components/card.spec.ts",
+    ):
+        frontend_test = owned_test_root / relative
+        frontend_test.parent.mkdir(parents=True, exist_ok=True)
+        frontend_test.write_text(
+            "import { test } from 'vitest'; test('safe', () => {});\n"
+        )
     vitest = owned_test_root / "frontend/node_modules/.bin/vitest"
     vitest.parent.mkdir(parents=True)
     vitest.write_text("#!/bin/sh\n")
@@ -117,6 +125,7 @@ def test_agent_test_builds_fixed_frontend_vitest_invocation(
     invocation = build_pytest_invocation(
         ["--frontend", "frontend/src/lib/api.test.ts", "-t", "safe component"],
         complete_test_root,
+        tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
     )
 
     assert invocation.arguments == (
@@ -127,6 +136,73 @@ def test_agent_test_builds_fixed_frontend_vitest_invocation(
         "safe component",
     )
     assert invocation.cwd == (complete_test_root / "frontend").resolve()
+
+
+def test_agent_test_builds_multi_file_frontend_invocation_from_tracked_inventory(
+    complete_test_root: Path,
+) -> None:
+    invocation = build_pytest_invocation(
+        [
+            "--frontend",
+            "frontend/src/lib/api.test.ts",
+            "frontend/src/lib/components/card.spec.ts",
+        ],
+        complete_test_root,
+        tracked_frontend_paths=frozenset(
+            {
+                "frontend/src/lib/api.test.ts",
+                "frontend/src/lib/components/card.spec.ts",
+            }
+        ),
+    )
+
+    assert invocation.arguments[1:] == (
+        "run",
+        "src/lib/api.test.ts",
+        "src/lib/components/card.spec.ts",
+    )
+    assert invocation.frontend_tests == (
+        "frontend/src/lib/api.test.ts",
+        "frontend/src/lib/components/card.spec.ts",
+    )
+
+
+def test_agent_test_rejects_untracked_frontend_file(complete_test_root: Path) -> None:
+    with pytest.raises(AgentTestInputError, match="tracked"):
+        build_pytest_invocation(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            tracked_frontend_paths=frozenset(),
+        )
+
+
+def test_agent_test_rejects_frontend_symlink(
+    complete_test_root: Path,
+) -> None:
+    link = complete_test_root / "frontend/src/lib/link.test.ts"
+    link.symlink_to(complete_test_root / "frontend/src/lib/api.test.ts")
+
+    with pytest.raises(AgentTestInputError, match="symlink"):
+        build_pytest_invocation(
+            ["--frontend", "frontend/src/lib/link.test.ts"],
+            complete_test_root,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/link.test.ts"}),
+        )
+
+
+def test_agent_test_rejects_duplicate_frontend_paths(
+    complete_test_root: Path,
+) -> None:
+    with pytest.raises(AgentTestInputError, match="unique"):
+        build_pytest_invocation(
+            [
+                "--frontend",
+                "frontend/src/lib/api.test.ts",
+                "frontend/src/lib/api.test.ts",
+            ],
+            complete_test_root,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
+        )
 
 
 @pytest.mark.parametrize(
@@ -463,6 +539,7 @@ def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_empty_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 4
     )
@@ -472,7 +549,12 @@ def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
 
 
 def _frontend_report(
-    *, passed: int, failed_names: list[str], failed: int | None = None
+    *,
+    passed: int,
+    failed_names: list[str],
+    failed: int | None = None,
+    file_name: str = "/repo/frontend/src/lib/api.test.ts",
+    status: str = "passed",
 ) -> str:
     assertions = [
         {
@@ -484,11 +566,21 @@ def _frontend_report(
         }
         for name in failed_names
     ]
+    assertions.extend(
+        {
+            "ancestorTitles": ["showcase"],
+            "fullName": f"showcase pass {index}",
+            "status": status,
+            "title": f"pass {index}",
+            "failureMessages": [],
+        }
+        for index in range(passed)
+    )
     return json.dumps(
         {
             "numPassedTests": passed,
             "numFailedTests": len(failed_names) if failed is None else failed,
-            "testResults": [{"assertionResults": assertions}],
+            "testResults": [{"name": file_name, "assertionResults": assertions}],
         }
     )
 
@@ -516,6 +608,7 @@ def test_agent_test_accepts_valid_successful_frontend_report_without_output(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_pass_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 0
     )
@@ -524,6 +617,63 @@ def test_agent_test_accepts_valid_successful_frontend_report_without_output(
     assert captured.err == ""
     assert observed["stdout"] is subprocess.PIPE
     assert observed["stderr"] is subprocess.PIPE
+
+
+@pytest.mark.parametrize("missing_status", ["skipped", "pending", "todo"])
+@pytest.mark.parametrize(("child_status", "expected"), [(0, 4), (7, 7)])
+def test_agent_test_rejects_success_when_any_requested_file_has_no_executed_assertion(
+    complete_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    missing_status: str,
+    child_status: int,
+    expected: int,
+) -> None:
+    class Result:
+        returncode = child_status
+        stdout = b""
+        stderr = b""
+
+    def write_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output = next(item for item in arguments if item.startswith("--outputFile="))
+        report = {
+            "numPassedTests": 1,
+            "numFailedTests": 0,
+            "testResults": [
+                {
+                    "name": "/repo/frontend/src/lib/api.test.ts",
+                    "assertionResults": [{"status": "passed"}],
+                },
+                {
+                    "name": "/repo/frontend/src/lib/components/card.spec.ts",
+                    "assertionResults": [{"status": missing_status}],
+                },
+            ],
+        }
+        Path(output.partition("=")[2]).write_text(json.dumps(report), encoding="utf-8")
+        return Result()
+
+    assert (
+        run_agent_test(
+            [
+                "--frontend",
+                "frontend/src/lib/api.test.ts",
+                "frontend/src/lib/components/card.spec.ts",
+            ],
+            complete_test_root,
+            runner=write_report,
+            tracked_frontend_paths=frozenset(
+                {
+                    "frontend/src/lib/api.test.ts",
+                    "frontend/src/lib/components/card.spec.ts",
+                }
+            ),
+        )
+        == expected
+    )
+    assert (
+        capsys.readouterr().err
+        == "frontend test report did not execute every requested file\n"
+    )
 
 
 def test_agent_test_surfaces_stable_failed_frontend_test_names_and_child_status(
@@ -553,6 +703,7 @@ def test_agent_test_surfaces_stable_failed_frontend_test_names_and_child_status(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_failure_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 7
     )
@@ -609,6 +760,7 @@ def test_agent_test_reports_named_and_unnamed_frontend_failures(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_failure_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 1
     )
@@ -641,6 +793,7 @@ def test_agent_test_reports_nonzero_frontend_process_without_failed_tests(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_pass_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 7
     )
@@ -675,6 +828,7 @@ def test_agent_test_preserves_nonzero_status_for_zero_test_pretest_crash(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_empty_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 7
     )
@@ -713,6 +867,7 @@ def test_agent_test_fails_closed_for_unusable_frontend_report(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_unusable_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 3
     )
@@ -749,6 +904,7 @@ def test_agent_test_bounds_and_sanitizes_frontend_failure_names(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_large_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 1
     )
@@ -795,6 +951,7 @@ def test_agent_test_bounds_and_redacts_frontend_diagnostic_tail(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_pass_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 9
     )
@@ -846,6 +1003,63 @@ def test_agent_test_process_start_failures_are_sanitized(
     assert captured.err.strip() == expected
     assert "token=secret" not in captured.err
     assert captured.out == ""
+
+
+def test_frontend_timeout_is_sanitized_and_nonzero(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def time_out(arguments: tuple[str, ...], **_kwargs: object) -> Never:
+        raise subprocess.TimeoutExpired(arguments, 300)
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=time_out,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
+        )
+        == 3
+    )
+    assert capsys.readouterr().err == "frontend test timed out\n"
+
+
+def test_subprocess_timeout_tolerates_exited_group_and_drains_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 4321
+        returncode = -9
+        calls = 0
+
+        def communicate(self, *, timeout: int | None = None) -> tuple[bytes, bytes]:
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired(("vitest",), timeout or 0)
+            return b"", b""
+
+    process = Process()
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+
+    def already_exited(pid: int, sig: signal.Signals) -> Never:
+        assert (pid, sig) == (4321, signal.SIGKILL)
+        raise ProcessLookupError
+
+    monkeypatch.setattr(os, "killpg", already_exited)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        _subprocess_runner(
+            ("vitest",),
+            cwd=Path("."),
+            env={},
+            shell=False,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=1,
+            start_new_session=True,
+        )
+
+    assert process.calls == 2
 
 
 def test_agent_test_propagates_child_nonzero(owned_test_root: Path) -> None:
@@ -904,6 +1118,7 @@ def test_agent_test_rejects_malformed_frontend_report_structure(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 3
     )
@@ -940,6 +1155,7 @@ def test_agent_test_rejects_misleading_frontend_failure_names(
             ["--frontend", "frontend/src/lib/api.test.ts"],
             complete_test_root,
             runner=write_report,
+            tracked_frontend_paths=frozenset({"frontend/src/lib/api.test.ts"}),
         )
         == 3
     )

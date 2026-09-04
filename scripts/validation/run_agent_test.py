@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Run a narrowly scoped repository pytest node for an OpenCode agent."""
+"""Run narrowly scoped repository tests for an OpenCode agent."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import tomllib
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol
@@ -18,16 +21,19 @@ SHELL_METACHARACTERS = frozenset("&;|><`$\n\r")
 SAFE_FLAGS = frozenset({"-q", "-v", "-x"})
 SAFE_K_EXPRESSION = re.compile(r"[A-Za-z0-9_ .()\-]+")
 SAFE_VITEST_NAME = re.compile(r"[A-Za-z0-9_ .():,\-/]+")
+MAX_VITEST_NAME_LENGTH = 200
 MAXFAIL = re.compile(r"--maxfail=([1-9][0-9]*)")
 OWNED_TEST_ROOTS = (PurePosixPath("backend/tests"), PurePosixPath("ontolib/tests"))
-FRONTEND_TEST_ROOTS = (PurePosixPath("frontend/src"), PurePosixPath("frontend/tests"))
+FRONTEND_TEST_ROOTS = (PurePosixPath("frontend/src"),)
 FRONTEND_TEST_NAME = re.compile(r".+\.(?:test|spec)\.(?:js|jsx|ts|tsx)$")
-FRONTEND_ARGUMENTS_WITH_NAME = 3
 MAX_FRONTEND_FAILURE_NAMES = 10
 MAX_FRONTEND_FAILURE_NAME_LENGTH = 160
 MAX_FRONTEND_DIAGNOSTIC_BYTES = 16_384
 MAX_FRONTEND_DIAGNOSTIC_CHARS = 1_999
 MAX_FRONTEND_DIAGNOSTIC_LINES = 12
+FRONTEND_TIMEOUT_SECONDS = 300
+PROCESS_DRAIN_TIMEOUT_SECONDS = 5
+INVENTORY_TIMEOUT_SECONDS = 10
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(api[_-]?key|authorization|auth|token|password|secret)\b"
@@ -54,6 +60,7 @@ class AgentTestInvocation:
     arguments: tuple[str, ...]
     cwd: Path
     mode: AgentTestMode
+    frontend_tests: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,8 @@ class CommandRunner(Protocol):
         check: Literal[False],
         stdout: int | None,
         stderr: int | None,
+        timeout: int | None,
+        start_new_session: bool,
     ) -> CommandResult: ...
 
 
@@ -98,16 +107,32 @@ def _subprocess_runner(
     check: Literal[False],
     stdout: int | None,
     stderr: int | None,
+    timeout: int | None,
+    start_new_session: bool,
 ) -> subprocess.CompletedProcess[bytes]:
-    # Arguments are the validated fixed test invocation; never shell input.
-    return subprocess.run(  # noqa: S603
+    process = subprocess.Popen(  # noqa: S603 -- validated fixed argv, never shell input
         arguments,
         cwd=cwd,
         env=env,
         shell=shell,
-        check=check,
         stdout=stdout,
         stderr=stderr,
+        start_new_session=start_new_session,
+    )
+    try:
+        process_stdout, process_stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        try:
+            process.communicate(timeout=PROCESS_DRAIN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            with suppress(ProcessLookupError):
+                process.kill()
+        raise subprocess.TimeoutExpired(arguments, timeout or 0) from exc
+    _ = check
+    return subprocess.CompletedProcess(
+        arguments, process.returncode, process_stdout, process_stderr
     )
 
 
@@ -148,23 +173,84 @@ def _validate_node(node: str, root: Path) -> None:
         raise AgentTestInputError("test node must name a Python test path")
 
 
-def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
-    if not arguments:
-        raise AgentTestInputError("frontend test path is required")
-    node = arguments[0]
+def _tracked_frontend_paths(root: Path) -> frozenset[str]:
+    git = shutil.which("git")
+    if git is None:
+        raise AgentTestInputError("tracked frontend test inventory is unavailable")
+    try:
+        result = subprocess.run(  # noqa: S603 -- resolved executable and fixed argv
+            (git, "ls-files", "-z", "--", "frontend/src"),
+            cwd=root,
+            shell=False,
+            check=False,
+            capture_output=True,
+            timeout=INVENTORY_TIMEOUT_SECONDS,
+        )
+        output = result.stdout.decode("utf-8", errors="strict")
+    except (OSError, subprocess.TimeoutExpired, UnicodeDecodeError) as exc:
+        raise AgentTestInputError(
+            "tracked frontend test inventory is unavailable"
+        ) from exc
+    if result.returncode != 0:
+        raise AgentTestInputError("tracked frontend test inventory is unavailable")
+    return frozenset(path for path in output.split("\0") if path)
+
+
+def _validate_frontend_path(
+    node: str, root: Path, tracked_paths: frozenset[str]
+) -> tuple[PurePosixPath, str]:
     _reject_shell_syntax(node)
-    candidate, _ = _resolve_owned_node(node, root, FRONTEND_TEST_ROOTS)
+    candidate, resolved = _resolve_owned_node(node, root, FRONTEND_TEST_ROOTS)
+    if candidate.as_posix() not in tracked_paths:
+        raise AgentTestInputError("frontend test path must be tracked")
     if FRONTEND_TEST_NAME.fullmatch(candidate.name) is None:
         raise AgentTestInputError("frontend test filename is unsupported")
-    extra: tuple[str, ...] = ()
-    if len(arguments) == FRONTEND_ARGUMENTS_WITH_NAME and arguments[1] == "-t":
-        name = arguments[2]
+    current = root
+    for part in candidate.parts:
+        current /= part
+        if current.is_symlink():
+            raise AgentTestInputError("frontend test path must not use a symlink")
+    if not resolved.is_file():
+        raise AgentTestInputError("frontend test path must name a file")
+    frontend = (root / "frontend").resolve()
+    return candidate, resolved.relative_to(frontend).as_posix()
+
+
+def _build_frontend_invocation(
+    arguments: list[str],
+    root: Path,
+    *,
+    tracked_paths: frozenset[str] | None = None,
+) -> AgentTestInvocation:
+    if not arguments:
+        raise AgentTestInputError("frontend test path is required")
+    filter_arguments: tuple[str, ...] = ()
+    path_arguments = arguments
+    if "-t" in arguments:
+        filter_index = arguments.index("-t")
+        if filter_index == 0 or len(arguments) != filter_index + 2:
+            raise AgentTestInputError("unsupported frontend test option")
+        name = arguments[-1]
         _reject_shell_syntax(name)
-        if name.startswith("-") or SAFE_VITEST_NAME.fullmatch(name) is None:
+        if (
+            len(name) > MAX_VITEST_NAME_LENGTH
+            or name.startswith("-")
+            or SAFE_VITEST_NAME.fullmatch(name) is None
+        ):
             raise AgentTestInputError("frontend test name is unsupported")
-        extra = ("-t", name)
-    elif len(arguments) != 1:
+        filter_arguments = ("-t", name)
+        path_arguments = arguments[:filter_index]
+    elif any(argument.startswith("-") for argument in arguments):
         raise AgentTestInputError("unsupported frontend test option")
+    inventory = (
+        tracked_paths if tracked_paths is not None else _tracked_frontend_paths(root)
+    )
+    validated = tuple(
+        _validate_frontend_path(node, root, inventory) for node in path_arguments
+    )
+    requested = tuple(candidate.as_posix() for candidate, _ in validated)
+    if len(set(requested)) != len(requested):
+        raise AgentTestInputError("frontend test paths must be unique")
     frontend = (root / "frontend").resolve()
     node_modules = (frontend / "node_modules").resolve()
     executable = frontend / "node_modules/.bin/vitest"
@@ -176,9 +262,16 @@ def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInv
         ) from exc
     if not os.access(executable, os.X_OK):
         raise AgentTestInputError("repository Vitest executable is unavailable")
-    relative_test = (root / candidate).resolve().relative_to(frontend).as_posix()
     return AgentTestInvocation(
-        (str(executable.resolve()), "run", relative_test, *extra), frontend, "frontend"
+        (
+            str(executable.resolve()),
+            "run",
+            *(relative for _, relative in validated),
+            *filter_arguments,
+        ),
+        frontend,
+        "frontend",
+        requested,
     )
 
 
@@ -328,11 +421,18 @@ def _build_full_store_invocation(
     )
 
 
-def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
+def build_pytest_invocation(
+    arguments: list[str],
+    root: Path,
+    *,
+    tracked_frontend_paths: frozenset[str] | None = None,
+) -> AgentTestInvocation:
     """Validate agent arguments and return a permitted subprocess shape."""
     resolved_root = root.resolve()
     if arguments[:1] == ["--frontend"]:
-        return _build_frontend_invocation(arguments[1:], resolved_root)
+        return _build_frontend_invocation(
+            arguments[1:], resolved_root, tracked_paths=tracked_frontend_paths
+        )
     if arguments[:1] == ["--safe-integration"]:
         return _build_safe_integration_invocation(arguments[1:], resolved_root)
     if arguments[:1] == ["--full-store"]:
@@ -394,6 +494,32 @@ def _vitest_assertions(report: dict[str, object]) -> tuple[dict[object, object],
             raise AgentTestInputError("frontend test report is invalid")
         assertions.extend(result_assertions)
     return tuple(assertions)
+
+
+def _vitest_executed_requested_files(
+    report: dict[str, object], requested: tuple[str, ...]
+) -> bool:
+    results = report.get("testResults")
+    if not isinstance(results, list):
+        raise AgentTestInputError("frontend test report is invalid")
+    executed: set[str] = set()
+    for result in results:
+        if not isinstance(result, dict):
+            raise AgentTestInputError("frontend test report is invalid")
+        name = result.get("name")
+        assertions = result.get("assertionResults")
+        if not isinstance(name, str) or not isinstance(assertions, list):
+            raise AgentTestInputError("frontend test report is invalid")
+        if not all(isinstance(assertion, dict) for assertion in assertions):
+            raise AgentTestInputError("frontend test report is invalid")
+        if any(
+            assertion.get("status") in {"passed", "failed"} for assertion in assertions
+        ):
+            normalized = name.replace("\\", "/")
+            for path in requested:
+                if normalized.endswith(f"/{path}"):
+                    executed.add(path)
+    return executed == set(requested)
 
 
 def _vitest_failure_names(report: dict[str, object], failed: int) -> tuple[str, ...]:
@@ -481,28 +607,42 @@ def _print_frontend_diagnostic(diagnostic: str) -> None:
         print(diagnostic, file=sys.stderr)
 
 
+def _no_frontend_tests_result(child_status: int, diagnostic: str) -> int:
+    if child_status == 0:
+        print("no frontend test matched the request", file=sys.stderr)
+        return 4
+    print("frontend test process failed before tests executed", file=sys.stderr)
+    _print_frontend_diagnostic(diagnostic)
+    return child_status
+
+
 def _frontend_result(
     report_path: Path,
     child_status: int,
     *,
     diagnostic: str,
+    requested: tuple[str, ...],
 ) -> int:
     try:
         payload = report_path.read_text(encoding="utf-8")
         report = _parse_vitest_report(payload)
         passed, failed = _vitest_counts(report)
         names = _vitest_failure_names(report, failed)
+        executed_every_requested_file = _vitest_executed_requested_files(
+            report, requested
+        )
     except OSError, UnicodeDecodeError, AgentTestInputError:
         print("frontend test report is invalid", file=sys.stderr)
         _print_frontend_diagnostic(diagnostic)
         return 3
     if passed + failed == 0:
-        if child_status == 0:
-            print("no frontend test matched the request", file=sys.stderr)
-            return 4
-        print("frontend test process failed before tests executed", file=sys.stderr)
-        _print_frontend_diagnostic(diagnostic)
-        return child_status
+        return _no_frontend_tests_result(child_status, diagnostic)
+    if not executed_every_requested_file:
+        print(
+            "frontend test report did not execute every requested file",
+            file=sys.stderr,
+        )
+        return child_status or 4
     if failed == 0:
         if child_status != 0:
             print(
@@ -539,10 +679,13 @@ def run_agent_test(
     root: Path,
     *,
     runner: CommandRunner | None = None,
+    tracked_frontend_paths: frozenset[str] | None = None,
 ) -> int:
-    """Execute a validated pytest command directly, never through a shell."""
+    """Execute a validated repository test command directly, never through a shell."""
     execute: CommandRunner = runner or _subprocess_runner
-    invocation = build_pytest_invocation(arguments, root)
+    invocation = build_pytest_invocation(
+        arguments, root, tracked_frontend_paths=tracked_frontend_paths
+    )
     with tempfile.TemporaryDirectory(prefix="ontoprism-agent-test-") as temporary:
         report_path = Path(temporary) / "vitest-report.json"
         command = invocation.arguments
@@ -561,7 +704,15 @@ def run_agent_test(
                 check=False,
                 stdout=subprocess.PIPE if invocation.mode == "frontend" else None,
                 stderr=subprocess.PIPE if invocation.mode == "frontend" else None,
+                timeout=(
+                    FRONTEND_TIMEOUT_SECONDS if invocation.mode == "frontend" else None
+                ),
+                start_new_session=invocation.mode == "frontend",
             )
+        except subprocess.TimeoutExpired:
+            label = "frontend test" if invocation.mode == "frontend" else "test process"
+            print(f"{label} timed out", file=sys.stderr)
+            return 3
         except FileNotFoundError, PermissionError:
             print("required test executable is unavailable", file=sys.stderr)
             return 3
@@ -580,6 +731,7 @@ def run_agent_test(
             report_path,
             result.returncode,
             diagnostic=diagnostic,
+            requested=invocation.frontend_tests,
         )
 
 

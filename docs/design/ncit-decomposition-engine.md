@@ -1,5 +1,7 @@
 # Design — NCIt Decomposition Engine (Issue #4 / Milestone M5)
 
+This NCIt-specific decomposition design is not an enhanced-product compatibility claim.
+
 **Status:** Design of record · **Date:** 2026-07-06 · **Issue:** [#4](https://github.com/hniedner/ontoprism/issues/4) · **Tracker:** #18 · **Serves:** #9 (M6 API/UI), #5 (balancing), #6 (post-coordination)
 
 This is the design for the **engine** only — the core feature that gives OntoPrism its

@@ -358,7 +358,7 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
     if name == "pr-test-analyzer":
         return (
             (
-                "pdm run agent-frontend-test "
+                "pdm run agent-test --frontend "
                 "frontend/src/lib/components/ConceptCard.test.ts",
                 "allow",
             ),
@@ -386,12 +386,12 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ("gh pr merge", "deny"),
             ("touch forbidden", "deny"),
             (
-                "pdm run agent-frontend-test "
+                "pdm run agent-test --frontend "
                 "frontend/src/lib/components/ConceptCard.test.ts && npm publish",
                 "deny",
             ),
             (
-                "pdm run agent-frontend-test "
+                "pdm run agent-test --frontend "
                 "frontend/src/lib/components/ConceptCard.test.ts\nnpm publish",
                 "deny",
             ),
