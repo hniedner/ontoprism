@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run narrowly scoped local Git operations for the implementer agent."""
+"""Run fixed local Git operations for implementers and fixed remote pull/push
+for orchestrators, without a shell.
+"""
 
 from __future__ import annotations
 
@@ -340,7 +342,9 @@ def run_agent_git(
     *,
     runner: CommandRunner | None = None,
 ) -> int:
-    """Validate and run one fixed local Git operation without a shell."""
+    """Run fixed local Git operations for implementers and fixed remote pull/push
+    for orchestrators, without a shell.
+    """
     runner = runner or _subprocess_runner
     if not arguments:
         raise AgentGitInputError("Git operation is unsupported")

@@ -19,6 +19,15 @@ from scripts.validation.run_agent_git import (
 pytestmark = pytest.mark.unit
 
 
+def test_git_runner_docstrings_state_the_separate_agent_boundaries() -> None:
+    expected = (
+        "Run fixed local Git operations for implementers and fixed remote pull/push "
+        "for orchestrators, without a shell."
+    )
+    assert " ".join((agent_git.__doc__ or "").split()) == expected
+    assert " ".join((run_agent_git.__doc__ or "").split()) == expected
+
+
 def test_operation_specs_derive_classification_from_command_kind() -> None:
     expected = {
         "switch-existing": "local-mutation",

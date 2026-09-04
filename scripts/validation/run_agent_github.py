@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run repository-scoped GitHub issue, milestone, and read operations."""
+"""Run repository-scoped issue/milestone mutations, pull-request create/edit
+mutations, and reads.
+"""
 
 from __future__ import annotations
 

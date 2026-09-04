@@ -6,6 +6,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+import scripts.validation.run_agent_github as agent_github
 from scripts.validation.run_agent_github import (
     PROTECTED_BRANCHES,
     AgentGitHubInputError,
@@ -17,6 +18,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.unit
+
+
+def test_github_runner_docstring_includes_pull_request_mutations() -> None:
+    normalized = " ".join((agent_github.__doc__ or "").split())
+
+    assert "pull-request create/edit mutations" in normalized
 
 
 def test_github_runner_requires_an_explicit_read_only_boundary() -> None:

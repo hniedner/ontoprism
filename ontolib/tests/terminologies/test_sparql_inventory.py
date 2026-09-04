@@ -64,7 +64,9 @@ def test_inventory_ignores_static_sql_and_mapping_update(tmp_path: Path) -> None
 
 
 @pytest.mark.unit
-def test_inventory_ignores_non_sparql_operation_names(tmp_path: Path) -> None:
+def test_inventory_ignores_delete_prefixed_hyphen_suffixed_operation_name(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "scripts" / "runner.py"
     source.parent.mkdir(parents=True)
     source.write_text(

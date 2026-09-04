@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
+from typing import get_args, get_type_hints
 
 import pytest
+import scripts.validation.validate_opencode_runtime as runtime_validation
 from scripts.validation.validate_opencode_config import RESERVES, ROLES
 from scripts.validation.validate_opencode_runtime import (
     RuntimeContractError,
@@ -24,6 +28,57 @@ from scripts.validation.validate_opencode_runtime import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_failure_diagnostics_have_an_exhaustive_fixed_return_type() -> None:
+    expected_categories = {
+        "CLI rejected its configured arguments",
+        "requested model is absent from the provider catalog",
+        "authentication or credential failure",
+        "provider rate or quota limit",
+        "network connection failure",
+        "provider service failure",
+        "CLI configuration is invalid",
+        "unclassified CLI failure",
+    }
+
+    assert set(get_args(runtime_validation.DiagnosticCategory)) == expected_categories
+    assert (
+        get_type_hints(runtime_validation.sanitized_failure_diagnostic)["return"]
+        is runtime_validation.DiagnosticCategory
+    )
+    assert (
+        get_type_hints(runtime_validation)["SAFE_FAILURE_CATEGORIES"]
+        == tuple[tuple[re.Pattern[str], runtime_validation.DiagnosticCategory], ...]
+    )
+
+
+def test_credential_redaction_completes_at_the_bounded_whitespace_limit() -> None:
+    script = "\n".join(
+        (
+            "from scripts.validation.validate_opencode_runtime import (",
+            "    DIAGNOSTIC_INPUT_LIMIT, sanitized_failure_diagnostic,",
+            ")",
+            'unsafe = "token" + " \\t\\r\\n" * DIAGNOSTIC_INPUT_LIMIT',
+            'unsafe += "/private/secret"',
+            "print(sanitized_failure_diagnostic('', unsafe))",
+        )
+    )
+
+    result = subprocess.run(  # noqa: S603 - fixed regression-test child
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "unclassified CLI failure\n"
+    assert result.stderr == ""
+    assert "private" not in result.stdout
+    assert "secret" not in result.stdout
 
 
 def test_runtime_json_parser_accepts_an_object_without_exposing_raw_output() -> None:

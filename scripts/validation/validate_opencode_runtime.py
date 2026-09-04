@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -46,10 +46,20 @@ URL = re.compile(r"(?i)\bhttps?://[^\s]+")
 ABSOLUTE_PATH = re.compile(r"(?<![\w:])(?:~[/\\]|/|[a-z]:[/\\])[^\s]+", re.I)
 CREDENTIAL_VALUE = re.compile(
     r"(?i)\b(authorization|credential|password|secret|token|api[-_ ]?key)\b"
-    r"\s*(?::|=|\s)\s*(?:bearer\s+)?[^\s,;]+"
+    r"(?: *[:=] *| +)(?:bearer +)?[^ ,;]+"
 )
 BEARER_VALUE = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
-SAFE_FAILURE_CATEGORIES = (
+DiagnosticCategory = Literal[
+    "CLI rejected its configured arguments",
+    "requested model is absent from the provider catalog",
+    "authentication or credential failure",
+    "provider rate or quota limit",
+    "network connection failure",
+    "provider service failure",
+    "CLI configuration is invalid",
+    "unclassified CLI failure",
+]
+SAFE_FAILURE_CATEGORIES: tuple[tuple[re.Pattern[str], DiagnosticCategory], ...] = (
     (
         re.compile(
             r"\b(?:(?:unknown|unrecognized|invalid) (?:option|argument|command)|"
@@ -144,14 +154,15 @@ class RuntimeContractError(RuntimeError):
     """A sanitized OpenCode runtime-contract failure."""
 
 
-def sanitized_failure_diagnostic(stdout: str, stderr: str) -> str:
+def sanitized_failure_diagnostic(stdout: str, stderr: str) -> DiagnosticCategory:
     combined = f"{stderr}\n{stdout}"[:DIAGNOSTIC_INPUT_LIMIT]
     sanitized = ANSI_ESCAPE.sub(" ", combined)
+    sanitized = CONTROL_CHARACTER.sub(" ", sanitized)
+    sanitized = " ".join(sanitized.split())
     sanitized = URL.sub(" <url> ", sanitized)
     sanitized = ABSOLUTE_PATH.sub(" <path> ", sanitized)
     sanitized = CREDENTIAL_VALUE.sub(r"\1=<redacted>", sanitized)
     sanitized = BEARER_VALUE.sub("bearer <redacted>", sanitized)
-    sanitized = CONTROL_CHARACTER.sub(" ", sanitized)
     normalized = " ".join(sanitized.split())
     for pattern, category in SAFE_FAILURE_CATEGORIES:
         if pattern.search(normalized):

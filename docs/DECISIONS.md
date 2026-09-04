@@ -22,9 +22,10 @@ execute successfully, including noninteractive remote Git and refusal to edit cl
 pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
 agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
 
-The SPARQL inventory scanner excludes hyphenated non-SPARQL operation names so Git wrapper
-vocabulary cannot change the query inventory; its snapshot was regenerated after that scanner
-fix (`pdm run agent-replay refresh-sparql-inventory`, 2026-09-04).
+The SPARQL inventory scanner excludes the DELETE-prefixed, hyphen-suffixed operation name
+`delete-merged` through `DELETE(?![-_])`, so that Git wrapper operation does not change the
+query inventory; its snapshot was regenerated after that scanner fix (`pdm run agent-replay
+refresh-sparql-inventory`, 2026-09-04).
 
 The orchestrator's effective permission contract allows those wrapper invocations while raw
 Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote
@@ -32,9 +33,9 @@ mutations remain denied (`pdm run agent-test
 backend/tests/test_opencode_runtime_validation.py -v`, 2026-09-04). The static repository
 configuration accepts that exact surface (`pdm run validate-opencode-config`, 2026-09-04).
 The runtime validator did not complete its model-catalog boundary and reported exactly
-`OpenCode runtime validation failed: Model catalog validation: opencode models exited 1`
-(`pdm run validate-opencode-runtime`, 2026-09-04); this is recorded as a failed external
-validation result, not a successful policy observation.
+`OpenCode runtime validation failed: Model catalog validation: opencode models exited 1 (diagnostic: unclassified CLI failure)` (`pdm run validate-opencode-runtime`, 2026-09-04);
+this is recorded as a failed, unactionable external validation result, not a successful policy
+observation.
 
 Pull-request merge remains a separate exception: only the exact PR number explicitly
 authorized in the current conversation may be squash-merged, and only after every existing
