@@ -213,6 +213,17 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
+CROSS_COMMAND_DENIES = (
+    "*agent-git*",
+    "* /U?ers/*",
+    "* /var/*",
+    "* /tmp/*",
+    "* --rootdir *",
+    "* --override-ini *",
+    "* -c *",
+    "* -p *",
+    "* --config *",
+)
 ASK_ACTION = "a" + "sk"
 WRITER_HARD_DENIES = (
     "pdm install*",
@@ -497,8 +508,20 @@ def require_bash_rules(
 
 
 def _command_family(pattern: str) -> str | None:
-    family = pattern.split(maxsplit=1)[0]
-    return family if family in {"git", "gh", "npm", "npx", "pdm"} else None
+    """Return any ordinary pattern's first literal command token."""
+    if pattern == "*" or pattern in {
+        *SHELL_METACHARACTER_DENIES,
+        *LINE_BREAK_DENIES,
+        *CROSS_COMMAND_DENIES,
+    }:
+        return None
+    if pattern.startswith("*"):
+        raise ValueError(pattern)
+    family = pattern.split(maxsplit=1)[0] if pattern.split() else ""
+    match = re.fullmatch(r"([A-Za-z0-9_.+/:-]+)\**", family)
+    if match is None:
+        raise ValueError(pattern)
+    return match.group(1)
 
 
 def _pattern_covers(broad: str, narrow: str) -> bool:
@@ -509,7 +532,11 @@ def _unsafe_shadow_order(
     rules: list[tuple[str, Any]], deny_index: int, deny_pattern: str, family: str
 ) -> bool:
     for allow_index, (allow_pattern, allow_action) in enumerate(rules):
-        if allow_action != "allow" or _command_family(allow_pattern) != family:
+        try:
+            allow_family = _command_family(allow_pattern)
+        except ValueError:
+            continue
+        if allow_action != "allow" or allow_family != family:
             continue
         deny_covers_allow = _pattern_covers(deny_pattern, allow_pattern)
         allow_covers_deny = _pattern_covers(allow_pattern, deny_pattern)
@@ -529,13 +556,22 @@ def validate_permission_shadow_order(
     role: str,
     bash: dict[str, Any],
 ) -> None:
-    """Enforce safe last-match order for overlapping command-family rules."""
+    """Check deny/allow last-match overlap within each literal command family."""
     rules = list(bash.items())
     reported: set[str] = set()
+    families: dict[str, str | None] = {}
+    for pattern, _ in rules:
+        try:
+            families[pattern] = _command_family(pattern)
+        except ValueError:
+            validation.error(
+                code, f"{role} bash command pattern is unclassifiable: {pattern}"
+            )
+            families[pattern] = None
     for deny_index, (deny_pattern, action) in enumerate(rules):
         if action != "deny":
             continue
-        family = _command_family(deny_pattern)
+        family = families[deny_pattern]
         if family is None:
             continue
         if family in reported:

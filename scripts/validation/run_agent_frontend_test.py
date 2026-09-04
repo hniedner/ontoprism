@@ -3,17 +3,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal, Protocol
+from typing import Literal, Protocol, Self
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TEST_SUFFIXES = (".test.ts", ".test.js", ".spec.ts", ".spec.js")
+TEST_ROOT = PurePosixPath("frontend/src")
 SAFE_PATH_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-[]"
 )
@@ -26,11 +29,52 @@ class AgentFrontendTestInputError(ValueError):
 
 
 @dataclass(frozen=True)
-class FrontendTestInvocation:
-    """A validated fixed frontend test command."""
+class RepoRelativeTrackedTestPath:
+    """A validated tracked test path rooted at the repository."""
 
-    arguments: tuple[str, ...]
+    value: str
+
+
+@dataclass(frozen=True)
+class FrontendRelativeTestPath:
+    """A validated test path rooted at the frontend directory."""
+
+    value: str
+
+
+@dataclass(frozen=True, init=False)
+class FrontendTestInvocation:
+    """The sole fixed npm command assembled from validated typed test paths."""
+
+    _tests: tuple[FrontendRelativeTestPath, ...]
     cwd: Path
+
+    @classmethod
+    def _from_validated_tests(
+        cls, tests: tuple[FrontendRelativeTestPath, ...], cwd: Path
+    ) -> Self:
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_tests", tests)
+        object.__setattr__(instance, "cwd", cwd)
+        return instance
+
+    @property
+    def arguments(self) -> tuple[str, ...]:
+        return (
+            "npm",
+            "--prefix",
+            "frontend",
+            "run",
+            "test:unit",
+            "--",
+            "--run",
+            "--reporter=json",
+            *(test.value for test in self._tests),
+        )
+
+    @property
+    def tests(self) -> tuple[FrontendRelativeTestPath, ...]:
+        return self._tests
 
 
 class CommandResult(Protocol):
@@ -55,6 +99,7 @@ class CommandRunner(Protocol):
         capture_output: Literal[True],
         timeout: int,
         env: dict[str, str],
+        start_new_session: Literal[True],
     ) -> CommandResult: ...
 
 
@@ -67,16 +112,26 @@ def _subprocess_runner(
     capture_output: Literal[True],
     timeout: int,
     env: dict[str, str],
+    start_new_session: Literal[True],
 ) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(  # noqa: S603 -- argv is fixed around validated tracked paths
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv around validated paths
         arguments,
         cwd=cwd,
         shell=shell,
-        check=check,
-        capture_output=capture_output,
-        timeout=timeout,
         env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=start_new_session,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise subprocess.TimeoutExpired(arguments, timeout) from exc
+    _ = check  # protocol fixes check=False
+    _ = capture_output  # protocol fixes capture_output=True
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
 
 
 def _tracked_frontend_paths(root: Path) -> frozenset[str]:
@@ -106,9 +161,7 @@ def _tracked_frontend_paths(root: Path) -> frozenset[str]:
     return frozenset(path for path in stdout.split("\0") if path)
 
 
-def _validate_test_path(
-    argument: str, root: Path, tracked_paths: frozenset[str]
-) -> str:
+def _lexical_test_path(argument: str) -> PurePosixPath:
     if (
         not argument
         or argument.startswith("-")
@@ -120,6 +173,17 @@ def _validate_test_path(
         raise AgentFrontendTestInputError("frontend test path must stay in frontend")
     if not candidate.is_relative_to(PurePosixPath("frontend")):
         raise AgentFrontendTestInputError("frontend test path must stay in frontend")
+    if not candidate.is_relative_to(TEST_ROOT):
+        raise AgentFrontendTestInputError(
+            "frontend test path must stay in frontend/src"
+        )
+    return candidate
+
+
+def _validate_test_path(
+    argument: str, root: Path, tracked_paths: frozenset[str]
+) -> RepoRelativeTrackedTestPath:
+    candidate = _lexical_test_path(argument)
     normalized = candidate.as_posix()
     if normalized not in tracked_paths:
         raise AgentFrontendTestInputError("frontend test path must be tracked")
@@ -144,7 +208,7 @@ def _validate_test_path(
         ) from exc
     if not resolved.is_file():
         raise AgentFrontendTestInputError("frontend test path must name a file")
-    return candidate.relative_to(PurePosixPath("frontend")).as_posix()
+    return RepoRelativeTrackedTestPath(normalized)
 
 
 def build_frontend_test_invocation(
@@ -162,22 +226,45 @@ def build_frontend_test_invocation(
         if tracked_paths is None
         else tracked_paths
     )
-    tests = tuple(
+    repository_tests = tuple(
         _validate_test_path(argument, resolved_root, inventory)
         for argument in arguments
     )
-    return FrontendTestInvocation(
-        (
-            "npm",
-            "--prefix",
-            "frontend",
-            "run",
-            "test:unit",
-            "--",
-            "--run",
-            *tests,
-        ),
-        resolved_root,
+    tests = tuple(
+        FrontendRelativeTestPath(
+            PurePosixPath(test.value).relative_to(PurePosixPath("frontend")).as_posix()
+        )
+        for test in repository_tests
+    )
+    return FrontendTestInvocation._from_validated_tests(tests, resolved_root)
+
+
+def _successful_report_executed_requested_files(
+    stdout: str, tests: tuple[FrontendRelativeTestPath, ...]
+) -> bool:
+    try:
+        report_line = next(
+            line for line in reversed(stdout.splitlines()) if line.strip()
+        )
+        report = json.loads(report_line)
+        passed = report["numPassedTests"]
+        results = report["testResults"]
+    except StopIteration, json.JSONDecodeError, KeyError, TypeError:
+        return False
+    if not isinstance(passed, int) or isinstance(passed, bool) or passed < 1:
+        return False
+    if not isinstance(results, list):
+        return False
+    result_names: set[str] = set()
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        name = result.get("name")
+        if isinstance(name, str):
+            result_names.add(name.replace("\\", "/"))
+    return all(
+        any(name.endswith(f"/frontend/{test.value}") for name in result_names)
+        for test in tests
     )
 
 
@@ -188,7 +275,7 @@ def run_agent_frontend_test(
     tracked_paths: frozenset[str] | None = None,
     runner: CommandRunner = _subprocess_runner,
 ) -> int:
-    """Run one validated invocation and preserve Vitest's process status."""
+    """Preserve completed Vitest status; return 2 for wrapper contract failures."""
     try:
         invocation = build_frontend_test_invocation(
             arguments, root, tracked_paths=tracked_paths
@@ -208,6 +295,7 @@ def run_agent_frontend_test(
                 capture_output=True,
                 timeout=TEST_TIMEOUT_SECONDS,
                 env=environment,
+                start_new_session=True,
             )
             stdout = (result.stdout or b"").decode("utf-8", errors="strict")
             stderr = (result.stderr or b"").decode("utf-8", errors="strict")
@@ -234,6 +322,14 @@ def run_agent_frontend_test(
         sys.stdout.write(stdout)
     if stderr:
         sys.stderr.write(stderr)
+    if result.returncode == 0 and not _successful_report_executed_requested_files(
+        stdout, invocation.tests
+    ):
+        print(
+            "agent-frontend-test: Vitest did not execute every requested test file",
+            file=sys.stderr,
+        )
+        return 2
     return result.returncode
 
 

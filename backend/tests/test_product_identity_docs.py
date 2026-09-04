@@ -25,15 +25,15 @@ _PRODUCT_IDENTITY_SURFACES = (
     "docs/design/ontology-platform.md",
     "frontend/README.md",
 )
-_HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES = (
-    "CHANGELOG.md",
-    "backend/tests/fixtures/d60.md",
-    "docs/design/ncit-alignment-integration.md",
-    "docs/design/ncit-decomposition-assessment.md",
-    "docs/design/ncit-decomposition-engine.md",
-    "docs/postcoordination-literature-review.md",
-    "ontolib/tests/decomposition/golden/README.md",
-)
+_GENERATED_IDENTITY_SURFACES = ("CHANGELOG.md",)
+_FROZEN_IDENTITY_SURFACES = ("backend/tests/fixtures/d60.md",)
+_HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES = {
+    "docs/design/ncit-alignment-integration.md": "Historical strategy",
+    "docs/design/ncit-decomposition-assessment.md": "Data basis:",
+    "docs/design/ncit-decomposition-engine.md": "NCIt Decomposition Engine",
+    "docs/postcoordination-literature-review.md": "Working manuscript",
+    "ontolib/tests/decomposition/golden/README.md": "evidence record",
+}
 _CORRECTION_CONTRACT_SURFACES = (
     "README.md",
     "AGENTS.md",
@@ -52,7 +52,7 @@ _FORBIDDEN_CURRENT_CLAIMS = (
     r"release-forward reconciliation (?:is|has been) implemented",
     r"current correction systems?",
     r"correction systems? (?:is|are) (?:implemented|shipped|provided)",
-    r"backward[- ]compatib\w*",
+    r"backwards?[- ]compatib\w*",
 )
 
 
@@ -158,7 +158,7 @@ def _tracked_markdown_identity_surfaces() -> tuple[str, ...]:
     )
     paths = result.stdout.decode("utf-8", errors="strict").split("\0")
     boundary = re.compile(
-        r"backward[- ]compatib\w*|\bcompatibility\b|ontology-generic|"
+        r"backwards?[- ]compatib\w*|\bcompatibility\b|ontology-generic|"
         r"generic ontology|dual-canonical|\bupstream\b|external content|"
         r"borrowed from|depends on",
         flags=re.IGNORECASE,
@@ -176,6 +176,16 @@ def _decision_section(document: str, decision: str) -> str:
     )
     assert match is not None, f"missing {decision} section"
     return match.group(0).rstrip() + "\n"
+
+
+def _canonical_type_block(document: str, type_name: str) -> str:
+    matches = re.findall(
+        rf"```text\n({re.escape(type_name)} =.*?\n)```",
+        document,
+        flags=re.DOTALL,
+    )
+    assert len(matches) == 1, f"expected one canonical {type_name} block"
+    return matches[0]
 
 
 def _assert_no_current_overclaim(text: str) -> None:
@@ -221,10 +231,13 @@ def _assert_no_current_overclaim(text: str) -> None:
             claim_start = relative_start - sentence_start
             prefix = context[:claim_start]
             target_or_negated = re.search(
-                r"\b(target|future|intended|not (?:a )?current|not (?:currently )?"
+                r"\b((?:the )?target\s*$|(?:the )?(?:target|future|intended) "
+                r"(?:architecture|contract|design|capabilit\w*|system|release)|"
+                r"not (?:a )?current|not (?:currently )?"
                 r"implemented|does not currently|do not currently|no .{0,60} currently|"
                 r"not shipped|not a shipped|does not ship|do not use|"
-                r"not (?:a (?:product\s+)?)?claim|cannot claim|not\s*$)",
+                r"not (?:a (?:product\s+)?)?claim|cannot claim|"
+                r"contradicts\s*$|not\s*$)",
                 prefix,
                 flags=re.IGNORECASE,
             )
@@ -263,6 +276,10 @@ def _assert_no_false_correction_claim(text: str) -> None:
             r"provides? generic",
             "OntoPrism provides generic ontology editing for target ontologies.",
         ),
+        (
+            r"provides? generic",
+            "OntoPrism for target ontologies provides generic ontology editing.",
+        ),
     ],
 )
 def test_documents_current_claim_gate_rejects_every_forbidden_pattern(
@@ -280,6 +297,7 @@ def test_documents_current_claim_gate_rejects_every_forbidden_pattern(
         "Generic ontology editing is a future capability.",
         "We have not implemented generic reasoning.",
         "A correction system is target architecture, not a shipped capability.",
+        "The target architecture provides generic ontology editing.",
     ],
 )
 def test_documents_current_claim_gate_allows_explicit_target_or_negation(
@@ -335,8 +353,11 @@ def test_documents_product_identity_surfaces_separate_current_from_target() -> N
 @pytest.mark.unit
 def test_every_tracked_markdown_identity_match_has_an_explicit_classification() -> None:
     discovered = set(_tracked_markdown_identity_surfaces())
-    classified = set(_PRODUCT_IDENTITY_SURFACES) | set(
-        _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES
+    classified = (
+        set(_PRODUCT_IDENTITY_SURFACES)
+        | set(_HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES)
+        | set(_GENERATED_IDENTITY_SURFACES)
+        | set(_FROZEN_IDENTITY_SURFACES)
     )
 
     assert discovered == classified, (
@@ -354,6 +375,10 @@ def test_historical_scientific_compatibility_claims_are_locally_scoped() -> None
     assert "not a blanket backward-compatibility guarantee" in literature
     assert "guarantees code retention and source-anchor resolution" in assessment
     assert "not a blanket\nbackward-compatibility guarantee" in assessment
+    for path, required_scope_marker in _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES.items():
+        assert required_scope_marker in _read(path), path
+    assert _GENERATED_IDENTITY_SURFACES == ("CHANGELOG.md",)
+    assert _FROZEN_IDENTITY_SURFACES == (_D60_FIXTURE,)
 
 
 @pytest.mark.unit
@@ -362,6 +387,8 @@ def test_frontend_readme_names_the_authoritative_quality_gate() -> None:
 
     assert "`pdm run verify` from the repository root is authoritative" in readme
     assert "debugging and are not the complete quality gate" in readme
+    assert "npm --prefix frontend run test:coverage" in readme
+    assert "npm --prefix frontend run fallow" in readme
 
 
 @pytest.mark.unit
@@ -506,9 +533,6 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
         "| `split` | 1 → N, N ≥ 2 |",
         "| `merge` | M → 1, M ≥ 2 |",
         "`complex-restructure` requiring human review",
-        "`CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure`",
-        "`ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
-        "humanReviewRequired: true }`",
         "`AssertionDeltaKind`",
         "`added-to-effective`, `removed-from-effective`, `replaced-in-effective`, "
         "`qualified-in-effective`, `annotation-changed`, or `unchanged-context`",
@@ -525,6 +549,14 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
     ):
         assert required.lower() in design_flat.lower()
 
+    routing = _canonical_type_block(design, "CrosswalkRouting")
+    assert "CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure" in routing
+    assert (
+        "ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
+        "humanReviewRequired: true, reason: NonEmptyText }"
+    ) in " ".join(routing.split())
+    assert "fifth arity family" in design_flat.lower()
+
 
 @pytest.mark.unit
 def test_documents_target_resolution_compatibility_and_graph_types() -> None:
@@ -533,19 +565,10 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
     for required in (
         "caDSR source rows and anchors remain official NCIt codes",
         "`CadsrEnhancedResolution`",
-        "`unique { target, crosswalk }`",
-        "`split { allTargets, crosswalk }`",
-        "`merged { target, sources, crosswalk }`",
-        "`ambiguous { candidates, reason }`",
-        "`unresolved { reason }`",
         "one-to-many crosswalk is `split` and returns all targets",
         "further qualified, approved mapping selects one target",
         "`ambiguous` means competing or incomplete records",
         "`MigrationReferenceOutcome`",
-        "`retained | redirected | expanded { allTargets, reviewRequired: true }`",
-        "`suppressed { replacement?, reason, reviewRequired: true }`",
-        "`ambiguous { candidates, reason } | unsupported { reason } | "
-        "unresolved { reason }`",
         "derived from `CrosswalkRouting` plus consumer context",
         "combines the crosswalk with consumer context and may refuse",
         "official-anchor coverage and enhanced-resolution coverage",
@@ -557,8 +580,6 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
         "must not serialize edited semantics under an official NCIt IRI",
         "source export profile remains distinct",
         "`AffectedGraphDiff`",
-        "`CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }`",
-        "`Incomplete { closure, blockers, missingBoundaries }`",
         "cannot carry certified complete change sets or publication permission",
         "profile, relation, direction, bounds, and boundary witnesses",
         "stated changes and finite-profile inferred changes remain separate",
@@ -585,6 +606,45 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
     assert "currently owns proposal transfer" in design_flat
     assert "correction-aware extension needs explicit future ownership" in design_flat
     assert "stale-pending, recompute, revalidate, remap, or refuse" not in design_flat
+
+    cadsr = " ".join(_canonical_type_block(design, "CadsrEnhancedResolution").split())
+    for variant in (
+        "split { allTargets: Set<N>, N ≥ 2, crosswalk }",
+        "merged { target, sources: Set<M>, M ≥ 2, crosswalk }",
+        "ambiguous { candidates: NonEmptySet, reason: NonEmptyText }",
+        "unresolved { reason: NonEmptyText }",
+        "complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
+        "humanReviewRequired: true, reason: NonEmptyText }",
+    ):
+        assert variant in cadsr
+
+    migration = " ".join(
+        _canonical_type_block(design, "MigrationReferenceOutcome").split()
+    )
+    for variant in (
+        "retained { source, target }",
+        "redirected { source, target, crosswalk }",
+        "expanded { allTargets: Set<N>, N ≥ 2, reviewRequired: true }",
+        "suppressed { source, replacement?, reason: NonEmptyText, "
+        "reviewRequired: true }",
+        "ambiguous { candidates: NonEmptySet, reason: NonEmptyText }",
+        "unsupported { reason: NonEmptyText }",
+        "unresolved { reason: NonEmptyText }",
+        "complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
+        "reviewRequired: true, reason: NonEmptyText }",
+    ):
+        assert variant in migration
+
+    graph = " ".join(_canonical_type_block(design, "AffectedGraphDiff").split())
+    assert (
+        "CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }"
+        in graph
+    )
+    assert (
+        "Incomplete { closure, atLeastOneOf(blockers: NonEmptySet, "
+        "missingBoundaries: NonEmptySet) }"
+    ) in graph
+    assert "completeness:" not in graph
 
 
 @pytest.mark.unit
@@ -620,7 +680,12 @@ def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() 
         "`read_queries.py` contains no `STATED_GRAPH_IRI` reference",
         "targets `DECOMPOSED_GRAPH_IRI`",
         "current OntoPrism-authored NCI-domain graph IRIs",
-        "decomposition, upstream-xref, and enhanced-showcase graphs",
+        "decomposition, upstream-xref, enhanced-showcase, and scoped "
+        "staging/generation graphs",
+        "`DECOMPOSED_GRAPH_IRI/staging/{sha256(run_id)}`",
+        "`SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`",
+        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{source}/{generation_id}`",
+        "`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{source}`",
         "must not be represented as an official NCI identifier",
         "future enhanced export must use an OntoPrism-governed enhanced namespace",
         "future implementation issue",
@@ -687,6 +752,20 @@ def test_current_authored_ncit_graph_iris_are_explicit_technical_debt() -> None:
             "enhanced-ncit-showcase"
         ),
     }
+
+    assert 'f"{vocab.DECOMPOSED_GRAPH_IRI}/staging/{digest}"' in _function_source(
+        "ontolib/src/ontolib/decomposition/publication.py", "staging_graph_iri"
+    )
+    assert (
+        'f"{SHOWCASE_GRAPH_IRI}/staging/{hashlib.sha256(run_id.encode()).hexdigest()}"'
+        in _function_source(
+            "ontolib/src/ontolib/decomposition/enhanced_showcase.py",
+            "showcase_staging_graph_iri",
+        )
+    )
+    xref_publication = _read("ontolib/src/ontolib/repositories/xref/publication.py")
+    assert "/generation/{component}/{generation_id}" in xref_publication
+    assert "/active/{component}" in xref_publication
 
 
 @pytest.mark.unit

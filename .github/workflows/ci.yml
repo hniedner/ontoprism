@@ -284,6 +284,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Real agent frontend wrapper contract
+        run: pdm run agent-frontend-test frontend/src/lib/vitest-examples/greet.spec.ts
+        working-directory: ${{ github.workspace }}
+
       - name: Unit tests with coverage
         run: npm run test:coverage
 

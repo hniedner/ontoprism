@@ -1236,6 +1236,20 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     )
 
 
+def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    install = "      - name: Install\n        run: npm ci\n"
+    contract = (
+        "      - name: Real agent frontend wrapper contract\n"
+        "        run: pdm run agent-frontend-test "
+        "frontend/src/lib/vitest-examples/greet.spec.ts\n"
+        "        working-directory: ${{ github.workspace }}\n"
+    )
+
+    assert workflow.count(contract) == 1
+    assert workflow.index(install) < workflow.index(contract)
+
+
 @pytest.mark.parametrize(
     ("rules", "family"),
     [
@@ -1254,6 +1268,8 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
             "pdm",
         ),
         ({"git push --force *": "deny", "git push *": "allow"}, "git"),
+        ({"cp private-* *": "deny", "cp *": "allow"}, "cp"),
+        ({"future-tool dangerous *": "deny", "future-tool *": "allow"}, "future-tool"),
     ],
 )
 def test_generic_permission_shadow_gate_rejects_deny_before_overlapping_allow(
@@ -1284,6 +1300,30 @@ def test_generic_permission_shadow_gate_accepts_disjoint_same_family_patterns() 
     )
 
     assert validation.errors == []
+
+
+def test_generic_permission_shadow_gate_rejects_unparseable_command_pattern() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation, "TEST", "role", {"[invalid command": "deny"}
+    )
+
+    assert validation.errors == [
+        "TEST: role bash command pattern is unclassifiable: [invalid command"
+    ]
+
+
+def test_generic_permission_shadow_gate_rejects_unknown_leading_glob() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation, "TEST", "role", {"*unknown-future-guard*": "deny"}
+    )
+
+    assert validation.errors == [
+        "TEST: role bash command pattern is unclassifiable: *unknown-future-guard*"
+    ]
 
 
 def test_r3_safe_integration_deny_must_follow_agent_test_allow(

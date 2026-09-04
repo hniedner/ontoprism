@@ -16,7 +16,7 @@ NCIt-specific library, API, and frontend paths (`git ls-files
 ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
 frontend/src/routes/repositories/ncit`, 2026-09-04).
 
-No generic ontology-adapter type/system, generic editing or reasoning implementation, generic AI
+No target capability-declaring ontology adapter type/system, generic editing or reasoning implementation, generic AI
 authoring, correction system, or permanent release-forward reconciliation currently ships (`git grep -n
 OntologyAdapter -- ontolib/src backend/src frontend/src`, which returned no matches,
 2026-09-04). Current extraction and analysis read the official stated NCIt source (`git grep -n
@@ -53,12 +53,22 @@ ontolib/src/ontolib/repositories/xref/vocab.py` (expected output: decomposed/sho
 replacement targets plus upstream-xref generation/active derivations, 2026-09-04).
 
 The current OntoPrism-authored NCI-domain graph IRIs—including the decomposition, upstream-xref,
-and enhanced-showcase graphs—are technical debt and must not be represented as an official NCI
+enhanced-showcase, and scoped staging/generation graphs—are technical debt and must not be represented as an official NCI
 identifier. Their exact current values and showcase derivation are shown by `git grep -n
 DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2
 NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n
 SHOWCASE_GRAPH_IRI -- ontolib/src/ontolib/decomposition/enhanced_showcase.py` (expected output: the
 two literal graph IRIs and the showcase IRI derived beneath the decomposed IRI, 2026-09-04). Every
+authored scoped derivative shares that debt: decomposition uses
+`DECOMPOSED_GRAPH_IRI/staging/{sha256(run_id)}`; showcase uses
+`SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`; and xref publication uses
+`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{source}/{generation_id}` plus
+`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{source}`. These shapes are shown by `git grep -n
+"def staging_graph_iri\|def showcase_staging_graph_iri\|def generation_graph_iri\|def active_graph_iri" --
+ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/repositories/xref/publication.py` (expected output: all four scoped graph
+constructors, 2026-09-04). Every
 future enhanced export must use an OntoPrism-governed enhanced namespace; a future implementation
 issue must own that collective namespace change before export delivery. Current certification does
 not promise independently selectable source views or byte recovery for every enhanced release.
@@ -199,12 +209,10 @@ The routing artifact has an explicit type home:
 
 ```text
 CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure
-ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true }
+ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true, reason: NonEmptyText }
 ```
 
-Formally, `CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure`, where
-`ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true }`.
-Crosswalk arity remains derived from the endpoint sets. `ComplexRestructure` is the fifth routing
+Crosswalk arity remains derived from the endpoint sets. `ComplexRestructure` is the fifth arity
 family and cannot be treated as an ordinary entity-crosswalk outcome.
 
 Suppression is not entity disappearance or an entity-crosswalk outcome. `AssertionDeltaKind` is
@@ -238,15 +246,16 @@ cannot look successful. Reports distinguish official-anchor coverage and enhance
 ```text
 CadsrEnhancedResolution =
   unique { target, crosswalk }
-  | split { allTargets, crosswalk }
-  | merged { target, sources, crosswalk }
-  | ambiguous { candidates, reason }
-  | unresolved { reason }
+  | split { allTargets: Set<N>, N ≥ 2, crosswalk }
+  | merged { target, sources: Set<M>, M ≥ 2, crosswalk }
+  | ambiguous { candidates: NonEmptySet, reason: NonEmptyText }
+  | unresolved { reason: NonEmptyText }
+  | complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2,
+      humanReviewRequired: true, reason: NonEmptyText }
 ```
 
-Its variants are exactly `unique { target, crosswalk }`, `split { allTargets, crosswalk }`,
-`merged { target, sources, crosswalk }`, `ambiguous { candidates, reason }`, and
-`unresolved { reason }`.
+Split, merged, and ambiguous results retain their cardinality distinctions. Complex restructuring
+preserves both endpoint sets and refuses automatic resolution pending human review.
 
 The four result families are not interchangeable: `EntityCrosswalkOutcome` describes entity endpoint
 structure, `AssertionDeltaKind` describes an exact axiom operation, `CadsrEnhancedResolution` resolves
@@ -281,11 +290,10 @@ sets or publication permission. Its required shape is:
 ```text
 AffectedGraphDiff =
   CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }
-  | Incomplete { closure, blockers, missingBoundaries }
+  | Incomplete { closure, atLeastOneOf(blockers: NonEmptySet, missingBoundaries: NonEmptySet) }
 ```
 
-The variants are `CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }` and
-`Incomplete { closure, blockers, missingBoundaries }`.
+The incomplete variant must identify at least one blocker or missing boundary.
 
 The inferred comparison is the exact finite entailment, query, and signature set selected by a
 versioned profile. Current runtime reasoning is disabled; target correction certification runs an
@@ -303,16 +311,18 @@ the crosswalk with consumer context and may refuse:
 
 ```text
 MigrationReferenceOutcome =
-  retained | redirected | expanded { allTargets, reviewRequired: true }
-  | suppressed { replacement?, reason, reviewRequired: true }
-  | ambiguous { candidates, reason } | unsupported { reason } | unresolved { reason }
+  retained { source, target }
+  | redirected { source, target, crosswalk }
+  | expanded { allTargets: Set<N>, N ≥ 2, reviewRequired: true }
+  | suppressed { source, replacement?, reason: NonEmptyText, reviewRequired: true }
+  | ambiguous { candidates: NonEmptySet, reason: NonEmptyText }
+  | unsupported { reason: NonEmptyText }
+  | unresolved { reason: NonEmptyText }
+  | complex-restructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2,
+      reviewRequired: true, reason: NonEmptyText }
 ```
 
-Its variants are exactly `retained | redirected | expanded { allTargets, reviewRequired: true }`,
-`suppressed { replacement?, reason, reviewRequired: true }`, and
-`ambiguous { candidates, reason } | unsupported { reason } | unresolved { reason }`.
-
-Expanded and suppressed references require review. Ambiguous, unsupported, and unresolved variants
+Expanded, suppressed, and complex-restructure references require review. Ambiguous, unsupported, and unresolved variants
 cannot carry success fields or masquerade as success. On every later official
 release, every correction is reconciled against exact source and enhanced identities. Nothing is
 silently replayed, dropped, or overridden.

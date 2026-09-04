@@ -210,10 +210,10 @@ vs. region, `R105` cell-of-origin vs. lineage). Composition over a conflated rol
 produces confident nonsense, so the roles are split into univocal `op:` axes *before*
 coverage is chased (D15/D17/D22: relation quality gates coverage).
 
-**3 · Ground in the upstream substrate.** NCIt becomes the oncology-specific
-**specialization layer** over vetted ontologies — Uberon and Cell Ontology for anatomy
-and cell type, Mondo for disease genus — extended where oncology needs granularity the
-substrate lacks.
+**3 · Align and corroborate.** OntoPrism-governed enhanced NCIt is derived from and aligned
+to identified terminology releases—Uberon and Cell Ontology for anatomy and cell type,
+and Mondo for disease genus—while retaining NCIt ownership and adding oncology-specific
+granularity where evidence supports it.
 
 > **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
 > ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure

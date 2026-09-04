@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -7,6 +9,8 @@ from typing import Literal
 import pytest
 from scripts.validation.run_agent_frontend_test import (
     AgentFrontendTestInputError,
+    FrontendTestInvocation,
+    _subprocess_runner,
     build_frontend_test_invocation,
     run_agent_frontend_test,
 )
@@ -55,10 +59,16 @@ def test_frontend_runner_builds_only_the_fixed_npm_invocation(
         "test:unit",
         "--",
         "--run",
+        "--reporter=json",
         "src/lib/alpha.test.ts",
         "src/lib/beta.spec.js",
     )
     assert invocation.cwd == frontend_root.resolve()
+
+
+def test_frontend_invocation_cannot_be_constructed_with_arbitrary_argv() -> None:
+    with pytest.raises(TypeError):
+        FrontendTestInvocation(("npm", "publish"), Path("."))  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize(
@@ -122,7 +132,7 @@ def test_frontend_runner_rejects_symlink_file(
 
 class _Result:
     returncode = 7
-    stdout = b"safe stdout\n"
+    stdout = b'{"numPassedTests":0,"testResults":[]}'
     stderr = b"safe stderr\n"
 
 
@@ -147,6 +157,7 @@ def test_frontend_runner_uses_no_shell_timeout_and_preserves_status(
         capture_output: Literal[True],
         timeout: int,
         env: dict[str, str],
+        start_new_session: Literal[True],
     ) -> _Result:
         observed_env.update(env)
         observed.update(
@@ -156,6 +167,7 @@ def test_frontend_runner_uses_no_shell_timeout_and_preserves_status(
             check=check,
             capture_output=capture_output,
             timeout=timeout,
+            start_new_session=start_new_session,
         )
         return _Result()
 
@@ -176,6 +188,7 @@ def test_frontend_runner_uses_no_shell_timeout_and_preserves_status(
             "test:unit",
             "--",
             "--run",
+            "--reporter=json",
             "src/lib/alpha.test.ts",
         ),
         "cwd": frontend_root.resolve(),
@@ -183,6 +196,7 @@ def test_frontend_runner_uses_no_shell_timeout_and_preserves_status(
         "check": False,
         "capture_output": True,
         "timeout": 300,
+        "start_new_session": True,
     }
     assert set(observed_env) == {
         "PATH",
@@ -195,7 +209,7 @@ def test_frontend_runner_uses_no_shell_timeout_and_preserves_status(
     assert observed_env["NPM_CONFIG_USERCONFIG"] == "/dev/null"
     assert "NODE_OPTIONS" not in observed_env
     captured = capsys.readouterr()
-    assert captured.out == "safe stdout\n"
+    assert '"numPassedTests":0' in captured.out
     assert captured.err == "safe stderr\n"
 
 
@@ -231,12 +245,90 @@ def test_frontend_runner_failures_are_fixed_and_sanitized(
     assert "secret" not in captured.err
 
 
-def test_checked_in_frontend_runner_executes_one_exact_tracked_test() -> None:
-    root = Path(__file__).parents[2]
+class _PassingResult:
+    returncode = 0
+    stdout = (
+        b"> frontend test:unit\n> vitest --run --reporter=json\n"
+        b'{"numPassedTests":1,"numFailedTests":0,"testResults":'
+        b'[{"name":"/repo/frontend/src/lib/alpha.test.ts",'
+        b'"assertionResults":[{"status":"passed"}]}]}'
+    )
+    stderr = b""
+
+
+def test_frontend_runner_requires_nonzero_execution_for_every_requested_file(
+    frontend_root: Path,
+    tracked_tests: frozenset[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _ZeroResult:
+        returncode = 0
+        stdout = b'{"numPassedTests":0,"numFailedTests":0,"testResults":[]}'
+        stderr = b""
+
+    def runner(*args: object, **kwargs: object) -> _ZeroResult:
+        return _ZeroResult()
 
     assert (
         run_agent_frontend_test(
-            ["frontend/src/lib/vitest-examples/greet.spec.ts"], root
+            ["frontend/src/lib/alpha.test.ts"],
+            frontend_root,
+            tracked_paths=tracked_tests,
+            runner=runner,
+        )
+        == 2
+    )
+    assert "did not execute every requested test file" in capsys.readouterr().err
+
+
+def test_frontend_runner_accepts_report_with_executed_requested_file(
+    frontend_root: Path, tracked_tests: frozenset[str]
+) -> None:
+    def runner(*args: object, **kwargs: object) -> _PassingResult:
+        return _PassingResult()
+
+    assert (
+        run_agent_frontend_test(
+            ["frontend/src/lib/alpha.test.ts"],
+            frontend_root,
+            tracked_paths=tracked_tests,
+            runner=runner,
         )
         == 0
     )
+
+
+def test_subprocess_timeout_kills_the_new_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    killed: list[tuple[int, signal.Signals]] = []
+
+    class Process:
+        pid = 4321
+        returncode = -9
+        calls = 0
+
+        def communicate(self, *, timeout: int | None = None) -> tuple[bytes, bytes]:
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired(("npm",), timeout or 0)
+            return b"", b""
+
+    process = Process()
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: killed.append((pid, sig)))
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        _subprocess_runner(
+            ("npm",),
+            cwd=Path("."),
+            shell=False,
+            check=False,
+            capture_output=True,
+            timeout=1,
+            env={},
+            start_new_session=True,
+        )
+
+    assert killed == [(4321, signal.SIGKILL)]
+    assert process.calls == 2
