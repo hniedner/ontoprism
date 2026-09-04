@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import os
 import re
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
+import scripts.validation.run_agent_git as agent_git
 from scripts.validation.run_agent_git import (
     AgentGitInputError,
     AgentGitProcessError,
@@ -14,6 +17,34 @@ from scripts.validation.run_agent_git import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_operation_specs_derive_classification_from_command_kind() -> None:
+    expected = {
+        "switch-existing": "local-mutation",
+        "switch-new": "local-mutation",
+        "delete-merged": "local-mutation",
+        "merge-no-ff": "local-mutation",
+        "commit-staged": "local-mutation",
+        "pull-origin": "remote-mutation",
+        "push-origin": "remote-mutation",
+    }
+
+    assert [field.name for field in fields(agent_git.OperationSpec)] == [
+        "command_kind",
+        "failure",
+    ]
+    assert {
+        operation: agent_git.operation_class_for(spec.command_kind)
+        for operation, spec in agent_git.OPERATION_SPECS.items()
+    } == expected
+
+
+def test_git_invocation_requires_an_explicit_operation_class() -> None:
+    parameter = inspect.signature(agent_git._invoke).parameters["operation_class"]
+
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
 
 
 @pytest.mark.parametrize(

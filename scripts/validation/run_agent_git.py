@@ -8,7 +8,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, assert_never
 
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 UNSAFE_MESSAGE_CHARACTERS = frozenset("&;|><`$\\")
@@ -40,7 +40,6 @@ class OperationClassSpec:
 @dataclass(frozen=True)
 class OperationSpec:
     command_kind: CommandKind
-    operation_class: OperationClass
     failure: str
 
 
@@ -76,39 +75,32 @@ OPERATION_CLASS_SPECS: dict[OperationClass, OperationClassSpec] = {
 OPERATION_SPECS: dict[str, OperationSpec] = {
     "switch-existing": OperationSpec(
         "branch",
-        "local-mutation",
         "Git switch failed and may have changed repository state; inspect git status",
     ),
     "switch-new": OperationSpec(
         "branch",
-        "local-mutation",
         "Git branch creation failed and may have changed repository state; "
         "inspect git status",
     ),
     "delete-merged": OperationSpec(
         "branch",
-        "local-mutation",
         "Git branch deletion failed and may have changed repository state; "
         "inspect git status",
     ),
     "merge-no-ff": OperationSpec(
         "branch",
-        "local-mutation",
         "Git merge failed and may have changed repository state; inspect git status",
     ),
     "commit-staged": OperationSpec(
         "commit",
-        "local-mutation",
         "Git commit failed and may have changed repository state; inspect git status",
     ),
     "pull-origin": OperationSpec(
         "remote",
-        "remote-mutation",
         "Git pull failed; inspect repository and remote state before retrying",
     ),
     "push-origin": OperationSpec(
         "remote",
-        "remote-mutation",
         "Git push failed; inspect repository and remote state before retrying",
     ),
 }
@@ -131,6 +123,14 @@ class CommandRunner(Protocol):
     def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
 
 
+def operation_class_for(command_kind: CommandKind) -> OperationClass:
+    if command_kind in ("branch", "commit"):
+        return "local-mutation"
+    if command_kind == "remote":
+        return "remote-mutation"
+    assert_never(command_kind)
+
+
 def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
     # Arguments are the fixed, validated Git invocation built above; never shell input.
     return subprocess.run(  # noqa: S603, PLW1510
@@ -144,7 +144,7 @@ def _invoke(
     root: Path,
     runner: CommandRunner,
     *,
-    operation_class: OperationClass = "read",
+    operation_class: OperationClass,
 ) -> CommandResult:
     spec = OPERATION_CLASS_SPECS[operation_class]
     kwargs: dict[str, object] = {
@@ -179,7 +179,12 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
         or any(character in name for character in UNSAFE_REF_CHARACTERS)
     ):
         raise AgentGitInputError("branch name is invalid")
-    result = _invoke(["git", "check-ref-format", f"refs/heads/{name}"], root, runner)
+    result = _invoke(
+        ["git", "check-ref-format", f"refs/heads/{name}"],
+        root,
+        runner,
+        operation_class="read",
+    )
     if result.returncode == 0:
         return
     if result.returncode == 1:
@@ -193,7 +198,12 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
 
 def _require_local_branch(name: str, root: Path, runner: CommandRunner) -> str:
     full_ref = f"refs/heads/{name}"
-    result = _invoke(["git", "show-ref", "--verify", "--quiet", full_ref], root, runner)
+    result = _invoke(
+        ["git", "show-ref", "--verify", "--quiet", full_ref],
+        root,
+        runner,
+        operation_class="read",
+    )
     if result.returncode == 0:
         return full_ref
     if result.returncode == 1:
@@ -220,7 +230,12 @@ def _require_success(
 
 
 def _require_mutable_current_branch(root: Path, runner: CommandRunner) -> None:
-    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    current = _invoke(
+        ["git", "branch", "--show-current"],
+        root,
+        runner,
+        operation_class="read",
+    )
     _require_success(current, "Git current branch could not be determined")
     branch = current.stdout.strip()
     if not branch:
@@ -235,18 +250,33 @@ def _prepare_remote_command(
     _validate_branch(branch, root, runner)
     if operation == "push-origin" and branch in PROTECTED_BRANCHES:
         raise AgentGitInputError("Git push cannot target a protected branch")
-    origin = _invoke(["git", "remote", "get-url", "origin"], root, runner)
+    origin = _invoke(
+        ["git", "remote", "get-url", "origin"],
+        root,
+        runner,
+        operation_class="read",
+    )
     _require_success(origin, "Git origin could not be determined")
     if origin.stdout.strip() not in ACCEPTED_ORIGIN_URLS:
         raise AgentGitInputError("Git origin is not the ONTOPRISM repository")
-    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    current = _invoke(
+        ["git", "branch", "--show-current"],
+        root,
+        runner,
+        operation_class="read",
+    )
     _require_success(current, "Git current branch could not be determined")
     current_branch = current.stdout.strip()
     if not current_branch:
         raise AgentGitInputError("Git operation requires an attached branch")
     if current_branch != branch:
         raise AgentGitInputError("requested branch is not the current branch")
-    status = _invoke(["git", "status", "--porcelain"], root, runner)
+    status = _invoke(
+        ["git", "status", "--porcelain"],
+        root,
+        runner,
+        operation_class="read",
+    )
     _require_success(status, "Git worktree status could not be determined")
     if status.stdout:
         raise AgentGitInputError("Git remote operation requires a clean worktree")
@@ -282,12 +312,20 @@ def _prepare_branch_command(
     if branch in PROTECTED_BRANCHES:
         raise AgentGitInputError("protected branch cannot be deleted")
     full_ref = _require_local_branch(branch, root, runner)
-    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    current = _invoke(
+        ["git", "branch", "--show-current"],
+        root,
+        runner,
+        operation_class="read",
+    )
     _require_success(current)
     if current.stdout.strip() == branch:
         raise AgentGitInputError("current branch cannot be deleted")
     merged = _invoke(
-        ["git", "merge-base", "--is-ancestor", full_ref, "HEAD"], root, runner
+        ["git", "merge-base", "--is-ancestor", full_ref, "HEAD"],
+        root,
+        runner,
+        operation_class="read",
     )
     if merged.returncode == 1:
         raise AgentGitInputError("branch is not merged into HEAD")
@@ -326,18 +364,20 @@ def run_agent_git(
         command = _prepare_branch_command(
             operation, arguments[1], resolved_root, runner
         )
-    else:
+    elif operation_spec.command_kind == "remote":
         if len(arguments) != OPERATION_ARGUMENT_COUNT:
             raise AgentGitInputError("Git operation requires exactly one branch")
         command = _prepare_remote_command(
             operation, arguments[1], resolved_root, runner
         )
+    else:
+        assert_never(operation_spec.command_kind)
     _require_success(
         _invoke(
             command,
             resolved_root,
             runner,
-            operation_class=operation_spec.operation_class,
+            operation_class=operation_class_for(operation_spec.command_kind),
         ),
         operation_spec.failure,
     )

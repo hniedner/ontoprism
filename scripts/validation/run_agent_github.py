@@ -14,7 +14,7 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 REPOSITORY = "hniedner/ontoprism"
-OWNER, REPOSITORY_NAME = REPOSITORY.split("/", maxsplit=1)
+OWNER = REPOSITORY.split("/", maxsplit=1)[0]
 API_ROOT = f"repos/{REPOSITORY}"
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 READ_OPERATIONS = frozenset(
