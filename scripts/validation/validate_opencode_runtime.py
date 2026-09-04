@@ -358,14 +358,14 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
     if name == "pr-test-analyzer":
         return (
             (
-                "npm --prefix frontend run test:unit -- --run "
-                "src/lib/components/ConceptCard.test.ts",
+                "pdm run agent-frontend-test "
+                "frontend/src/lib/components/ConceptCard.test.ts",
                 "allow",
             ),
             (
                 "npm --prefix frontend run test:unit -- --run "
-                "src/lib/components/ConceptCard.test.ts -t renders",
-                "allow",
+                "src/lib/components/ConceptCard.test.ts",
+                "deny",
             ),
             ("npm --prefix frontend run build", "deny"),
             ("npm --prefix frontend install", "deny"),
@@ -386,13 +386,13 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ("gh pr merge", "deny"),
             ("touch forbidden", "deny"),
             (
-                "npm --prefix frontend run test:unit -- --run "
-                "src/lib/components/ConceptCard.test.ts && npm publish",
+                "pdm run agent-frontend-test "
+                "frontend/src/lib/components/ConceptCard.test.ts && npm publish",
                 "deny",
             ),
             (
-                "npm --prefix frontend run test:unit -- --run "
-                "src/lib/components/ConceptCard.test.ts\nnpm publish",
+                "pdm run agent-frontend-test "
+                "frontend/src/lib/components/ConceptCard.test.ts\nnpm publish",
                 "deny",
             ),
             ("cp source target\ngh pr merge", "deny"),

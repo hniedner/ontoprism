@@ -217,8 +217,10 @@ substrate lacks.
 
 > **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
 > ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure
-> genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
-> NCIt and caDSR anchoring are both preserved. And the discriminator is **dependency,
+> genuinely differs. Under D60, everything OntoPrism emits is OntoPrism-governed enhanced NCIt
+> content; identified terminology sources provide provenance, alignment, and corroboration rather
+> than a second canonical ownership plane. Official NCIt and caDSR source anchors remain
+> release-bound and preserved. The discriminator is **dependency,
 > not licence** (D38.2b, D60): *align, do not depend; learn, do not copy; corroborate,
 > do not inherit.* **No external source — open or licence-gated — may be a definitional
 > dependency.** An NCIt that cannot resolve without Uberon is a dependent ontology

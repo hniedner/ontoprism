@@ -9,7 +9,7 @@ D1–D2) and adding a decomposition engine.
 Its [target architecture](design/ontology-platform.md) is ontology-generic: a platform core
 provides shared management capabilities, ontology adapters declare supported ontology-specific
 capabilities, and domain policy controls semantic governance. No generic adapter type/system
-currently exists. The implemented certified local repositories and adapters, curation, and
+currently exists. The implemented certified local repositories, curation, and
 decomposition surfaces remain NCIt-centered (D86).
 
 For plain-language definitions of decomposition, axes, fillers, genera, semantic types,

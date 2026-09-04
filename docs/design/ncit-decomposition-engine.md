@@ -186,7 +186,7 @@ decomp_work_item
   attempt_count integer NOT NULL
   claim_token   uuid                     -- fences stale workers
   outcome       text                     -- closed D56 classification; historical unknown
-  semantic_type text                     -- compatibility projection of source P106
+  semantic_type text                     -- retained projection of source P106
   semantic_types jsonb                   -- complete canonical source P106 value set
   flags/counts/error/timestamps           -- state/outcome-shape constrained
 
@@ -723,7 +723,7 @@ remain separately visible and retryable; a matching marker-ahead retry is idempo
 Preflight failures fail the run, while post-completion lock-release failures only surface
 cleanup failure (D53).
 
-`--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
+`--emit-equivalence` remains a reserved proof-emission seam for #153 but always refuses
 before configuration loads or clients are constructed.
 
 `--branch neoplasm` materializes strict descendants of `C3262`;

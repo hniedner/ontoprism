@@ -9,7 +9,7 @@ evidence that those capabilities exist.
 
 ## Current implementation
 
-OntoPrism is NCIt-centered. It implements certified local repository reads and adapters for
+OntoPrism is NCIt-centered. It implements certified local repository reads for
 NCIt and related repositories, browser exploration and visualization, NCIt curation and
 decomposition surfaces, typed API access, and selected alignment services. The repository has
 NCIt-specific library, API, and frontend paths (`git ls-files
@@ -111,8 +111,8 @@ source is independently selectable/recoverable or byte-recoverable for every enh
 
 Compatibility does **not** mean conservative extension, logical equivalence, query equivalence,
 identical hierarchy, search, or reasoner behavior, arbitrary drop-in substitution, D43
-reversibility, or official endorsement. “Fully backward compatible” is therefore not a product
-claim. Each stronger property requires its own evidence and contract.
+reversibility, or official endorsement. The target contract therefore rejects “fully backward
+compatible” as a product claim. Each stronger property requires its own evidence and contract.
 
 Source containment applies only to immutable official-source preservation. The effective enhanced
 view intentionally need not contain official assertions. Best-effort migration and compatibility
@@ -195,6 +195,18 @@ change set is empty. A many-to-many case cannot inhabit `EntityCrosswalkOutcome`
 routed to a distinct `complex-restructure` requiring human review rather than overloaded onto split
 or merge. Qualification is an assertion operation, not necessarily an entity-crosswalk change.
 
+The routing artifact has an explicit type home:
+
+```text
+CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure
+ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true }
+```
+
+Formally, `CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure`, where
+`ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, humanReviewRequired: true }`.
+Crosswalk arity remains derived from the endpoint sets. `ComplexRestructure` is the fifth routing
+family and cannot be treated as an ordinary entity-crosswalk outcome.
+
 Suppression is not entity disappearance or an entity-crosswalk outcome. `AssertionDeltaKind` is
 exactly `added-to-effective`, `removed-from-effective`, `replaced-in-effective`,
 `qualified-in-effective`, `annotation-changed`, or `unchanged-context`. Every suppression requires a
@@ -223,6 +235,19 @@ all targets unless a further qualified, approved mapping selects one target. `am
 competing or incomplete records, not a correctly represented split. Ambiguous or unresolved outcomes
 cannot look successful. Reports distinguish official-anchor coverage and enhanced-resolution coverage.
 
+```text
+CadsrEnhancedResolution =
+  unique { target, crosswalk }
+  | split { allTargets, crosswalk }
+  | merged { target, sources, crosswalk }
+  | ambiguous { candidates, reason }
+  | unresolved { reason }
+```
+
+Its variants are exactly `unique { target, crosswalk }`, `split { allTargets, crosswalk }`,
+`merged { target, sources, crosswalk }`, `ambiguous { candidates, reason }`, and
+`unresolved { reason }`.
+
 The four result families are not interchangeable: `EntityCrosswalkOutcome` describes entity endpoint
 structure, `AssertionDeltaKind` describes an exact axiom operation, `CadsrEnhancedResolution` resolves
 a caDSR official anchor through the crosswalk, and `MigrationReferenceOutcome` combines that result
@@ -247,19 +272,20 @@ denominator, and an overall result with any required `unknown` member cannot be 
 
 ## Affected graph and dependent impacts
 
-`AffectedGraphDiff` requires a closure descriptor containing profile, relation, direction, bounds,
-and boundary witnesses. Stated changes and finite-profile inferred changes remain separate. The diff
-has completeness `complete-for-profile` or `incomplete`. An incomplete diff cannot publish an
-incremental result. Its required shape is:
+`AffectedGraphDiff` is a discriminated union. Both variants require a closure descriptor containing
+profile, relation, direction, bounds, and boundary witnesses. Stated changes and finite-profile
+inferred changes remain separate. The diff has completeness `complete-for-profile` or `incomplete`.
+An incomplete diff cannot publish an incremental result and cannot carry certified complete change
+sets or publication permission. Its required shape is:
 
 ```text
-AffectedGraphDiff {
-  closure: { profile, relation, direction, bounds, boundaryWitnesses },
-  statedChanges,
-  finiteProfileInferredChanges,
-  completeness: complete-for-profile | incomplete
-}
+AffectedGraphDiff =
+  CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }
+  | Incomplete { closure, blockers, missingBoundaries }
 ```
+
+The variants are `CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }` and
+`Incomplete { closure, blockers, missingBoundaries }`.
 
 The inferred comparison is the exact finite entailment, query, and signature set selected by a
 versioned profile. Current runtime reasoning is disabled; target correction certification runs an
@@ -272,8 +298,22 @@ fallback or refusal. This design does not duplicate #262's impact vocabulary.
 
 ## Migration, reconciliation, and adoption
 
-`MigrationReferenceOutcome` combines the crosswalk with consumer context and may refuse. Split,
-merge, ambiguous, and unresolved outcomes cannot be presented as success. On every later official
+`MigrationReferenceOutcome` is derived from `CrosswalkRouting` plus consumer context; it combines
+the crosswalk with consumer context and may refuse:
+
+```text
+MigrationReferenceOutcome =
+  retained | redirected | expanded { allTargets, reviewRequired: true }
+  | suppressed { replacement?, reason, reviewRequired: true }
+  | ambiguous { candidates, reason } | unsupported { reason } | unresolved { reason }
+```
+
+Its variants are exactly `retained | redirected | expanded { allTargets, reviewRequired: true }`,
+`suppressed { replacement?, reason, reviewRequired: true }`, and
+`ambiguous { candidates, reason } | unsupported { reason } | unresolved { reason }`.
+
+Expanded and suppressed references require review. Ambiguous, unsupported, and unresolved variants
+cannot carry success fields or masquerade as success. On every later official
 release, every correction is reconciled against exact source and enhanced identities. Nothing is
 silently replayed, dropped, or overridden.
 

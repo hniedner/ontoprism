@@ -30,6 +30,7 @@ permission:
     "pdm run validate-opencode-runtime": allow
     "pdm run pre-commit run --all-files": allow
     "pdm run agent-test *": allow
+    "pdm run agent-frontend-test *": allow
     "pdm run agent-replay *": allow
     "*agent-git*": deny
     "pdm run agent-git *": deny

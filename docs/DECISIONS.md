@@ -2303,8 +2303,9 @@ NCIt+upstream merges can leave EL, where classification over a 10M+-triple graph
 **Committed reasoner (2026-07-11): ELK, driven via ROBOT — free, local, no cloud.**
 - **ELK** (consequence-based OWL 2 EL reasoner; **Apache-2.0**, free) is the classifier. It classifies
   SNOMED CT (~300K classes) in seconds on a laptop and is the reasoner the OBO ontologies we integrate
-  (Uberon/CL/Mondo) are themselves built and released with, so profile compatibility is a solved problem
-  on the upstream side. NCIt (~200K classes), profiled to EL per point 3, is comfortably within budget.
+  (Uberon/CL/Mondo) are themselves built and released with, so the identified OWL 2 EL classifier
+  profile is supported by those source build processes. This does not guarantee equivalent behavior
+  for other reasoners or query profiles. NCIt (~200K classes), profiled to EL per point 3, is comfortably within budget.
 - **ROBOT** (BMC Bioinformatics 2019; OBO-community-standard CLI wrapping the OWL API + ELK; free) is the
   driver: `robot reason --reasoner ELK`, plus `relax`/`reduce`/`merge` and consistency checks. The
   validation harness (#NEW-3) shells out to ROBOT from the Python data-build; `owlready2` is an optional

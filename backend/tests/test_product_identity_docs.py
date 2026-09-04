@@ -13,18 +13,26 @@ import pytest
 
 _ROOT = Path(__file__).parents[2]
 _PRODUCT_IDENTITY_SURFACES = (
+    ".opencode/agent/plan-adversary.md",
     "README.md",
     "AGENTS.md",
+    "CLAUDE.local.md",
     "docs/ARCHITECTURE.md",
     "docs/DECISIONS.md",
     "docs/DATA_SETUP.md",
     "docs/design/README.md",
-    "docs/design/ontology-platform.md",
-    "docs/design/ncit-alignment-integration.md",
-    "docs/ecosystem/ncit-cadsr-naaccr.md",
     "docs/evidence/README.md",
+    "docs/design/ontology-platform.md",
     "frontend/README.md",
-    "pyproject.toml",
+)
+_HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES = (
+    "CHANGELOG.md",
+    "backend/tests/fixtures/d60.md",
+    "docs/design/ncit-alignment-integration.md",
+    "docs/design/ncit-decomposition-assessment.md",
+    "docs/design/ncit-decomposition-engine.md",
+    "docs/postcoordination-literature-review.md",
+    "ontolib/tests/decomposition/golden/README.md",
 )
 _CORRECTION_CONTRACT_SURFACES = (
     "README.md",
@@ -39,12 +47,12 @@ _FORBIDDEN_CURRENT_CLAIMS = (
     r"ships? (?:an? )?ontology-generic",
     r"is (?:an? )?ontology-generic",
     r"provides? generic (?:ontology )?editing",
-    r"(?:we have )?implemented generic (?:ontology )?(?:adapters?|reasoning)",
+    r"implemented generic (?:ontology )?(?:adapters?|reasoning)",
     r"generic (?:ontology )?(?:editing|reasoning|AI authoring) (?:is|are) implemented",
     r"release-forward reconciliation (?:is|has been) implemented",
     r"current correction systems?",
     r"correction systems? (?:is|are) (?:implemented|shipped|provided)",
-    r"fully backward compatible",
+    r"backward[- ]compatib\w*",
 )
 
 
@@ -139,6 +147,27 @@ def _tracked_production_sources() -> tuple[str, ...]:
     return paths
 
 
+def _tracked_markdown_identity_surfaces() -> tuple[str, ...]:
+    git = shutil.which("git")
+    assert git is not None, "git is required to enumerate tracked Markdown"
+    result = subprocess.run(  # noqa: S603 -- fixed tracked-file inventory
+        [git, "ls-files", "-z", "--", "*.md", "**/*.md"],
+        cwd=_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    paths = result.stdout.decode("utf-8", errors="strict").split("\0")
+    boundary = re.compile(
+        r"backward[- ]compatib\w*|\bcompatibility\b|ontology-generic|"
+        r"generic ontology|dual-canonical|\bupstream\b|external content|"
+        r"borrowed from|depends on",
+        flags=re.IGNORECASE,
+    )
+    return tuple(
+        path for path in paths if path and boundary.search(_read(path)) is not None
+    )
+
+
 def _decision_section(document: str, decision: str) -> str:
     match = re.search(
         rf"^### {decision}\..*?(?=^## \d{{4}}-|\Z)",
@@ -163,7 +192,13 @@ def _assert_no_current_overclaim(text: str) -> None:
     )
     for claim in _FORBIDDEN_CURRENT_CLAIMS:
         for match in re.finditer(claim, text, flags=re.IGNORECASE):
-            paragraph_start = text.rfind("\n\n", 0, match.start()) + 2
+            heading_start = text.rfind("\n### ", 0, match.start())
+            heading_end = text.find("\n", heading_start + 1)
+            heading = text[heading_start:heading_end] if heading_start >= 0 else ""
+            if re.search(r"\b(?:historical|superseded)\b", heading, re.IGNORECASE):
+                continue
+            separator = text.rfind("\n\n", 0, match.start())
+            paragraph_start = separator + 2 if separator >= 0 else 0
             paragraph_end = text.find("\n\n", match.end())
             if paragraph_end == -1:
                 paragraph_end = len(text)
@@ -175,7 +210,7 @@ def _assert_no_current_overclaim(text: str) -> None:
                 for boundary in re.finditer(r"(?<=[.!?])\s+", paragraph)
             ]
             sentence_start = max(
-                (position for position in boundaries if position < relative_start),
+                (position + 1 for position in boundaries if position < relative_start),
                 default=0,
             )
             sentence_end = min(
@@ -183,12 +218,14 @@ def _assert_no_current_overclaim(text: str) -> None:
                 default=len(paragraph),
             )
             context = paragraph[sentence_start:sentence_end]
+            claim_start = relative_start - sentence_start
+            prefix = context[:claim_start]
             target_or_negated = re.search(
                 r"\b(target|future|intended|not (?:a )?current|not (?:currently )?"
                 r"implemented|does not currently|do not currently|no .{0,60} currently|"
                 r"not shipped|not a shipped|does not ship|do not use|"
-                r"not a product\s+claim|cannot claim)\b",
-                context,
+                r"not (?:a (?:product\s+)?)?claim|cannot claim|not\s*$)",
+                prefix,
                 flags=re.IGNORECASE,
             )
             assert target_or_negated is not None, f"{claim}: {context}"
@@ -221,6 +258,10 @@ def _assert_no_false_correction_claim(text: str) -> None:
             r"is (?:an? )?ontology-generic",
             "OntoPrism is an ontology-generic platform designed to target future "
             "ontologies.",
+        ),
+        (
+            r"provides? generic",
+            "OntoPrism provides generic ontology editing for target ontologies.",
         ),
     ],
 )
@@ -289,6 +330,38 @@ def test_documents_product_identity_surfaces_separate_current_from_target() -> N
     assert metadata.index("current enhanced ncit") < metadata.index(
         "ontology-generic framework target"
     )
+
+
+@pytest.mark.unit
+def test_every_tracked_markdown_identity_match_has_an_explicit_classification() -> None:
+    discovered = set(_tracked_markdown_identity_surfaces())
+    classified = set(_PRODUCT_IDENTITY_SURFACES) | set(
+        _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES
+    )
+
+    assert discovered == classified, (
+        f"unclassified={sorted(discovered - classified)}, "
+        f"stale={sorted(classified - discovered)}"
+    )
+
+
+@pytest.mark.unit
+def test_historical_scientific_compatibility_claims_are_locally_scoped() -> None:
+    literature = _read("docs/postcoordination-literature-review.md")
+    assessment = _read("docs/design/ncit-decomposition-assessment.md")
+
+    assert "specified reasoner, entailment profile, and query pattern" in literature
+    assert "not a blanket backward-compatibility guarantee" in literature
+    assert "guarantees code retention and source-anchor resolution" in assessment
+    assert "not a blanket\nbackward-compatibility guarantee" in assessment
+
+
+@pytest.mark.unit
+def test_frontend_readme_names_the_authoritative_quality_gate() -> None:
+    readme = _read("frontend/README.md")
+
+    assert "`pdm run verify` from the repository root is authoritative" in readme
+    assert "debugging and are not the complete quality gate" in readme
 
 
 @pytest.mark.unit
@@ -433,6 +506,9 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
         "| `split` | 1 → N, N ≥ 2 |",
         "| `merge` | M → 1, M ≥ 2 |",
         "`complex-restructure` requiring human review",
+        "`CrosswalkRouting = EntityCrosswalkOutcome | ComplexRestructure`",
+        "`ComplexRestructure { sources: Set<M>, M ≥ 2, targets: Set<N>, N ≥ 2, "
+        "humanReviewRequired: true }`",
         "`AssertionDeltaKind`",
         "`added-to-effective`, `removed-from-effective`, `replaced-in-effective`, "
         "`qualified-in-effective`, `annotation-changed`, or `unchanged-context`",
@@ -457,10 +533,20 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
     for required in (
         "caDSR source rows and anchors remain official NCIt codes",
         "`CadsrEnhancedResolution`",
+        "`unique { target, crosswalk }`",
+        "`split { allTargets, crosswalk }`",
+        "`merged { target, sources, crosswalk }`",
+        "`ambiguous { candidates, reason }`",
+        "`unresolved { reason }`",
         "one-to-many crosswalk is `split` and returns all targets",
         "further qualified, approved mapping selects one target",
         "`ambiguous` means competing or incomplete records",
         "`MigrationReferenceOutcome`",
+        "`retained | redirected | expanded { allTargets, reviewRequired: true }`",
+        "`suppressed { replacement?, reason, reviewRequired: true }`",
+        "`ambiguous { candidates, reason } | unsupported { reason } | "
+        "unresolved { reason }`",
+        "derived from `CrosswalkRouting` plus consumer context",
         "combines the crosswalk with consumer context and may refuse",
         "official-anchor coverage and enhanced-resolution coverage",
         "`preserved`, `changed`, and `breaking` require a tested denominator "
@@ -471,6 +557,9 @@ def test_documents_target_resolution_compatibility_and_graph_types() -> None:
         "must not serialize edited semantics under an official NCIt IRI",
         "source export profile remains distinct",
         "`AffectedGraphDiff`",
+        "`CompleteForProfile { closure, statedChanges, finiteProfileInferredChanges }`",
+        "`Incomplete { closure, blockers, missingBoundaries }`",
+        "cannot carry certified complete change sets or publication permission",
         "profile, relation, direction, bounds, and boundary witnesses",
         "stated changes and finite-profile inferred changes remain separate",
         "`complete-for-profile` or `incomplete`",

@@ -213,7 +213,11 @@ pdm run test-smoke           # frontend vitest via npm
   `pdm run agent-test --safe-integration <path>::<test> -v`.
   Run a focused read-only `full_store` contract with
   `pdm run agent-test --full-store <node> -v`; the full aggregate remains `pdm run test-integration-full-store`.
-- Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
+- **Agent frontend single/focused test:** use only `pdm run agent-frontend-test
+  <tracked-test-file> [<tracked-test-file> ...]`; it accepts exact tracked Vitest files and no
+  Vitest flags, filters, configuration, setup, reporters, updates, or output paths. Human developers
+  working outside an agent permission boundary may use `cd frontend && npx vitest run <path>` (or
+  `-t <name>`) as a debugging command.
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
   `integration` (real services), `mutating_integration` (nonce-owned disposable
   resources), `full_store` (read-only configured corpora), `full_build` (pinned

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -101,6 +102,7 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-runtime",
     "pre-commit run --all-files",
     "agent-test *",
+    "agent-frontend-test *",
     "agent-replay *",
 )
 IMPLEMENTER_LOCAL_GIT_WRAPPERS = (
@@ -199,7 +201,7 @@ SPECIALIST_BASH_ALLOWS = (
     SAFE_AGENT_TEST_WRAPPER,
 )
 R3_BASH_ALLOWS = (
-    "npm --prefix frontend run test:unit -- --run *",
+    "pdm run agent-frontend-test *",
     "cp *",
     "git status --porcelain",
     "git status --short --branch",
@@ -405,6 +407,29 @@ def permission_action(metadata: dict[str, Any], name: str) -> Any:
     return permission.get(name) if isinstance(permission, dict) else None
 
 
+def validate_permission_actions(
+    validation: Validation, role: str, metadata: dict[str, Any]
+) -> None:
+    """Reject permission values outside OpenCode's closed action vocabulary."""
+    permission = metadata.get("permission")
+    if not isinstance(permission, dict):
+        return
+    allowed = {"allow", "deny", ASK_ACTION}
+    for tool, rule in permission.items():
+        if isinstance(rule, dict):
+            entries = (
+                (f"{tool}/{pattern}", action) for pattern, action in rule.items()
+            )
+        else:
+            entries = ((str(tool), rule),)
+        for label, action in entries:
+            if action not in allowed:
+                validation.error(
+                    "ROLE_PERMISSION",
+                    f"{role} permission action for {label} must be allow, deny, or ask",
+                )
+
+
 def approved_bash_allows(role: str) -> tuple[str, ...]:
     """Return the exact ordered Bash allow surface for one project role."""
     if role == "implementer":
@@ -468,38 +493,59 @@ def require_bash_rules(
             validation.error(
                 "ROLE_PERMISSION", f"{role} bash rule {pattern} must be {action}"
             )
-    validate_deny_order(validation, "ROLE_PERMISSION", role, bash, required)
+    validate_permission_shadow_order(validation, "ROLE_PERMISSION", role, bash)
 
 
-def validate_deny_order(
+def _command_family(pattern: str) -> str | None:
+    family = pattern.split(maxsplit=1)[0]
+    return family if family in {"git", "gh", "npm", "npx", "pdm"} else None
+
+
+def _pattern_covers(broad: str, narrow: str) -> bool:
+    return fnmatch.fnmatchcase(narrow, broad)
+
+
+def _unsafe_shadow_order(
+    rules: list[tuple[str, Any]], deny_index: int, deny_pattern: str, family: str
+) -> bool:
+    for allow_index, (allow_pattern, allow_action) in enumerate(rules):
+        if allow_action != "allow" or _command_family(allow_pattern) != family:
+            continue
+        deny_covers_allow = _pattern_covers(deny_pattern, allow_pattern)
+        allow_covers_deny = _pattern_covers(allow_pattern, deny_pattern)
+        if not deny_covers_allow and not allow_covers_deny:
+            continue
+        if deny_covers_allow and not allow_covers_deny:
+            if deny_index > allow_index:
+                return True
+        elif deny_index < allow_index:
+            return True
+    return False
+
+
+def validate_permission_shadow_order(
     validation: Validation,
     code: str,
     role: str,
     bash: dict[str, Any],
-    required: dict[str, str] | tuple[str, ...],
 ) -> None:
+    """Enforce safe last-match order for overlapping command-family rules."""
     rules = list(bash.items())
-    for deny_pattern in required:
-        if bash.get(deny_pattern) != "deny":
+    reported: set[str] = set()
+    for deny_index, (deny_pattern, action) in enumerate(rules):
+        if action != "deny":
             continue
-        command = deny_pattern.split(maxsplit=1)[0]
-        if command not in {"git", "gh"}:
+        family = _command_family(deny_pattern)
+        if family is None:
             continue
-        deny_index = next(
-            index for index, (pattern, _) in enumerate(rules) if pattern == deny_pattern
-        )
-        allow_indices = [
-            index
-            for index, (pattern, action) in enumerate(rules)
-            if action == "allow"
-            and (pattern == "*" or pattern.split(maxsplit=1)[0] == command)
-        ]
-        if allow_indices and deny_index < max(allow_indices):
-            label = "Git" if command == "git" else "GH"
+        if family in reported:
+            continue
+        if _unsafe_shadow_order(rules, deny_index, deny_pattern, family):
             validation.error(
                 code,
-                f"{role} deny {deny_pattern} must follow all {label} allow rules",
+                f"{role} {family} deny/allow overlap has unsafe last-match order",
             )
+            reported.add(family)
 
 
 def validate_root(validation: Validation) -> dict[str, Any]:
@@ -562,6 +608,35 @@ def validate_github_wrappers(validation: Validation) -> None:
     for name, command in expected.items():
         if not isinstance(scripts, dict) or scripts.get(name) != command:
             validation.error("GITHUB_WRAPPER", f"{name} script is not exact")
+
+
+def validate_frontend_test_wrapper(validation: Validation) -> None:
+    wrapper = validation.require_file("scripts/validation/run_agent_frontend_test.py")
+    if wrapper is None:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER",
+            "required file missing: scripts/validation/run_agent_frontend_test.py",
+        )
+    pyproject = validation.require_file("pyproject.toml")
+    if pyproject is None:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "required file missing: pyproject.toml"
+        )
+        return
+    try:
+        parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        scripts = parsed["tool"]["pdm"]["scripts"]
+    except OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "cannot read PDM script configuration"
+        )
+        return
+    if not isinstance(scripts, dict) or scripts.get("agent-frontend-test") != (
+        "python scripts/validation/run_agent_frontend_test.py"
+    ):
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "agent-frontend-test script is not exact"
+        )
 
 
 def validate_tool_permissions(
@@ -680,6 +755,7 @@ def validate_role(
         validation.error(
             "DEFAULT_AGENT", "ontoprism-team must be a visible primary agent"
         )
+    validate_permission_actions(validation, role, metadata)
     for permission, action in (("edit", edit),):
         if permission_action(metadata, permission) != action:
             validation.error(
@@ -994,8 +1070,8 @@ def validate_r3_contract(
             "git rev-parse HEAD",
             "never fix",
             "changed deterministic frontend tests",
-            "npm --prefix frontend run test:unit -- --run *",
-            "no package install, build, or publish",
+            "pdm run agent-frontend-test <tracked-test-file>",
+            "no raw npm/npx arguments",
         ),
     )
     bash = permission_action(r3_metadata, "bash")
@@ -1037,26 +1113,14 @@ def validate_r3_contract(
     for pattern in required_denies:
         if bash.get(pattern) != "deny":
             validation.error("R3_PERMISSION", f"R3 must deny {pattern}")
-    validate_deny_order(
+    validate_permission_shadow_order(
         validation,
         "R3_PERMISSION",
         "pr-test-analyzer",
         bash,
-        required_denies,
     )
-    frontend_allow = "npm --prefix frontend run test:unit -- --run *"
-    rules = list(bash)
-    if (
-        bash.get("npm *") == "deny"
-        and bash.get(frontend_allow) == "allow"
-        and rules.index("npm *") > rules.index(frontend_allow)
-    ):
-        validation.error(
-            "R3_PERMISSION",
-            "R3 broad npm deny must precede the frontend unit allow",
-        )
     for pattern in (
-        frontend_allow,
+        "pdm run agent-frontend-test *",
         "git status --porcelain",
         "git status --short --branch",
         "git rev-parse HEAD",
@@ -1368,6 +1432,7 @@ def validate(root: Path) -> list[str]:
     root_config = validate_root(validation)
     validate_removed_plugin_files(validation)
     validate_github_wrappers(validation)
+    validate_frontend_test_wrapper(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )

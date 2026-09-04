@@ -30,7 +30,7 @@ The residual work — and the true source of effort — is threefold: (1) select
 specific* filler per axis, because the inferred store materialises the full ancestor closure;
 (2) recovering the minority of axes that are pre-coordinated only in the *label* (laterality,
 staging-manual version, "with/without <finding>") and are not carried as roles, which is where a
-handful of new concepts must be minted; and (3) designing a backward-compatible representation
+handful of new concepts must be minted; and (3) designing a source-anchor-retaining representation
 that keeps every legacy pre-coordinated code resolvable while linking it to its constituents.
 
 Recommended scope: **the Disease/Neoplasm branch** (Neoplastic Process 16,467 + Disease or
@@ -217,8 +217,9 @@ Proposed model (additive — no deletions):
 4. **Future post-coordination equivalence.** D43 supersedes the original optional-emission
    proposal: no current axis set can authorize `owl:equivalentClass`. Issue #153 must first
    provide a complete proof-bearing representation.
-5. **Deprecation policy:** legacy concepts are *retained indefinitely* (flagged), never retired,
-   guaranteeing backward compatibility. New authoring is steered to the post-coordinated form.
+5. **Deprecation policy:** legacy concepts are *retained indefinitely* (flagged), never retired.
+   This guarantees code retention and source-anchor resolution, not unchanged query, hierarchy,
+   reasoner, or search behavior. New authoring is steered to the post-coordinated form.
 
 The current constituent view is additive and non-destructive: it introduces annotations and association triples only, so a
 consumer that ignores them sees today's NCIt unchanged.
@@ -234,7 +235,7 @@ Scope = disease/neoplasm/regimen families (~26K role-bearing concepts), producti
 | Ingest **stated** NCIt OWL; build asserted-roles table | 0.5 pm | avoids inferred-closure bleed |
 | Filler-selection engine (most-specific per axis, Excludes_* filtering, morphology-from-parent) | 1.0 pm | core engineering; deterministic + testable |
 | NLP-fallback extractor (laterality, "with/without", version) + new-qualifier minting | 1.0 pm | long tail, curation-heavy |
-| Backward-compatible model + linker (annotations, `:hasConstituent`) | 0.75 pm | additive OWL/graph writes |
+| Source-anchor-retaining model + linker (annotations, `:hasConstituent`) | 0.75 pm | additive OWL/graph writes |
 | Curation & QA (sampling, clinician review, disjointness/consistency checks in Oxigraph) | 2.0–4.0 pm | dominant cost; scales with quality bar |
 | Governance, docs, release integration into fairdata pipeline | 0.5 pm | dual-representation policy, versioning |
 | **Total** | **~5.75–8.25 pm** | ~70% curation/QA, ~30% engineering |
@@ -261,11 +262,12 @@ curation rate before committing to the full pass.
 ## 9. Recommendation
 
 Proceed, scoped to the disease/neoplasm(/regimen) branch, in three phases: **(P1)** stated-OWL
-ingest + filler-selection spike on ~200 concepts; **(P2)** backward-compatible linker producing the
+ingest + filler-selection spike on ~200 concepts; **(P2)** source-anchor-retaining linker producing the
 legacy-flag + `:hasConstituent` graph for the full branch; **(P3)** NLP-fallback tail and governance.
 Exact-equivalence work is separately quarantined behind #153's proof-bearing representation. The feasibility question is settled favourably by
-the data: the constituents are already in NCIt (100% for roles), and the representation can be made
-backward-compatible without deleting or altering a single existing concept.
+the data: the constituents are already in NCIt (100% for roles), and the representation can retain
+every existing concept and source anchor without deletion or alteration. This is not a blanket
+backward-compatibility guarantee for enhanced-product behavior.
 
 ---
 

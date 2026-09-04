@@ -232,7 +232,7 @@ while the named terminology records are derivation evidence and alignments.
                           ┌───────────────┴──────────────────────────────┐
    REFERENCE PLANE        │  NCIt stated OWL (Cxxxxx) — NEVER MUTATED       │
    (canonical-of-record,  │  ← caDSR CDEs anchor here, unchanged           │
-   backward-compatible)   └────────────────────────────────────────────────┘
+   source-anchor-retained)└────────────────────────────────────────────────┘
 ```
 
 **Reading the stack bottom-up.** The NCIt stated OWL is the immutable base; the decomposition engine
@@ -289,7 +289,7 @@ emits is provisional NCIt content; other terminologies provide derivation eviden
 
 | Situation | Canonical plane | Why |
 |---|---|---|
-| Any concept/CDE that exists today | **NCIt** | Backward compatibility; caDSR anchoring; concept permanence [Cimino desiderata]. |
+| Any concept/CDE that exists today | **NCIt** | Historical requirement: source-code retention, caDSR anchoring, and concept permanence [Cimino desiderata], not blanket enhanced-product compatibility. |
 | New post-coordinated authoring | **Upstream (historical)** | Superseded by D60. |
 | Cross-terminology query / data exchange | **Upstream (historical)** | Superseded by D60. |
 | Future round-trip / reversibility proof | **NCIt** (via #153's complete `owl:equivalentClass` unfolding) | The current curated projection is not proof-bearing (D43). |

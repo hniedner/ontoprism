@@ -17,6 +17,7 @@ from scripts.validation.validate_opencode_config import (
     safe_read_text,
     validate,
     validate_forbidden_content,
+    validate_permission_shadow_order,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +47,10 @@ def config_root(tmp_path: Path) -> Path:
     shutil.copy2(
         ROOT / "scripts/validation/run_agent_github.py",
         scripts / "run_agent_github.py",
+    )
+    shutil.copy2(
+        ROOT / "scripts/validation/run_agent_frontend_test.py",
+        scripts / "run_agent_frontend_test.py",
     )
     return tmp_path
 
@@ -699,7 +704,7 @@ def test_r3_requires_exact_committed_diff_scope_allows(
     assert f"R3_PERMISSION: R3 must allow {pattern}" in validate(config_root)
 
 
-def test_r3_frontend_unit_permission_is_narrow_and_last_match_safe(
+def test_r3_frontend_unit_permission_is_wrapper_only_and_last_match_safe(
     config_root: Path,
 ) -> None:
     metadata, body = load_agent(
@@ -707,26 +712,24 @@ def test_r3_frontend_unit_permission_is_narrow_and_last_match_safe(
         Validation(config_root),
     )
     bash = metadata["permission"]["bash"]
-    allow = "npm --prefix frontend run test:unit -- --run *"
+    allow = "pdm run agent-frontend-test *"
 
     assert bash[allow] == "allow"
     assert bash["npm *"] == "deny"
     assert bash["npx *"] == "deny"
-    assert list(bash).index("npm *") < list(bash).index(allow)
     assert list(bash).index("*&*") > list(bash).index(allow)
     assert list(bash)[-2:] == ["*\n*", "*\r*"]
     assert "changed deterministic frontend tests" in body
-    assert "no package install, build, or publish" in body.lower()
+    assert "no raw npm/npx arguments" in body.lower()
 
 
 @pytest.mark.parametrize(
     ("old", "new", "expected"),
     [
         (
-            '    "npm --prefix frontend run test:unit -- --run *": allow\n',
+            '    "pdm run agent-frontend-test *": allow\n',
             "",
-            "R3_PERMISSION: R3 must allow npm --prefix frontend run test:unit "
-            "-- --run *",
+            "R3_PERMISSION: R3 must allow pdm run agent-frontend-test *",
         ),
         (
             '    "npm *": deny\n',
@@ -737,15 +740,6 @@ def test_r3_frontend_unit_permission_is_narrow_and_last_match_safe(
             '    "npx *": deny\n',
             "",
             "R3_PERMISSION: R3 must deny npx *",
-        ),
-        (
-            '    "npm *": deny\n'
-            '    "npx *": deny\n'
-            '    "npm --prefix frontend run test:unit -- --run *": allow\n',
-            '    "npx *": deny\n'
-            '    "npm --prefix frontend run test:unit -- --run *": allow\n'
-            '    "npm *": deny\n',
-            "R3_PERMISSION: R3 broad npm deny must precede the frontend unit allow",
         ),
     ],
 )
@@ -966,23 +960,9 @@ def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
         ),
         (
             ".opencode/agent/pr-test-analyzer.md",
-            '    "git status --porcelain": allow\n',
-            '    "git commit *": deny\n    "git status --porcelain": allow\n',
-            "R3_PERMISSION: pr-test-analyzer deny git commit * must follow all "
-            "Git allow rules",
-        ),
-        (
-            ".opencode/agent/pr-test-analyzer.md",
             '  bash:\n    "*": deny\n',
             "  bash:\n",
             "R3_PERMISSION: R3 bash permissions must place broad rule first",
-        ),
-        (
-            ".opencode/agent/architect.md",
-            '    "git show --stat --oneline HEAD": allow\n',
-            '    "git reset *": deny\n    "git show --stat --oneline HEAD": allow\n',
-            "ROLE_PERMISSION: architect deny git reset * must follow all Git "
-            "allow rules",
         ),
     ],
 )
@@ -1245,11 +1225,105 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     assert pyproject["tool"]["pdm"]["scripts"]["agent-test"] == (
         "python scripts/validation/run_agent_test.py"
     )
+    assert pyproject["tool"]["pdm"]["scripts"]["agent-frontend-test"] == (
+        "python scripts/validation/run_agent_frontend_test.py"
+    )
     assert pyproject["tool"]["pdm"]["scripts"]["agent-git"] == (
         "python scripts/validation/run_agent_git.py"
     )
     assert pyproject["tool"]["pdm"]["scripts"]["agent-replay"] == (
         "python -m scripts.validation.run_agent_replay"
+    )
+
+
+@pytest.mark.parametrize(
+    ("rules", "family"),
+    [
+        (
+            {
+                "npm --prefix frontend run test:unit -- --run *": "allow",
+                "npm *": "deny",
+            },
+            "npm",
+        ),
+        (
+            {
+                "pdm run agent-test --safe-integration *": "deny",
+                "pdm run agent-test *": "allow",
+            },
+            "pdm",
+        ),
+        ({"git push --force *": "deny", "git push *": "allow"}, "git"),
+    ],
+)
+def test_generic_permission_shadow_gate_rejects_deny_before_overlapping_allow(
+    rules: dict[str, str], family: str
+) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(validation, "TEST", "role", rules)
+
+    assert validation.errors == [
+        f"TEST: role {family} deny/allow overlap has unsafe last-match order"
+    ]
+
+
+def test_generic_permission_shadow_gate_accepts_disjoint_same_family_patterns() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {
+            "git status --porcelain": "allow",
+            "git push *": "deny",
+            "npm --prefix frontend run lint": "allow",
+            "npm publish*": "deny",
+        },
+    )
+
+    assert validation.errors == []
+
+
+def test_r3_safe_integration_deny_must_follow_agent_test_allow(
+    config_root: Path,
+) -> None:
+    relative = ".opencode/agent/pr-test-analyzer.md"
+    path = config_root / relative
+    text = path.read_text(encoding="utf-8")
+    deny = '    "pdm run agent-test --safe-integration *": deny\n'
+    assert deny in text
+    text = text.replace(deny, "")
+    allow = '    "pdm run agent-test *": allow\n'
+    assert allow in text
+    path.write_text(text.replace(allow, deny + allow), encoding="utf-8")
+
+    assert any(
+        error
+        == (
+            "R3_PERMISSION: pr-test-analyzer pdm deny/allow overlap has unsafe "
+            "last-match order"
+        )
+        for error in validate(config_root)
+    )
+
+
+def test_permission_actions_are_closed(config_root: Path) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-code-reviewer.md",
+        '    "git status --porcelain": allow\n',
+        '    "git status --porcelain": permit\n',
+    )
+
+    assert any(
+        error
+        == (
+            "ROLE_PERMISSION: pr-code-reviewer permission action for "
+            "bash/git status --porcelain must be allow, deny, or ask"
+        )
+        for error in validate(config_root)
     )
 
 
@@ -1338,6 +1412,7 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
     for required in (
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
+        '"pdm run agent-frontend-test *": allow',
         '"pdm run agent-git switch-existing *": allow',
         '"pdm run agent-git switch-new *": allow',
         '"pdm run agent-git delete-merged *": allow',

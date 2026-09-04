@@ -24,9 +24,14 @@ in [`../docs/DATA_SETUP.md`](../docs/DATA_SETUP.md).
 
 ## Quality and build
 
+`pdm run verify` from the repository root is authoritative. The npm commands below are useful for
+frontend debugging and are not the complete quality gate:
+
 ```sh
 npm --prefix frontend run test:unit -- --run
+npm --prefix frontend run test:coverage
 npm --prefix frontend run lint
 npm --prefix frontend run check
+npm --prefix frontend run fallow
 npm --prefix frontend run build
 ```
