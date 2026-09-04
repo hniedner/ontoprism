@@ -19,8 +19,9 @@ frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontol
 backend/src frontend/src`, which returned no matches, 2026-09-04). Current decomposition
 extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI --
 ontolib/src/ontolib/decomposition`, 2026-09-04; expected output includes stated-graph query clauses
-in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`, and diagnostic/review
-modules). The narrower additive-projection reader is confined to the decomposed graph (`git grep
+in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
+`fanout_baseline.py`, `enhanced_showcase.py` (import plus source-release `SELECT`), and
+diagnostic/review modules). The narrower additive-projection reader is confined to the decomposed graph (`git grep
 -n STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n
 DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, 2026-09-04; expected
 output is no result from the first command and the decomposed-graph query from the second).

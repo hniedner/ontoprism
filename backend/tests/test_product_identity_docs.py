@@ -28,17 +28,28 @@ _PRODUCT_IDENTITY_SURFACES = (
 _GENERATED_IDENTITY_SURFACES = ("CHANGELOG.md",)
 _FROZEN_IDENTITY_SURFACES = ("backend/tests/fixtures/d60.md",)
 _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES = {
-    "docs/design/ncit-alignment-integration.md": "D86 scope",
-    "docs/design/ncit-decomposition-assessment.md": "not a blanket",
+    "docs/design/ncit-alignment-integration.md": (
+        r"dual-canonical",
+        r"superseded by D60",
+    ),
+    "docs/design/ncit-decomposition-assessment.md": (
+        r"backward-compatibility",
+        r"not a blanket",
+    ),
     "docs/design/ncit-decomposition-engine.md": (
-        "not an enhanced-product compatibility claim"
+        r"compatibility claim",
+        r"not an enhanced-product",
     ),
     "docs/postcoordination-literature-review.md": (
-        "not a blanket backward-compatibility guarantee"
+        r"backward-compatibility",
+        r"specified reasoner, entailment profile, and query pattern.*not a blanket",
     ),
-    "ontolib/tests/decomposition/golden/README.md": "historical promotion",
+    "ontolib/tests/decomposition/golden/README.md": (
+        r"upstream staging producer",
+        r"historical promotion.*current machine readiness",
+    ),
 }
-_HISTORICAL_OVERCLAIM_DECISIONS = frozenset({"D24"})
+_HISTORICAL_OVERCLAIM_DECISIONS = frozenset({24})
 _CORRECTION_CONTRACT_SURFACES = (
     "README.md",
     "AGENTS.md",
@@ -202,7 +213,7 @@ def _assert_no_current_overclaim(text: str) -> None:
             decision = re.match(r"\n### (D\d+)\.", heading)
             if (
                 decision is not None
-                and decision.group(1) in _HISTORICAL_OVERCLAIM_DECISIONS
+                and int(decision.group(1)[1:]) in _HISTORICAL_OVERCLAIM_DECISIONS
             ):
                 continue
             separator = text.rfind("\n\n", 0, match.start())
@@ -251,6 +262,24 @@ def _assert_no_false_correction_claim(text: str) -> None:
     )
     for claim in forbidden:
         assert re.search(claim, text, flags=re.IGNORECASE) is None, claim
+
+
+def _assert_boundary_claim_is_locally_scoped(
+    text: str, boundary: str, qualifier: str
+) -> None:
+    matches = tuple(re.finditer(boundary, text, flags=re.IGNORECASE))
+    assert matches, boundary
+    for match in matches:
+        paragraph_start = text.rfind("\n\n", 0, match.start())
+        paragraph_end = text.find("\n\n", match.end())
+        paragraph = text[
+            paragraph_start + 2 if paragraph_start >= 0 else 0 : paragraph_end
+            if paragraph_end >= 0
+            else len(text)
+        ]
+        assert re.search(qualifier, " ".join(paragraph.split()), flags=re.IGNORECASE), (
+            match.group(0)
+        )
 
 
 @pytest.mark.unit
@@ -395,10 +424,63 @@ def test_historical_scientific_compatibility_claims_are_locally_scoped() -> None
     assert "not a blanket backward-compatibility guarantee" in literature
     assert "guarantees code retention and source-anchor resolution" in assessment
     assert "not a blanket\nbackward-compatibility guarantee" in assessment
-    for path, required_scope_marker in _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES.items():
-        assert required_scope_marker in _read(path), path
+    for path, (boundary, qualifier) in _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES.items():
+        _assert_boundary_claim_is_locally_scoped(_read(path), boundary, qualifier)
     assert _GENERATED_IDENTITY_SURFACES == ("CHANGELOG.md",)
     assert _FROZEN_IDENTITY_SURFACES == (_D60_FIXTURE,)
+
+
+@pytest.mark.unit
+def test_historical_scope_gate_rejects_a_remote_qualifier() -> None:
+    with pytest.raises(AssertionError, match="backward compatibility"):
+        _assert_boundary_claim_is_locally_scoped(
+            "This section is historical and not a blanket guarantee.\n\n"
+            "The enhanced product preserves backward compatibility.",
+            r"backward compatibility",
+            r"historical.*not a blanket",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("path", "qualified", "overclaim"),
+    [
+        (
+            "docs/postcoordination-literature-review.md",
+            "it is not a blanket backward-compatibility guarantee",
+            "it establishes backward-compatibility",
+        ),
+        (
+            "docs/design/ncit-decomposition-assessment.md",
+            "This is not a blanket\nbackward-compatibility guarantee",
+            "This establishes\nbackward-compatibility",
+        ),
+        (
+            "docs/design/ncit-decomposition-engine.md",
+            "not an enhanced-product compatibility claim",
+            "an enhanced-product compatibility claim",
+        ),
+        (
+            "ontolib/tests/decomposition/golden/README.md",
+            "upstream staging producer for historical promotion and\nreproduction",
+            "upstream staging producer for promotion and\nreproduction",
+        ),
+    ],
+)
+def test_each_historical_boundary_qualification_has_a_live_reject_branch(
+    path: str, qualified: str, overclaim: str
+) -> None:
+    boundary, qualifier = _HISTORICAL_SCIENTIFIC_IDENTITY_SURFACES[path]
+    text = _read(path)
+    assert qualified in text
+
+    with pytest.raises(AssertionError):
+        _assert_boundary_claim_is_locally_scoped(
+            "A separate section is historical and not a blanket guarantee.\n\n"
+            + text.replace(qualified, overclaim, 1),
+            boundary,
+            qualifier,
+        )
 
 
 @pytest.mark.unit
@@ -546,12 +628,12 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
         "`NewEnhancedEntity`",
         "forbids official entity references",
         "`EntityCrosswalkOutcome`",
-        "`unchanged`, `edited`, `split`, `merge`, `replacement`, or `new`",
+        "`unchanged`, `edited`, `split`, `merged`, `replacement`, or `new`",
         "cardinality is derived from endpoint sets and is never stored unchecked",
         "| `new` | 0 → 1 |",
         "| `unchanged`, `edited`, and `replacement` | 1 → 1 |",
         "| `split` | 1 → N, N ≥ 2 |",
-        "| `merge` | M → 1, M ≥ 2 |",
+        "| `merged` | M → 1, M ≥ 2 |",
         "`complex-restructure` requiring human review",
         "`AssertionDeltaKind`",
         "`added-to-effective`, `removed-from-effective`, `replaced-in-effective`, "
@@ -576,6 +658,19 @@ def test_documents_target_entity_crosswalk_and_assertion_types() -> None:
         "humanReviewRequired: true, reason: NonEmptyText }"
     ) in " ".join(routing.split())
     assert "additional many-to-many arity family" in design_flat.lower()
+
+    crosswalk = " ".join(
+        _canonical_type_block(design, "EntityCrosswalkOutcome").split()
+    )
+    for variant in (
+        "new { target }",
+        "unchanged { source, target, exactChangeSet: Empty }",
+        "edited { source, target, exactChangeSet: NonEmpty }",
+        "replacement { source, target, exactChangeSet: NonEmpty }",
+        "split { source, targets: Set<N>, N ≥ 2, exactChangeSet: NonEmpty }",
+        "merged { sources: Set<M>, M ≥ 2, target, exactChangeSet: NonEmpty }",
+    ):
+        assert variant in crosswalk
 
 
 @pytest.mark.unit
@@ -706,7 +801,8 @@ def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() 
         "`SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`",
         "`NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{component}/{generation_id}`",
         "`NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{component}`",
-        "`component` is `source.casefold()` with each non-alphanumeric run replaced "
+        "`component` is `source.casefold()` with each run outside ASCII "
+        "`[a-z0-9]` replaced "
         "by `-` and leading/trailing `-` removed",
         "must not be represented as an official NCI identifier",
         "future enhanced export must use an OntoPrism-governed enhanced namespace",
@@ -721,7 +817,8 @@ def test_documents_current_graph_iri_debt_and_source_containment_are_explicit() 
     alignment = " ".join(_read("docs/design/ncit-alignment-integration.md").split())
     assert "generation/{component}/{generation_id}" in alignment
     assert (
-        "`component` is `source.casefold()` with each non-alphanumeric run replaced "
+        "`component` is `source.casefold()` with each run outside ASCII "
+        "`[a-z0-9]` replaced "
         "by `-` and leading/trailing `-` removed"
     ) in alignment
 

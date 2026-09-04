@@ -10,6 +10,8 @@ from typing import Never
 import pytest
 from scripts.validation.run_agent_test import (
     AgentTestInputError,
+    AgentTestInvocation,
+    FrontendTestPath,
     _subprocess_runner,
     build_pytest_invocation,
     run_agent_test,
@@ -162,9 +164,56 @@ def test_agent_test_builds_multi_file_frontend_invocation_from_tracked_inventory
         "src/lib/components/card.spec.ts",
     )
     assert invocation.frontend_tests == (
-        "frontend/src/lib/api.test.ts",
-        "frontend/src/lib/components/card.spec.ts",
+        FrontendTestPath("frontend/src/lib/api.test.ts", "src/lib/api.test.ts"),
+        FrontendTestPath(
+            "frontend/src/lib/components/card.spec.ts",
+            "src/lib/components/card.spec.ts",
+        ),
     )
+
+
+def test_agent_test_rejects_multi_file_frontend_filter(
+    complete_test_root: Path,
+) -> None:
+    with pytest.raises(
+        AgentTestInputError,
+        match="frontend name filter requires exactly one test path",
+    ):
+        build_pytest_invocation(
+            [
+                "--frontend",
+                "frontend/src/lib/api.test.ts",
+                "frontend/src/lib/components/card.spec.ts",
+                "-t",
+                "safe component",
+            ],
+            complete_test_root,
+            tracked_frontend_paths=frozenset(
+                {
+                    "frontend/src/lib/api.test.ts",
+                    "frontend/src/lib/components/card.spec.ts",
+                }
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mode", "frontend_tests"),
+    [
+        ("frontend", ()),
+        (
+            "pytest",
+            (FrontendTestPath("frontend/src/lib/api.test.ts", "src/lib/api.test.ts"),),
+        ),
+    ],
+)
+def test_agent_test_invocation_rejects_inconsistent_frontend_state(
+    mode: str, frontend_tests: tuple[FrontendTestPath, ...]
+) -> None:
+    with pytest.raises(
+        ValueError, match="frontend test paths must match frontend mode"
+    ):
+        AgentTestInvocation(("test",), Path("."), mode, frontend_tests)  # type: ignore[arg-type]
 
 
 def test_agent_test_rejects_untracked_frontend_file(complete_test_root: Path) -> None:
@@ -670,9 +719,11 @@ def test_agent_test_rejects_success_when_any_requested_file_has_no_executed_asse
         )
         == expected
     )
-    assert (
-        capsys.readouterr().err
-        == "frontend test report did not execute every requested file\n"
+    assert capsys.readouterr().err == (
+        "frontend diagnostic:\n"
+        "frontend test report omitted or did not execute: "
+        "frontend/src/lib/components/card.spec.ts\n"
+        "frontend test report did not execute every requested file\n"
     )
 
 
@@ -1009,7 +1060,12 @@ def test_frontend_timeout_is_sanitized_and_nonzero(
     complete_test_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def time_out(arguments: tuple[str, ...], **_kwargs: object) -> Never:
-        raise subprocess.TimeoutExpired(arguments, 300)
+        raise subprocess.TimeoutExpired(
+            arguments,
+            300,
+            output=b"token=timeout-secret\npartial progress",
+            stderr=b"Authorization: Bearer timeout-bearer",
+        )
 
     assert (
         run_agent_test(
@@ -1020,7 +1076,16 @@ def test_frontend_timeout_is_sanitized_and_nonzero(
         )
         == 3
     )
-    assert capsys.readouterr().err == "frontend test timed out\n"
+    captured = capsys.readouterr().err
+    assert captured == (
+        "frontend test timed out\n"
+        "frontend diagnostic:\n"
+        "token=[REDACTED]\n"
+        "partial progress\n"
+        "Authorization=[REDACTED]\n"
+    )
+    assert "timeout-secret" not in captured
+    assert "timeout-bearer" not in captured
 
 
 def test_subprocess_timeout_tolerates_exited_group_and_drains_once(
@@ -1052,7 +1117,6 @@ def test_subprocess_timeout_tolerates_exited_group_and_drains_once(
             cwd=Path("."),
             env={},
             shell=False,
-            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=1,

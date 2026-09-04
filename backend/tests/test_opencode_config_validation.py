@@ -1236,6 +1236,20 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     )
 
 
+def test_agent_test_wrapper_validator_rejects_missing_process_safety_primitives(
+    config_root: Path,
+) -> None:
+    wrapper = config_root / "scripts/validation/run_agent_test.py"
+    source = wrapper.read_text(encoding="utf-8")
+    assert "shell=False" in source
+    wrapper.write_text(source.replace("shell=False", "shell=True"), encoding="utf-8")
+
+    assert (
+        "FRONTEND_TEST_WRAPPER: agent-test wrapper must execute with shell=False"
+        in validate(config_root)
+    )
+
+
 def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     install = "      - name: Install\n        run: npm ci\n"
@@ -1263,6 +1277,40 @@ def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> No
         assert f"- '{path}'" in frontend_filter
 
 
+def test_ci_python_and_frontend_trigger_filters_cover_inspected_contract_inputs() -> (
+    None
+):
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    backend_filter = workflow.split("            backend:\n", 1)[1].split(
+        "            frontend:\n", 1
+    )[0]
+    frontend_filter = workflow.split("            frontend:\n", 1)[1].split(
+        "            embeddings:\n", 1
+    )[0]
+
+    for path in (
+        ".opencode/**",
+        "AGENTS.md",
+        "CLAUDE.local.md",
+        "README.md",
+        "docs/**",
+        "frontend/README.md",
+        "pyproject.toml",
+        "scripts/**",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in backend_filter
+    for path in (
+        "frontend/**",
+        "pyproject.toml",
+        "scripts/validation/run_agent_test.py",
+        "scripts/validation/validate_opencode_config.py",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in frontend_filter
+    assert "- 'docs/**'" not in frontend_filter
+
+
 @pytest.mark.parametrize(
     ("rules", "family"),
     [
@@ -1283,6 +1331,19 @@ def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> No
         ({"git push --force *": "deny", "git push *": "allow"}, "git"),
         ({"cp private-* *": "deny", "cp *": "allow"}, "cp"),
         ({"future-tool dangerous *": "deny", "future-tool *": "allow"}, "future-tool"),
+        ({"git push *": "deny", "git * --dry-run": "allow"}, "git"),
+        (
+            {
+                "pdm run agent-test --safe-integration *": "deny",
+                "pdm run * --dry-run": "allow",
+            },
+            "pdm",
+        ),
+        ({"cp private-* *": "deny", "cp * public-*": "allow"}, "cp"),
+        (
+            {"future-tool literal-*": "deny", "future-tool * --preview": "allow"},
+            "future-tool",
+        ),
     ],
 )
 def test_generic_permission_shadow_gate_rejects_deny_before_overlapping_allow(
@@ -1350,7 +1411,25 @@ def test_generic_permission_shadow_gate_rejects_late_allow_catch_all() -> None:
     )
 
     assert validation.errors == [
-        "TEST: role catch-all allow shadows earlier command rules"
+        "TEST: role bash catch-all must be the first command rule"
+    ]
+
+
+@pytest.mark.parametrize("action", ["deny", "ask"])
+def test_generic_permission_shadow_gate_rejects_any_late_catch_all(
+    action: str,
+) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"git status --porcelain": "allow", "*": action},
+    )
+
+    assert validation.errors == [
+        "TEST: role bash catch-all must be the first command rule"
     ]
 
 

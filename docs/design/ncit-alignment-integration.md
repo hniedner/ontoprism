@@ -629,7 +629,7 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 
 Each source publishes an immutable named graph under
 `Thesaurus-upstream-xref.owl/generation/{component}/{generation_id}`, where `component` is
-`source.casefold()` with each non-alphanumeric run replaced by `-` and leading/trailing `-`
+`source.casefold()` with each run outside ASCII `[a-z0-9]` replaced by `-` and leading/trailing `-`
 removed. A separate
 source-specific pointer graph identifies the active generation. Publication reconciles
 the PostgreSQL and RDF pointers under one source lock; reads never combine inactive

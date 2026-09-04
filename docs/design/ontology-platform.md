@@ -21,8 +21,9 @@ authoring, correction system, or permanent release-forward reconciliation curren
 OntologyAdapter -- ontolib/src backend/src frontend/src`, which returned no matches,
 2026-09-04). Current extraction and analysis read the official stated NCIt source (`git grep -n
 STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition`, expected output: stated-graph query clauses
-in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`, and diagnostic/review
-modules, 2026-09-04). The specific additive projection reader is different: `read_queries.py`
+in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
+`fanout_baseline.py`, `enhanced_showcase.py` (import plus source-release `SELECT`), and
+diagnostic/review modules, 2026-09-04). The specific additive projection reader is different: `read_queries.py`
 contains no `STATED_GRAPH_IRI` reference and targets `DECOMPOSED_GRAPH_IRI` (`git grep -n
 STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n
 DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, expected output: no
@@ -64,7 +65,7 @@ authored scoped derivative shares that debt: decomposition uses
 `SHOWCASE_GRAPH_IRI/staging/{sha256(run_id)}`; and xref publication uses
 `NCIT_UPSTREAM_XREF_GRAPH_IRI/generation/{component}/{generation_id}` plus
 `NCIT_UPSTREAM_XREF_GRAPH_IRI/active/{component}`. Here `component` is `source.casefold()` with each
-non-alphanumeric run replaced by `-` and leading/trailing `-` removed. These shapes are shown by `git grep -n
+run outside ASCII `[a-z0-9]` replaced by `-` and leading/trailing `-` removed. These shapes are shown by `git grep -n
 "def staging_graph_iri\|def showcase_staging_graph_iri\|def generation_graph_iri\|def active_graph_iri" --
 ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
@@ -185,7 +186,7 @@ from official source authority.
 
 That shape makes an inconsistent optional source mapping unrepresentable. An unchanged rendition is
 representable as derived. `EntityCrosswalkOutcome` is exactly `unchanged`, `edited`, `split`,
-`merge`, `replacement`, or `new`; cardinality is derived from endpoint sets and is never stored
+`merged`, `replacement`, or `new`; cardinality is derived from endpoint sets and is never stored
 unchecked:
 
 ```text
@@ -194,17 +195,27 @@ EnhancedEntityOrigin =
   | NewEnhancedEntity { officialEntityRefs: Absent }
 ```
 
+```text
+EntityCrosswalkOutcome =
+  new { target }
+  | unchanged { source, target, exactChangeSet: Empty }
+  | edited { source, target, exactChangeSet: NonEmpty }
+  | replacement { source, target, exactChangeSet: NonEmpty }
+  | split { source, targets: Set<N>, N ≥ 2, exactChangeSet: NonEmpty }
+  | merged { sources: Set<M>, M ≥ 2, target, exactChangeSet: NonEmpty }
+```
+
 | Outcome | Official → enhanced arity |
 |---|---|
 | `new` | 0 → 1 |
 | `unchanged`, `edited`, and `replacement` | 1 → 1 |
 | `split` | 1 → N, N ≥ 2 |
-| `merge` | M → 1, M ≥ 2 |
+| `merged` | M → 1, M ≥ 2 |
 
 `unchanged` is valid if and only if one official endpoint maps to one enhanced endpoint and the exact
 change set is empty. A many-to-many case cannot inhabit `EntityCrosswalkOutcome`; if required, it is
 routed to a distinct `complex-restructure` requiring human review rather than overloaded onto split
-or merge. Qualification is an assertion operation, not necessarily an entity-crosswalk change.
+or merged. Qualification is an assertion operation, not necessarily an entity-crosswalk change.
 
 The routing artifact has an explicit type home:
 
@@ -258,10 +269,10 @@ CadsrEnhancedResolution =
 Split, merged, and ambiguous results retain their cardinality distinctions. Complex restructuring
 preserves both endpoint sets and refuses automatic resolution pending human review.
 
-The three routing/resolution result families are not interchangeable: `CrosswalkRouting` describes
+The four result families are not interchangeable: `CrosswalkRouting` describes
 entity endpoint structure or explicit many-to-many restructuring, `CadsrEnhancedResolution` resolves
 a caDSR official anchor through the crosswalk, and `MigrationReferenceOutcome` combines routing with
-consumer context and may refuse. Separately, `AssertionDeltaKind` describes an exact axiom operation.
+consumer context and may refuse, while `AssertionDeltaKind` describes an exact axiom operation.
 A caDSR one-to-many result remains a split with all targets
 unless a further qualified, approved mapping makes it unique; multiple competing or incomplete
 records are ambiguous rather than split.

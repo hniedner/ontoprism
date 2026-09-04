@@ -54,13 +54,25 @@ class AgentTestInputError(ValueError):
 
 
 @dataclass(frozen=True)
+class FrontendTestPath:
+    """Validated repository and Vitest-relative names for one frontend test."""
+
+    repo_relative: str
+    vitest_path: str
+
+
+@dataclass(frozen=True)
 class AgentTestInvocation:
-    """A validated fixed-cwd test invocation."""
+    """A validated fixed-cwd test invocation with mode-consistent frontend paths."""
 
     arguments: tuple[str, ...]
     cwd: Path
     mode: AgentTestMode
-    frontend_tests: tuple[str, ...] = ()
+    frontend_tests: tuple[FrontendTestPath, ...] = ()
+
+    def __post_init__(self) -> None:
+        if bool(self.frontend_tests) != (self.mode == "frontend"):
+            raise ValueError("frontend test paths must match frontend mode")
 
 
 @dataclass(frozen=True)
@@ -90,7 +102,6 @@ class CommandRunner(Protocol):
         cwd: Path,
         env: dict[str, str],
         shell: Literal[False],
-        check: Literal[False],
         stdout: int | None,
         stderr: int | None,
         timeout: int | None,
@@ -104,7 +115,6 @@ def _subprocess_runner(
     cwd: Path,
     env: dict[str, str],
     shell: Literal[False],
-    check: Literal[False],
     stdout: int | None,
     stderr: int | None,
     timeout: int | None,
@@ -124,13 +134,22 @@ def _subprocess_runner(
     except subprocess.TimeoutExpired as exc:
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
+        drained_stdout = exc.output
+        drained_stderr = exc.stderr
         try:
-            process.communicate(timeout=PROCESS_DRAIN_TIMEOUT_SECONDS)
+            drained_stdout, drained_stderr = process.communicate(
+                timeout=PROCESS_DRAIN_TIMEOUT_SECONDS
+            )
         except subprocess.TimeoutExpired:
             with suppress(ProcessLookupError):
                 process.kill()
-        raise subprocess.TimeoutExpired(arguments, timeout or 0) from exc
-    _ = check
+            drained_stdout, drained_stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            arguments,
+            timeout or 0,
+            output=drained_stdout,
+            stderr=drained_stderr,
+        ) from exc
     return subprocess.CompletedProcess(
         arguments, process.returncode, process_stdout, process_stderr
     )
@@ -198,7 +217,7 @@ def _tracked_frontend_paths(root: Path) -> frozenset[str]:
 
 def _validate_frontend_path(
     node: str, root: Path, tracked_paths: frozenset[str]
-) -> tuple[PurePosixPath, str]:
+) -> FrontendTestPath:
     _reject_shell_syntax(node)
     candidate, resolved = _resolve_owned_node(node, root, FRONTEND_TEST_ROOTS)
     if candidate.as_posix() not in tracked_paths:
@@ -213,7 +232,10 @@ def _validate_frontend_path(
     if not resolved.is_file():
         raise AgentTestInputError("frontend test path must name a file")
     frontend = (root / "frontend").resolve()
-    return candidate, resolved.relative_to(frontend).as_posix()
+    return FrontendTestPath(
+        repo_relative=candidate.as_posix(),
+        vitest_path=resolved.relative_to(frontend).as_posix(),
+    )
 
 
 def _build_frontend_invocation(
@@ -240,6 +262,10 @@ def _build_frontend_invocation(
             raise AgentTestInputError("frontend test name is unsupported")
         filter_arguments = ("-t", name)
         path_arguments = arguments[:filter_index]
+        if len(path_arguments) != 1:
+            raise AgentTestInputError(
+                "frontend name filter requires exactly one test path"
+            )
     elif any(argument.startswith("-") for argument in arguments):
         raise AgentTestInputError("unsupported frontend test option")
     inventory = (
@@ -248,7 +274,7 @@ def _build_frontend_invocation(
     validated = tuple(
         _validate_frontend_path(node, root, inventory) for node in path_arguments
     )
-    requested = tuple(candidate.as_posix() for candidate, _ in validated)
+    requested = tuple(path.repo_relative for path in validated)
     if len(set(requested)) != len(requested):
         raise AgentTestInputError("frontend test paths must be unique")
     frontend = (root / "frontend").resolve()
@@ -266,12 +292,12 @@ def _build_frontend_invocation(
         (
             str(executable.resolve()),
             "run",
-            *(relative for _, relative in validated),
+            *(path.vitest_path for path in validated),
             *filter_arguments,
         ),
         frontend,
         "frontend",
-        requested,
+        validated,
     )
 
 
@@ -497,12 +523,12 @@ def _vitest_assertions(report: dict[str, object]) -> tuple[dict[object, object],
 
 
 def _vitest_executed_requested_files(
-    report: dict[str, object], requested: tuple[str, ...]
-) -> bool:
+    report: dict[str, object], requested: tuple[FrontendTestPath, ...]
+) -> frozenset[FrontendTestPath]:
     results = report.get("testResults")
     if not isinstance(results, list):
         raise AgentTestInputError("frontend test report is invalid")
-    executed: set[str] = set()
+    executed: set[FrontendTestPath] = set()
     for result in results:
         if not isinstance(result, dict):
             raise AgentTestInputError("frontend test report is invalid")
@@ -515,11 +541,12 @@ def _vitest_executed_requested_files(
         if any(
             assertion.get("status") in {"passed", "failed"} for assertion in assertions
         ):
-            normalized = name.replace("\\", "/")
+            normalized = PurePosixPath(name.replace("\\", "/"))
             for path in requested:
-                if normalized.endswith(f"/{path}"):
+                requested_parts = PurePosixPath(path.repo_relative).parts
+                if normalized.parts[-len(requested_parts) :] == requested_parts:
                     executed.add(path)
-    return executed == set(requested)
+    return frozenset(set(requested) - executed)
 
 
 def _vitest_failure_names(report: dict[str, object], failed: int) -> tuple[str, ...]:
@@ -621,23 +648,32 @@ def _frontend_result(
     child_status: int,
     *,
     diagnostic: str,
-    requested: tuple[str, ...],
+    requested: tuple[FrontendTestPath, ...],
 ) -> int:
     try:
         payload = report_path.read_text(encoding="utf-8")
         report = _parse_vitest_report(payload)
         passed, failed = _vitest_counts(report)
         names = _vitest_failure_names(report, failed)
-        executed_every_requested_file = _vitest_executed_requested_files(
-            report, requested
-        )
+        unexecuted = _vitest_executed_requested_files(report, requested)
     except OSError, UnicodeDecodeError, AgentTestInputError:
         print("frontend test report is invalid", file=sys.stderr)
         _print_frontend_diagnostic(diagnostic)
         return 3
     if passed + failed == 0:
         return _no_frontend_tests_result(child_status, diagnostic)
-    if not executed_every_requested_file:
+    if unexecuted:
+        missing = ", ".join(sorted(path.repo_relative for path in unexecuted))
+        _print_frontend_diagnostic(
+            "\n".join(
+                part
+                for part in (
+                    diagnostic,
+                    f"frontend test report omitted or did not execute: {missing}",
+                )
+                if part
+            )
+        )
         print(
             "frontend test report did not execute every requested file",
             file=sys.stderr,
@@ -701,7 +737,6 @@ def run_agent_test(
                 cwd=invocation.cwd,
                 env=_controlled_environment(),
                 shell=False,
-                check=False,
                 stdout=subprocess.PIPE if invocation.mode == "frontend" else None,
                 stderr=subprocess.PIPE if invocation.mode == "frontend" else None,
                 timeout=(
@@ -709,9 +744,18 @@ def run_agent_test(
                 ),
                 start_new_session=invocation.mode == "frontend",
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             label = "frontend test" if invocation.mode == "frontend" else "test process"
             print(f"{label} timed out", file=sys.stderr)
+            if invocation.mode == "frontend":
+                _print_frontend_diagnostic(
+                    _sanitize_frontend_diagnostic(
+                        exc.output,
+                        exc.stderr,
+                        root=root.resolve(),
+                        temporary=Path(temporary),
+                    )
+                )
             return 3
         except FileNotFoundError, PermissionError:
             print("required test executable is unavailable", file=sys.stderr)

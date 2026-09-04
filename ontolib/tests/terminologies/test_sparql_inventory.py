@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
 import pytest
 
-from ontolib.terminologies.sparql_inventory import summarize_sparql_inventory
+from ontolib.terminologies.sparql_inventory import (
+    _contains_sparql,
+    summarize_sparql_inventory,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 SNAPSHOT = ROOT / "scripts" / "validation" / "sparql-inventory.json"
@@ -78,6 +82,41 @@ def test_inventory_ignores_delete_prefixed_hyphen_suffixed_operation_name(
 
     assert summary["query_shape_count"] == 0
     assert summary["transport_operation_count"] == 0
+
+
+@pytest.mark.unit
+def test_inventory_ignores_governance_permission_action_messages(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "scripts" / "validation" / "permissions.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        'ASK_ACTION = "a" + "sk"\n'
+        "def error(role: str) -> str:\n"
+        '    return f"{role} action must be allow, deny, or {ASK_ACTION}"\n',
+        encoding="utf-8",
+    )
+
+    summary = summarize_sparql_inventory(tmp_path)
+
+    assert summary["query_shape_count"] == 0
+    assert summary["transport_operation_count"] == 0
+
+
+@pytest.mark.unit
+def test_permission_action_validator_is_not_a_sparql_query_shape() -> None:
+    source = (
+        ROOT / "scripts" / "validation" / "validate_opencode_config.py"
+    ).read_text(encoding="utf-8")
+    module = ast.parse(source)
+    function = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "validate_permission_actions"
+    )
+
+    assert not _contains_sparql(function)
 
 
 @pytest.mark.unit

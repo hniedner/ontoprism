@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import json
 import os
@@ -11,7 +12,7 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -211,8 +212,9 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
-# These are the only leading-wildcard command patterns classified as intentional
-# cross-family guards. Any other leading wildcard is unclassifiable and rejected.
+# Together with the catch-all and explicit metacharacter/line-break guards, these are
+# the only leading-wildcard patterns exempt from command-family overlap analysis.
+# Any other leading wildcard is unclassifiable and rejected.
 CROSS_COMMAND_DENIES = (
     "*agent-git*",
     "* /U?ers/*",
@@ -225,6 +227,7 @@ CROSS_COMMAND_DENIES = (
     "* --config *",
 )
 ASK_ACTION = "a" + "sk"
+type PermissionAction = Literal["allow", "deny", "ask"]
 WRITER_HARD_DENIES = (
     "pdm install*",
     "pip install*",
@@ -425,7 +428,7 @@ def validate_permission_actions(
     permission = metadata.get("permission")
     if not isinstance(permission, dict):
         return
-    allowed = {"allow", "deny", ASK_ACTION}
+    allowed: frozenset[PermissionAction] = frozenset({"allow", "deny", ASK_ACTION})
     for tool, rule in permission.items():
         if isinstance(rule, dict):
             entries = (
@@ -437,7 +440,8 @@ def validate_permission_actions(
             if action not in allowed:
                 validation.error(
                     "ROLE_PERMISSION",
-                    f"{role} permission action for {label} must be allow, deny, or ask",
+                    f"{role} permission action for {label} must be allow, deny, "
+                    f"or {ASK_ACTION}",
                 )
 
 
@@ -508,9 +512,10 @@ def require_bash_rules(
 
 
 def _command_family(pattern: str) -> str | None:
-    """Return a generic literal family.
+    """Return a literal command family or ``None`` for explicit global guards.
 
-    Leading globs require an explicit cross-command guard.
+    The catch-all, shell-metacharacter, line-break, and ``CROSS_COMMAND_DENIES``
+    patterns are intentional cross-command rules. Other leading globs are rejected.
     """
     if pattern == "*" or pattern in {
         *SHELL_METACHARACTER_DENIES,
@@ -532,18 +537,36 @@ def _pattern_covers(broad: str, narrow: str) -> bool:
 
 
 def _unsafe_shadow_order(
-    rules: list[tuple[str, Any]], deny_index: int, deny_pattern: str, family: str
+    rules: list[tuple[str, Any]],
+    families: dict[str, str | None],
+    deny_index: int,
+    deny_pattern: str,
+    family: str,
 ) -> bool:
     for allow_index, (allow_pattern, allow_action) in enumerate(rules):
-        try:
-            allow_family = _command_family(allow_pattern)
-        except ValueError:
-            continue
+        allow_family = families[allow_pattern]
         if allow_action != "allow" or allow_family != family:
             continue
         deny_covers_allow = _pattern_covers(deny_pattern, allow_pattern)
         allow_covers_deny = _pattern_covers(allow_pattern, deny_pattern)
         if not deny_covers_allow and not allow_covers_deny:
+            deny_tokens = deny_pattern.split()
+            allow_tokens = allow_pattern.split()
+            demonstrably_disjoint = (
+                not set("*?") & set(deny_pattern)
+                or not set("*?") & set(allow_pattern)
+                or (
+                    len(deny_tokens) > 1
+                    and len(allow_tokens) > 1
+                    and not set("*?") & set(deny_tokens[1])
+                    and not set("*?") & set(allow_tokens[1])
+                    and deny_tokens[1] != allow_tokens[1]
+                )
+            )
+            if demonstrably_disjoint:
+                continue
+            if deny_index < allow_index:
+                return True
             continue
         if deny_covers_allow and not allow_covers_deny:
             if deny_index > allow_index:
@@ -559,14 +582,14 @@ def validate_permission_shadow_order(
     role: str,
     bash: dict[str, Any],
 ) -> None:
-    """Check catch-all and same-family deny/allow overlaps under last-match rules."""
+    """Require catch-all first and safe same-family order under last-match rules."""
     rules = list(bash.items())
-    for index, (pattern, action) in enumerate(rules):
-        if pattern == "*" and action == "allow" and index > 0:
+    for index, (pattern, _action) in enumerate(rules):
+        if pattern == "*" and index > 0:
             validation.error(
-                code, f"{role} catch-all allow shadows earlier command rules"
+                code, f"{role} bash catch-all must be the first command rule"
             )
-            break
+            return
     reported: set[str] = set()
     families: dict[str, str | None] = {}
     for pattern, _ in rules:
@@ -585,7 +608,7 @@ def validate_permission_shadow_order(
             continue
         if family in reported:
             continue
-        if _unsafe_shadow_order(rules, deny_index, deny_pattern, family):
+        if _unsafe_shadow_order(rules, families, deny_index, deny_pattern, family):
             validation.error(
                 code,
                 f"{role} {family} deny/allow overlap has unsafe last-match order",
@@ -658,9 +681,31 @@ def validate_github_wrappers(validation: Validation) -> None:
 def validate_agent_test_wrapper(validation: Validation) -> None:
     wrapper = validation.require_file("scripts/validation/run_agent_test.py")
     if wrapper is None:
+        return
+    wrapper_source = safe_read_text(wrapper, validation, "FRONTEND_TEST_WRAPPER")
+    if wrapper_source is None:
+        return
+    try:
+        wrapper_tree = ast.parse(wrapper_source, filename=str(wrapper))
+    except SyntaxError:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "agent-test wrapper is not valid Python"
+        )
+        return
+    shell_keywords = [
+        keyword.value
+        for call in ast.walk(wrapper_tree)
+        if isinstance(call, ast.Call)
+        for keyword in call.keywords
+        if keyword.arg == "shell"
+    ]
+    literal_shell_values = [
+        value.value for value in shell_keywords if isinstance(value, ast.Constant)
+    ]
+    if False not in literal_shell_values or True in literal_shell_values:
         validation.error(
             "FRONTEND_TEST_WRAPPER",
-            "required file missing: scripts/validation/run_agent_test.py",
+            "agent-test wrapper must execute with shell=False",
         )
     pyproject = validation.require_file("pyproject.toml")
     if pyproject is None:

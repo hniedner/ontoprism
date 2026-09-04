@@ -216,7 +216,8 @@ pdm run test-smoke           # frontend vitest via npm
 - **Agent frontend single/focused test:** use only `pdm run agent-test --frontend
   <tracked-test-file> [<tracked-test-file> ...]`; it accepts exact tracked Vitest files under
   `frontend/src` and no Vitest configuration, setup, reporter, update, or output-path flags. An
-  optional final `-t <bounded-test-name>` filter is supported for implementer use; R3 uses exact
+  optional final `-t <bounded-test-name>` filter is supported for implementer use with exactly one
+  test path; R3 uses exact
   path-only commands. Human developers
   working outside an agent permission boundary may use `cd frontend && npx vitest run <path>` (or
   `-t <name>`) as a debugging command.
