@@ -19,6 +19,85 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.0 (2026-09-04)
+
+### Bug Fixes
+
+- **ci**: Keep runtime contract checkout-hermetic
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **deps**: Align frontend peers and generated history
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Align 3.14.7 runtime contracts
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Complete 3.14.7 migration contracts
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Enforce compatibility warning policy
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Finalize compatibility safeguards
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Harden 3.14 compatibility lane
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **test**: Cover checkout test support modules
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **test**: Cover effective unit decorator scopes
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **test**: Finalize checkout-owned input gate
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **test**: Harden checkout-owned input gate
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **test**: Require checkout-owned unit inputs
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+### Build System
+
+- **deps**: Refresh frontend and CI dependencies
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Add 3.14 compatibility
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Require Python 3.14.7
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Require Python 3.14.7 and refresh dependencies
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+### Documentation
+
+- Update README code line-count table
+  ([`cbd57e3`](https://github.com/hniedner/ontoprism/commit/cbd57e3963435930f8becf6d838f5d03ee254c97))
+
+- **python**: Clarify 3.14.7 gate semantics
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Clarify compatibility commands
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+### Refactoring
+
+- **test**: Tighten checkout gate types
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+### Testing
+
+- **ci**: Bind updated action pins
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+- **python**: Bind Ruff 3.14 target
+  ([`ef508ba`](https://github.com/hniedner/ontoprism/commit/ef508ba37abc5ee253590028a97ebcd9f03aad7b))
+
+
 ## v0.21.0 (2026-09-03)
 
 ### Bug Fixes
