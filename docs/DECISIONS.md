@@ -22,10 +22,16 @@ execute successfully, including noninteractive remote Git and refusal to edit cl
 pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
 agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
 
-The SPARQL inventory scanner excludes the DELETE-prefixed, hyphen-suffixed operation name
-`delete-merged` through `DELETE(?![-_])`, so that Git wrapper operation does not change the
-query inventory; its snapshot was regenerated after that scanner fix (`pdm run agent-replay
-refresh-sparql-inventory`, 2026-09-04).
+The scanner's `DELETE(?![-_])` alternative excludes `DELETE` followed immediately by a
+hyphen or underscore; `delete-merged` was the operation name that triggered the false match
+(`pdm run agent-test ontolib/tests/terminologies/test_sparql_inventory.py::test_inventory_ignores_delete_prefixed_hyphen_suffixed_operation_name
+-v`, 2026-09-04). The scanner fix changed the regenerated snapshot's query-shape count from
+301 to 296 (`git diff aa33d69^ aa33d69 -- scripts/validation/sparql-inventory.json`,
+2026-09-04). Fresh regeneration reports 296 query shapes with digest
+`eae718822b3d33a40d04cfe783df142a017c1491af0edef3125f6a1671b95f98` and 152 transport
+operations (`pdm run agent-replay refresh-sparql-inventory && jq
+'{query_shape_count,query_shapes_sha256,transport_operation_count}'
+scripts/validation/sparql-inventory.json`, 2026-09-04).
 
 The orchestrator's effective permission contract allows those wrapper invocations while raw
 Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote
