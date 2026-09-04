@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 UNSAFE_MESSAGE_CHARACTERS = frozenset("&;|><`$\\")
@@ -23,35 +25,91 @@ COMMIT_ARGUMENT_COUNT = 3
 MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
 MUTATION_TIMEOUT_SECONDS = 600
-REMOTE_UNKNOWN_MESSAGE = (
-    "Git operation outcome is unknown; inspect repository and remote state "
-    "before retrying"
-)
-MUTATION_FAILURE_MESSAGES = {
-    "switch-existing": (
-        "Git switch failed and may have changed repository state; inspect git status"
+OperationClass = Literal["read", "local-mutation", "remote-mutation"]
+CommandKind = Literal["branch", "commit", "remote"]
+
+
+@dataclass(frozen=True)
+class OperationClassSpec:
+    timeout: int
+    decode_error: str
+    timeout_error: str
+    os_error: str
+
+
+@dataclass(frozen=True)
+class OperationSpec:
+    command_kind: CommandKind
+    operation_class: OperationClass
+    failure: str
+
+
+OPERATION_CLASS_SPECS: dict[OperationClass, OperationClassSpec] = {
+    "read": OperationClassSpec(
+        timeout=PROCESS_TIMEOUT_SECONDS,
+        decode_error="Git produced undecodable output",
+        timeout_error="Git operation timed out",
+        os_error="Git process could not start",
     ),
-    "switch-new": (
+    "local-mutation": OperationClassSpec(
+        timeout=MUTATION_TIMEOUT_SECONDS,
+        decode_error="Git operation outcome is unknown; inspect git status",
+        timeout_error="Git operation outcome is unknown; inspect git status",
+        os_error="Git operation outcome is unknown; inspect git status",
+    ),
+    "remote-mutation": OperationClassSpec(
+        timeout=MUTATION_TIMEOUT_SECONDS,
+        decode_error=(
+            "Git operation outcome is unknown; inspect repository and remote state "
+            "before retrying"
+        ),
+        timeout_error=(
+            "Git operation outcome is unknown; inspect repository and remote state "
+            "before retrying"
+        ),
+        os_error=(
+            "Git operation outcome is unknown; inspect repository and remote state "
+            "before retrying"
+        ),
+    ),
+}
+OPERATION_SPECS: dict[str, OperationSpec] = {
+    "switch-existing": OperationSpec(
+        "branch",
+        "local-mutation",
+        "Git switch failed and may have changed repository state; inspect git status",
+    ),
+    "switch-new": OperationSpec(
+        "branch",
+        "local-mutation",
         "Git branch creation failed and may have changed repository state; "
-        "inspect git status"
+        "inspect git status",
     ),
-    "delete-merged": (
+    "delete-merged": OperationSpec(
+        "branch",
+        "local-mutation",
         "Git branch deletion failed and may have changed repository state; "
-        "inspect git status"
+        "inspect git status",
     ),
-    "merge-no-ff": (
-        "Git merge failed and may have changed repository state; inspect git status"
+    "merge-no-ff": OperationSpec(
+        "branch",
+        "local-mutation",
+        "Git merge failed and may have changed repository state; inspect git status",
     ),
-    "commit-staged": (
-        "Git commit failed and may have changed repository state; inspect git status"
+    "commit-staged": OperationSpec(
+        "commit",
+        "local-mutation",
+        "Git commit failed and may have changed repository state; inspect git status",
     ),
-    "pull-origin": (
-        "Git pull failed and its outcome may be unknown; inspect repository and remote "
-        "state before retrying"
+    "pull-origin": OperationSpec(
+        "remote",
+        "remote-mutation",
+        "Git pull failed; inspect repository and remote state before retrying",
     ),
-    "push-origin": (
-        "Git push failed and its outcome may be unknown; inspect repository and remote "
-        "state before retrying"
+    "push-origin": OperationSpec(
+        "remote",
+        "remote-mutation",
+        "Git push failed; inspect repository and remote state before retrying",
     ),
 }
 
@@ -86,46 +144,29 @@ def _invoke(
     root: Path,
     runner: CommandRunner,
     *,
-    mutating: bool = False,
-    remote_mutation: bool = False,
+    operation_class: OperationClass = "read",
 ) -> CommandResult:
+    spec = OPERATION_CLASS_SPECS[operation_class]
+    kwargs: dict[str, object] = {
+        "cwd": root,
+        "capture_output": True,
+        "text": True,
+        "shell": False,
+        "check": False,
+        "timeout": spec.timeout,
+    }
+    if operation_class == "remote-mutation":
+        environment = os.environ.copy()
+        environment.update({"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "Never"})
+        kwargs.update({"stdin": subprocess.DEVNULL, "env": environment})
     try:
-        result = runner(
-            arguments,
-            cwd=root,
-            capture_output=True,
-            text=True,
-            shell=False,
-            check=False,
-            timeout=(MUTATION_TIMEOUT_SECONDS if mutating else PROCESS_TIMEOUT_SECONDS),
-        )
+        result = runner(arguments, **kwargs)
     except UnicodeDecodeError as exc:
-        message = (
-            REMOTE_UNKNOWN_MESSAGE
-            if remote_mutation
-            else "Git operation outcome is unknown; inspect git status"
-            if mutating
-            else "Git produced undecodable output"
-        )
-        raise AgentGitProcessError(message) from exc
+        raise AgentGitProcessError(spec.decode_error) from exc
     except subprocess.TimeoutExpired as exc:
-        message = (
-            REMOTE_UNKNOWN_MESSAGE
-            if remote_mutation
-            else "Git operation outcome is unknown; inspect git status"
-            if mutating
-            else "Git operation timed out"
-        )
-        raise AgentGitProcessError(message) from exc
+        raise AgentGitProcessError(spec.timeout_error) from exc
     except OSError as exc:
-        message = (
-            REMOTE_UNKNOWN_MESSAGE
-            if remote_mutation
-            else "Git operation outcome is unknown; inspect git status"
-            if mutating
-            else "Git process could not start"
-        )
-        raise AgentGitProcessError(message) from exc
+        raise AgentGitProcessError(spec.os_error) from exc
     return result
 
 
@@ -266,15 +307,11 @@ def run_agent_git(
     if not arguments:
         raise AgentGitInputError("Git operation is unsupported")
     operation = arguments[0]
+    operation_spec = OPERATION_SPECS.get(operation)
+    if operation_spec is None:
+        raise AgentGitInputError("Git operation is unsupported")
     resolved_root = root.resolve()
-    branch_operations = {
-        "switch-existing",
-        "switch-new",
-        "delete-merged",
-        "merge-no-ff",
-    }
-    remote_operations = {"pull-origin", "push-origin"}
-    if operation == "commit-staged":
+    if operation_spec.command_kind == "commit":
         if len(arguments) != COMMIT_ARGUMENT_COUNT or arguments[1] != "--message":
             raise AgentGitInputError(
                 "commit-staged requires exactly --message and one value"
@@ -283,29 +320,26 @@ def run_agent_git(
         _validate_commit_message(message)
         _require_mutable_current_branch(resolved_root, runner)
         command = ["git", "commit", "-m", message]
-    elif operation in branch_operations:
+    elif operation_spec.command_kind == "branch":
         if len(arguments) != OPERATION_ARGUMENT_COUNT:
             raise AgentGitInputError("Git operation requires exactly one branch")
         command = _prepare_branch_command(
             operation, arguments[1], resolved_root, runner
         )
-    elif operation in remote_operations:
+    else:
         if len(arguments) != OPERATION_ARGUMENT_COUNT:
             raise AgentGitInputError("Git operation requires exactly one branch")
         command = _prepare_remote_command(
             operation, arguments[1], resolved_root, runner
         )
-    else:
-        raise AgentGitInputError("Git operation is unsupported")
     _require_success(
         _invoke(
             command,
             resolved_root,
             runner,
-            mutating=True,
-            remote_mutation=operation in remote_operations,
+            operation_class=operation_spec.operation_class,
         ),
-        MUTATION_FAILURE_MESSAGES[operation],
+        operation_spec.failure,
     )
     return 0
 

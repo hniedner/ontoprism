@@ -101,8 +101,14 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-runtime",
     "pre-commit run --all-files",
     "agent-test *",
-    "agent-git *",
     "agent-replay *",
+)
+IMPLEMENTER_LOCAL_GIT_WRAPPERS = (
+    "agent-git switch-existing *",
+    "agent-git switch-new *",
+    "agent-git delete-merged *",
+    "agent-git merge-no-ff *",
+    "agent-git commit-staged --message *",
 )
 GITHUB_READ_WRAPPER = "pdm run agent-github-read *"
 GITHUB_MUTATION_WRAPPER = "pdm run agent-github *"
@@ -147,6 +153,7 @@ GH_PR_TITLE_RUNS = (
 GH_RUN_WATCH = "gh run watch * --exit-status"
 IMPLEMENTER_BASH_ALLOWS = (
     *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
+    *(f"pdm run {command}" for command in IMPLEMENTER_LOCAL_GIT_WRAPPERS),
     *IMPLEMENTER_NPM_COMMANDS,
     "git status --porcelain",
     "git status --short --branch",
@@ -866,6 +873,8 @@ def validate_standard_permissions(
         "git cherry-pick *": "deny",
         "git push": "deny",
         "git push *": "deny",
+        "*agent-git*": "deny",
+        "pdm run agent-git *": "deny",
         "pdm run agent-git pull-origin *": "deny",
         "pdm run agent-git push-origin *": "deny",
         "git push -f*": "deny",

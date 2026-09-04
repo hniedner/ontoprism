@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -271,6 +272,8 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
 
     def runner(_arguments: object, **kwargs: object) -> Result:
         timeouts.append(kwargs.get("timeout"))
+        assert "stdin" not in kwargs
+        assert "env" not in kwargs
         return Result(0)
 
     assert run_agent_git(["switch-new", "feat/x"], tmp_path, runner=runner) == 0
@@ -535,6 +538,61 @@ def test_remote_operations_use_only_fixed_origin_and_exact_refs(
     assert commands[-1] == expected_command
     assert "--force" not in commands[-1]
     assert "--delete" not in commands[-1]
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+def test_remote_git_is_noninteractive_without_changing_local_invocations(
+    tmp_path: Path, operation: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def runner(arguments: list[str], **kwargs: object) -> Result:
+        calls.append((arguments, kwargs))
+        responses = {
+            ("git", "remote", "get-url", "origin"): Result(
+                0, "https://github.com/hniedner/ontoprism"
+            ),
+            ("git", "branch", "--show-current"): Result(0, "feat/x\n"),
+        }
+        return responses.get(tuple(arguments), Result(0))
+
+    assert run_agent_git([operation, "feat/x"], tmp_path, runner=runner) == 0
+
+    for _arguments, kwargs in calls[:-1]:
+        assert "stdin" not in kwargs
+        assert "env" not in kwargs
+    remote_kwargs = calls[-1][1]
+    assert remote_kwargs["stdin"] is subprocess.DEVNULL
+    environment = remote_kwargs["env"]
+    assert isinstance(environment, dict)
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert environment["GCM_INTERACTIVE"] == "Never"
+    assert environment.get("PATH") == os.environ.get("PATH")
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+def test_remote_nonzero_is_a_sanitized_known_failure(
+    tmp_path: Path, operation: str
+) -> None:
+    runner = scripted_runner(
+        [
+            Result(0),
+            Result(0, "https://github.com/hniedner/ontoprism"),
+            Result(0, "feat/x\n"),
+            Result(0),
+            Result(128, "credential=secret"),
+        ]
+    )
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git([operation, "feat/x"], tmp_path, runner=runner)
+
+    assert str(raised.value) == (
+        f"Git {'pull' if operation == 'pull-origin' else 'push'} failed; "
+        "inspect repository and remote state before retrying"
+    )
+    assert "unknown" not in str(raised.value)
+    assert "secret" not in str(raised.value)
 
 
 def test_pull_origin_permits_attached_clean_main(tmp_path: Path) -> None:

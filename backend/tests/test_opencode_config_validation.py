@@ -1269,12 +1269,17 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"git commit *": allow',
         '"pdm run pytest *": allow',
         '"pdm run test-integration-full-store *": allow',
+        '"pdm run agent-git *": allow',
     ):
         assert forbidden not in implementer
     for required in (
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
-        '"pdm run agent-git *": allow',
+        '"pdm run agent-git switch-existing *": allow',
+        '"pdm run agent-git switch-new *": allow',
+        '"pdm run agent-git delete-merged *": allow',
+        '"pdm run agent-git merge-no-ff *": allow',
+        '"pdm run agent-git commit-staged --message *": allow',
         '"pdm run agent-replay *": allow',
         '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
@@ -1363,6 +1368,28 @@ def test_non_orchestrators_do_not_gain_remote_wrapper_permissions(
     assert bash.get("pdm run agent-git pull-origin *") != "allow"
     assert bash.get("pdm run agent-git push-origin *") != "allow"
     assert bash["pdm run agent-github *"] == "deny"
+
+
+def test_implementer_agent_git_allow_surface_is_local_and_enumerated(
+    config_root: Path,
+) -> None:
+    metadata, _ = load_agent(
+        config_root / ".opencode/agent/implementer.md", Validation(config_root)
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash["pdm run agent-git *"] == "deny"
+    assert {
+        pattern
+        for pattern, action in bash.items()
+        if action == "allow" and pattern.startswith("pdm run agent-git ")
+    } == {
+        "pdm run agent-git switch-existing *",
+        "pdm run agent-git switch-new *",
+        "pdm run agent-git delete-merged *",
+        "pdm run agent-git merge-no-ff *",
+        "pdm run agent-git commit-staged --message *",
+    }
 
 
 def test_repository_policy_requires_requested_pr_creation_or_update() -> None:

@@ -18,8 +18,13 @@ push-origin <branch>`; pull-request creation and editing go through `pdm run age
 pr-create ...` and `pdm run agent-github pr-edit ...`. The wrappers fix `origin` and
 `hniedner/ontoprism`, validate branch and repository identity, reject unclean or mismatched
 worktrees, and fail closed when a mutation outcome is unknown. Their behavioral contracts
-execute successfully (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and
-`pdm run agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+execute successfully, including noninteractive remote Git and refusal to edit closed or merged
+pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
+agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+
+The SPARQL inventory scanner excludes hyphenated non-SPARQL operation names so Git wrapper
+vocabulary cannot change the query inventory; its snapshot was regenerated after that scanner
+fix (`pdm run agent-replay refresh-sparql-inventory`, 2026-09-04).
 
 The orchestrator's effective permission contract allows those wrapper invocations while raw
 Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote

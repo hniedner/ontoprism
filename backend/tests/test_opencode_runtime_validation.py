@@ -708,6 +708,28 @@ def test_remote_mutations_are_available_only_through_orchestrator_wrappers(
     assert effective_action(rules, command) == expected
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("pdm run agent-git switch-existing feat/x", "allow"),
+        ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-git delete-merged feat/x", "allow"),
+        ("pdm run agent-git merge-no-ff feat/x", "allow"),
+        ("pdm run agent-git commit-staged --message fix:example", "allow"),
+        ("pdm run agent-git pull-origin feat/x", "deny"),
+        ("pdm run agent-git push-origin feat/x", "deny"),
+        ("pdm run agent-git  pull-origin feat/x", "deny"),
+        ("pdm  run agent-git\tpush-origin feat/x", "deny"),
+    ],
+)
+def test_implementer_agent_git_contract_cannot_reach_remote_operations(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "implementer")
+
+    assert effective_action(rules, command) == expected
+
+
 SPECIALISTS = sorted(set(ROLES) - {"ontoprism-team", "implementer", *RESERVES})
 
 

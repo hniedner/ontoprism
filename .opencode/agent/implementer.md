@@ -30,10 +30,16 @@ permission:
     "pdm run validate-opencode-runtime": allow
     "pdm run pre-commit run --all-files": allow
     "pdm run agent-test *": allow
-    "pdm run agent-git *": allow
+    "pdm run agent-replay *": allow
+    "*agent-git*": deny
+    "pdm run agent-git *": deny
+    "pdm run agent-git switch-existing *": allow
+    "pdm run agent-git switch-new *": allow
+    "pdm run agent-git delete-merged *": allow
+    "pdm run agent-git merge-no-ff *": allow
+    "pdm run agent-git commit-staged --message *": allow
     "pdm run agent-git pull-origin *": deny
     "pdm run agent-git push-origin *": deny
-    "pdm run agent-replay *": allow
     "npm --prefix frontend run test:coverage": allow
     "npm --prefix frontend run test:unit -- --run": allow
     "npm --prefix frontend run check": allow
