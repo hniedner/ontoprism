@@ -16,18 +16,49 @@ backend endpoints, frontend routes, curation support, and decomposition surfaces
 contain a generic ontology-adapter type or system (`git ls-files
 ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
 frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontolib/src
-backend/src frontend/src`, which returned no matches, 2026-09-04). The official stated NCIt and additive
-decomposition graphs have distinct identifiers, and decomposition reads are explicitly confined
-to the additive graph rather than the source (`git grep -n STATED_GRAPH_IRI --
-ontolib/src/ontolib/terminologies/ncit/owl_load.py
-ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n DECOMPOSED_GRAPH_IRI --
-ontolib/src/ontolib/decomposition/vocab.py ontolib/src/ontolib/decomposition/read_queries.py`,
-2026-09-04; expected result: the first command returns the definition in `owl_load.py` and no
-`STATED_GRAPH_IRI` result in `read_queries.py`, while the second returns the constant in `vocab.py`
-and shows `read_queries.py` targeting `DECOMPOSED_GRAPH_IRI`). This protects the official stated
-plane from overlay mutation. It does not establish
+backend/src frontend/src`, which returned no matches, 2026-09-04). Current decomposition
+extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition`, 2026-09-04; expected output includes stated-graph query clauses
+in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`, and diagnostic/review
+modules). The narrower additive-projection reader is confined to the decomposed graph (`git grep
+-n STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n
+DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, 2026-09-04; expected
+output is no result from the first command and the decomposed-graph query from the second).
+
+Official-source protection is write isolation, not a prohibition on reading the source. The
+current overlay publishers and writers use decomposed, enhanced-showcase, upstream-xref, and their
+scoped staging/generation graphs; the stated constant's only result among the inspected overlay
+write modules is its import and valid source-release `SELECT` in `enhanced_showcase.py` (`git grep -n
+STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py
+ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/decomposition/vocab.py
+ontolib/src/ontolib/repositories/xref/vocab.py
+ontolib/src/ontolib/terminologies/ncit/owl_load.py`, 2026-09-04; expected output is the constant
+definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py ontolib/src/ontolib/decomposition/vocab.py`,
+`git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/enhanced_showcase.py`, and `git grep -n
+NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/repositories/xref/vocab.py` (2026-09-04) are expected to show those isolated
+target namespaces and their staging/generation derivations. This current isolation does not establish
 that every enhanced release already has an independently selectable, certified recoverable source
 view.
+
+The current OntoPrism-authored decomposition, upstream-xref, and enhanced-showcase graphs all use
+NCI-domain graph IRIs (`git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2 NCIT_UPSTREAM_XREF_GRAPH_IRI --
+ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/enhanced_showcase.py`, 2026-09-04; expected output gives the two
+literal graph IRIs and shows the showcase IRI derived beneath the decomposed IRI). These collectively
+are namespace debt, not official NCI identifiers. Future enhanced exports require an
+OntoPrism-governed enhanced namespace and an implementation issue that migrates all such authored
+graph identities.
 
 **Decision:** OntoPrism's target architecture is an ontology-generic platform core, capability-
 declaring ontology adapters, and domain policy. The target core covers view and navigation,

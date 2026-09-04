@@ -19,23 +19,49 @@ frontend/src/routes/repositories/ncit`, 2026-09-04).
 No generic ontology-adapter type/system, generic editing or reasoning implementation, generic AI
 authoring, correction system, or permanent release-forward reconciliation currently ships (`git grep -n
 OntologyAdapter -- ontolib/src backend/src frontend/src`, which returned no matches,
-2026-09-04). Graph/storage separation
-protects the official stated NCIt plane from overlay mutation: the source and additive
-decomposition graphs have distinct constants and the decomposition reader targets only its
-additive graph (`git grep -n STATED_GRAPH_IRI --
-ontolib/src/ontolib/terminologies/ncit/owl_load.py
-ontolib/src/ontolib/decomposition/read_queries.py`, expected result: the definition in
-`owl_load.py`; `read_queries.py` contains no `STATED_GRAPH_IRI` reference. The command `git grep -n
-DECOMPOSED_GRAPH_IRI --
-ontolib/src/ontolib/decomposition/vocab.py ontolib/src/ontolib/decomposition/read_queries.py`,
-expected result: the constant in `vocab.py` and its use in `read_queries.py`, which targets
-`DECOMPOSED_GRAPH_IRI`, 2026-09-04). The current decomposed graph uses an NCI-domain IRI
-(`git grep -n 'DECOMPOSED_GRAPH_IRI =' -- ontolib/src/ontolib/decomposition/vocab.py`, expected
-result: `http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-decomposed.owl`, 2026-09-04). That is current
-technical debt and must not be represented as an official NCI identifier. A future enhanced export
-must use an OntoPrism-governed enhanced namespace; a future implementation issue must own that
-change before export delivery. Current certification does not promise independently selectable
-source views or byte recovery for every enhanced release.
+2026-09-04). Current extraction and analysis read the official stated NCIt source (`git grep -n
+STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition`, expected output: stated-graph query clauses
+in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`, and diagnostic/review
+modules, 2026-09-04). The specific additive projection reader is different: `read_queries.py`
+contains no `STATED_GRAPH_IRI` reference and targets `DECOMPOSED_GRAPH_IRI` (`git grep -n
+STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n
+DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, expected output: no
+result from the first command and the decomposed-graph query from the second, 2026-09-04).
+
+Graph/storage separation protects the official stated NCIt plane through write isolation, not by
+forbidding source reads. Current overlay publication writes use decomposed, upstream-xref,
+enhanced-showcase, and scoped staging/generation graph IRIs. Among the inspected writer and
+vocabulary paths, the stated constant occurs only in `owl_load.py` and in the import and valid
+source-release `SELECT` in `enhanced_showcase.py` (`git grep -n STATED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py
+ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/decomposition/vocab.py
+ontolib/src/ontolib/repositories/xref/vocab.py
+ontolib/src/ontolib/terminologies/ncit/owl_load.py`, expected output: the definition, import, and
+`SELECT`, 2026-09-04). The write targets and derivations are shown by `git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py ontolib/src/ontolib/decomposition/vocab.py`,
+`git grep -n SHOWCASE_GRAPH_IRI -- ontolib/src/ontolib/decomposition/enhanced_showcase.py`, and
+`git grep -n NCIT_UPSTREAM_XREF_GRAPH_IRI --
+ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/repositories/xref/vocab.py` (expected output: decomposed/showcase staging and
+replacement targets plus upstream-xref generation/active derivations, 2026-09-04).
+
+The current OntoPrism-authored NCI-domain graph IRIs—including the decomposition, upstream-xref,
+and enhanced-showcase graphs—are technical debt and must not be represented as an official NCI
+identifier. Their exact current values and showcase derivation are shown by `git grep -n
+DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2
+NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n
+SHOWCASE_GRAPH_IRI -- ontolib/src/ontolib/decomposition/enhanced_showcase.py` (expected output: the
+two literal graph IRIs and the showcase IRI derived beneath the decomposed IRI, 2026-09-04). Every
+future enhanced export must use an OntoPrism-governed enhanced namespace; a future implementation
+issue must own that collective namespace change before export delivery. Current certification does
+not promise independently selectable source views or byte recovery for every enhanced release.
 
 ## Target architecture
 
