@@ -19,6 +19,33 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.1 (2026-09-04)
+
+### Bug Fixes
+
+- **python**: Enforce operational runtime contract
+  ([`e491447`](https://github.com/hniedner/ontoprism/commit/e491447f05953e64712a35607a51f6fe19a3765b))
+
+- **python**: Enforce runtime across PDM workflows
+  ([`e491447`](https://github.com/hniedner/ontoprism/commit/e491447f05953e64712a35607a51f6fe19a3765b))
+
+- **python**: Narrow PDM runtime guarantee
+  ([`e491447`](https://github.com/hniedner/ontoprism/commit/e491447f05953e64712a35607a51f6fe19a3765b))
+
+### Build System
+
+- **python**: Allow Python 3.14.5 metadata floor
+  ([`e491447`](https://github.com/hniedner/ontoprism/commit/e491447f05953e64712a35607a51f6fe19a3765b))
+
+- **python**: Use Python 3.14 metadata floor
+  ([`e491447`](https://github.com/hniedner/ontoprism/commit/e491447f05953e64712a35607a51f6fe19a3765b))
+
+### Documentation
+
+- Update README code line-count table
+  ([`fd70bfd`](https://github.com/hniedner/ontoprism/commit/fd70bfd867472c26a3ed1dabc6e2c05596870052))
+
+
 ## v0.22.0 (2026-09-04)
 
 ### Bug Fixes
