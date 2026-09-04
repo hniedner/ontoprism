@@ -7,6 +7,48 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-04 — Remote operations remain orchestrator-separated
+
+### D85. Explicit requests permit only fixed remote wrappers before separately authorized merge
+
+**Decision:** the orchestrator may pull its attached current branch, push a dedicated
+non-protected branch, and create or edit a pull request only after an explicit user request.
+Pull and push go through `pdm run agent-git pull-origin <branch>` and `pdm run agent-git
+push-origin <branch>`; pull-request creation and editing go through `pdm run agent-github
+pr-create ...` and `pdm run agent-github pr-edit ...`. The wrappers fix `origin` and
+`hniedner/ontoprism`, validate branch and repository identity, reject unclean or mismatched
+worktrees, and fail closed when a mutation outcome is unknown. Their behavioral contracts
+execute successfully, including noninteractive remote Git and refusal to edit closed or merged
+pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
+agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+
+The scanner's `DELETE(?![-_])` alternative excludes `DELETE` followed immediately by a
+hyphen or underscore; `delete-merged` was the operation name that triggered the false match
+(`pdm run agent-test ontolib/tests/terminologies/test_sparql_inventory.py::test_inventory_ignores_delete_prefixed_hyphen_suffixed_operation_name
+-v`, 2026-09-04). The scanner fix changed the regenerated snapshot's query-shape count from
+301 to 296 (`git diff aa33d69^ aa33d69 -- scripts/validation/sparql-inventory.json`,
+2026-09-04). Fresh regeneration reports 296 query shapes with digest
+`eae718822b3d33a40d04cfe783df142a017c1491af0edef3125f6a1671b95f98` and 152 transport
+operations (`pdm run agent-replay refresh-sparql-inventory && jq
+'{query_shape_count,query_shapes_sha256,transport_operation_count}'
+scripts/validation/sparql-inventory.json`, 2026-09-04).
+
+The orchestrator's effective permission contract allows those wrapper invocations while raw
+Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote
+mutations remain denied (`pdm run agent-test
+backend/tests/test_opencode_runtime_validation.py -v`, 2026-09-04). The static repository
+configuration accepts that exact surface (`pdm run validate-opencode-config`, 2026-09-04).
+The runtime validator did not complete its model-catalog boundary and reported exactly
+`OpenCode runtime validation failed: Model catalog validation: opencode models exited 1 (diagnostic: unclassified CLI failure)` (`pdm run validate-opencode-runtime`, 2026-09-04);
+this is recorded as a failed, unactionable external validation result, not a successful policy
+observation.
+
+Pull-request merge remains a separate exception: only the exact PR number explicitly
+authorized in the current conversation may be squash-merged, and only after every existing
+target-branch and PR check passes. This decision does not broaden merge arguments, permit
+force/admin/auto/queue/bypass behavior, or authorize remote operations for implementers or
+reviewers.
+
 ## 2026-09-04 — Python metadata admits Dependabot's interpreter
 
 ### D84. Metadata accepts the Python 3.14 minor series while execution stays on 3.14.7

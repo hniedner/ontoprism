@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
+from typing import get_args, get_type_hints
 
 import pytest
+import scripts.validation.validate_opencode_runtime as runtime_validation
 from scripts.validation.validate_opencode_config import RESERVES, ROLES
 from scripts.validation.validate_opencode_runtime import (
     RuntimeContractError,
@@ -24,6 +28,54 @@ from scripts.validation.validate_opencode_runtime import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_failure_diagnostics_have_an_exhaustive_fixed_return_type() -> None:
+    expected_categories = {
+        "CLI rejected its configured arguments",
+        "requested model is absent from the provider catalog",
+        "authentication or credential failure",
+        "provider rate or quota limit",
+        "network connection failure",
+        "provider service failure",
+        "CLI configuration is invalid",
+        "unclassified CLI failure",
+    }
+
+    assert set(get_args(runtime_validation.DiagnosticCategory)) == expected_categories
+    assert (
+        get_type_hints(runtime_validation.sanitized_failure_diagnostic)["return"]
+        is runtime_validation.DiagnosticCategory
+    )
+    assert (
+        get_type_hints(runtime_validation)["SAFE_FAILURE_CATEGORIES"]
+        == tuple[tuple[re.Pattern[str], runtime_validation.DiagnosticCategory], ...]
+    )
+
+
+def test_diagnostic_sanitization_terminates_at_bounded_input_limit() -> None:
+    script = "\n".join(
+        (
+            "from scripts.validation.validate_opencode_runtime import (",
+            "    DIAGNOSTIC_INPUT_LIMIT, sanitized_failure_diagnostic,",
+            ")",
+            'unsafe = "token" + " \\t\\r\\n" * DIAGNOSTIC_INPUT_LIMIT',
+            "print(sanitized_failure_diagnostic('', unsafe))",
+        )
+    )
+
+    result = subprocess.run(  # noqa: S603 - fixed regression-test child
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "unclassified CLI failure\n"
+    assert result.stderr == ""
 
 
 def test_runtime_json_parser_accepts_an_object_without_exposing_raw_output() -> None:
@@ -679,6 +731,57 @@ def test_governed_writer_shell_contract(role: str, command: str, expected: str) 
     assert effective_action(rules, command) == expected
 
 
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        ("ontoprism-team", "pdm run agent-git pull-origin feat/x", "allow"),
+        ("ontoprism-team", "pdm run agent-git push-origin feat/x", "allow"),
+        (
+            "ontoprism-team",
+            "pdm run agent-github pr-create --title x --body-file "
+            "tmp/plans/pr.md --head feat/x",
+            "allow",
+        ),
+        ("ontoprism-team", "pdm run agent-github pr-edit 12 --title x", "allow"),
+        ("ontoprism-team", "git pull origin feat/x", "deny"),
+        ("ontoprism-team", "git push origin feat/x", "deny"),
+        ("ontoprism-team", "gh pr create --title x", "deny"),
+        ("ontoprism-team", "gh pr edit 12 --title x", "deny"),
+        ("implementer", "pdm run agent-git push-origin feat/x", "deny"),
+        ("pr-code-reviewer", "pdm run agent-git pull-origin feat/x", "deny"),
+        ("pr-code-reviewer", "pdm run agent-github pr-edit 12 --title x", "deny"),
+    ],
+)
+def test_remote_mutations_are_available_only_through_orchestrator_wrappers(
+    role: str, command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], role)
+
+    assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("pdm run agent-git switch-existing feat/x", "allow"),
+        ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-git delete-merged feat/x", "allow"),
+        ("pdm run agent-git merge-no-ff feat/x", "allow"),
+        ("pdm run agent-git commit-staged --message fix:example", "allow"),
+        ("pdm run agent-git pull-origin feat/x", "deny"),
+        ("pdm run agent-git push-origin feat/x", "deny"),
+        ("pdm run agent-git  pull-origin feat/x", "deny"),
+        ("pdm  run agent-git\tpush-origin feat/x", "deny"),
+    ],
+)
+def test_implementer_agent_git_contract_cannot_reach_remote_operations(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "implementer")
+
+    assert effective_action(rules, command) == expected
+
+
 SPECIALISTS = sorted(set(ROLES) - {"ontoprism-team", "implementer", *RESERVES})
 
 
@@ -821,8 +924,10 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
         )
     for secret in secrets:
         assert secret not in str(nonzero.value)
-    assert "exited 2" in str(nonzero.value)
-    assert str(nonzero.value) == "MCP connection check: opencode mcp list exited 2"
+    assert str(nonzero.value) == (
+        "MCP connection check: opencode mcp list exited 2 "
+        "(diagnostic: authentication or credential failure)"
+    )
 
     with pytest.raises(
         RuntimeContractError,
@@ -836,6 +941,48 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
             operation="Startup validation",
             display_command="opencode debug startup",
         )
+
+
+def test_command_error_reports_only_an_allowlisted_normalized_reason(
+    tmp_path: Path,
+) -> None:
+    private_home = str(Path.home() / "private" / "config.json")
+    unsafe_output = (
+        "\x1b[31mError:\nunknown\toption '--private-flag'\x1b[0m\x07\n"
+        f"authorization: Bearer do-not-leak at {private_home}\n"
+        "https://user:url-secret@example.invalid/path?token=query-secret#fragment"
+    )
+    emit_failure = f"import sys;sys.stderr.write({unsafe_output!r});sys.exit(64)"
+
+    with pytest.raises(RuntimeContractError) as failure:
+        run_command(
+            [sys.executable, "-c", emit_failure],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            operation="Model catalog validation",
+            display_command="opencode models",
+        )
+
+    message = str(failure.value)
+    assert message == (
+        "Model catalog validation: opencode models exited 64 "
+        "(diagnostic: CLI rejected its configured arguments)"
+    )
+    for private_value in (
+        "--private-flag",
+        "do-not-leak",
+        private_home,
+        "user",
+        "url-secret",
+        "query-secret",
+        "fragment",
+        "\x1b",
+        "\x07",
+        "\n",
+        "\t",
+    ):
+        assert private_value not in message
+    assert len(message) <= 200
 
 
 def test_command_error_categorizes_undecodable_output(

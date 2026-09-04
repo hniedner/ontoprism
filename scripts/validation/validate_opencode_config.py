@@ -101,8 +101,14 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-runtime",
     "pre-commit run --all-files",
     "agent-test *",
-    "agent-git *",
     "agent-replay *",
+)
+IMPLEMENTER_LOCAL_GIT_WRAPPERS = (
+    "agent-git switch-existing *",
+    "agent-git switch-new *",
+    "agent-git delete-merged *",
+    "agent-git merge-no-ff *",
+    "agent-git commit-staged --message *",
 )
 GITHUB_READ_WRAPPER = "pdm run agent-github-read *"
 GITHUB_MUTATION_WRAPPER = "pdm run agent-github *"
@@ -147,6 +153,7 @@ GH_PR_TITLE_RUNS = (
 GH_RUN_WATCH = "gh run watch * --exit-status"
 IMPLEMENTER_BASH_ALLOWS = (
     *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
+    *(f"pdm run {command}" for command in IMPLEMENTER_LOCAL_GIT_WRAPPERS),
     *IMPLEMENTER_NPM_COMMANDS,
     "git status --porcelain",
     "git status --short --branch",
@@ -167,6 +174,8 @@ ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
+    "pdm run agent-git pull-origin *",
+    "pdm run agent-git push-origin *",
     GITHUB_READ_WRAPPER,
     GITHUB_MUTATION_WRAPPER,
     GH_PR_VIEW,
@@ -864,6 +873,10 @@ def validate_standard_permissions(
         "git cherry-pick *": "deny",
         "git push": "deny",
         "git push *": "deny",
+        "*agent-git*": "deny",
+        "pdm run agent-git *": "deny",
+        "pdm run agent-git pull-origin *": "deny",
+        "pdm run agent-git push-origin *": "deny",
         "git push -f*": "deny",
         "git push --force*": "deny",
         "git push * -f*": "deny",
@@ -892,6 +905,8 @@ def validate_standard_permissions(
             **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
             "pdm run validate-opencode-config": "allow",
             "pdm run validate-opencode-runtime": "allow",
+            "pdm run agent-git pull-origin *": "allow",
+            "pdm run agent-git push-origin *": "allow",
             GITHUB_READ_WRAPPER: "allow",
             GITHUB_MUTATION_WRAPPER: "allow",
             ISSUE_DELETE_DENY: "deny",
@@ -904,6 +919,8 @@ def validate_standard_permissions(
             "git reset *": "deny",
             "git clean": "deny",
             "git clean *": "deny",
+            "git pull": "deny",
+            "git pull *": "deny",
             "git push": "deny",
             "git push *": "deny",
             "gh pr create": "deny",
@@ -1205,8 +1222,11 @@ def validate_agents_document(validation: Validation) -> None:
             "current conversation",
             "Only the implementer makes lasting repository code, test, "
             "documentation, fix, or commit edits",
-            "Pushes and PR creation or updates",
-            "remain manual user actions",
+            "pdm run agent-git pull-origin <branch>",
+            "pdm run agent-git push-origin <branch>",
+            "pdm run agent-github pr-create",
+            "pdm run agent-github pr-edit",
+            "PR creation or update occurs only when requested",
             "pdm run agent-test --full-store <node> -v",
             "full aggregate remains",
         ),

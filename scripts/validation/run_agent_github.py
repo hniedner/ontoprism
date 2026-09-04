@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run repository-scoped GitHub issue, milestone, and read operations."""
+"""Run repository-scoped issue/milestone mutations, pull-request create/edit
+mutations, and reads.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +9,16 @@ import json
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
 
 REPOSITORY = "hniedner/ontoprism"
+OWNER = REPOSITORY.split("/", maxsplit=1)[0]
 API_ROOT = f"repos/{REPOSITORY}"
+PROTECTED_BRANCHES = frozenset({"main", "master"})
 READ_OPERATIONS = frozenset(
     {"issue-view", "issue-list", "milestone-list", "pr-view", "run-list"}
 )
@@ -28,6 +33,8 @@ MUTATION_OPERATIONS = frozenset(
         "milestone-edit",
         "milestone-close",
         "milestone-reopen",
+        "pr-create",
+        "pr-edit",
     }
 )
 PROCESS_TIMEOUT_SECONDS = 30
@@ -59,6 +66,19 @@ class CommandRunner(Protocol):
     def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
 
 
+@dataclass(frozen=True)
+class PullIdentity:
+    number: int
+    state: str
+    merged: bool
+
+
+@dataclass(frozen=True)
+class PullMutationResult:
+    number: int
+    url: str
+
+
 def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
     return subprocess.run(  # noqa: S603, PLW1510 - fixed gh argv, shell disabled
         arguments,
@@ -87,6 +107,24 @@ def _positive_number(value: str, label: str) -> int:
 
 def _safe_name(value: str, label: str) -> str:
     if SAFE_NAME.fullmatch(value) is None:
+        raise AgentGitHubInputError(f"{label} is invalid")
+    return value
+
+
+def _safe_branch(value: str, label: str) -> str:
+    components = value.split("/")
+    if (
+        SAFE_BRANCH.fullmatch(value) is None
+        or ".." in value
+        or "@{" in value
+        or value in PROTECTED_BRANCHES
+        or any(
+            not component
+            or component.endswith(".")
+            or component.casefold().endswith(".lock")
+            for component in components
+        )
+    ):
         raise AgentGitHubInputError(f"{label} is invalid")
     return value
 
@@ -247,6 +285,52 @@ def _get_milestone(number: int, root: Path, runner: CommandRunner) -> dict[str, 
     return value
 
 
+def _pull_identity(
+    value: object,
+    *,
+    expected_number: int | None = None,
+    expected_head: str | None = None,
+) -> PullIdentity:
+    base = value.get("base") if isinstance(value, dict) else None
+    repo = base.get("repo") if isinstance(base, dict) else None
+    number = value.get("number") if isinstance(value, dict) else None
+    state = value.get("state") if isinstance(value, dict) else None
+    merged_value = value.get("merged") if isinstance(value, dict) else None
+    merged_at = value.get("merged_at") if isinstance(value, dict) else None
+    has_merged = isinstance(value, dict) and "merged" in value
+    has_merged_at = isinstance(value, dict) and "merged_at" in value
+    head = value.get("head") if isinstance(value, dict) else None
+    head_repo = head.get("repo") if isinstance(head, dict) else None
+    invalid_head = expected_head is not None and (
+        not isinstance(head, dict)
+        or head.get("ref") != expected_head
+        or not isinstance(head_repo, dict)
+        or head_repo.get("full_name") != REPOSITORY
+    )
+    if (
+        type(number) is not int
+        or number < 1
+        or (expected_number is not None and number != expected_number)
+        or state not in {"open", "closed"}
+        or not isinstance(repo, dict)
+        or repo.get("full_name") != REPOSITORY
+        or (has_merged and type(merged_value) is not bool)
+        or (has_merged_at and merged_at is not None and not isinstance(merged_at, str))
+        or not (has_merged or has_merged_at)
+        or invalid_head
+    ):
+        raise AgentGitHubProcessError("GitHub pull request response is invalid")
+    merged = bool(merged_value) if has_merged else merged_at is not None
+    if has_merged and has_merged_at and merged != (merged_at is not None):
+        raise AgentGitHubProcessError("GitHub pull request response is invalid")
+    return PullIdentity(number=number, state=state, merged=merged)
+
+
+def _get_pull(number: int, root: Path, runner: CommandRunner) -> PullIdentity:
+    value = _api("GET", f"{API_ROOT}/pulls/{number}", root, runner)
+    return _pull_identity(value, expected_number=number)
+
+
 def _validate_label(label: str, root: Path, runner: CommandRunner) -> str:
     label = _validate_text(label, "label", maximum=MAX_NAME_LENGTH)
     value = _api("GET", f"{API_ROOT}/labels/{quote(label, safe='')}", root, runner)
@@ -401,6 +485,9 @@ def _sanitize_read(operation: str, value: Any) -> Any:
 def _emit(operation: str, value: Any) -> None:
     if operation in READ_OPERATIONS:
         print(json.dumps(_sanitize_read(operation, value), sort_keys=True))
+        return
+    if isinstance(value, PullMutationResult):
+        print(json.dumps({"number": value.number, "url": value.url}, sort_keys=True))
         return
     if isinstance(value, dict) and isinstance(value.get("html_url"), str):
         selected: dict[str, object] = {"url": value["html_url"]}
@@ -655,6 +742,90 @@ def _issue_mutation(
     )
 
 
+def _pr_create(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> PullMutationResult:
+    options = _flags(arguments, singles=frozenset({"--title", "--body-file", "--head"}))
+    if set(options) != {"--title", "--body-file", "--head"}:
+        raise AgentGitHubInputError(
+            "pr-create requires --title, --body-file, and --head"
+        )
+    title = _validate_text(
+        str(options["--title"]), "pull request title", maximum=MAX_TITLE_LENGTH
+    )
+    body = _body_file(root, str(options["--body-file"]))
+    head = _safe_branch(str(options["--head"]), "head branch")
+    existing = _flatten_pages(
+        _api(
+            "GET",
+            f"{API_ROOT}/pulls",
+            root,
+            runner,
+            fields=(
+                ("state", "open"),
+                ("head", f"{OWNER}:{head}"),
+                ("per_page", "100"),
+            ),
+            paginate=True,
+        )
+    )
+    identities = [_pull_identity(item, expected_head=head) for item in existing]
+    if any(identity.state == "open" for identity in identities):
+        raise AgentGitHubInputError("open pull request already exists for head branch")
+    result = _api(
+        "POST",
+        f"{API_ROOT}/pulls",
+        root,
+        runner,
+        payload={"title": title, "body": body, "head": head, "base": "main"},
+    )
+    return _validate_pr_mutation_result(result)
+
+
+def _pr_edit(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> PullMutationResult:
+    if not arguments:
+        raise AgentGitHubInputError("pr-edit requires a pull request number")
+    number = _positive_number(arguments[0], "pull request number")
+    options = _flags(arguments[1:], singles=frozenset({"--title", "--body-file"}))
+    if not options:
+        raise AgentGitHubInputError("pr-edit requires at least one change")
+    payload: dict[str, object] = {}
+    if "--title" in options:
+        payload["title"] = _validate_text(
+            str(options["--title"]),
+            "pull request title",
+            maximum=MAX_TITLE_LENGTH,
+        )
+    if "--body-file" in options:
+        payload["body"] = _body_file(root, str(options["--body-file"]))
+    current = _get_pull(number, root, runner)
+    if current.state != "open" or current.merged:
+        raise AgentGitHubInputError("pr-edit requires an open pull request")
+    result = _api("PATCH", f"{API_ROOT}/pulls/{number}", root, runner, payload=payload)
+    return _validate_pr_mutation_result(result, expected_number=number)
+
+
+def _validate_pr_mutation_result(
+    value: Any, *, expected_number: int | None = None
+) -> PullMutationResult:
+    number = value.get("number") if isinstance(value, dict) else None
+    url = value.get("html_url") if isinstance(value, dict) else None
+    if (
+        type(number) is not int
+        or number < 1
+        or (expected_number is not None and number != expected_number)
+        or not isinstance(url, str)
+        or url != f"https://github.com/{REPOSITORY}/pull/{number}"
+    ):
+        raise AgentGitHubProcessError(
+            "GitHub mutation response is invalid; inspect the repository before "
+            "retrying"
+        )
+    return PullMutationResult(number=number, url=url)
+
+
 def _milestone_create(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
     options = _flags(
         arguments,
@@ -741,7 +912,7 @@ def run_agent_github(
     arguments: list[str],
     root: Path,
     *,
-    read_only: bool = False,
+    read_only: bool,
     runner: CommandRunner | None = None,
 ) -> int:
     """Validate and run one fixed GitHub operation without a shell."""
@@ -758,6 +929,10 @@ def run_agent_github(
         value = _run_read(operation, arguments[1:], resolved_root, command_runner)
     elif operation.startswith("issue-"):
         value = _issue_mutation(operation, arguments[1:], resolved_root, command_runner)
+    elif operation == "pr-create":
+        value = _pr_create(arguments[1:], resolved_root, command_runner)
+    elif operation == "pr-edit":
+        value = _pr_edit(arguments[1:], resolved_root, command_runner)
     else:
         value = _milestone_mutation(
             operation, arguments[1:], resolved_root, command_runner

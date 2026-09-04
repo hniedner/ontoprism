@@ -64,6 +64,23 @@ def test_inventory_ignores_static_sql_and_mapping_update(tmp_path: Path) -> None
 
 
 @pytest.mark.unit
+def test_inventory_ignores_delete_prefixed_hyphen_suffixed_operation_name(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "scripts" / "runner.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        'FAILURES = {"delete-merged": "Git branch deletion failed"}\n',
+        encoding="utf-8",
+    )
+
+    summary = summarize_sparql_inventory(tmp_path)
+
+    assert summary["query_shape_count"] == 0
+    assert summary["transport_operation_count"] == 0
+
+
+@pytest.mark.unit
 def test_inventory_does_not_mistake_from_named_sparql_for_sql(tmp_path: Path) -> None:
     source = tmp_path / "scripts" / "named_graph.py"
     source.parent.mkdir(parents=True)

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import inspect
+import os
 import re
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
+import scripts.validation.run_agent_git as agent_git
 from scripts.validation.run_agent_git import (
     AgentGitInputError,
     AgentGitProcessError,
@@ -13,6 +17,43 @@ from scripts.validation.run_agent_git import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_git_runner_docstrings_state_the_separate_agent_boundaries() -> None:
+    expected = (
+        "Run fixed local Git operations for implementers and fixed remote pull/push "
+        "for orchestrators, without a shell."
+    )
+    assert " ".join((agent_git.__doc__ or "").split()) == expected
+    assert " ".join((run_agent_git.__doc__ or "").split()) == expected
+
+
+def test_operation_specs_derive_classification_from_command_kind() -> None:
+    expected = {
+        "switch-existing": "local-mutation",
+        "switch-new": "local-mutation",
+        "delete-merged": "local-mutation",
+        "merge-no-ff": "local-mutation",
+        "commit-staged": "local-mutation",
+        "pull-origin": "remote-mutation",
+        "push-origin": "remote-mutation",
+    }
+
+    assert [field.name for field in fields(agent_git.OperationSpec)] == [
+        "command_kind",
+        "failure",
+    ]
+    assert {
+        operation: agent_git.operation_class_for(spec.command_kind)
+        for operation, spec in agent_git.OPERATION_SPECS.items()
+    } == expected
+
+
+def test_git_invocation_requires_an_explicit_operation_class() -> None:
+    parameter = inspect.signature(agent_git._invoke).parameters["operation_class"]
+
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
 
 
 @pytest.mark.parametrize(
@@ -271,6 +312,8 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
 
     def runner(_arguments: object, **kwargs: object) -> Result:
         timeouts.append(kwargs.get("timeout"))
+        assert "stdin" not in kwargs
+        assert "env" not in kwargs
         return Result(0)
 
     assert run_agent_git(["switch-new", "feat/x"], tmp_path, runner=runner) == 0
@@ -489,3 +532,259 @@ def test_mutating_nonzero_reports_operation_specific_unknown_state(
 ) -> None:
     with pytest.raises(AgentGitProcessError, match=f"^{re.escape(message)}$"):
         run_agent_git(arguments, tmp_path, runner=scripted_runner(results))
+
+
+@pytest.mark.parametrize(
+    ("operation", "origin", "expected_command"),
+    [
+        (
+            "pull-origin",
+            "https://github.com/hniedner/ontoprism",
+            ["git", "pull", "--ff-only", "origin", "refs/heads/feat/x"],
+        ),
+        (
+            "push-origin",
+            "git@github.com:hniedner/ontoprism.git",
+            [
+                "git",
+                "push",
+                "--set-upstream",
+                "origin",
+                "refs/heads/feat/x:refs/heads/feat/x",
+            ],
+        ),
+    ],
+)
+def test_remote_operations_use_only_fixed_origin_and_exact_refs(
+    tmp_path: Path,
+    operation: str,
+    origin: str,
+    expected_command: list[str],
+) -> None:
+    commands: list[list[str]] = []
+
+    def runner(arguments: list[str], **_kwargs: object) -> Result:
+        commands.append(arguments)
+        responses = {
+            ("git", "check-ref-format", "refs/heads/feat/x"): Result(0),
+            ("git", "remote", "get-url", "origin"): Result(0, origin),
+            ("git", "branch", "--show-current"): Result(0, "feat/x\n"),
+            ("git", "status", "--porcelain"): Result(0, ""),
+        }
+        return responses.get(tuple(arguments), Result(0))
+
+    assert run_agent_git([operation, "feat/x"], tmp_path, runner=runner) == 0
+    assert commands[1] == ["git", "remote", "get-url", "origin"]
+    assert commands[-1] == expected_command
+    assert "--force" not in commands[-1]
+    assert "--delete" not in commands[-1]
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+def test_remote_git_is_noninteractive_without_changing_local_invocations(
+    tmp_path: Path, operation: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def runner(arguments: list[str], **kwargs: object) -> Result:
+        calls.append((arguments, kwargs))
+        responses = {
+            ("git", "remote", "get-url", "origin"): Result(
+                0, "https://github.com/hniedner/ontoprism"
+            ),
+            ("git", "branch", "--show-current"): Result(0, "feat/x\n"),
+        }
+        return responses.get(tuple(arguments), Result(0))
+
+    assert run_agent_git([operation, "feat/x"], tmp_path, runner=runner) == 0
+
+    for _arguments, kwargs in calls[:-1]:
+        assert "stdin" not in kwargs
+        assert "env" not in kwargs
+    remote_kwargs = calls[-1][1]
+    assert remote_kwargs["stdin"] is subprocess.DEVNULL
+    environment = remote_kwargs["env"]
+    assert isinstance(environment, dict)
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert environment["GCM_INTERACTIVE"] == "Never"
+    assert environment.get("PATH") == os.environ.get("PATH")
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+def test_remote_nonzero_is_a_sanitized_known_failure(
+    tmp_path: Path, operation: str
+) -> None:
+    runner = scripted_runner(
+        [
+            Result(0),
+            Result(0, "https://github.com/hniedner/ontoprism"),
+            Result(0, "feat/x\n"),
+            Result(0),
+            Result(128, "credential=secret"),
+        ]
+    )
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git([operation, "feat/x"], tmp_path, runner=runner)
+
+    assert str(raised.value) == (
+        f"Git {'pull' if operation == 'pull-origin' else 'push'} failed; "
+        "inspect repository and remote state before retrying"
+    )
+    assert "unknown" not in str(raised.value)
+    assert "secret" not in str(raised.value)
+
+
+def test_pull_origin_permits_attached_clean_main(tmp_path: Path) -> None:
+    commands: list[list[str]] = []
+
+    def runner(arguments: list[str], **_kwargs: object) -> Result:
+        commands.append(arguments)
+        if arguments == ["git", "remote", "get-url", "origin"]:
+            return Result(0, "https://github.com/hniedner/ontoprism\n")
+        if arguments == ["git", "branch", "--show-current"]:
+            return Result(0, "main\n")
+        return Result(0)
+
+    assert run_agent_git(["pull-origin", "main"], tmp_path, runner=runner) == 0
+    assert commands[-1] == [
+        "git",
+        "pull",
+        "--ff-only",
+        "origin",
+        "refs/heads/main",
+    ]
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+@pytest.mark.parametrize(
+    ("results", "message"),
+    [
+        (
+            [
+                Result(0),
+                Result(0, "https://github.com/hniedner/ontoprism"),
+                Result(0, "other\n"),
+            ],
+            "requested branch is not the current branch",
+        ),
+        (
+            [
+                Result(0),
+                Result(0, "https://github.com/hniedner/ontoprism"),
+                Result(0, ""),
+            ],
+            "attached branch",
+        ),
+        (
+            [
+                Result(0),
+                Result(0, "https://github.com/hniedner/ontoprism"),
+                Result(0, "feat/x\n"),
+                Result(0, " M tracked.txt\n"),
+            ],
+            "clean worktree",
+        ),
+    ],
+)
+def test_remote_operations_require_matching_attached_clean_branch(
+    tmp_path: Path, operation: str, results: list[object], message: str
+) -> None:
+    with pytest.raises(AgentGitInputError, match=message):
+        run_agent_git([operation, "feat/x"], tmp_path, runner=scripted_runner(results))
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://github.com/attacker/hniedner/ontoprism",
+        "https://github.com/hniedner/ontoprism.evil",
+        "git@github.com:hniedner/ontoprism.git/extra",
+        "ssh://evil.example/hniedner/ontoprism.git",
+        "",
+    ],
+)
+def test_remote_operations_reject_wrong_or_malformed_origin(
+    tmp_path: Path, origin: str
+) -> None:
+    with pytest.raises(AgentGitInputError, match="origin"):
+        run_agent_git(
+            ["pull-origin", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([Result(0), Result(0, origin)]),
+        )
+
+
+@pytest.mark.parametrize(
+    ("results", "message"),
+    [
+        ([Result(0), Result(2)], "origin could not be determined"),
+        (
+            [Result(0), Result(0, "https://github.com/hniedner/ontoprism"), Result(2)],
+            "current branch could not be determined",
+        ),
+        (
+            [
+                Result(0),
+                Result(0, "https://github.com/hniedner/ontoprism"),
+                Result(0, "feat/x\n"),
+                Result(2),
+            ],
+            "worktree status could not be determined",
+        ),
+    ],
+)
+def test_remote_operations_fail_closed_when_preconditions_cannot_be_determined(
+    tmp_path: Path, results: list[object], message: str
+) -> None:
+    with pytest.raises(AgentGitProcessError, match=message):
+        run_agent_git(
+            ["pull-origin", "feat/x"], tmp_path, runner=scripted_runner(results)
+        )
+
+
+@pytest.mark.parametrize("branch", ["main", "master"])
+def test_push_origin_rejects_protected_branches(tmp_path: Path, branch: str) -> None:
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(["push-origin", branch], tmp_path)
+
+
+@pytest.mark.parametrize("operation", ["pull-origin", "push-origin"])
+def test_remote_mutation_timeout_requires_repository_and_remote_inspection(
+    tmp_path: Path, operation: str
+) -> None:
+    timeout = subprocess.TimeoutExpired(["git"], 600)
+    runner = scripted_runner(
+        [
+            Result(0),
+            Result(0, "https://github.com/hniedner/ontoprism"),
+            Result(0, "feat/x\n"),
+            Result(0, ""),
+            timeout,
+        ]
+    )
+
+    with pytest.raises(
+        AgentGitProcessError,
+        match="outcome is unknown; inspect repository and remote state before retrying",
+    ):
+        run_agent_git([operation, "feat/x"], tmp_path, runner=runner)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["pull-origin"],
+        ["pull-origin", "feat/x", "--rebase"],
+        ["push-origin", "feat/x", "--force"],
+        ["push-origin", "feat/x", "--delete"],
+    ],
+)
+def test_remote_operations_reject_arbitrary_arguments_before_git(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    def must_not_run(_arguments: list[str], **_kwargs: object) -> Result:
+        raise AssertionError("invalid arguments must fail before Git")
+
+    with pytest.raises(AgentGitInputError):
+        run_agent_git(arguments, tmp_path, runner=must_not_run)

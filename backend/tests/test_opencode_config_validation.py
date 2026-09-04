@@ -1269,12 +1269,17 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"git commit *": allow',
         '"pdm run pytest *": allow',
         '"pdm run test-integration-full-store *": allow',
+        '"pdm run agent-git *": allow',
     ):
         assert forbidden not in implementer
     for required in (
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
-        '"pdm run agent-git *": allow',
+        '"pdm run agent-git switch-existing *": allow',
+        '"pdm run agent-git switch-new *": allow',
+        '"pdm run agent-git delete-merged *": allow',
+        '"pdm run agent-git merge-no-ff *": allow',
+        '"pdm run agent-git commit-staged --message *": allow',
         '"pdm run agent-replay *": allow',
         '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
@@ -1325,6 +1330,75 @@ def test_agent_git_read_commands_are_fixed_and_argument_free(
         assert bash[required] == "allow"
     if role != "pr-test-analyzer":
         assert bash["git diff --no-ext-diff main...HEAD"] == "allow"
+
+
+def test_orchestrator_remote_permissions_are_wrapper_only_and_last_match_safe(
+    config_root: Path,
+) -> None:
+    metadata, body = load_agent(
+        config_root / ".opencode/agent/ontoprism-team.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash["pdm run agent-git pull-origin *"] == "allow"
+    assert bash["pdm run agent-git push-origin *"] == "allow"
+    assert bash["pdm run agent-github *"] == "allow"
+    assert bash["git pull"] == "deny"
+    assert bash["git pull *"] == "deny"
+    assert bash["git push"] == "deny"
+    assert bash["git push *"] == "deny"
+    assert list(bash).index("git push *") > list(bash).index(
+        "pdm run agent-git push-origin *"
+    )
+    assert "Only on explicit user request" in body
+    assert "Never direct main/master push" in body
+    assert "unrelated PR" in body
+
+
+@pytest.mark.parametrize("role", ["implementer", "pr-code-reviewer"])
+def test_non_orchestrators_do_not_gain_remote_wrapper_permissions(
+    config_root: Path, role: str
+) -> None:
+    metadata, _ = load_agent(
+        config_root / f".opencode/agent/{role}.md", Validation(config_root)
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash.get("pdm run agent-git pull-origin *") != "allow"
+    assert bash.get("pdm run agent-git push-origin *") != "allow"
+    assert bash["pdm run agent-github *"] == "deny"
+
+
+def test_implementer_agent_git_allow_surface_is_local_and_enumerated(
+    config_root: Path,
+) -> None:
+    metadata, _ = load_agent(
+        config_root / ".opencode/agent/implementer.md", Validation(config_root)
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash["pdm run agent-git *"] == "deny"
+    assert {
+        pattern
+        for pattern, action in bash.items()
+        if action == "allow" and pattern.startswith("pdm run agent-git ")
+    } == {
+        "pdm run agent-git switch-existing *",
+        "pdm run agent-git switch-new *",
+        "pdm run agent-git delete-merged *",
+        "pdm run agent-git merge-no-ff *",
+        "pdm run agent-git commit-staged --message *",
+    }
+
+
+def test_repository_policy_requires_requested_pr_creation_or_update() -> None:
+    guidance = (ROOT / "AGENTS.md").read_text()
+
+    assert "PR creation or update occurs only when requested" in guidance
+    assert "pdm run agent-git push-origin <branch>" in guidance
+    assert "pdm run agent-github pr-create" in guidance
+    assert "pdm run agent-github pr-edit" in guidance
 
 
 def test_orchestrator_validator_commands_accept_no_arguments(config_root: Path) -> None:
@@ -1483,9 +1557,10 @@ def test_process_prose_limits_remote_mutations_to_user_or_authorized_merge(
         "fix, or commit edits"
     )
     assert lasting_edits in agents
-    assert "Pushes and PR creation or updates" in agents
-    assert "remain manual user actions" in agents
-    assert "Pushes and PR creation or updates are manual user actions" in orchestrator
+    assert "PR creation or update occurs only when requested" in agents
+    assert "pdm run agent-git push-origin <branch>" in agents
+    assert "Only on explicit user request" in orchestrator
+    assert "pdm run agent-github pr-edit" in orchestrator
     assert "explicitly authorizes that exact PR number" in orchestrator
     assert "report the ready state to the user" in implementer
     assert "launches fresh CLI processes" in command
