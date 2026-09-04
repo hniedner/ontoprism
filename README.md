@@ -32,8 +32,11 @@ release-forward reconciliation system today.
 management framework built from a platform core, capability-declaring ontology adapters, and
 domain policy. NCIt remains the first and primary product rather than an architectural limit.
 The target includes view/navigation, visualization, editing/authoring, reasoning, validation,
-release/version/provenance/alignment management, and evidence-bound AI assistance. These are
-target capabilities, not a description of shipped generic functionality. See the
+release/version/provenance/alignment management, and evidence-bound AI assistance. The target
+effective correction contract preserves the official source while composing a separately
+identified effective view that can add, suppress, replace, or qualify assertions and exposes every
+suppressed source axiom as `removed-from-effective` in its delta/impact view. These are target
+capabilities, not a description of shipped generic functionality. See the
 [ontology-platform design](docs/design/ontology-platform.md) and D86.
 
 For enhanced NCIt, the current guarantee is narrow: graph/storage separation protects the

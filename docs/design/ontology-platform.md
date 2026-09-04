@@ -80,6 +80,116 @@ identical hierarchy, search, or reasoner behavior, arbitrary drop-in substitutio
 reversibility, or official endorsement. “Fully backward compatible” is therefore not a product
 claim. Each stronger property requires its own evidence and contract.
 
+Source containment applies only to the official source plane. The effective view may intentionally
+differ. Best-effort migration and compatibility are reported for each named consumer profile and
+dimension as preserved, changed, breaking, or unknown, with the denominator and known breaks;
+there is no blanket compatibility Boolean. An enhanced export must not serialize edited semantics
+under an official NCIt IRI. The distinct official source export remains available. Target byte
+recovery is promised only when the original artifact and its digest were retained.
+
+## Target effective corrections
+
+This section is a target contract, not shipped functionality. Official source authority means
+authoritative evidence of what NCI published, not a claim of scientific or logical infallibility.
+The source plane is protected from overlay mutation and remains independently viewable where
+current surfaces support it; this does not overclaim current source-view or byte recoverability.
+
+An evidence-backed and accountably reviewed effective correction can add assertions, suppress exact
+official source axioms from composition, replace them, or qualify them. Its eligible error class is
+exactly one of source publication/representation error, empirical/scientific error, or
+logical/ontological error. Modelling preference is not an error and cannot destructively suppress or
+replace official content. These classes classify decisions; they do not create another lifecycle.
+
+Suppression is **named effective-view composition subtraction before reasoning**. It never mutates or
+deletes the official source, and annotation-only suppression or a contradictory or negating axiom
+must not represent suppression. Re-reasoning the exact composition is mandatory. Any inconsistency,
+unsupported targets, or missing targets refuse publication.
+
+The suppressed axiom always remains retrievable in the official source view. It also always appears
+in the target delta/impact view as `removed-from-effective`, never as deleted, not-found, or an empty
+result. The delta binds:
+
+- source release and canonical assertion identity;
+- the correction evidence and accountable decision;
+- any replacement or qualification;
+- stated and finite-profile inferred before/after effects;
+- the declared affected closure and boundary evidence; and
+- dependent impacts.
+
+That simultaneous visibility is the contract: removal from effective composition is not absence
+from official source authority.
+
+## Enhanced identity and release-bound crosswalks
+
+In the target, every enhanced NCIt concept and role, including unchanged official renditions, has a stable OntoPrism-governed enhanced-NCIt code.
+Every code has a release-bound crosswalk to the original official concept or role unless its provenance is `new`.
+The crosswalk records entity kind and computed cardinality, whether the rendition is unchanged or its exact change set, and an outcome of edit, split, merge, replacement, suppression, qualification, or new.
+
+OntoPrism does not invent official entity-level versions. Official identity is:
+**official release + official concept/role code + canonical source entity/assertion fingerprints and profile**.
+Enhanced identity is:
+**enhanced code + immutable entity revision + enhanced release/overlay/composition identities**.
+An enhanced code is never reused and is not replaced by NCI adoption.
+
+Everything emitted is OntoPrism-governed enhanced NCIt content. Release-bound official NCIt
+identifiers are source anchors and crosswalk endpoints, not necessarily the emitted enhanced primary
+identifiers. Content remains derived from, aligned to, or corroborated by identified sources;
+provenance does not transfer ownership. D86 qualifies D60 and does not supersede it.
+
+## caDSR resolution and compatibility
+
+caDSR source rows and anchors remain official NCIt codes; they are never rewritten. Enhanced
+resolution derives through the release-bound crosswalk and reports exactly one typed outcome:
+unique, split, merge, ambiguous, or unresolved.
+Resolution must not heuristically select a split result, and ambiguous or unresolved outcomes cannot
+look successful. Reports distinguish official-anchor coverage and enhanced-resolution coverage.
+
+Compatibility is evaluated against a named consumer profile and dimension, with the result,
+denominator and known breaks. Edited enhanced semantics are never published under an official NCIt
+IRI. Official-source and enhanced exports remain distinct.
+
+## Affected graph and dependent impacts
+
+An affected-graph claim is complete only under an explicit versioned graph closure with its
+relation, direction, bounds, and boundary witnesses.
+Stated and inferred effects remain separate. Anything outside that declared graph boundary is not
+silently enumerated as a graph member. Non-graph dependents are dependency-registry impacts, not
+graph members, and receive an explicit outcome: stale-pending, recompute, revalidate, remap, or refuse.
+[#262](https://github.com/hniedner/ontoprism/issues/262) owns exact impact types; this design does not
+duplicate that vocabulary.
+
+## Migration, reconciliation, and adoption
+
+Every official-to-enhanced reference receives an explicit typed outcome; nothing remains
+unclassified.
+Split, merge, ambiguous, and unresolved outcomes cannot be presented as success. On every later
+official release, every correction is reconciled against exact source and enhanced identities.
+Nothing is silently replayed, dropped, or overridden.
+
+[#316](https://github.com/hniedner/ontoprism/issues/316) currently owns proposal transfer. A
+correction-aware extension needs explicit future ownership rather than being attributed to #316
+today. NCI exact adoption can make an override redundant only with exact certified
+release/assertion evidence.
+Partial, ambiguous, or divergent adoption requires human review. No reconciliation step silently
+replays, drops, or overrides a correction.
+
+The stable enhanced code remains through gradual exact, partial, or ambiguous official adoption;
+history is append-only, and a later official code may differ. Only exact certified
+release/assertion evidence can support a #304 lifecycle transition, and reconciliation does not
+assign lifecycle state.
+[#304](https://github.com/hniedner/ontoprism/issues/304) remains the vocabulary owner.
+
+The correction-aware target refuses automatic replay and publication for every unresolved,
+unsupported, split, or ambiguous outcome. This design specifies that future boundary; it does not
+claim an implementation or assign it to #316's current scope.
+
+## Target correction views
+
+The target visualization provides `official source`, `effective`, `delta`, `impact`, and `migration`
+views bound to exact release, overlay, composition, and entity/assertion identities. A suppressed
+official source axiom and its `removed-from-effective` delta are simultaneously inspectable. Edge
+and axiom kinds remain typed and are never flattened to a generic relation.
+
 ## Governance and adoption
 
 OntoPrism may be locally useful and locally published under accountable local governance without
@@ -93,18 +203,6 @@ lifecycle vocabulary and current model divergence belong to
 [#304](https://github.com/hniedner/ontoprism/issues/304); this design neither installs a new
 lifecycle nor claims that existing variants have converged. OntoPrism must never assign approval,
 submission, publication, or adoption to NCI.
-
-## Permanent release-forward reconciliation
-
-[#316](https://github.com/hniedner/ontoprism/issues/316) owns the permanent target. A transfer binds
-the exact old and new official NCIt release identities and exact overlay identities, then records a
-per-assertion outcome. Automation may detect source changes, rebase unchanged assertions, produce
-proposals, and run validation.
-
-The system **refuses automatic replay and publication** for any unresolved, unsupported, or
-ambiguous conflict: nothing is silently dropped or carried forward. Human review remains required
-for semantic resolution, and reconciliation never assigns NCI adoption. This document defines the
-boundary; it does not implement #316.
 
 ## Metathesaurus interoperability capability
 

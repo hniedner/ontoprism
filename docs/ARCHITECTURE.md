@@ -53,7 +53,9 @@ release source plane and every OntoPrism overlay or derived view require separat
 Graph/storage separation currently protects the official stated plane from overlay mutation.
 Independent source-view selection and recoverability for every enhanced release are target
 guarantees, not current certification; byte recovery additionally requires retaining the original
-artifact and digest.
+artifact and digest. In the target data plane, an effective correction preserves the official source
+plane and creates a named effective view by subtracting suppressed source axioms before
+reasoning, then exposes those axioms as `removed-from-effective` rather than deleting them.
 
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL

@@ -37,13 +37,45 @@ reconciliation are implemented.
 
 An enhanced NCIt release is targeted as the composition of one identified official release source
 plane and separately identified/versioned OntoPrism overlays or derived views. Compatibility means
-only **source containment**, use of source identifiers as **release-bound anchors**, target
-**source-view recoverability**, and an explicit **provenance and view distinction**. It does not mean
+**source containment** only for the official source plane, use of source identifiers as
+**release-bound anchors**, target **source-view recoverability**, and an explicit **provenance and
+view distinction**. An effective view may intentionally differ. It does not mean
 conservative extension, logical equivalence, query equivalence, identical hierarchy/search/reasoner
 behavior, arbitrary drop-in substitution, D43 reversibility, or official endorsement. Byte recovery
 requires retention of the original artifact and digest; no current certified byte-recovery guarantee
 is created by this decision. Do not use “fully backward compatible” without immediately narrowing it
 to a separately evidenced guarantee.
+
+The target effective correction contract treats an official source as authoritative evidence of
+what NCI published, not as presumed scientific or logical infallibility. Evidence-backed,
+accountably reviewed corrections may add assertions and may suppress an exact official source
+axiom from effective composition, replace it, or qualify it. The three error classes are source
+publication/representation error, empirical/scientific error, and logical/ontological error;
+modelling preference alone is not an error and cannot justify destructive suppression or
+replacement. Suppression is named effective-view composition subtraction before reasoning, never
+source mutation/deletion, an annotation-only fiction, or a contradictory/negating axiom. The exact
+composition is re-reasoned, and inconsistency or unsupported/missing targets refuse publication.
+The original axiom remains official-source retrievable and appears in target delta/impact as
+`removed-from-effective`, with exact identities, correction/evidence/decision, before/after effects,
+closure/boundary evidence, and dependent impacts.
+
+Every target enhanced NCIt concept and role, including an unchanged official rendition, has a
+stable OntoPrism-governed enhanced-NCIt code and a release-bound crosswalk to its official source
+anchor unless new. Official identity is the official release plus official concept/role code and
+canonical source fingerprints/profile; enhanced identity adds immutable entity revision and exact
+enhanced release/overlay/composition identities. Codes are never reused or replaced by later NCI
+adoption. Everything emitted is OntoPrism-governed enhanced NCIt content; official identifiers are
+source anchors/crosswalk endpoints, not necessarily emitted enhanced primary identifiers. This
+qualifies D60's product identity without changing D60's derivation, alignment, corroboration, or
+ownership rule.
+
+Target impact claims are complete only for a declared versioned graph closure with relation,
+direction, bounds, and boundary witnesses; stated and inferred effects remain separate. Other
+dependents are registry impacts, not graph members, and require explicit non-success treatment.
+[#262](https://github.com/hniedner/ontoprism/issues/262) owns the exact impact vocabulary. All
+official-to-enhanced references require typed, non-success-like outcomes for split, merge,
+ambiguous, and unresolved cases. caDSR source anchors remain untouched official codes and resolve
+through the crosswalk without heuristic split selection.
 
 NCI adoption is optional and non-blocking for local usefulness and locally governed publication.
 Only evidence from an identified, certified official NCIt release can support “official,”
@@ -67,11 +99,13 @@ identity. Deterministic validation decides machine-checkable claims, while a hum
 authority approves semantic publication. AI cannot approve, publish, submit, adopt, or turn model
 confidence into evidence. The current product does not ship generic AI authoring.
 
-Permanent release-forward reconciliation is owned by
-[#316](https://github.com/hniedner/ontoprism/issues/316): it must bind exact old/new official-release
-and overlay identities, record per-assertion outcomes, automate detection/rebase/proposals/validation,
-refuse automatic replay or publication for unresolved, unsupported, or ambiguous conflicts, retain
-human review, and never assign adoption. Nothing may be silently dropped or carried forward.
+[#316](https://github.com/hniedner/ontoprism/issues/316) currently owns proposal transfer, not this
+whole correction contract. Its correction-aware extension requires explicit future ownership. That
+extension must reconcile every correction against exact old/new official-release assertions,
+classify every reference, refuse automatic replay/publication for unresolved, unsupported, split,
+or ambiguous outcomes, retain human review, and never assign adoption. Exact certified adoption
+evidence may make an override redundant; partial, ambiguous, or divergent adoption cannot. Nothing
+may be silently replayed, dropped, overridden, or carried forward.
 
 ## 2026-09-04 — Remote operations remain orchestrator-separated
 

@@ -122,8 +122,13 @@ accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
 limit. The target is an ontology-generic core plus capability-declaring ontology adapters and
 domain policy; those generic facilities are not currently implemented. NCI adoption is optional
 for local usefulness/publication, while official/NCI-authored/accepted claims require evidence
-from an identified certified official NCIt release. D86 qualifies rather than supersedes D60;
-#304 owns exact lifecycle-vocabulary convergence.
+from an identified certified official NCIt release. Everything emitted is OntoPrism-governed
+enhanced NCIt content; release-bound official identifiers are source anchors and crosswalk
+endpoints, not necessarily enhanced primary identifiers. A target effective correction preserves
+the official source plane and composes a separately identified effective view. D86 qualifies
+rather than supersedes D60; #304 owns exact lifecycle-vocabulary convergence, #262 owns exact
+impact types, and #316 currently owns proposal transfer rather than correction-aware
+reconciliation.
 
 Derivation is recorded as provenance and alignment, never as ownership — the pattern
 `AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
