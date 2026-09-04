@@ -56,6 +56,10 @@ _BRACE_EXPANSION_ADVISORIES = (
 )
 
 
+def _normalized_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
 def test_python_gate_documentation_describes_current_failure_and_ci_semantics() -> None:
     quality_source = (_ROOT / "scripts/validation/check_test_quality.py").read_text()
     quality_docstring = ast.get_docstring(ast.parse(quality_source))
@@ -793,29 +797,95 @@ def _assert_python_metadata_contract() -> None:
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    assert tracked_pyprojects
+    assert set(tracked_pyprojects) == {
+        "backend/pyproject.toml",
+        "ontolib/pyproject.toml",
+        "pyproject.toml",
+    }
     manifest_specifiers = {
         tomllib.loads((_ROOT / path).read_text())["project"]["requires-python"]
         for path in tracked_pyprojects
     }
     assert manifest_specifiers == {">=3.14,<3.15"}
-    metadata_specifier = SpecifierSet(manifest_specifiers.pop())
+    root_project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    assert "packaging>=26.0" in root_project["tool"]["pdm"]["dev-dependencies"]["test"]
+    metadata_text = manifest_specifiers.pop()
+    metadata_specifier = SpecifierSet(metadata_text)
+    lower_bounds = [
+        specifier for specifier in metadata_specifier if specifier.operator == ">="
+    ]
+    assert len(lower_bounds) == 1, (
+        "requires-python must have exactly one >= lower bound"
+    )
+    metadata_floor = Version(lower_bounds[0].version)
     assert Version("3.13.99") not in metadata_specifier
     assert Version("3.14.0") in metadata_specifier
+    assert Version("3.14.1") in metadata_specifier
     assert Version("3.14.5") in metadata_specifier
     assert Version("3.14.7") in metadata_specifier
     assert Version("3.15") not in metadata_specifier
 
     operational_runtime = Version((_ROOT / ".python-version").read_text().strip())
     assert operational_runtime == Version("3.14.7")
-    metadata_floor = Version("3.14.0")
     assert metadata_floor.release[:2] == operational_runtime.release[:2]
     assert metadata_floor <= operational_runtime
 
     lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
     lock_targets = lock["metadata"]["targets"]
     assert len(lock_targets) == 1
-    assert SpecifierSet(lock_targets[0]["requires_python"]) == metadata_specifier
+    assert lock_targets[0]["requires_python"] == metadata_text
+
+    data_build_packages = [
+        package for package in lock["package"] if "data-build" in package["groups"]
+    ]
+    incompatible = [
+        package["name"]
+        for package in data_build_packages
+        if package.get("requires_python")
+        and Version("3.14.1") not in SpecifierSet(package["requires_python"])
+    ]
+    assert incompatible == []
+    networkx = next(
+        package for package in data_build_packages if package["name"] == "networkx"
+    )
+    assert networkx["version"] == "3.6"
+    assert Version("3.14.1") in SpecifierSet(networkx["requires_python"])
+
+
+def _assert_python_runtime_documentation() -> tuple[str, str]:
+    agents = (_ROOT / "AGENTS.md").read_text()
+    normalized_agents = _normalized_whitespace(agents)
+    assert "package metadata accepts the Python 3.14 minor series" in normalized_agents
+    assert "Python 3.14.7 remains the only supported local, CI" in normalized_agents
+    readme = _normalized_whitespace((_ROOT / "README.md").read_text())
+    assert "package metadata accepts the Python 3.14 minor series" in readme
+    assert "Python 3.14.7 remains the only supported local, CI" in readme
+    makefile = (_ROOT / "Makefile").read_text()
+    assert "accepts Python >=3.14,<3.15 metadata" in makefile
+    assert "operational runtime 3.14.7" in makefile
+
+    decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
+    d84 = _normalized_whitespace(
+        decisions.partition("### D84.")[2].partition("\n## 2026-09-03")[0]
+    )
+    assert "metadata floor" in d84
+    assert "intended to unblock" in d84
+    assert "33839863700" in d84
+    assert "conservative regression guard" in d84
+    assert "do not establish spelling sensitivity" in d84
+    assert "networkx" in d84
+    assert (
+        "test_python_metadata_floor_and_exact_operational_runtime_configuration" in d84
+    )
+    d83 = _normalized_whitespace(
+        decisions.partition("### D83.")[2].partition("\n### D82.")[0]
+    )
+    assert "3.14.7-only" in d83
+    assert "python3.14" in d83
+    assert "Superseded in part by D84" in d83
+    assert "metadata and lock target" in d83
+    assert "full-build mismatch" not in d83
+    return agents, (_ROOT / "pyproject.toml").read_text()
 
 
 def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> None:
@@ -875,29 +945,8 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
         text=True,
     ).stdout.strip()
     assert pre_commit_version == "3.14.7"
-    agents = (_ROOT / "AGENTS.md").read_text()
-    project = (_ROOT / "pyproject.toml").read_text()
+    agents, project = _assert_python_runtime_documentation()
     _assert_ci_job_contract(workflow, agents, project)
-    assert "package metadata accepts the Python 3.14 minor series" in agents
-    assert "Python 3.14.7 remains the only supported\nlocal, CI" in agents
-    readme = (_ROOT / "README.md").read_text()
-    assert "package metadata accepts the Python 3.14 minor series" in readme
-    assert "Python 3.14.7 remains the only supported\nlocal, CI" in readme
-    assert "accepts Python >=3.14,<3.15 metadata" in (_ROOT / "Makefile").read_text()
-    assert "operational runtime 3.14.7" in (_ROOT / "Makefile").read_text()
-
-    decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
-    d84 = decisions.partition("### D84.")[2].partition("\n## 2026-09-03")[0]
-    assert "metadata floor" in d84
-    assert "intended to unblock" in d84
-    assert "33839863700" in d84
-    assert (
-        "test_python_metadata_floor_and_exact_operational_runtime_configuration" in d84
-    )
-    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
-    assert "3.14.7-only" in d83
-    assert "python3.14" in d83
-    assert "full-build mismatch" not in d83
 
     _assert_api_image_python_patch(workflow)
     _assert_ci_summary_allow_list(workflow)

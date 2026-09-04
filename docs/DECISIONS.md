@@ -13,10 +13,10 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 **Decision:** the metadata floor in every tracked Python project uses the exact spelling
 `>=3.14,<3.15` (`git grep -n requires-python -- '*pyproject.toml'`, 2026-09-04).
-The spelling, not merely an equivalent specifier, is
-part of the Dependabot regression contract because its external parser has a version
-detection limitation. Semantically, the metadata rejects 3.13.99 and 3.15 while
-accepting 3.14.0, Dependabot's installed 3.14.5, and the operational 3.14.7 patch
+That spelling is our conservative regression guard. The citations do not establish
+spelling sensitivity or prescribe this representation. Semantically, the
+metadata rejects 3.13.99 and 3.15 while accepting 3.14.0, 3.14.1, Dependabot's installed
+3.14.5, and the operational 3.14.7 patch
 (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
@@ -29,11 +29,24 @@ runtime; the metadata lower bound remains in the same minor series and is no hig
 than that runtime (`pdm run agent-test
 backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
+`pdm run verify` now rejects any executing interpreter other than 3.14.7 before its
+substantive verification runner (`pdm run agent-test
+backend/tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
+backend/tests/test_verify_runner.py::test_verify_runner_uses_portable_tools_and_runs_exact_gates
+-v`, 2026-09-04). This operational gate does not narrow package metadata.
+
+The broadened lock resolves networkx 3.6 rather than 3.6.1 because 3.6.1 excludes
+Python 3.14.1, which the project metadata accepts (`git diff main...HEAD -- pdm.lock`,
+2026-09-04). The lock contract checks both the selected networkx version and eligibility
+of locked data-build packages on 3.14.1 (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
 
 Dependabot run 33839863700 rejected the patch-floor `>=3.14.7,<3.15` while running
 Python 3.14.5 (`gh run view 33839863700 --log-failed`, 2026-09-04). Dependabot-core
-issue #13274 confirms Python 3.14 support landed; issue #14593 documents the version
-detection bug, but neither is treated as prescribing this exact metadata spelling.
+issue #13274 records Python 3.14 support work. Issue #14593 is adjacent uv-ecosystem
+context about exact-pin version detection, not evidence about this project's range or
+its spelling. Neither citation prescribes this exact metadata spelling.
 This change is intended to unblock Dependency Graph processing. The external fix
 remains unverified until a post-merge Dependency Graph run succeeds (`gh run view
 33839863700 --log-failed`, 2026-09-04).
@@ -42,7 +55,14 @@ remains unverified until a post-merge Dependency Graph run succeeds (`gh run vie
 
 ### D83. The pre-production platform is 3.14.7-only
 
-**Decision:** Python 3.14.7 is the only supported local, hosted-CI, integration,
+**Status:** Superseded in part by D84 for metadata and lock target scope. The metadata
+and lock statements below are historical observations from 2026-09-03, not descriptions
+of the current repository. The patch-exact operational runtime decision remains current
+(`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
+
+**Decision at adoption:** Python 3.14.7 was the only supported local, hosted-CI, integration,
 data-build, and container runtime (`git grep -n "Python 3.14.7 is the only supported"
 -- AGENTS.md README.md`, 2026-09-03). Every tracked Python project manifest requires
 `>=3.14.7,<3.15` (`git grep -n requires-python -- '*pyproject.toml'`, 2026-09-03), and
@@ -51,14 +71,14 @@ print(tomllib.load(open('pdm.lock','rb'))['metadata']['targets'])"`, 2026-09-03)
 
 Workflow Python setup inputs, `.python-version`, the backend base image, and the container
 smoke assertion are patch-exact 3.14.7; project manifests declare the supported floor and
-minor-series bound `>=3.14.7,<3.15` rather than an exact upper patch (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
--v`, 2026-09-03). Pre-commit is the deliberate executable-name exception: it resolves
+minor-series bound `>=3.14.7,<3.15` rather than an exact upper patch. Pre-commit is the
+deliberate executable-name exception: it resolves
 `python3.14` from the selected local or CI 3.14.7 PATH. The Docker smoke executes Python in
 the built API container and rejects any patch other than 3.14.7 before checking service
-health; the contract asserts that command ordering (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
--v`, 2026-09-03).
+health; that command ordering remains covered by the current supply-chain contract
+(`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+-v`, 2026-09-04).
 
 Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only
 the exact Starlette `anyio.abc.BlockingPortal` warning ignored (`git grep -n

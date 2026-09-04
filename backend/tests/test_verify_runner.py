@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from scripts.validation.docker_selectors import DOCKER_SELECTOR_VARIABLES
 from scripts.validation.run_verify import run_verify
+from scripts.validation.validate_python_runtime import main as validate_python_runtime
 
 
 class _Runner:
@@ -84,7 +85,15 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
         )
     )
     scripts = pyproject["tool"]["pdm"]["scripts"]
-    assert scripts["verify"] == "python -m scripts.validation.run_verify"
+    assert scripts["verify"] == {
+        "composite": [
+            "validate-python-runtime",
+            "python -m scripts.validation.run_verify",
+        ]
+    }
+    assert scripts["validate-python-runtime"] == (
+        "python -m scripts.validation.validate_python_runtime"
+    )
     assert "test-ci" in scripts
     assert "pdm run verify" not in scripts["test-ci"]["shell"]
 
@@ -132,3 +141,17 @@ def test_verify_runner_discovers_pdm_only_when_verification_runs(
 
     with pytest.raises(RuntimeError, match="pdm executable"):
         run_verify(runner=_Runner())
+
+
+@pytest.mark.unit
+def test_operational_runtime_validator_accepts_only_python_3147(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert validate_python_runtime((3, 14, 7)) == 0
+    assert capsys.readouterr().err == ""
+
+    assert validate_python_runtime((3, 14, 6)) == 1
+    assert capsys.readouterr().err == (
+        "OntoPrism operational workflows require Python 3.14.7; "
+        "executing interpreter is 3.14.6.\n"
+    )
