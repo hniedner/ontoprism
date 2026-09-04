@@ -527,12 +527,11 @@ def test_manifest_files_reject_missing_paths_and_uncollected_selectors(
 
 
 @pytest.mark.unit
-def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
+def test_qlever_command_is_loopback_disposable_and_digest_pinned(
+    tmp_path: Path,
+) -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
-    data_dir = Path(
-        "/Users/hannes/Documents/coding/ontoprism/data/"
-        "ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
-    )
+    data_dir = tmp_path / "ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
 
     assert owner.qlever_run_command(data_dir) == [
         "docker",
@@ -567,7 +566,7 @@ def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
     ]
     with pytest.raises(ResourceOwnershipError, match="data directory"):
         owner.qlever_run_command(
-            Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix")
+            tmp_path / "prefix-019f8d64b0e274e2931a15452959797a-suffix"
         )
 
     assert owner.postgres_run_command() == [
@@ -594,11 +593,11 @@ def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
 
 
 @pytest.mark.unit
-def test_qlever_ownership_requires_label_mount_and_file_marker() -> None:
+def test_qlever_ownership_requires_label_mount_and_file_marker(
+    tmp_path: Path,
+) -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
-    data_dir = Path(
-        "/private/tmp/ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
-    )
+    data_dir = tmp_path / "ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
 
     owner.verify_container_label(owner.nonce)
     with pytest.raises(ResourceOwnershipError, match="label"):
@@ -610,7 +609,7 @@ def test_qlever_ownership_requires_label_mount_and_file_marker() -> None:
     )
     with pytest.raises(ResourceOwnershipError, match="mount"):
         owner.verify_qlever(
-            mounted_data_dir=Path("/private/tmp/familiar-prefix-decoy"),
+            mounted_data_dir=tmp_path / "familiar-prefix-decoy",
             expected_data_dir=data_dir,
             file_marker=owner.nonce,
         )
@@ -623,11 +622,11 @@ def test_qlever_ownership_requires_label_mount_and_file_marker() -> None:
     owner.verify_qlever_data_dir(data_dir, owner.nonce)
     with pytest.raises(ResourceOwnershipError, match="directory owner"):
         owner.verify_qlever_data_dir(
-            Path("/private/tmp/ontoprism-test-another-run"), owner.nonce
+            tmp_path / "ontoprism-test-another-run", owner.nonce
         )
     with pytest.raises(ResourceOwnershipError, match="directory owner"):
         owner.verify_qlever_data_dir(
-            Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix"),
+            tmp_path / "prefix-019f8d64b0e274e2931a15452959797a-suffix",
             owner.nonce,
         )
     with pytest.raises(ResourceOwnershipError, match="file marker"):

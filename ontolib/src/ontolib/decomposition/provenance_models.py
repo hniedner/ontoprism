@@ -18,8 +18,8 @@ from pydantic import (
 )
 
 # Pydantic resolves these aliases while constructing the runtime model schema.
-from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
-from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
+from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
+from ontolib.decomposition.models import ConceptOutcome
 
 _STANDARD_RUN_SCHEMA = 4
 _SAMPLE_RUN_SCHEMA = 5

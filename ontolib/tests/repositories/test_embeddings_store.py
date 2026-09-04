@@ -44,7 +44,7 @@ class _FakeSession:
         self._active_id = active_id
         self._source_identity = source_identity
 
-    async def __aenter__(self) -> "_FakeSession":
+    async def __aenter__(self) -> _FakeSession:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:

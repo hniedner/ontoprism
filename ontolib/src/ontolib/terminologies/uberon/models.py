@@ -28,7 +28,7 @@ def _source_for_code(code: str) -> UberonSource:
 
 
 def _require_closed_neighborhood(
-    center: str, nodes: list["UberonGraphNode"], edges: list["UberonGraphEdge"]
+    center: str, nodes: list[UberonGraphNode], edges: list[UberonGraphEdge]
 ) -> None:
     _source_for_code(center)
     node_codes = [node.code for node in nodes]
@@ -51,7 +51,7 @@ class _SourcedConcept(_ReadModel):
     source: UberonSource
 
     @model_validator(mode="after")
-    def _source_matches_code(self) -> "_SourcedConcept":
+    def _source_matches_code(self) -> _SourcedConcept:
         if _source_for_code(self.code) != self.source:
             raise ValueError("source does not match the concept CURIE namespace")
         return self
@@ -68,7 +68,7 @@ class UberonRelationship(_ReadModel):
     target: UberonConceptRef
 
     @model_validator(mode="after")
-    def _kind_matches_relation(self) -> "UberonRelationship":
+    def _kind_matches_relation(self) -> UberonRelationship:
         if self.kind != _required_edge_kind(self.relation):
             raise ValueError("relation requires its canonical edge kind")
         return self
@@ -110,7 +110,7 @@ class UberonGraphEdge(_ReadModel):
     kind: UberonEdgeKind
 
     @model_validator(mode="after")
-    def _valid_endpoints_and_kind(self) -> "UberonGraphEdge":
+    def _valid_endpoints_and_kind(self) -> UberonGraphEdge:
         _source_for_code(self.source)
         _source_for_code(self.target)
         required = _required_edge_kind(self.relation)
@@ -126,6 +126,6 @@ class UberonNeighborhood(_ReadModel):
     truncated: bool = False
 
     @model_validator(mode="after")
-    def _closed_graph(self) -> "UberonNeighborhood":
+    def _closed_graph(self) -> UberonNeighborhood:
         _require_closed_neighborhood(self.center, self.nodes, self.edges)
         return self

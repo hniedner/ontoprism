@@ -5,9 +5,13 @@ Hard failures (block the commit):
 1. Tests whose only assertions are mock.assert_called* / assert_awaited* / call_count
 2. Module docstrings containing "improve coverage" or "to X%"
 3. Tests whose only assertion is assert callable(...)
+4. Tests with no observable assertion
+5. Substring assertions against unnormalized Typer/Click CLI output
+6. Syntactically invalid (unparseable) test files
+7. Unreadable or non-UTF-8 test files propagate their read error and abort the hook
 
 Warnings (advisory):
-4. Tests with >5 @patch / with patch(...) usages
+8. Tests with >5 @patch / with patch(...) usages
 """
 
 import ast
@@ -257,18 +261,16 @@ def check_cli_output_assertions(
 
 def check_file(filepath: Path) -> tuple[list[str], list[str]]:
     """Check a test file for quality anti-patterns."""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return [], []
+    content = filepath.read_text(encoding="utf-8")
 
     if not content.strip():
         return [], []
 
     try:
         tree = ast.parse(content, filename=str(filepath))
-    except SyntaxError:
-        return [], []
+    except SyntaxError as error:
+        line = error.lineno or 1
+        return [f"{filepath}:{line}: syntax error: {error.msg}"], []
 
     failures: list[str] = []
     warnings: list[str] = []
@@ -289,12 +291,12 @@ def check_file(filepath: Path) -> tuple[list[str], list[str]]:
 
 
 def _collect_results(filepaths: list[str]) -> tuple[list[str], list[str]]:
-    """Collect failures and warnings from a list of file path strings."""
+    """Collect results, aborting when a supplied Python path cannot be read."""
     all_failures: list[str] = []
     all_warnings: list[str] = []
     for filepath_str in filepaths:
         filepath = Path(filepath_str)
-        if not filepath.exists() or filepath.suffix != ".py":
+        if filepath.suffix != ".py":
             continue
         failures, warnings = check_file(filepath)
         all_failures.extend(failures)
@@ -323,7 +325,7 @@ def _print_failures(all_failures: list[str]) -> None:
 
 
 def main() -> int:
-    """Run test quality checks on provided files."""
+    """Run checks, failing closed for missing, dangling, or unreadable test paths."""
     if len(sys.argv) < MIN_ARGS:
         print("Usage: check_test_quality.py <file1.py> [file2.py ...]")
         return 0

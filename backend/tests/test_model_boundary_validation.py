@@ -104,6 +104,20 @@ def test_validator_rejects_mutable_and_pydantic_dataclasses(tmp_path: Path) -> N
     )
 
 
+def test_validator_accepts_private_identity_mutable_implementation_state(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "models.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass(slots=True, eq=False)\n"
+        "class _Scope:\n    assignments: dict[str, int]\n",
+    )
+
+    assert validate_model_boundaries(tmp_path) == []
+
+
 def test_validator_rejects_direct_dataclass_boundary_serialization(
     tmp_path: Path,
 ) -> None:
@@ -137,6 +151,22 @@ def test_validator_reports_unresolved_project_annotations(tmp_path: Path) -> Non
     assert any(
         "ProjectType" in finding and "unresolved" in finding for finding in findings
     )
+
+
+def test_validator_does_not_treat_warning_as_an_annotation_builtin(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "models.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, slots=True)\n"
+        "class Domain:\n    warning: Warning\n",
+    )
+
+    findings = validate_model_boundaries(tmp_path)
+
+    assert any("Warning" in finding and "unresolved" in finding for finding in findings)
 
 
 def test_validator_reports_dotted_and_unparsable_forward_annotations(

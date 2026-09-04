@@ -31,7 +31,7 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
   workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
   successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
-  checks are all nine `CI` jobs, `conventional commit subject`, `dependency review`, all
+  checks are all 9 `CI` jobs, `conventional commit subject`, `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
   `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
   because of a documented path condition, including a dependent job skipped when its
@@ -145,7 +145,7 @@ decisions — see D60 for the full statement.
 ## Setup & dev servers
 
 ```bash
-pdm install --dev       # Python 3.13, installs ontolib + backend editable
+pdm install --dev       # Requires Python 3.14.7
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -157,6 +157,9 @@ pdm run up               # Compose via current selected Docker context; run `pdm
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
+
+Python 3.14.7 is the only supported local, CI, integration, data-build, and container
+runtime. Recreate an older project environment before installing from the lock.
 
 Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
 so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;

@@ -25,7 +25,7 @@ class _Result:
 
 
 class _Transaction:
-    async def __aenter__(self) -> "_Transaction":
+    async def __aenter__(self) -> _Transaction:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
@@ -33,10 +33,10 @@ class _Transaction:
 
 
 class _Session:
-    def __init__(self, factory: "_Factory") -> None:
+    def __init__(self, factory: _Factory) -> None:
         self.factory = factory
 
-    async def __aenter__(self) -> "_Session":
+    async def __aenter__(self) -> _Session:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:

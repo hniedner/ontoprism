@@ -7,6 +7,34 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-03 — Python 3.14.7 is the sole runtime
+
+### D83. The pre-production platform is 3.14.7-only
+
+**Decision:** Python 3.14.7 is the only supported local, hosted-CI, integration,
+data-build, and container runtime (`git grep -n "Python 3.14.7 is the only supported"
+-- AGENTS.md README.md`, 2026-09-03). Every tracked Python project manifest requires
+`>=3.14.7,<3.15` (`git grep -n requires-python -- '*pyproject.toml'`, 2026-09-03), and
+the lock target is the equivalent `~=3.14.7` (`pdm run python -c "import tomllib;
+print(tomllib.load(open('pdm.lock','rb'))['metadata']['targets'])"`, 2026-09-03).
+
+Workflow Python setup inputs, `.python-version`, the backend base image, and the container
+smoke assertion are patch-exact 3.14.7; project manifests declare the supported floor and
+minor-series bound `>=3.14.7,<3.15` rather than an exact upper patch (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
+-v`, 2026-09-03). Pre-commit is the deliberate executable-name exception: it resolves
+`python3.14` from the selected local or CI 3.14.7 PATH. The Docker smoke executes Python in
+the built API container and rejects any patch other than 3.14.7 before checking service
+health; the contract asserts that command ordering (`pdm run agent-test
+backend/tests/test_supply_chain_contract.py::test_python_3147_is_the_only_current_runtime_configuration
+-v`, 2026-09-03).
+
+Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only
+the exact Starlette `anyio.abc.BlockingPortal` warning ignored (`git grep -n
+"DeprecationWarning" -- pyproject.toml`, 2026-09-03). This runtime decision does not certify
+the separately gated full-build corpus/model contracts (`git grep -n "full_build:" --
+pyproject.toml`, 2026-09-03).
+
 ## 2026-08-30 — MINT-781c8c8c6096 lifecycle authority is reconciled
 
 ### D82. The strict proposal registry is the sole current governance record for the C27787 mint

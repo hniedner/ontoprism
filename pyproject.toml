@@ -3,7 +3,7 @@ name = "ontoprism"
 version = "0.21.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.14.7,<3.15"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Hannes Niedner" }]
 
@@ -92,9 +92,10 @@ test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov
 # "Gates green" means this command exited 0 — not a subset of it. Three defects reached
 # CI on PR #290 because targeted substitutes (a single vitest file, a narrowed pytest
 # selection) were run instead of the real gate commands.
-# The one gate this cannot reproduce is CodeQL, which is GitHub default setup and runs
-# only on pull requests and pushes to main; `workflow_dispatch` on ci.yml covers the
-# other nine jobs for a branch that has no PR yet.
+# The one gate it cannot reproduce is
+# CodeQL, which is GitHub default setup and runs only on pull requests and pushes to
+# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every ordinary job;
+# only Docker and the pinned embedding-model contract remain path-gated.
 verify = "python -m scripts.validation.run_verify"
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
@@ -159,8 +160,13 @@ minversion = "8.0"
 norecursedirs = ["build", "dist", ".git", ".venv", "node_modules", "frontend"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "error::DeprecationWarning",
+    "error::PendingDeprecationWarning",
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:starlette\\.testclient",
+]
 markers = [
-    "unit: Fast unit tests with mocked externalities only",
+    "unit: Fast hermetic tests; external network/services are mocked, deterministic local tools may be real",
     "integration: Tests against real services; mutators use run-owned disposables",
     "mutating_integration: Tests that require exact current-run-owned disposable persistent resources",
     "full_store: Read-only contracts that explicitly require configured full-corpus stores",
@@ -172,7 +178,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 src = ["ontolib/src", "backend/src", "ontolib/tests", "backend/tests"]
 
@@ -196,16 +202,15 @@ select = [
 ignore = [
     "PLR0913",          # too many args (FastAPI DI, query builders)
     "ASYNC240", "ASYNC250",  # sync Path/os ops in async are fine (we use asyncio)
+    # TC rules propose moving annotation names out of runtime scope. FastAPI, Pydantic,
+    # typer, and pytest resolve annotations at runtime, and imports also have direct
+    # runtime uses such as Path; the global ignore replaces prior line and per-file
+    # suppressions.
+    "TC001", "TC002", "TC003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**/*.py" = ["S101", "PLR2004"]
-"/**/decomposition/legacy_writer.py" = [
-       "TC003",    # Path used at runtime for .mkdir/.write_text
- ]
-"scripts/decompose.py" = [
-       "TC003",    # Path used at runtime — typer resolves Annotated types via get_type_hints
- ]
 "scripts/dev/reconstruct_versions.py" = [
        "S603",    # subprocess args are literals from the module-level MILESTONES tuple
        "S607",    # `git` from PATH — this is a developer script, not a runtime component
@@ -223,7 +228,7 @@ show_missing = true
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 
 [tool.basedpyright]
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 typeCheckingMode = "standard"
 include = ["ontolib/src", "backend/src", "test_support"]
 extraPaths = ["ontolib/src", "backend/src"]

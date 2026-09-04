@@ -492,7 +492,7 @@ def _frontend_result(
         report = _parse_vitest_report(payload)
         passed, failed = _vitest_counts(report)
         names = _vitest_failure_names(report, failed)
-    except (OSError, UnicodeDecodeError, AgentTestInputError):
+    except OSError, UnicodeDecodeError, AgentTestInputError:
         print("frontend test report is invalid", file=sys.stderr)
         _print_frontend_diagnostic(diagnostic)
         return 3
@@ -562,7 +562,7 @@ def run_agent_test(
                 stdout=subprocess.PIPE if invocation.mode == "frontend" else None,
                 stderr=subprocess.PIPE if invocation.mode == "frontend" else None,
             )
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError, PermissionError:
             print("required test executable is unavailable", file=sys.stderr)
             return 3
         except OSError:

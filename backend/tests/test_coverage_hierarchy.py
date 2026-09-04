@@ -411,7 +411,9 @@ def test_runtime_dependency_verification_rejects_lock_version_mismatch(
 ) -> None:
     lock = tmp_path / "pdm.lock"
     lock.write_text(
-        '[[package]]\nname = "coverage"\nversion = "7.15.4"\n'
+        '[[package]]\nname = "coverage"\nversion = "'
+        + importlib.metadata.version("coverage")
+        + '"\n'
         '[[package]]\nname = "pydantic"\nversion = "0.0.0"\n'
     )
 

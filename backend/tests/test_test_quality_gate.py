@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from scripts.validation.check_test_quality import check_file
+from scripts.validation.check_test_quality import check_file, main
 
 pytestmark = pytest.mark.unit
 
@@ -34,3 +34,52 @@ def test_quality_gate_rejects_mock_execution_without_behavior(tmp_path: Path) ->
     )
 
     assert any("no observable assertion" in failure for failure in failures)
+
+
+def test_quality_gate_fails_closed_when_test_file_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "test_unreadable.py"
+    path.write_text("def test_contract():\n    assert True\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def raise_for_target(
+        self: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
+        if self == path:
+            raise OSError("permission denied")
+        return original_read_text(self, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", raise_for_target)
+    monkeypatch.setattr("sys.argv", ["check_test_quality.py", str(path)])
+
+    with pytest.raises(OSError, match="permission denied"):
+        main()
+
+
+def test_quality_gate_fails_closed_on_non_utf8_test_file(tmp_path: Path) -> None:
+    path = tmp_path / "test_non_utf8.py"
+    path.write_bytes(b"\xff")
+
+    with pytest.raises(UnicodeDecodeError):
+        check_file(path)
+
+
+def test_quality_gate_rejects_a_test_file_with_invalid_syntax(tmp_path: Path) -> None:
+    path = tmp_path / "test_invalid.py"
+    path.write_text("def test_contract(:\n    pass\n", encoding="utf-8")
+
+    failures, warnings = check_file(path)
+
+    assert warnings == []
+    assert failures == [f"{path}:1: syntax error: invalid syntax"]
+
+
+def test_quality_gate_main_fails_when_a_python_argument_vanishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vanished = tmp_path / "test_vanished.py"
+    monkeypatch.setattr("sys.argv", ["check_test_quality.py", str(vanished)])
+
+    with pytest.raises(FileNotFoundError):
+        main()

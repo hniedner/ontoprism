@@ -84,6 +84,7 @@ class ClassInfo:
         self.type_parameters = type_parameters
         self.dataclass = False
         self.frozen = False
+        self.identity_mutable = False
         self.pydantic_dataclass = False
         self.pydantic = False
 
@@ -274,6 +275,19 @@ def _decorator_frozen(decorator: ast.expr) -> bool:
     )
 
 
+def _decorator_identity_mutable(decorator: ast.expr) -> bool:
+    # Identity-keyed mutable private implementation state is safe from value-hash drift;
+    # public data models still require immutable value semantics.
+    if not isinstance(decorator, ast.Call):
+        return False
+    values = {
+        keyword.arg: keyword.value.value
+        for keyword in decorator.keywords
+        if keyword.arg in {"eq", "slots"} and isinstance(keyword.value, ast.Constant)
+    }
+    return values == {"eq": False, "slots": True}
+
+
 def _classify_classes(modules: dict[str, ModuleInfo]) -> dict[Symbol, ClassInfo]:
     classes = {
         item.symbol: item
@@ -300,6 +314,9 @@ def _classify_decorators(module: ModuleInfo, item: ClassInfo) -> None:
         if symbol == ("dataclasses", "dataclass"):
             item.dataclass = True
             item.frozen = _decorator_frozen(decorator)
+            item.identity_mutable = item.symbol[1].startswith(
+                "_"
+            ) and _decorator_identity_mutable(decorator)
         if symbol == ("pydantic.dataclasses", "dataclass"):
             item.pydantic_dataclass = True
 
@@ -485,7 +502,7 @@ def _mutable_and_hybrid_findings(
     findings: list[str] = []
     for item in classes.values():
         location = item.path.relative_to(root)
-        if item.dataclass and not item.frozen:
+        if item.dataclass and not item.frozen and not item.identity_mutable:
             findings.append(
                 f"{location}:{item.line} {item.symbol[1]}: dataclass must be frozen"
             )

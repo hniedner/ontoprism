@@ -329,7 +329,7 @@ group = "release-yaml"
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 47
+line = 48
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "max_attempts is validated as positive and every loop path returns or raises, so this defensive assertion is structurally unreachable."
@@ -361,7 +361,7 @@ configured_in = "pyproject.toml"
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 64
+line = 65
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."

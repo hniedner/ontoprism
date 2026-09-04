@@ -1415,7 +1415,7 @@ async def run_pipeline(
             get_labels=get_labels,
             residual_progress=residual_progress,
         )
-    except (RunPublicationError, PublicationFinalizationError):
+    except RunPublicationError, PublicationFinalizationError:
         # Retryable failures are already journaled; finalization failures occur after
         # completion. Neither may demote the decomposition run via fail_run.
         raise

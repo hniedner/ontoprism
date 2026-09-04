@@ -1,7 +1,7 @@
 # ONTOPRISM
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=fff" alt="Python 3.13">
+  <img src="https://img.shields.io/badge/python-3.14.7-3776AB?logo=python&logoColor=fff" alt="Python 3.14.7">
   <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff" alt="FastAPI">
   <img src="https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=fff" alt="Svelte 5">
   <img src="https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=fff" alt="PostgreSQL 15">
@@ -287,7 +287,7 @@ proof-bearing contract (#153), not a property claimed by this projection.
 ## Quickstart
 
 ```bash
-pdm install --dev                # Python 3.13 deps
+pdm install --dev                # Requires Python 3.14.7
 npm ci --prefix frontend         # SvelteKit deps
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
@@ -299,6 +299,9 @@ pdm run up                       # start QLever + Postgres
 pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
 ```
+
+Python 3.14.7 is the only supported local, CI, data-build, integration, and container
+runtime. Recreate an older project environment before installing from the lock.
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
 for first-run provisioning. Entitled ICD-O operators set the server-only
@@ -333,7 +336,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 
 | Category | Technologies |
 |---|---|
-| Backend | Python 3.13 · PDM · FastAPI · QLever (SPARQL) · PostgreSQL + pgvector |
+| Backend | Python 3.14.7 · PDM · FastAPI · QLever (SPARQL) · PostgreSQL + pgvector |
 | Frontend | SvelteKit 5 · Tailwind 4 · Sigma + graphology · TypeScript |
 | Quality | ruff · basedpyright · pytest · vitest · pre-commit · >90% coverage |
 

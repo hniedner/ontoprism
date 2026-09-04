@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Pydantic resolves these aliases while constructing the runtime model schema.
-from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
+from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
 
 if TYPE_CHECKING:
     from pathlib import Path

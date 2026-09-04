@@ -2,7 +2,7 @@
 
 help:
 	@echo "ontoprism — common targets:"
-	@echo "  install         PDM install (Python 3.13) + editable local packages"
+	@echo "  install         PDM install (requires Python >=3.14.7,<3.15) + editable local packages"
 	@echo "  test            Run the full test suite (pdm run test)"
 	@echo "  test-unit       Unit tests only"
 	@echo "  test-integration  Integration tests (owned disposable services)"

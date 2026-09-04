@@ -540,7 +540,7 @@ def validate_github_wrappers(validation: Validation) -> None:
     try:
         parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         scripts = parsed["tool"]["pdm"]["scripts"]
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError):
+    except OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError:
         validation.error("GITHUB_WRAPPER", "cannot read PDM script configuration")
         return
     expected = {

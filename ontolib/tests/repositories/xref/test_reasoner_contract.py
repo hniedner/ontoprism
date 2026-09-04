@@ -32,7 +32,7 @@ These are integration tests: they need `robot` on PATH (CI installs it; see ci.y
 from __future__ import annotations
 
 import shutil
-from pathlib import Path  # noqa: TC003 — needed at runtime by pytest fixtures
+from pathlib import Path
 
 import pytest
 

@@ -29,7 +29,7 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
+from ontolib.decomposition.models import ConceptOutcome
 from ontolib.decomposition.r101_conservation import R82PathEdge, R101ConservationReport
 
 try:

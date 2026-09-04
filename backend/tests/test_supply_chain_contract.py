@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -32,11 +33,71 @@ _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+_REVIEWED_UPDATED_ACTION_PINS = {
+    ".github/workflows/ci.yml": {
+        "docker/setup-buildx-action": (
+            "37fe631027851001ddb9b187196cc803df7f5f0e",
+            "v4.3.0",
+        ),
+    },
+    ".github/workflows/scorecard.yml": {
+        "github/codeql-action/upload-sarif": (
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28",
+            "v4.37.8",
+        ),
+    },
+}
 _MINIMUM_BRACE_EXPANSION_VERSION = (5, 0, 9)
 _BRACE_EXPANSION_ADVISORIES = (
     "GHSA-mh99-v99m-4gvg",
     "GHSA-rgw5-rvv9-x895",
 )
+
+
+def test_python_gate_documentation_describes_current_failure_and_ci_semantics() -> None:
+    quality_source = (_ROOT / "scripts/validation/check_test_quality.py").read_text()
+    quality_docstring = ast.get_docstring(ast.parse(quality_source))
+    pyproject = (_ROOT / "pyproject.toml").read_text()
+    ci_workflow = (_ROOT / ".github/workflows/ci.yml").read_text()
+    decisions = (_ROOT / "docs/DECISIONS.md").read_text()
+    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
+
+    assert quality_docstring is not None
+    assert (
+        "6. Syntactically invalid (unparseable) test files\n"
+        "7. Unreadable or non-UTF-8 test files propagate their read error and abort "
+        "the hook"
+    ) in quality_docstring
+    assert (
+        "# TC rules propose moving annotation names out of runtime scope. FastAPI, "
+        "Pydantic,\n"
+        "    # typer, and pytest resolve annotations at runtime, and imports also have "
+        "direct\n"
+        "    # runtime uses such as Path; the global ignore replaces prior line and "
+        "per-file\n"
+        "    # suppressions."
+    ) in pyproject
+    assert (
+        "# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every "
+        "ordinary job;\n"
+        "# only Docker and the pinned embedding-model contract remain path-gated."
+    ) in pyproject
+    assert (
+        "# On-demand CI for a feature branch that has no pull request yet: "
+        "workflow_dispatch\n"
+        "  # runs every ordinary job; only Docker and the pinned embedding-model "
+        "contract remain\n"
+        "  # path-gated."
+    ) in ci_workflow
+    assert (
+        "# Single aggregate status: it accepts `success` and any `skipped` result and "
+        "does not\n"
+        "  # distinguish the skip cause. The merge operator must validate skipped "
+        "checks against\n"
+        "  # documented path conditions. Use this as the branch-protection required "
+        "check."
+    ) in ci_workflow
+    assert "Workflow Python setup inputs" in d83
 
 
 def _nested_image_values(value: Any) -> list[str]:
@@ -52,6 +113,22 @@ def _nested_image_values(value: Any) -> list[str]:
         ]
     if isinstance(value, list):
         return [item for child in value for item in _nested_image_values(child)]
+    return []
+
+
+def _nested_values_for_key(value: Any, target: str) -> list[Any]:
+    if isinstance(value, dict):
+        return [
+            item
+            for key, child in value.items()
+            for item in (
+                [child] if key == target else _nested_values_for_key(child, target)
+            )
+        ]
+    if isinstance(value, list):
+        return [
+            item for child in value for item in _nested_values_for_key(child, target)
+        ]
     return []
 
 
@@ -110,8 +187,8 @@ def test_full_application_images_are_exactly_digest_pinned() -> None:
 
     expected_from = {
         "backend/Dockerfile": (
-            "python:3.13-slim@sha256:"
-            "ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a"
+            "python:3.14.7-slim@sha256:"
+            "cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6"
         ),
         "frontend/Dockerfile": (
             "node:24-slim@sha256:"
@@ -207,6 +284,133 @@ def test_workflow_images_and_robot_install_are_immutable() -> None:
     assert "curl" not in "\n".join(
         line for line in ci.splitlines() if "robot" in line.lower()
     )
+
+
+def _assert_workflow_action_pins(root: Path) -> None:
+    action_line = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<value>.+?)\s*$")
+    immutable_action = re.compile(
+        r"^(?P<action>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+        r"(?:/[A-Za-z0-9_.-]+)*)@(?P<sha>[0-9a-f]{40})$"
+    )
+    version_comment = re.compile(r"^v\d+\.\d+(?:\.\d+)?$")
+    reviewed_pins_seen: set[tuple[str, str]] = set()
+
+    workflow_paths = sorted((root / ".github" / "workflows").glob("*.y*ml"))
+    assert workflow_paths, "no workflow files found"
+    for workflow_path in workflow_paths:
+        relative_path = workflow_path.relative_to(root).as_posix()
+        for line_number, line in enumerate(
+            workflow_path.read_text().splitlines(), start=1
+        ):
+            match = action_line.match(line)
+            if match is None:
+                continue
+            value = match.group("value")
+            action_ref, separator, comment = value.partition("#")
+            action_ref = action_ref.strip()
+            if action_ref.startswith("./"):
+                continue
+            location = f"{relative_path}:{line_number}"
+            pin = immutable_action.fullmatch(action_ref)
+            assert pin is not None, (
+                f"{location}: external action must use a 40-character lowercase "
+                "commit SHA"
+            )
+            version = comment.strip()
+            assert separator, (
+                f"{location}: action pin must have an inline version comment"
+            )
+            assert version_comment.fullmatch(version), (
+                f"{location}: action pin must have an inline version comment"
+            )
+
+            action = pin.group("action")
+            expected = _REVIEWED_UPDATED_ACTION_PINS.get(relative_path, {}).get(action)
+            if expected is None:
+                continue
+            actual = (pin.group("sha"), version)
+            assert actual == expected, (
+                f"{location}: {action} does not match reviewed pin {expected!r}"
+            )
+            reviewed_pins_seen.add((relative_path, action))
+
+    expected_reviewed_pins = {
+        (relative_path, action)
+        for relative_path, actions in _REVIEWED_UPDATED_ACTION_PINS.items()
+        for action in actions
+    }
+    assert reviewed_pins_seen == expected_reviewed_pins, (
+        f"reviewed action pins missing from workflows: "
+        f"{sorted(expected_reviewed_pins - reviewed_pins_seen)}"
+    )
+
+
+def test_workflow_actions_are_sha_pinned_with_bound_version_comments() -> None:
+    _assert_workflow_action_pins(_ROOT)
+
+
+@pytest.fixture
+def workflow_action_contract_root(tmp_path: Path) -> Path:
+    for relative_path in _REVIEWED_UPDATED_ACTION_PINS:
+        destination = tmp_path / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((_ROOT / relative_path).read_text())
+    return tmp_path
+
+
+def _mutate_workflow(root: Path, relative_path: str, old: str, new: str) -> None:
+    workflow = root / relative_path
+    original = workflow.read_text()
+    assert original.count(old) == 1
+    workflow.write_text(original.replace(old, new))
+
+
+def test_workflow_action_contract_rejects_changed_sha_with_same_comment(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/ci.yml",
+        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+        "docker/setup-buildx-action@47fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+    )
+
+    with pytest.raises(AssertionError, match="does not match reviewed pin"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
+
+
+def test_workflow_action_contract_rejects_changed_comment_with_same_sha(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/scorecard.yml",
+        (
+            "github/codeql-action/upload-sarif@"
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28  # v4.37.8"
+        ),
+        (
+            "github/codeql-action/upload-sarif@"
+            "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28  # v4.37.9"
+        ),
+    )
+
+    with pytest.raises(AssertionError, match="does not match reviewed pin"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
+
+
+def test_workflow_action_contract_rejects_mutable_tag(
+    workflow_action_contract_root: Path,
+) -> None:
+    _mutate_workflow(
+        workflow_action_contract_root,
+        ".github/workflows/ci.yml",
+        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+        "docker/setup-buildx-action@v4.3.0  # v4.3.0",
+    )
+
+    with pytest.raises(AssertionError, match="40-character lowercase commit SHA"):
+        _assert_workflow_action_pins(workflow_action_contract_root)
 
 
 def _npm_script_bodies(
@@ -460,6 +664,24 @@ def test_frontend_transitive_security_and_install_script_policy() -> None:
     assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
 
 
+def test_frontend_vitest_manifest_matches_coverage_peer_and_lock() -> None:
+    package = json.loads(
+        (_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+    )
+    lock = json.loads(
+        (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
+    )
+    root_lock = lock["packages"][""]["devDependencies"]
+    coverage_lock = lock["packages"]["node_modules/@vitest/coverage-v8"]
+
+    assert package["devDependencies"]["vitest"] == "^4.1.11"
+    assert package["devDependencies"]["@vitest/coverage-v8"] == "^4.1.11"
+    assert root_lock == package["devDependencies"]
+    assert lock["packages"]["node_modules/vitest"]["version"] == "4.1.11"
+    assert coverage_lock["version"] == "4.1.11"
+    assert coverage_lock["peerDependencies"]["vitest"] == "4.1.11"
+
+
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
     tmp_path: Path,
 ) -> None:
@@ -477,7 +699,7 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
         steps = jobs[job_name]["steps"]
         setup = next(step for step in steps if step.get("uses") == _SETUP_PDM_ACTION)
         assert setup["with"] == {
-            "python-version": "3.13",
+            "python-version": "3.14.7",
             "version": _PDM_VERSION,
             "cache": True,
         }
@@ -511,6 +733,251 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
 
     dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
+
+
+def _assert_api_image_python_patch(workflow: dict[str, Any]) -> None:
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    assert (
+        "docker exec ontoprism-api-ci python -c \\\n"
+        '  "import sys; assert sys.version_info[:3] == (3, 14, 7), '
+        'sys.version"'
+    ) in runtime_step["run"]
+    assert runtime_step["run"].index(
+        "docker exec ontoprism-api-ci python -c"
+    ) < runtime_step["run"].index("wait_for_command ontoprism-api-ci")
+
+
+def _assert_ci_job_contract(
+    workflow: dict[str, Any], agents: str, project: str
+) -> None:
+    jobs = workflow["jobs"]
+    assert len(jobs) == 9
+    assert f"all {len(jobs)} `CI` jobs" in agents
+    count_words = {9: "nine"}
+    assert f"all {count_words[len(jobs)]} CI jobs" in project
+
+    legacy_job_id = "python-314-compatibility"
+    legacy_display_name = "python 3.14 compatibility"
+    assert legacy_job_id not in jobs
+    assert all(
+        str(job.get("name", "")).casefold() != legacy_display_name
+        for job in jobs.values()
+    )
+
+
+def _assert_ci_summary_allow_list(workflow: dict[str, Any]) -> None:
+    summary = workflow["jobs"]["ci-summary"]
+    assert summary["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == len(summary["needs"])
+    run = summary["steps"][0]["run"]
+    assert "set -- $RESULTS" in run
+    assert '[ "$#" -eq "$EXPECTED_JOB_COUNT" ]' in run
+    assert "success|skipped)" in run
+    assert 'echo "::error::Unexpected CI job result: $r"' in run
+    assert "failure" not in run
+    assert "cancelled" not in run
+
+
+def test_python_3147_is_the_only_current_runtime_configuration() -> None:
+    workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
+    workflows = {
+        path.relative_to(_ROOT).as_posix(): yaml.safe_load(path.read_text())
+        for path in workflow_paths
+    }
+    workflow = workflows[".github/workflows/ci.yml"]
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    tracked_pyprojects = subprocess.run(  # noqa: S603
+        [git_executable, "ls-files", "--", "*pyproject.toml"],
+        cwd=_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert tracked_pyprojects
+    pyprojects = [
+        tomllib.loads((_ROOT / path).read_text()) for path in tracked_pyprojects
+    ]
+    assert {project["project"]["requires-python"] for project in pyprojects} == {
+        ">=3.14.7,<3.15"
+    }
+    root_project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    assert root_project["tool"]["basedpyright"]["pythonVersion"] == "3.14"
+    assert root_project["tool"]["ruff"]["target-version"] == "py314"
+    assert root_project["tool"]["pytest"]["ini_options"]["filterwarnings"] == [
+        "error::DeprecationWarning",
+        "error::PendingDeprecationWarning",
+        (
+            "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use "
+            "anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:"
+            "starlette\\.testclient"
+        ),
+    ]
+    assert (_ROOT / ".python-version").read_text().strip() == "3.14.7"
+
+    jobs = workflow["jobs"]
+    assert len(jobs["ci-summary"]["needs"]) == 8
+    setup_versions = [
+        version
+        for current_workflow in workflows.values()
+        for version in _nested_values_for_key(current_workflow, "python-version")
+    ]
+    assert setup_versions
+    assert set(setup_versions) == {"3.14.7"}
+
+    lock = tomllib.loads((_ROOT / "pdm.lock").read_text())
+    # PDM canonicalizes >=3.14.7,<3.15 to the equivalent compatible-release form.
+    assert lock["metadata"]["targets"] == [{"requires_python": "~=3.14.7"}]
+
+    dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
+    base_image = re.compile(
+        r"^FROM python:3\.14\.7-slim@sha256:[0-9a-f]{64}(?: AS builder)?$"
+    )
+    assert [line for line in dockerfile.splitlines() if line.startswith("FROM ")]
+    assert all(
+        base_image.fullmatch(line)
+        for line in dockerfile.splitlines()
+        if line.startswith("FROM ")
+    )
+
+    pre_commit = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text())
+    pre_commit_python = pre_commit["default_language_version"]["python"]
+    assert pre_commit_python == "python3.14"
+    pre_commit_executable = shutil.which(pre_commit_python)
+    assert pre_commit_executable is not None
+    pre_commit_version = subprocess.run(  # noqa: S603
+        [
+            pre_commit_executable,
+            "-c",
+            "import sys; print('.'.join(map(str, sys.version_info[:3])))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert pre_commit_version == "3.14.7"
+    agents = (_ROOT / "AGENTS.md").read_text()
+    project = (_ROOT / "pyproject.toml").read_text()
+    _assert_ci_job_contract(workflow, agents, project)
+    assert "Python 3.14.7 is the only supported local, CI" in agents
+    readme = (_ROOT / "README.md").read_text()
+    assert "Python 3.14.7 is the only supported local, CI" in readme
+    assert "requires Python >=3.14.7,<3.15" in (_ROOT / "Makefile").read_text()
+
+    decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
+    assert "### D84." not in decisions
+    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
+    assert "3.14.7-only" in d83
+    assert "python3.14" in d83
+    assert "full-build mismatch" not in d83
+
+    _assert_api_image_python_patch(workflow)
+    _assert_ci_summary_allow_list(workflow)
+
+
+@pytest.mark.parametrize("legacy_kind", ["id", "display"])
+def test_ci_job_contract_rejects_a_legacy_compatibility_job(
+    legacy_kind: str,
+) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    jobs = workflow["jobs"]
+    jobs.pop("embedding-model-contract")
+    if legacy_kind == "id":
+        jobs["python-314-compatibility"] = {"name": "supported runtime"}
+    else:
+        jobs["supported-runtime"] = {"name": "Python 3.14 compatibility"}
+
+    with pytest.raises(AssertionError):
+        _assert_ci_job_contract(
+            workflow,
+            (_ROOT / "AGENTS.md").read_text(),
+            (_ROOT / "pyproject.toml").read_text(),
+        )
+
+
+def test_ci_summary_contract_rejects_a_new_non_passing_result() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    summary_step = workflow["jobs"]["ci-summary"]["steps"][0]
+    summary_step["run"] = summary_step["run"].replace(
+        "success|skipped)", "success|skipped|neutral)"
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_ci_summary_allow_list(workflow)
+
+
+def test_ci_summary_contract_rejects_missing_arity_check() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    summary_step = workflow["jobs"]["ci-summary"]["steps"][0]
+    summary_step["run"] = summary_step["run"].replace(
+        '[ "$#" -eq "$EXPECTED_JOB_COUNT" ]', "true"
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_ci_summary_allow_list(workflow)
+
+
+@pytest.mark.parametrize("results", ["", "success skipped"])
+def test_ci_summary_rejects_empty_or_short_result_lists(results: str) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    step = workflow["jobs"]["ci-summary"]["steps"][0]
+
+    completed = subprocess.run(  # noqa: S603 - repository-owned workflow contract
+        ("/bin/sh", "-c", step["run"]),
+        env={
+            **os.environ,
+            "RESULTS": results,
+            "EXPECTED_JOB_COUNT": str(step["env"]["EXPECTED_JOB_COUNT"]),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "Unexpected CI job result count" in completed.stdout
+
+
+def test_api_image_runtime_contract_rejects_wrong_expected_patch(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    expected_patch = "sys.version_info[:3] == (3, 14, 7)"
+    assert expected_patch in runtime_step["run"]
+    runtime_step["run"] = runtime_step["run"].replace(
+        expected_patch,
+        "sys.version_info[:3] == (3, 14, 8)",
+    )
+    mutated = tmp_path / "ci.yml"
+    mutated.write_text(yaml.safe_dump(workflow))
+
+    with pytest.raises(AssertionError):
+        _assert_api_image_python_patch(yaml.safe_load(mutated.read_text()))
+
+
+def test_api_image_runtime_contract_rejects_version_check_after_health_wait() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    runtime_step = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    version = (
+        "docker exec ontoprism-api-ci python -c \\\n"
+        '  "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"\n'
+    )
+    runtime_step["run"] = runtime_step["run"].replace(version, "") + version
+
+    with pytest.raises(AssertionError):
+        _assert_api_image_python_patch(workflow)
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:

@@ -13,8 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ontolib.decomposition import vocab
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.provenance_models import (
-    CorpusBaselineAggregate,  # noqa: TC001 - Pydantic resolves runtime annotation
-    CorpusOutcomeCounts,  # noqa: TC001 - Pydantic resolves runtime annotation
+    CorpusBaselineAggregate,
+    CorpusOutcomeCounts,
 )
 from ontolib.decomposition.publication import (
     PublicationValidationError,

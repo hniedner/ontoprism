@@ -21,7 +21,7 @@ class ServedIcdoDataset(Enum):
         return self.value[1]
 
     @classmethod
-    def parse(cls, edition: str, axis: str) -> "ServedIcdoDataset | None":
+    def parse(cls, edition: str, axis: str) -> ServedIcdoDataset | None:
         return next(
             (
                 dataset

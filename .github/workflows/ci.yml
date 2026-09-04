@@ -5,9 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # On-demand full CI for a feature branch that has no pull request yet. Without this,
-  # `ci.yml` never runs during branch development, so defects batch up and are first
-  # discovered when the PR opens. CI must be the last bar, not the discovery mechanism.
+  # On-demand CI for a feature branch that has no pull request yet: workflow_dispatch
+  # runs every ordinary job; only Docker and the pinned embedding-model contract remain
+  # path-gated.
+  # CI must be the last bar, not the discovery mechanism.
   workflow_dispatch:
 
 concurrency:
@@ -103,7 +104,7 @@ jobs:
         id: setup-pdm
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -142,7 +143,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -188,17 +189,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14.7
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
 
       # Coverage.py, Pydantic, git on PATH, and the real checked-out source are needed to
       # verify layer identity against the checkout, gate, and render; no editable install.
       # In particular, no editable ontolib/backend install is needed.
       # relative_files=true (pyproject) keeps uploaded .coverage portable across jobs.
       - name: Install coverage report dependencies
-        run: pip install 'coverage==7.15.4' 'pydantic==2.13.4'
+        run: pip install 'coverage==7.16.0' 'pydantic==2.13.5'
 
       - name: Verify coverage report dependency versions
         run: python -m scripts.validation.verify_coverage_runtime --lock pdm.lock
@@ -269,7 +270,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -327,7 +328,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -403,7 +404,7 @@ jobs:
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
-          python-version: "3.13"
+          python-version: "3.14.7"
           version: "2.28.0"
           cache: true
 
@@ -426,7 +427,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       - name: Build backend image (no push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
@@ -476,6 +477,8 @@ jobs:
             --env ORIGIN=http://127.0.0.1:3000 \
             --env ONTOPRISM_FASTAPI_ORIGIN=http://ontoprism-api-ci:8011 \
             ontoprism-web:ci
+          docker exec ontoprism-api-ci python -c \
+            "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"
           wait_for_command ontoprism-api-ci python -c \
             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
           wait_for_command ontoprism-web-ci node -e \
@@ -483,8 +486,9 @@ jobs:
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then(r => { if (r.status !== 404) throw new Error(String(r.status)) })"
 
-  # Single aggregate status: fails if any job failed/was cancelled; treats skipped
-  # (path-filtered) jobs as OK. Use this as the branch-protection required check.
+  # Single aggregate status: it accepts `success` and any `skipped` result and does not
+  # distinguish the skip cause. The merge operator must validate skipped checks against
+  # documented path conditions. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
     needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
@@ -494,12 +498,21 @@ jobs:
       - name: Check job results
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          EXPECTED_JOB_COUNT: 8
         run: |
           echo "job results: $RESULTS"
+          set -- $RESULTS
+          if ! [ "$#" -eq "$EXPECTED_JOB_COUNT" ]; then
+            echo "::error::Unexpected CI job result count: $# (expected $EXPECTED_JOB_COUNT)"
+            exit 1
+          fi
           for r in $RESULTS; do
-            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "::error::A CI job failed or was cancelled."
-              exit 1
-            fi
+            case "$r" in
+              success|skipped) ;;
+              *)
+                echo "::error::Unexpected CI job result: $r"
+                exit 1
+                ;;
+            esac
           done
           echo "All CI jobs passed or were skipped."

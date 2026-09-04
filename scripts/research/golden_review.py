@@ -33,7 +33,7 @@ from ontolib.decomposition.proposal_registry import (
     RelationProposal,
 )
 from ontolib.decomposition.score import ExtractionScore, score
-from ontolib.decomposition.semantic_bundles import PairProvenance  # noqa: TC001
+from ontolib.decomposition.semantic_bundles import PairProvenance
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

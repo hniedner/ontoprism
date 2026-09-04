@@ -8,6 +8,7 @@ exceptions. The last exception is re-raised on exhaustion.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from dataclasses import dataclass
 from functools import wraps
@@ -86,7 +87,7 @@ def retry_with_backoff[**P, T](
     )
 
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        if asyncio.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
             return _wrap_async(cast("Callable[P, Awaitable[T]]", func), cfg)
         return _wrap_sync(func, cfg)
 

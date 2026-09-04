@@ -23,7 +23,7 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
+from ontolib.decomposition.models import ConceptOutcome
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
