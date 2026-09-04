@@ -199,6 +199,7 @@ SPECIALIST_BASH_ALLOWS = (
     SAFE_AGENT_TEST_WRAPPER,
 )
 R3_BASH_ALLOWS = (
+    "npm --prefix frontend run test:unit -- --run *",
     "cp *",
     "git status --porcelain",
     "git status --short --branch",
@@ -992,6 +993,9 @@ def validate_r3_contract(
             "git status --porcelain",
             "git rev-parse HEAD",
             "never fix",
+            "changed deterministic frontend tests",
+            "npm --prefix frontend run test:unit -- --run *",
+            "no package install, build, or publish",
         ),
     )
     bash = permission_action(r3_metadata, "bash")
@@ -1003,6 +1007,8 @@ def validate_r3_contract(
     if bash.get("*") != "deny":
         validation.error("R3_PERMISSION", "R3 bash catch-all must be deny")
     required_denies = (
+        "npm *",
+        "npx *",
         "git add",
         "git add *",
         "git commit",
@@ -1038,7 +1044,19 @@ def validate_r3_contract(
         bash,
         required_denies,
     )
+    frontend_allow = "npm --prefix frontend run test:unit -- --run *"
+    rules = list(bash)
+    if (
+        bash.get("npm *") == "deny"
+        and bash.get(frontend_allow) == "allow"
+        and rules.index("npm *") > rules.index(frontend_allow)
+    ):
+        validation.error(
+            "R3_PERMISSION",
+            "R3 broad npm deny must precede the frontend unit allow",
+        )
     for pattern in (
+        frontend_allow,
         "git status --porcelain",
         "git status --short --branch",
         "git rev-parse HEAD",

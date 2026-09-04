@@ -699,6 +699,69 @@ def test_r3_requires_exact_committed_diff_scope_allows(
     assert f"R3_PERMISSION: R3 must allow {pattern}" in validate(config_root)
 
 
+def test_r3_frontend_unit_permission_is_narrow_and_last_match_safe(
+    config_root: Path,
+) -> None:
+    metadata, body = load_agent(
+        config_root / ".opencode/agent/pr-test-analyzer.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+    allow = "npm --prefix frontend run test:unit -- --run *"
+
+    assert bash[allow] == "allow"
+    assert bash["npm *"] == "deny"
+    assert bash["npx *"] == "deny"
+    assert list(bash).index("npm *") < list(bash).index(allow)
+    assert list(bash).index("*&*") > list(bash).index(allow)
+    assert list(bash)[-2:] == ["*\n*", "*\r*"]
+    assert "changed deterministic frontend tests" in body
+    assert "no package install, build, or publish" in body.lower()
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        (
+            '    "npm --prefix frontend run test:unit -- --run *": allow\n',
+            "",
+            "R3_PERMISSION: R3 must allow npm --prefix frontend run test:unit "
+            "-- --run *",
+        ),
+        (
+            '    "npm *": deny\n',
+            "",
+            "R3_PERMISSION: R3 must deny npm *",
+        ),
+        (
+            '    "npx *": deny\n',
+            "",
+            "R3_PERMISSION: R3 must deny npx *",
+        ),
+        (
+            '    "npm *": deny\n'
+            '    "npx *": deny\n'
+            '    "npm --prefix frontend run test:unit -- --run *": allow\n',
+            '    "npx *": deny\n'
+            '    "npm --prefix frontend run test:unit -- --run *": allow\n'
+            '    "npm *": deny\n',
+            "R3_PERMISSION: R3 broad npm deny must precede the frontend unit allow",
+        ),
+    ],
+)
+def test_r3_frontend_unit_permission_contract_rejects_widening(
+    config_root: Path, old: str, new: str, expected: str
+) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-test-analyzer.md",
+        old,
+        new,
+    )
+
+    assert expected in validate(config_root)
+
+
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
     shutil.copy2(
         config_root / ".opencode/agent/architect.md",
