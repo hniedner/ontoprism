@@ -39,6 +39,71 @@ MODEL_IDS = {contract[0] for contract in ROLES.values()}
 READ_ONLY_ROLES = set(ROLES) - {"ontoprism-team", "implementer", "pr-test-analyzer"}
 GOVERNANCE_ENV_PREFIX = "OPENCODE_CONFIG"
 GOVERNANCE_ENV_EXACT = {"OPENCODE_PERMISSION"}
+DIAGNOSTIC_INPUT_LIMIT = 65_536
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
+CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+URL = re.compile(r"(?i)\bhttps?://[^\s]+")
+ABSOLUTE_PATH = re.compile(r"(?<![\w:])(?:~[/\\]|/|[a-z]:[/\\])[^\s]+", re.I)
+CREDENTIAL_VALUE = re.compile(
+    r"(?i)\b(authorization|credential|password|secret|token|api[-_ ]?key)\b"
+    r"\s*(?::|=|\s)\s*(?:bearer\s+)?[^\s,;]+"
+)
+BEARER_VALUE = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
+SAFE_FAILURE_CATEGORIES = (
+    (
+        re.compile(
+            r"\b(?:(?:unknown|unrecognized|invalid) (?:option|argument|command)|"
+            r"unexpected argument|usage error)\b",
+            re.I,
+        ),
+        "CLI rejected its configured arguments",
+    ),
+    (
+        re.compile(
+            r"\b(?:unknown model|model(?: id)? (?:was )?(?:not found|unavailable|"
+            r"does not exist))\b",
+            re.I,
+        ),
+        "requested model is absent from the provider catalog",
+    ),
+    (
+        re.compile(
+            r"\b(?:unauthorized|forbidden|authentication|authorization|credential|"
+            r"api key|bearer|not logged in|login required)\b",
+            re.I,
+        ),
+        "authentication or credential failure",
+    ),
+    (
+        re.compile(r"\b(?:rate limit|quota|too many requests|capacity)\b", re.I),
+        "provider rate or quota limit",
+    ),
+    (
+        re.compile(
+            r"\b(?:network error|connection (?:refused|failed|reset)|"
+            r"(?:unable|could not) connect|dns|name resolution|failed to fetch|"
+            r"fetch failed|timed? out|econnrefused|enotfound)\b",
+            re.I,
+        ),
+        "network connection failure",
+    ),
+    (
+        re.compile(
+            r"\b(?:service unavailable|internal server error|bad gateway|"
+            r"gateway timeout)\b",
+            re.I,
+        ),
+        "provider service failure",
+    ),
+    (
+        re.compile(
+            r"\b(?:invalid config(?:uration)?|config(?:uration)? (?:parse|syntax)"
+            r" error)\b",
+            re.I,
+        ),
+        "CLI configuration is invalid",
+    ),
+)
 BUILTIN_AGENT_NAMES = {
     "build",
     "compaction",
@@ -77,6 +142,21 @@ EXTRA_SAFE_COMMANDS = {
 
 class RuntimeContractError(RuntimeError):
     """A sanitized OpenCode runtime-contract failure."""
+
+
+def sanitized_failure_diagnostic(stdout: str, stderr: str) -> str:
+    combined = f"{stderr}\n{stdout}"[:DIAGNOSTIC_INPUT_LIMIT]
+    sanitized = ANSI_ESCAPE.sub(" ", combined)
+    sanitized = URL.sub(" <url> ", sanitized)
+    sanitized = ABSOLUTE_PATH.sub(" <path> ", sanitized)
+    sanitized = CREDENTIAL_VALUE.sub(r"\1=<redacted>", sanitized)
+    sanitized = BEARER_VALUE.sub("bearer <redacted>", sanitized)
+    sanitized = CONTROL_CHARACTER.sub(" ", sanitized)
+    normalized = " ".join(sanitized.split())
+    for pattern, category in SAFE_FAILURE_CATEGORIES:
+        if pattern.search(normalized):
+            return category
+    return "unclassified CLI failure"
 
 
 def parse_json_object(output: str, label: str) -> dict[str, Any]:
@@ -455,8 +535,10 @@ def run_command(
             f"{operation}: {display_command} could not start"
         ) from exc
     if result.returncode != 0:
+        diagnostic = sanitized_failure_diagnostic(result.stdout, result.stderr)
         raise RuntimeContractError(
-            f"{operation}: {display_command} exited {result.returncode}"
+            f"{operation}: {display_command} exited {result.returncode} "
+            f"(diagnostic: {diagnostic})"
         )
     return result
 

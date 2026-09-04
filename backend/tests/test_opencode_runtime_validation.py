@@ -872,8 +872,10 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
         )
     for secret in secrets:
         assert secret not in str(nonzero.value)
-    assert "exited 2" in str(nonzero.value)
-    assert str(nonzero.value) == "MCP connection check: opencode mcp list exited 2"
+    assert str(nonzero.value) == (
+        "MCP connection check: opencode mcp list exited 2 "
+        "(diagnostic: authentication or credential failure)"
+    )
 
     with pytest.raises(
         RuntimeContractError,
@@ -887,6 +889,48 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
             operation="Startup validation",
             display_command="opencode debug startup",
         )
+
+
+def test_command_error_reports_only_an_allowlisted_normalized_reason(
+    tmp_path: Path,
+) -> None:
+    private_home = str(Path.home() / "private" / "config.json")
+    unsafe_output = (
+        "\x1b[31mError:\nunknown\toption '--private-flag'\x1b[0m\x07\n"
+        f"authorization: Bearer do-not-leak at {private_home}\n"
+        "https://user:url-secret@example.invalid/path?token=query-secret#fragment"
+    )
+    emit_failure = f"import sys;sys.stderr.write({unsafe_output!r});sys.exit(64)"
+
+    with pytest.raises(RuntimeContractError) as failure:
+        run_command(
+            [sys.executable, "-c", emit_failure],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            operation="Model catalog validation",
+            display_command="opencode models",
+        )
+
+    message = str(failure.value)
+    assert message == (
+        "Model catalog validation: opencode models exited 64 "
+        "(diagnostic: CLI rejected its configured arguments)"
+    )
+    for private_value in (
+        "--private-flag",
+        "do-not-leak",
+        private_home,
+        "user",
+        "url-secret",
+        "query-secret",
+        "fragment",
+        "\x1b",
+        "\x07",
+        "\n",
+        "\t",
+    ):
+        assert private_value not in message
+    assert len(message) <= 200
 
 
 def test_command_error_categorizes_undecodable_output(
