@@ -1168,11 +1168,12 @@ def test_review_command_requires_static_runtime_and_delegated_verify(
     assert "dispatch `implementer` to run exact `pdm run verify`" in command
 
 
-def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
+def test_all_pdm_workflows_start_with_exact_runtime_validation() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    verify = pyproject["tool"]["pdm"]["scripts"]["verify"]
+    scripts = pyproject["tool"]["pdm"]["scripts"]
 
-    assert verify == "python -m scripts.validation.run_verify"
+    assert scripts["pre_run"] == "python -m scripts.validation.validate_python_runtime"
+    assert scripts["verify"] == "python -m scripts.validation.run_verify"
 
 
 def test_agent_test_pdm_script_uses_repository_wrapper() -> None:

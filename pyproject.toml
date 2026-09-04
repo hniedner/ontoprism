@@ -3,7 +3,7 @@ name = "ontoprism"
 version = "0.22.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
-requires-python = ">=3.14.7,<3.15"
+requires-python = ">=3.14,<3.15"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Hannes Niedner" }]
 
@@ -55,6 +55,7 @@ test = [
     "pytest-cov>=5.0",
     "pytest-xdist>=3.6",          # parallel sharding (matches the global test-runner hook)
     "httpx2>=2.5",               # Starlette TestClient prefers httpx2 (silences its deprecation)
+    "packaging>=26.0",
 ]
 lint = [
     "ruff==0.15.20",
@@ -72,6 +73,7 @@ lint = [
 # editable installs. The console script keeps import resolution clean.
 [tool.pdm.scripts]
 _ = { env_file = ".env", env = { PATH = "/opt/homebrew/opt/openjdk/bin:${PATH}" } }
+pre_run = "python -m scripts.validation.validate_python_runtime"
 # Default `test`: the grouped, colored summary runner over the hermetic suites
 # (backend unit/api/security + frontend vitest). `pdm run test --all` adds the slow
 # suites (disposable integration, e2e). Coverage is the separate `test-ci` gate.
