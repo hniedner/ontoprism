@@ -57,28 +57,28 @@ class CollectionRecord(_Document):
 
 
 class LaneSelector(_Document):
-    """One lane's pytest expression and equivalent marker-set rule."""
+    """One lane's ordered marker rule, rendered for pytest from one source."""
 
     lane: Lane
-    marker_expression: str
-    required_markers: frozenset[str]
-    excluded_markers: frozenset[str]
+    required_markers: tuple[str, ...]
+    excluded_markers: tuple[str, ...]
+
+    @property
+    def marker_expression(self) -> str:
+        terms = (*self.required_markers, *(f"not {m}" for m in self.excluded_markers))
+        return " and ".join(terms)
 
 
 LANE_SELECTORS = (
     LaneSelector(
         lane="backend",
-        marker_expression="not integration",
-        required_markers=frozenset(),
-        excluded_markers=frozenset({"integration"}),
+        required_markers=(),
+        excluded_markers=("integration",),
     ),
     LaneSelector(
         lane="integration",
-        marker_expression=(
-            "integration and not full_store and not full_build and not slow"
-        ),
-        required_markers=frozenset({"integration"}),
-        excluded_markers=frozenset({"full_store", "full_build", "slow"}),
+        required_markers=("integration",),
+        excluded_markers=("full_store", "full_build", "slow"),
     ),
 )
 
@@ -633,9 +633,9 @@ def _record(item: Any, root: Path) -> CollectionRecord:
 
 def _eligible(record: CollectionRecord, lane: Lane) -> bool:
     selector = lane_selector(lane)
-    return selector.required_markers <= record.markers and not (
-        selector.excluded_markers & record.markers
-    )
+    return all(
+        marker in record.markers for marker in selector.required_markers
+    ) and not any(marker in record.markers for marker in selector.excluded_markers)
 
 
 class PartitionSelection(_Document):

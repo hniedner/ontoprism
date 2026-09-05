@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -57,9 +58,17 @@ def _record_with(
 
 
 def test_backend_sha256_module_partition_is_stable_disjoint_and_complete() -> None:
+    module = "backend/tests/test_alpha.py"
+    nodeids_by_node_hash_shard: dict[int, str] = {}
+    for index in range(100):
+        nodeid = f"{module}::test_{index}"
+        shard = int.from_bytes(hashlib.sha256(nodeid.encode()).digest()[:8], "big") % 2
+        nodeids_by_node_hash_shard.setdefault(shard, nodeid)
+        if len(nodeids_by_node_hash_shard) == 2:
+            break
+    assert set(nodeids_by_node_hash_shard) == {0, 1}
     nodeids = (
-        "backend/tests/test_alpha.py::test_a",
-        "backend/tests/test_alpha.py::test_b",
+        *nodeids_by_node_hash_shard.values(),
         "ontolib/tests/test_beta.py::test_c",
         "backend/tests/test_gamma.py::test_d[param]",
         "ontolib/tests/test_delta.py::test_e",
@@ -77,6 +86,8 @@ def test_backend_sha256_module_partition_is_stable_disjoint_and_complete() -> No
     assert {nodeid.partition("::")[0] for nodeid in first}.isdisjoint(
         nodeid.partition("::")[0] for nodeid in second
     )
+    same_module_nodeids = set(nodeids_by_node_hash_shard.values())
+    assert same_module_nodeids <= set(first) or same_module_nodeids <= set(second)
     assert first == tuple(sorted(first))
     assert second == tuple(sorted(second))
 
@@ -446,6 +457,23 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
         for count in range(len(marker_names) + 1)
         for values in combinations(marker_names, count)
     )
+    assert tuple(
+        (
+            selector.lane,
+            selector.required_markers,
+            selector.excluded_markers,
+            selector.marker_expression,
+        )
+        for selector in partitions.LANE_SELECTORS
+    ) == (
+        ("backend", (), ("integration",), "not integration"),
+        (
+            "integration",
+            ("integration",),
+            ("full_store", "full_build", "slow"),
+            "integration and not full_store and not full_build and not slow",
+        ),
+    )
     for selector in partitions.LANE_SELECTORS:
         assert selector.marker_expression in runner._pytest_command(
             selector.lane, collect_only=True, coverage_xml=None
@@ -459,6 +487,66 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
                 and not markers.intersection({"full_store", "full_build", "slow"})
             )
             assert partitions._eligible(record, selector.lane) is expected
+
+
+def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> None:
+    marker_names = ("integration", "full_store", "full_build", "slow")
+    marker_sets = tuple(
+        frozenset(values)
+        for count in range(len(marker_names) + 1)
+        for values in combinations(marker_names, count)
+    )
+    suite = tmp_path / "test_marker_contract.py"
+    suite.write_text(
+        "import pytest\n\n"
+        + "\n\n".join(
+            "\n".join(
+                (
+                    *(f"@pytest.mark.{marker}" for marker in markers),
+                    f"def test_markers_{index:02d}(): pass",
+                )
+            )
+            for index, markers in enumerate(marker_sets)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    for selector in partitions.LANE_SELECTORS:
+        completed = subprocess.run(  # noqa: S603 - pinned environment executable
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                str(suite),
+                "--collect-only",
+                "-q",
+                "-m",
+                selector.marker_expression,
+            ],
+            cwd=Path(__file__).resolve().parents[2],
+            env={
+                **os.environ,
+                "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        collected_indices = {
+            int(line.rpartition("test_markers_")[2])
+            for line in completed.stdout.splitlines()
+            if "::test_markers_" in line
+        }
+        expected_indices = {
+            index
+            for index, markers in enumerate(marker_sets)
+            if partitions._eligible(
+                _record_with("tests/test.py", markers=markers), selector.lane
+            )
+        }
+        assert collected_indices == expected_indices
 
 
 @pytest.mark.parametrize(
