@@ -33,6 +33,26 @@ from scripts.validation.coverage_hierarchy import (
 pytestmark = pytest.mark.unit
 
 
+def test_multiple_identity_cli_requires_one_expected_layer_per_identity(
+    tmp_path: Path,
+) -> None:
+    paths = []
+    for index in range(2):
+        path = tmp_path / f"identity-{index}.json"
+        path.write_text("{}")
+        paths.append(path)
+
+    with pytest.raises(ValueError, match=r"expected-layer.*exactly"):
+        main(
+            [
+                "verify-identities",
+                "--expected-layer",
+                "python-unit-0",
+                *(str(path) for path in paths),
+            ]
+        )
+
+
 def _write_pyproject(
     root: Path, *, exclude_also: str = "", partial_also: str = ""
 ) -> Path:

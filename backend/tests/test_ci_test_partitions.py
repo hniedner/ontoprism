@@ -20,6 +20,7 @@ from scripts.validation.test_partitions import (
     INTEGRATION_ALGORITHM_VERSION,
     CollectionRecord,
     IntegrationClassification,
+    IntegrationWeightEvidence,
     Lane,
     PartitionReceipt,
     ShardId,
@@ -105,9 +106,7 @@ fixtures = ["isolated_postgres_settings"]
 """.lstrip()
     )
     records = (
-        _record_with(
-            "tests/test_pg.py", markers=frozenset({"integration", "requires_robot"})
-        ),
+        _record_with("tests/test_pg.py"),
         _record_with("tests/test_mixed.py"),
         _record_with("tests/test_nonmutating.py"),
     )
@@ -122,8 +121,6 @@ fixtures = ["isolated_postgres_settings"]
         "tests/test_nonmutating.py",
         "tests/test_pg.py",
     )
-    assert classification.robot_files == ("tests/test_pg.py",)
-    assert classification.jena_files == classification.qlever_files
     assert reordered == classification
     assert set(classification.qlever_files + classification.non_qlever_files) == {
         record.path for record in records
@@ -140,21 +137,23 @@ def test_integration_weighted_partition_is_stable_balanced_and_file_level(
 schema_version = 1
 measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
 measurement_date = "2026-09-05"
-measurement_worktree_dirty = true
+measurement_worktree_dirty = false
+selected_count = 4
+module_count = 3
 measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
 default_weight_seconds = 5.0
 
 [weights]
-"tests/test_heavy.py" = 10.0
-"tests/test_medium.py" = 7.0
-"tests/test_light.py" = 3.0
+"backend/tests/test_heavy.py" = 10.0
+"backend/tests/test_medium.py" = 7.0
+"backend/tests/test_light.py" = 3.0
 """.lstrip()
     )
     records = _records(
-        "tests/test_new.py",
-        "tests/test_light.py",
-        "tests/test_heavy.py",
-        "tests/test_medium.py",
+        "backend/tests/test_new.py",
+        "backend/tests/test_light.py",
+        "backend/tests/test_heavy.py",
+        "backend/tests/test_medium.py",
     )
 
     first = partitions.assign_integration_modules(records, weights, shard_index=0)
@@ -163,16 +162,20 @@ default_weight_seconds = 5.0
     )
 
     assert first.selected_files == (
-        "tests/test_heavy.py",
-        "tests/test_light.py",
+        "backend/tests/test_heavy.py",
+        "backend/tests/test_light.py",
     )
     assert second.selected_files == (
-        "tests/test_medium.py",
-        "tests/test_new.py",
+        "backend/tests/test_medium.py",
+        "backend/tests/test_new.py",
     )
     assert first.total_weight_seconds == 13.0
     assert second.total_weight_seconds == 12.0
-    assert first.unweighted_files == second.unweighted_files == ("tests/test_new.py",)
+    assert (
+        first.unweighted_files
+        == second.unweighted_files
+        == ("backend/tests/test_new.py",)
+    )
     assert first.weights_sha256 == second.weights_sha256
     assert set(first.selected_files).isdisjoint(second.selected_files)
     assert set(first.selected_files + second.selected_files) == {
@@ -189,32 +192,36 @@ def test_integration_weights_reject_stale_paths_and_multiple_unweighted_files(
 schema_version = 1
 measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
 measurement_date = "2026-09-05"
-measurement_worktree_dirty = true
+measurement_worktree_dirty = false
+selected_count = 1
+module_count = 1
 measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
 default_weight_seconds = 5.0
 
 [weights]
-"tests/test_stale.py" = 1.0
+"backend/tests/test_stale.py" = 1.0
 """.lstrip()
     )
 
     with pytest.raises(ValueError, match="stale integration weight"):
         partitions.assign_integration_modules(
-            _records("tests/test_current.py"), weights, shard_index=0
+            _records("backend/tests/test_current.py"), weights, shard_index=0
         )
 
     weights.write_text(weights.read_text().replace("test_stale", "test_current"))
     with pytest.raises(ValueError, match="more than one unweighted"):
         partitions.assign_integration_modules(
             _records(
-                "tests/test_current.py", "tests/test_new_a.py", "tests/test_new_b.py"
+                "backend/tests/test_current.py",
+                "backend/tests/test_new_a.py",
+                "backend/tests/test_new_b.py",
             ),
             weights,
             shard_index=0,
         )
 
 
-def test_duration_capture_sums_all_pytest_phases_and_writes_generated_metadata(
+def test_duration_capture_requires_clean_complete_calls_and_writes_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output = tmp_path / "integration-file-durations.toml"
@@ -227,18 +234,29 @@ def test_duration_capture_sums_all_pytest_phases_and_writes_generated_metadata(
         ("tests/test_b.py::test_two", "teardown", 0.5),
     ):
         partitions.pytest_runtest_logreport(
-            SimpleNamespace(nodeid=nodeid, when=when, duration=duration)
+            SimpleNamespace(
+                nodeid=nodeid,
+                when=when,
+                duration=duration,
+                passed=True,
+                wasxfail=None,
+            )
         )
     monkeypatch.setattr(partitions, "_current_commit", lambda: "a" * 40)
     monkeypatch.setattr(partitions, "_measurement_date", lambda: "2026-09-05")
-    monkeypatch.setattr(partitions, "_worktree_dirty", lambda: True)
+    monkeypatch.setattr(partitions, "_worktree_dirty", lambda: False)
+    partitions._timing_selected_nodeids.update(
+        {"tests/test_a.py::test_one", "tests/test_b.py::test_two"}
+    )
 
     partitions.pytest_sessionfinish(SimpleNamespace(), 0)
 
     generated = tomllib.loads(output.read_text())
     assert generated["measured_commit"] == "a" * 40
     assert generated["measurement_date"] == "2026-09-05"
-    assert generated["measurement_worktree_dirty"] is True
+    assert generated["measurement_worktree_dirty"] is False
+    assert generated["selected_count"] == 2
+    assert generated["module_count"] == 2
     assert generated["measurement_command"].startswith(
         "pdm run ci-test-measure-integration --output "
     )
@@ -247,6 +265,34 @@ def test_duration_capture_sums_all_pytest_phases_and_writes_generated_metadata(
         "tests/test_b.py": 5.5,
     }
     assert generated["default_weight_seconds"] == 3.375
+
+
+@pytest.mark.parametrize("outcome", ["skipped", "xfailed", "failed"])
+def test_duration_capture_refuses_degraded_or_failed_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    output = tmp_path / "integration-file-durations.toml"
+    monkeypatch.setenv("ONTOPRISM_TEST_TIMINGS_OUTPUT", str(output))
+    monkeypatch.setattr(partitions, "_worktree_dirty", lambda: False)
+    partitions.pytest_sessionstart(SimpleNamespace())
+    partitions._timing_selected_nodeids.add("tests/test_a.py::test_one")
+    partitions.pytest_runtest_logreport(
+        SimpleNamespace(
+            nodeid="tests/test_a.py::test_one",
+            when="call",
+            duration=1.0,
+            passed=False,
+            failed=outcome == "failed",
+            skipped=outcome in {"skipped", "xfailed"},
+            wasxfail="reason" if outcome == "xfailed" else None,
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="complete successful call"):
+        partitions.pytest_sessionfinish(SimpleNamespace(), 0)
+    assert not output.exists()
 
 
 def test_every_integration_partition_preflights_both_external_tools(
@@ -270,10 +316,7 @@ def test_every_integration_partition_preflights_both_external_tools(
             runner.run_partition(
                 "integration",
                 shard,
-                receipt=tmp_path / f"receipt-{shard}.json",
-                coverage_file=tmp_path / f"coverage-{shard}",
-                coverage_xml=None,
-                identity=tmp_path / f"identity-{shard}.json",
+                output_dir=tmp_path / f"partition-{shard}",
             )
 
     assert len(calls) == 2
@@ -308,19 +351,16 @@ def test_integration_tool_preflight_validates_pinned_installs_and_exports_robot(
     assert environment["PATH"] == f"{robot}{os.pathsep}/existing/bin"
 
 
-def test_integration_capabilities_require_nonempty_robot_evidence(
+def test_integration_classification_rejects_unsorted_overlap(
     tmp_path: Path,
 ) -> None:
-    manifest = tmp_path / "integration_mutators.toml"
-    manifest.write_text(
-        '[[mutator]]\npath = "tests/test_qlever.py"\n'
-        'fixtures = ["isolated_qlever_settings"]\n'
-    )
-    postgres = _record_with("tests/test_postgres.py")
-
-    with pytest.raises(ValueError, match=r"ROBOT.*nonempty"):
-        IntegrationClassification.from_collection(
-            (_record_with("tests/test_qlever.py"), postgres), manifest
+    del tmp_path
+    with pytest.raises(ValidationError, match=r"sorted|disjoint"):
+        IntegrationClassification(
+            manifest_sha256="a" * 64,
+            qlever_files=("tests/z.py", "tests/a.py"),
+            non_qlever_files=("tests/z.py",),
+            evidence_sha256="b" * 64,
         )
 
 
@@ -388,6 +428,17 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
         )
 
 
+def test_runner_uses_exported_fixed_roots_and_rejects_checkout_outputs() -> None:
+    command = runner._pytest_command("backend", collect_only=True, coverage_xml=None)
+    assert command[1:3] == list(partitions.FIXED_TEST_ROOTS)
+    with pytest.raises(ValueError, match="outside the checkout"):
+        runner.run_partition(
+            "backend",
+            "0",
+            output_dir=Path(__file__).resolve().parents[2] / "tmp/partition",
+        )
+
+
 def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
     marker_names = ("integration", "full_store", "full_build", "slow")
     marker_sets = tuple(
@@ -416,6 +467,7 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
         ({"ONTOPRISM_TEST_PARTITION_PHASE": "other"}, "phase"),
         ({"ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": "true"}, "FIXED_ROOTS"),
         ({"ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": "2"}, "FIXED_ROOTS"),
+        ({"ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "true"}, "NESTED_BYPASS"),
     ],
 )
 def test_partition_environment_rejects_invalid_phase_and_boolean(
@@ -566,6 +618,25 @@ def test_fixed_root_collect_cannot_be_silently_suppressed(tmp_path: Path) -> Non
     )
 
 
+def test_fixed_root_execute_cannot_be_silently_suppressed(tmp_path: Path) -> None:
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "test_alpha.py").write_text("def test_one(): assert True\n")
+
+    completed = _run_plugin_suite(
+        suite,
+        tmp_path / "receipt.json",
+        phase="execute",
+        fixed_roots="1",
+        xdist=False,
+    )
+
+    assert completed.returncode != 0
+    assert "fixed partition execute requires repository test roots" in (
+        completed.stdout + completed.stderr
+    )
+
+
 def test_execute_phase_rejects_a_different_valid_receipt(tmp_path: Path) -> None:
     suite = tmp_path / "suite"
     suite.mkdir()
@@ -695,8 +766,6 @@ def test_artifact_validation_loads_and_aggregates_receipt_files(tmp_path: Path) 
         manifest_sha256="a" * 64,
         qlever_files=("tests/test_qlever.py",),
         non_qlever_files=("tests/test_postgres.py",),
-        robot_files=("tests/test_postgres.py",),
-        jena_files=("tests/test_qlever.py",),
         evidence_sha256="b" * 64,
     )
     backend_full = ("tests/test_a.py::test_a", "tests/test_b.py::test_b")
@@ -724,10 +793,16 @@ def test_artifact_validation_loads_and_aggregates_receipt_files(tmp_path: Path) 
             ),
             selected_nodeids=selected,
             classification=classification if spec.lane == "integration" else None,
-            weights_sha256="c" * 64 if spec.lane == "integration" else None,
-            default_weight_seconds=5.0 if spec.lane == "integration" else None,
-            unweighted_files=(),
-            selected_weight_seconds=(1.0 if spec.lane == "integration" else None),
+            integration_weight_evidence=(
+                IntegrationWeightEvidence(
+                    weights_sha256="c" * 64,
+                    default_weight_seconds=5.0,
+                    unweighted_files=(),
+                    selected_weight_seconds=1.0,
+                )
+                if spec.lane == "integration"
+                else None
+            ),
         )
         (artifact / spec.receipt_name).write_text(receipt.model_dump_json())
         (artifact / spec.identity_name).write_text(json.dumps({"layer": spec.layer}))
@@ -816,15 +891,13 @@ def test_run_all_removes_stale_root_coverage_and_uses_exact_combine_paths(
     commands: list[list[str]] = []
 
     def fake_partition(
-        lane: str,
-        shard: str,
+        lane: Lane,
+        shard: ShardId,
         *,
-        receipt: Path,
-        coverage_file: Path,
-        coverage_xml: Path | None,
-        identity: Path,
+        output_dir: Path,
     ) -> float:
-        del lane, shard, receipt, coverage_xml, identity
+        spec = partitions.partition_spec(lane, shard)
+        coverage_file = output_dir / spec.coverage_name
         coverage_file.parent.mkdir(parents=True, exist_ok=True)
         coverage_file.write_text("coverage")
         return 0.1

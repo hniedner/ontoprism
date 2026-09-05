@@ -6,12 +6,12 @@ Every test written BEFORE production code (strict TDD).
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from test_support.robot import require_robot
 
 from ontolib.repositories.xref.evidence import (
     LABEL_AGREEMENT,
@@ -309,7 +309,6 @@ def _owl_el_fixture() -> str:
 
 
 @pytest.mark.integration
-@pytest.mark.requires_robot
 def test_robot_elk_smoke(tmp_path: Path) -> None:
     """A small EL ontology passes the profile gate and is classified by ELK.
 
@@ -320,8 +319,7 @@ def test_robot_elk_smoke(tmp_path: Path) -> None:
     membership here is the very mistake that made corroboration miss any anchor above
     a direct parent; the ancestry must be walked.
     """
-    if shutil.which("robot") is None:
-        pytest.skip("robot not on PATH")
+    require_robot()
 
     onto_path = tmp_path / "test.owl"
     onto_path.write_text(_owl_el_fixture())

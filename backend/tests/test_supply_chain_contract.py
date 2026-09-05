@@ -648,7 +648,30 @@ def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:
         assert evidence_upload["with"]["if-no-files-found"] == "error"
         assert evidence_upload["if"] == "success()"
         assert "partition-" in receipt_upload["with"]["path"]
-        assert "partition-" not in evidence_upload["with"]["path"]
+        assert all(
+            not Path(line).name.startswith("partition-")
+            for line in evidence_upload["with"]["path"].splitlines()
+        )
+        assert "${{ runner.temp }}/partition-" in receipt_upload["with"]["path"]
+        assert "${{ runner.temp }}/partition-" in evidence_upload["with"]["path"]
+
+
+def test_python_partition_outputs_never_write_checkout_artifact_files() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    forbidden = (
+        '--receipt "partition-',
+        '--coverage-file ".coverage',
+        '--identity "coverage-',
+    )
+    for job_name in ("backend-tests", "integration-tests"):
+        step = next(
+            step
+            for step in workflow["jobs"][job_name]["steps"]
+            if "pdm run ci-test-partition" in step.get("run", "")
+        )
+        assert step["env"]["OUTPUT_DIR"].startswith("${{ runner.temp }}/partition-")
+        assert '--output-dir "$OUTPUT_DIR"' in step["run"]
+        assert not any(token in step["run"] for token in forbidden)
 
 
 def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() -> None:
@@ -709,51 +732,15 @@ def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() ->
     assert jobs["ci-summary"]["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == 8
 
 
-def test_robot_backed_integration_tests_have_the_static_requires_robot_marker() -> None:
-    robot_names = {
-        "classify",
-        "elk_reasoner",
-        "to_el_profile_and_check",
-        "validate_and_classify",
-    }
-    errors: list[str] = []
+def test_obsolete_reasoner_routing_marker_is_removed() -> None:
+    project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    obsolete = "requires_" + "robot"
+    assert not any(
+        marker.startswith(f"{obsolete}:")
+        for marker in project["tool"]["pytest"]["ini_options"]["markers"]
+    )
     for path in sorted(_ROOT.glob("**/tests/**/test_*.py")):
-        tree = ast.parse(path.read_text())
-        module_robot_marker = False
-        module_integration_marker = False
-        for statement in tree.body:
-            if not isinstance(statement, ast.Assign):
-                continue
-            if not any(
-                isinstance(target, ast.Name) and target.id == "pytestmark"
-                for target in statement.targets
-            ):
-                continue
-            module_markers = ast.unparse(statement.value)
-            module_robot_marker = "requires_robot" in module_markers
-            module_integration_marker = "integration" in module_markers
-        for function in (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-        ):
-            decorators = " ".join(ast.unparse(item) for item in function.decorator_list)
-            if "integration" not in decorators and not module_integration_marker:
-                continue
-            referenced = {
-                node.id
-                for node in ast.walk(function)
-                if isinstance(node, ast.Name) and node.id in robot_names
-            }
-            if (
-                referenced
-                and not module_robot_marker
-                and "requires_robot" not in decorators
-            ):
-                errors.append(f"{path.relative_to(_ROOT)}::{function.name}")
-
-    assert errors == []
+        assert obsolete not in path.read_text()
 
 
 def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() -> None:

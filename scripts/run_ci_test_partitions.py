@@ -26,6 +26,7 @@ from scripts.validation.coverage_hierarchy import (  # noqa: E402
     verify_identities,
 )
 from scripts.validation.test_partitions import (  # noqa: E402
+    FIXED_TEST_ROOTS,
     LANE_SELECTORS,
     PARTITION_SPECS,
     Lane,
@@ -51,10 +52,7 @@ def _parser() -> argparse.ArgumentParser:
     partition = subparsers.add_parser("partition")
     partition.add_argument("--lane", required=True, choices=("backend", "integration"))
     partition.add_argument("--shard", required=True)
-    partition.add_argument("--receipt", type=Path, required=True)
-    partition.add_argument("--coverage-file", type=Path, required=True)
-    partition.add_argument("--coverage-xml", type=Path)
-    partition.add_argument("--identity", type=Path, required=True)
+    partition.add_argument("--output-dir", type=Path, required=True)
     measure = subparsers.add_parser("measure-integration")
     measure.add_argument("--output", type=Path, required=True)
     subparsers.add_parser("all")
@@ -79,7 +77,7 @@ def _pytest_command(
         raise RuntimeError("pytest console script is required")
     selector = next(selector for selector in LANE_SELECTORS if selector.lane == lane)
     marker = selector.marker_expression
-    arguments = ["ontolib/tests", "backend/tests", "-m", marker]
+    arguments = [*FIXED_TEST_ROOTS, "-m", marker]
     if collect_only:
         arguments.append("--collect-only")
     elif with_coverage:
@@ -155,14 +153,29 @@ def run_partition(
     lane: str,
     shard: str,
     *,
-    receipt: Path,
-    coverage_file: Path,
-    coverage_xml: Path | None,
-    identity: Path,
+    output_dir: Path,
 ) -> float:
     """Collect, receipt, then execute one validated fixed partition."""
     started = time.monotonic()
     spec = _partition_contract(lane, shard)
+    if output_dir.is_symlink():
+        raise ValueError("partition output directory cannot be a symlink")
+    output_dir = output_dir.resolve()
+    try:
+        output_dir.relative_to(ROOT.resolve())
+    except ValueError:
+        pass
+    else:
+        raise ValueError("partition output directory must be outside the checkout")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    receipt = output_dir / spec.receipt_name
+    coverage_file = output_dir / spec.coverage_name
+    coverage_xml = (
+        output_dir / spec.coverage_xml_name
+        if spec.coverage_xml_name is not None
+        else None
+    )
+    identity = output_dir / spec.identity_name
     for output in (receipt, coverage_file, identity, coverage_xml):
         if output is not None and output.exists():
             output.unlink()
@@ -203,13 +216,24 @@ def run_partition(
         f"partition phases {lane}/{shard}: "
         f"preflight={preflight_finished - started:.1f}s, "
         f"collection={collection_finished - preflight_finished:.1f}s, "
-        f"tests={finished - collection_finished:.1f}s"
+        f"tests+identity={finished - collection_finished:.1f}s"
     )
     return finished - started
 
 
 def measure_integration(output: Path) -> float:
-    """Run the full safe lane once and generate measured per-module weights."""
+    """Measure the eligible safe lane, excluding slow/full-store/full-build tests."""
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required to identify timing evidence")
+    if subprocess.run(  # noqa: S603 - resolved git executable
+        [git, "status", "--porcelain"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout:
+        raise RuntimeError("integration timing requires a clean committed worktree")
     output = output.resolve()
     output.unlink(missing_ok=True)
     environment = _integration_tool_environment(
@@ -293,20 +317,12 @@ def run_all() -> int:
         coverage_paths: list[Path] = []
         for spec in PARTITION_SPECS:
             artifact = output / spec.artifact_name
-            artifact.mkdir()
             coverage_file = artifact / spec.coverage_name
             coverage_paths.append(coverage_file)
             durations[f"{spec.lane}/{spec.shard_id}"] = run_partition(
                 spec.lane,
                 spec.shard_id,
-                receipt=artifact / spec.receipt_name,
-                coverage_file=coverage_file,
-                coverage_xml=(
-                    artifact / spec.coverage_xml_name
-                    if spec.coverage_xml_name is not None
-                    else None
-                ),
-                identity=artifact / spec.identity_name,
+                output_dir=artifact,
             )
         identities = _validate_local_outputs(output)
         combined = output / ".coverage"
@@ -389,10 +405,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     duration = run_partition(
         args.lane,
         args.shard,
-        receipt=args.receipt,
-        coverage_file=args.coverage_file,
-        coverage_xml=args.coverage_xml,
-        identity=args.identity,
+        output_dir=args.output_dir,
     )
     print(f"partition {args.lane}/{args.shard}: {duration:.1f}s")
     return 0

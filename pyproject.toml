@@ -182,7 +182,6 @@ markers = [
     "security: Security-hardening controls (headers, CORS, authz, rate limiting, injection/path-traversal guards)",
     "e2e: End-to-end tests",
     "slow: Tests that take more than 1 second",
-    "requires_robot: Integration contract requires the pinned ROBOT/ELK installation",
 ]
 
 [tool.ruff]

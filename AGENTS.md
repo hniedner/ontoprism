@@ -172,7 +172,9 @@ pdm install --dev       # Requires Python 3.14.7
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
 export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+export ONTOPRISM_ROBOT_DIR="$PWD/.tools/robot-1.9.10"
 pdm run data-build owl
 pdm run data-build ncit-bootstrap
 pdm run data-build uberon-store

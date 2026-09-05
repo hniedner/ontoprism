@@ -170,18 +170,16 @@ jobs:
       - name: Run backend file partition with coverage collection (no gate)
         # -n auto (xdist): the suite's stub HTTP servers require parallel workers;
         # pytest's serial global-capture teardown corrupts stdin fd (os.dup2 EBADF)
-        # when run with -n 0, so each file-level child keeps xdist. The collection
-        # receipt is written before execution and workers inherit the same selector.
+        # when run with -n 0. The runner applies -n auto to execution only; receipt
+        # collection is serial, then workers inherit the same selector.
         env:
           COVERAGE_CONFIG_SET: python-combined
+          OUTPUT_DIR: ${{ runner.temp }}/partition-backend-${{ matrix.index }}
         run: |
           pdm run ci-test-partition \
             --lane backend \
             --shard "${{ matrix.index }}" \
-            --receipt "partition-backend-${{ matrix.index }}.json" \
-            --coverage-file ".coverage.unit-${{ matrix.index }}" \
-            --coverage-xml "coverage-unit-${{ matrix.index }}.xml" \
-            --identity "coverage-unit-${{ matrix.index }}.identity.json"
+            --output-dir "$OUTPUT_DIR"
 
       - name: Upload backend partition receipt
         if: always()
@@ -189,7 +187,7 @@ jobs:
         with:
           name: coverage-backend-${{ matrix.shard }}-receipt
           if-no-files-found: error
-          path: partition-backend-${{ matrix.index }}.json
+          path: ${{ runner.temp }}/partition-backend-${{ matrix.index }}/partition-backend-${{ matrix.index }}.json
 
       - name: Upload backend coverage data
         if: success()
@@ -200,9 +198,9 @@ jobs:
           # .coverage is a dotfile; upload-artifact@v4 excludes hidden files by default.
           include-hidden-files: true
           path: |
-            .coverage.unit-${{ matrix.index }}
-            coverage-unit-${{ matrix.index }}.xml
-            coverage-unit-${{ matrix.index }}.identity.json
+            ${{ runner.temp }}/partition-backend-${{ matrix.index }}/.coverage.unit-${{ matrix.index }}
+            ${{ runner.temp }}/partition-backend-${{ matrix.index }}/coverage-unit-${{ matrix.index }}.xml
+            ${{ runner.temp }}/partition-backend-${{ matrix.index }}/coverage-unit-${{ matrix.index }}.identity.json
 
   coverage-verify:
     name: coverage verify (ontolib + backend)
@@ -411,8 +409,8 @@ jobs:
       - name: Install dependencies
         run: pdm sync --clean-unselected --dev
 
-      # Both balanced children get identical external-tool capabilities. The receipt
-      # still records QLever/Jena and ROBOT classifications as coverage evidence.
+      # D28/#73: a missing reasoner once became a silent skipped pass. Both children
+      # preflight pinned ROBOT and Jena; receipts record partition evidence, not coverage.
       - name: Set up Java 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
@@ -444,13 +442,12 @@ jobs:
       - name: Integration file partition (disposable resources)
         env:
           COVERAGE_CONFIG_SET: python-combined
+          OUTPUT_DIR: ${{ runner.temp }}/partition-integration-${{ matrix.index }}
         run: |
           pdm run ci-test-partition \
             --lane integration \
             --shard "${{ matrix.index }}" \
-            --receipt "partition-integration-${{ matrix.index }}.json" \
-            --coverage-file ".coverage.integration-${{ matrix.index }}" \
-            --identity "coverage-integration-${{ matrix.index }}.identity.json"
+            --output-dir "$OUTPUT_DIR"
 
       - name: Upload integration partition receipt
         if: always()
@@ -458,7 +455,7 @@ jobs:
         with:
           name: coverage-integration-${{ matrix.shard }}-receipt
           if-no-files-found: error
-          path: partition-integration-${{ matrix.index }}.json
+          path: ${{ runner.temp }}/partition-integration-${{ matrix.index }}/partition-integration-${{ matrix.index }}.json
 
       - name: Upload integration coverage data
         if: success()
@@ -468,8 +465,8 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           path: |
-            .coverage.integration-${{ matrix.index }}
-            coverage-integration-${{ matrix.index }}.identity.json
+            ${{ runner.temp }}/partition-integration-${{ matrix.index }}/.coverage.integration-${{ matrix.index }}
+            ${{ runner.temp }}/partition-integration-${{ matrix.index }}/coverage-integration-${{ matrix.index }}.identity.json
 
   embedding-model-contract:
     name: pinned embedding model contract

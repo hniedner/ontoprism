@@ -31,10 +31,10 @@ These are integration tests: they need `robot` on PATH (CI installs it; see ci.y
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
+from test_support.robot import require_robot
 
 from ontolib.core.data_build_tools import (
     ROBOT_ARTIFACT,
@@ -48,12 +48,7 @@ _B = "http://example.org/B"
 _C = "http://example.org/C"
 _D = "http://example.org/D"
 
-pytestmark = [pytest.mark.integration, pytest.mark.requires_robot]
-
-
-def _skip_without_robot() -> None:
-    if shutil.which("robot") is None:
-        pytest.skip("robot not on PATH")
+pytestmark = pytest.mark.integration
 
 
 def _ttl(body: str) -> str:
@@ -84,7 +79,7 @@ def test_robot_reason_does_not_materialize_the_transitive_closure(
     Assuming it did is what made corroboration miss every anchor above a direct parent.
     Our code must therefore WALK the hierarchy, never test it for membership.
     """
-    _skip_without_robot()
+    require_robot()
     src = tmp_path / "chain.ttl"
     src.write_text(
         _ttl(
@@ -115,7 +110,7 @@ def test_robot_reason_keeps_our_asserted_axioms(tmp_path: Path) -> None:
     connected by nothing, and `elk_reasoner`'s "did ROBOT classify this?" check
     false-alarms on a perfectly sound run.
     """
-    _skip_without_robot()
+    require_robot()
     src = tmp_path / "cycle.ttl"
     # A ⊑ B and B ⊑ A: the merge entails A ≡ B, which is exactly the collapse that
     # triggered the false alarm.
@@ -139,7 +134,7 @@ def test_robot_refuses_an_unsatisfiable_merge_and_says_so(tmp_path: Path) -> Non
     marker we match (`_UNSATISFIABLE_MARKERS`).  If ROBOT reworded that message, the
     marker match would fail and we would raise ReasonerUnavailableError instead of
     recording a refutation — this test pins the wording."""
-    _skip_without_robot()
+    require_robot()
     src = tmp_path / "unsat.ttl"
     src.write_text(
         _ttl(
@@ -159,7 +154,7 @@ def test_robot_validate_profile_rejects_a_non_el_ontology(tmp_path: Path) -> Non
 
     `owl:unionOf` is OWL 2 DL but not EL.
     """
-    _skip_without_robot()
+    require_robot()
     src = tmp_path / "non-el.ttl"
     src.write_text(
         _ttl(
@@ -228,7 +223,7 @@ def test_the_unit_double_agrees_with_the_real_reasoner(name: str, ttl: str) -> N
     Imported lazily from the test module that owns it, so the double under test is
     literally the one the unit tests use — not a copy that can drift.
     """
-    _skip_without_robot()
+    require_robot()
     from .test_promotion import _SatisfiabilityHonestReasoner  # noqa: PLC0415
 
     double_verdict = _SatisfiabilityHonestReasoner()(ttl)

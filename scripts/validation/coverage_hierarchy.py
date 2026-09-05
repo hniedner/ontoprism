@@ -20,7 +20,7 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal, Self
+from typing import Annotated, Final, Literal, Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -1341,7 +1341,20 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_verify_identities(args: Any, manifest: Manifest, root: Path) -> int:
+class _VerifyIdentityArguments(Protocol):
+    identities: Sequence[Path]
+    expected_layers: Sequence[str] | None
+    against_current: bool
+
+
+def _run_verify_identities(
+    args: _VerifyIdentityArguments, manifest: Manifest, root: Path
+) -> int:
+    if len(args.identities) > 1 and (
+        args.expected_layers is None
+        or len(args.expected_layers) != len(args.identities)
+    ):
+        raise ValueError("--expected-layer must be supplied exactly once per identity")
     identities = tuple(
         identity_from_mapping(_json_mapping(path)) for path in args.identities
     )
@@ -1390,7 +1403,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(args.output, identity.as_dict())
         return 0
     if args.command == "verify-identities":
-        return _run_verify_identities(args, manifest, root)
+        return _run_verify_identities(
+            cast("_VerifyIdentityArguments", args), manifest, root
+        )
     if args.command == "python-report":
         identity = identity_from_mapping(_json_mapping(args.identity))
         raw = _python_raw_report(manifest, args.coverage_data, args.raw_output, root)

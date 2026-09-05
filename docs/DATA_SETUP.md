@@ -484,15 +484,20 @@ nonce-owned Postgres/QLever resources requested by their selected tests. The gat
 partition receipts and coverage identities before explicitly combining exactly four
 coverage files.
 
-Regenerate the tracked integration file weights after representative timing changes with:
+Regenerate the tracked integration file weights after representative timing changes only
+from a clean committed worktree:
 
 ```bash
 pdm run ci-test-measure-integration --output tmp/integration-file-durations.toml
 ```
 
-That safe, serial full-lane run records setup, call, and teardown time per module in a
-generated candidate. Review the generated metadata and timings, then replace
-`test_support/ci_partition_weights.toml`; the regular gate never rewrites the manifest.
+That safe, serial run measures the eligible integration lane (excluding `slow`,
+`full_store`, and `full_build`) and records setup, call, and teardown time per module.
+It refuses dirty worktrees, collection errors, failures, skips, xfails, or any selected
+test without a successful call report. Review the generated commit, clean-worktree flag,
+selected test/module counts, and timings, then replace
+`test_support/ci_partition_weights.toml`; the tracked manifest is clean measurement
+evidence and the regular gate never rewrites it.
 
 ### Validation and recovery
 
