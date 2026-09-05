@@ -19,6 +19,48 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.3 (2026-09-05)
+
+### Bug Fixes
+
+- **governance**: Close ontology validator findings
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **governance**: Close R1 and R2 findings
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **governance**: Close remaining review findings
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **governance**: Consolidate frontend test wrapper
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **governance**: Harden frontend R3 test execution
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+### Documentation
+
+- Update README code line-count table
+  ([`3ee47bf`](https://github.com/hniedner/ontoprism/commit/3ee47bfdc661e8db3ec7adc3f6fda03a804eb4ff))
+
+- **product**: Correct source isolation contracts
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **product**: Define ontology platform and NCIt overlay
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **product**: Define traceable enhanced NCIt corrections
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+- **product**: Tighten enhanced NCIt contracts
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+### Testing
+
+- **governance**: Permit isolated R3 frontend tests
+  ([`0892281`](https://github.com/hniedner/ontoprism/commit/08922819ad02764895961459b9dd247153d93540))
+
+
 ## v0.22.2 (2026-09-04)
 
 ### Bug Fixes
