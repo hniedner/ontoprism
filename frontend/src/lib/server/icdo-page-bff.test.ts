@@ -76,7 +76,7 @@ describe('ICD-O repository page BFF boundary', () => {
 		['3.2', '8503/0', 'ODUwMy8w', '/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w'],
 		['4.0', '85032/0', 'ODUwMzIvMA', '/api/v1/icdo/4.0/morphology/concepts/ODUwMzIvMA']
 	] as const)(
-		'round-trips an ICD-O-%s slash-bearing morphology code through the detail page and BFF',
+		'constructs and forwards a detail request for a literal encoded ICD-O-%s morphology code segment with the server entitlement',
 		async (edition, code, segment, expectedPath) => {
 			vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = new URL(String(input));
