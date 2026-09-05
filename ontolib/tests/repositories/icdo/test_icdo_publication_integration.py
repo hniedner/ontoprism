@@ -4,7 +4,8 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import text
+from pydantic import ValidationError
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
@@ -13,6 +14,7 @@ from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, Sourc
 from ontolib.repositories.icdo.store import (
     CertificationExpectation,
     IcdoRepository,
+    IcdoRepositoryDataError,
     publish_dataset,
 )
 
@@ -242,7 +244,50 @@ async def test_search_refuses_denormalized_column_corruption() -> None:
             offset=0,
             generation_id=manifest.generation_id,
         )
-        assert result["total"] == 0
+        assert result.total == 0
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_search_rejects_a_malformed_persisted_collection_without_leaking_it() -> (
+    None
+):
+    engine = make_engine(get_settings().database_url)
+    sessions = make_sessionmaker(engine)
+    try:
+        manifest = await publish_dataset(
+            sessions,
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE icdo_record SET payload=jsonb_set(payload, "
+                    "'{related}', to_jsonb(CAST(:malformed AS text))) "
+                    "WHERE generation_id=:generation"
+                ),
+                {
+                    "malformed": "sensitive malformed collection",
+                    "generation": manifest.generation_id,
+                },
+            )
+
+        with pytest.raises(IcdoRepositoryDataError) as caught:
+            await IcdoRepository(sessions).search(
+                "4.0",
+                "topography",
+                query="",
+                limit=10,
+                offset=0,
+                generation_id=manifest.generation_id,
+            )
+
+        assert str(caught.value) == "persisted ICD-O record is invalid"
+        assert isinstance(caught.value.__cause__, ValidationError)
+        assert "sensitive malformed collection" not in str(caught.value)
     finally:
         await dispose_engine(engine)
 
@@ -386,37 +431,42 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         )
         repository = IcdoRepository(sessions)
 
+        statements: list[str] = []
+
+        def capture_statement(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", capture_statement)
         listed = await repository.search(
             "4.0", "morphology", query="", limit=1, offset=1
         )
-        assert listed == {
-            "edition": "4.0",
-            "axis": "morphology",
-            "query": "",
-            "total": 3,
-            "limit": 1,
-            "offset": 1,
-            "hits": [
-                {
-                    "code": "8001A/3",
-                    "level": "morphology",
-                    "parent_code": None,
-                    "base_morphology": "8001",
-                    "specificity": "A",
-                    "behaviour": "3",
-                    "preferred": "Malignant tumor",
-                    "synonyms": ["Cancer alpha"],
-                    "related": [],
-                    "notes": [],
-                    "code_references": [],
-                    "see_also": [],
-                    "see_notes": [],
-                    "includes": [],
-                    "excludes": [],
-                    "other_text": [],
-                }
-            ],
-        }
+        event.remove(engine.sync_engine, "before_cursor_execute", capture_statement)
+        assert len(statements) == 2
+        assert listed.edition == "4.0"
+        assert listed.axis == "morphology"
+        assert listed.query == ""
+        assert listed.total == 3
+        assert listed.limit == 1
+        assert listed.offset == 1
+        assert isinstance(listed.hits, tuple)
+        assert listed.hits == (
+            IcdoRecord(
+                code="8001A/3",
+                level="morphology",
+                base_morphology="8001",
+                specificity="A",
+                behaviour="3",
+                preferred="Malignant tumor",
+                synonyms=("Cancer alpha",),
+            ),
+        )
         text_hits = await repository.search(
             "4.0", "morphology", query="EPITHELIAL", limit=10, offset=0
         )
@@ -436,16 +486,16 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
             "4.0", "morphology", query="inactive", limit=10, offset=0
         )
 
-        assert text_hits["total"] == 1
-        assert [row["code"] for row in text_hits["hits"]] == ["8010B/3"]
-        assert code_hits["total"] == 1
-        assert [row["code"] for row in code_hits["hits"]] == ["8001A/3"]
-        assert filtered["total"] == 2
-        assert [row["code"] for row in filtered["hits"]] == [
+        assert text_hits.total == 1
+        assert [row.code for row in text_hits.hits] == ["8010B/3"]
+        assert code_hits.total == 1
+        assert [row.code for row in code_hits.hits] == ["8001A/3"]
+        assert filtered.total == 2
+        assert [row.code for row in filtered.hits] == [
             "8001A/3",
             "8010B/3",
         ]
-        assert inactive_hits["total"] == 0
-        assert inactive_hits["hits"] == []
+        assert inactive_hits.total == 0
+        assert inactive_hits.hits == ()
     finally:
         await dispose_engine(engine)

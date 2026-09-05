@@ -22,11 +22,13 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
+    IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
     TopographyCode40,
     decode_icdo_record,
 )
+from ontolib.repositories.icdo.store import IcdoRepositoryDataError
 from ontolib.repositories.xref.models import (
     IcdoReadIdentity,
     MappingResult,
@@ -162,6 +164,16 @@ class Topography40Page(_IcdoPage):
 
 type IcdoPage = Morphology32Page | Morphology40Page | Topography40Page
 
+type IcdoPageModel = (
+    type[Morphology32Page] | type[Morphology40Page] | type[Topography40Page]
+)
+
+_PAGE_BY_DATASET: dict[ServedIcdoDataset, IcdoPageModel] = {
+    ServedIcdoDataset.ICDO_32_MORPHOLOGY: Morphology32Page,
+    ServedIcdoDataset.ICDO_40_MORPHOLOGY: Morphology40Page,
+    ServedIcdoDataset.ICDO_40_TOPOGRAPHY: Topography40Page,
+}
+
 
 def _ncit_alignments(
     code: str, edition: str, rows: list[MappingResult]
@@ -203,6 +215,29 @@ async def _ready(
             status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
         )
     return result
+
+
+def _page_response(
+    result: IcdoSearchPage,
+    dataset: ServedIcdoDataset,
+    ready: IcdoRepositoryReady,
+) -> IcdoPage:
+    if (result.edition, result.axis) != (dataset.edition, dataset.axis):
+        raise ValueError("ICD-O page dataset does not match the certified generation")
+    page_model = _PAGE_BY_DATASET[dataset]
+    return page_model.model_validate(
+        {
+            "edition": result.edition,
+            "axis": result.axis,
+            "activation_identity": ready.activation_identity,
+            "serving_identity": ready.serving_identity,
+            "query": result.query,
+            "total": result.total,
+            "limit": result.limit,
+            "offset": result.offset,
+            "hits": [record.model_dump() for record in result.hits],
+        }
+    )
 
 
 @router.get("/access", response_model=IcdoAccessReport)
@@ -314,7 +349,7 @@ async def list_records(
     level: Literal["category", "leaf"] | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> object:
+) -> IcdoPage:
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
@@ -328,11 +363,11 @@ async def list_records(
             offset=offset,
             generation_id=ready.activation_identity,
         )
-        return {
-            **result,
-            "activation_identity": ready.activation_identity,
-            "serving_identity": ready.serving_identity,
-        }
+        return _page_response(result, dataset, ready)
+    except IcdoRepositoryDataError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
@@ -350,7 +385,7 @@ async def search(
     level: Literal["category", "leaf"] | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> object:
+) -> IcdoPage:
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
@@ -364,11 +399,11 @@ async def search(
             offset=offset,
             generation_id=ready.activation_identity,
         )
-        return {
-            **result,
-            "activation_identity": ready.activation_identity,
-            "serving_identity": ready.serving_identity,
-        }
+        return _page_response(result, dataset, ready)
+    except IcdoRepositoryDataError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."

@@ -12,6 +12,9 @@ from sqlalchemy import text
 from ontolib.repositories.icdo.ingest import canonical_bytes
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
+    IcdoAxis,
+    IcdoEdition,
+    IcdoSearchPage,
     SourceShape,
     decode_icdo_record,
 )
@@ -53,6 +56,10 @@ class IcdoCertificationError(ValueError):
 
 class IcdoRepositoryUnavailableError(RuntimeError):
     """The required active ICD-O dataset is absent or structurally invalid."""
+
+
+class IcdoRepositoryDataError(ValueError):
+    """A persisted ICD-O record failed strict repository decoding."""
 
 
 class IcdoCodeResolution(BaseModel):
@@ -211,8 +218,8 @@ class IcdoRepository:
 
     async def search(
         self,
-        edition: str,
-        axis: str,
+        edition: IcdoEdition,
+        axis: IcdoAxis,
         *,
         query: str,
         limit: int,
@@ -220,7 +227,7 @@ class IcdoRepository:
         behaviour: str | None = None,
         level: str | None = None,
         generation_id: str | None = None,
-    ) -> dict[str, object]:
+    ) -> IcdoSearchPage:
         pattern = f"%{query.lower()}%"
         params: dict[str, object] = {
             "edition": edition,
@@ -267,15 +274,18 @@ class IcdoRepository:
                 .scalars()
                 .all()
             )
-        return {
-            "edition": edition,
-            "axis": axis,
-            "query": query,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "hits": [decode_icdo_record(row).model_dump(mode="json") for row in rows],
-        }
+        try:
+            return IcdoSearchPage(
+                edition=edition,
+                axis=axis,
+                query=query,
+                total=total,
+                limit=limit,
+                offset=offset,
+                hits=tuple(decode_icdo_record(row) for row in rows),
+            )
+        except ValueError as exc:
+            raise IcdoRepositoryDataError("persisted ICD-O record is invalid") from exc
 
     async def detail(
         self, edition: str, axis: str, code: str, generation_id: str | None = None
