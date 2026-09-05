@@ -19,6 +19,30 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.5 (2026-09-05)
+
+### Bug Fixes
+
+- **icdo**: Restore repository browsing
+  ([`0280834`](https://github.com/hniedner/ontoprism/commit/0280834efbcdeb838f5fefe92650bd8cd832a511))
+
+- **icdo**: Type repository page results
+  ([`0280834`](https://github.com/hniedner/ontoprism/commit/0280834efbcdeb838f5fefe92650bd8cd832a511))
+
+### Documentation
+
+- Update README code line-count table
+  ([`973d992`](https://github.com/hniedner/ontoprism/commit/973d9929c3a389c68468e72740e3ded5829150a5))
+
+### Testing
+
+- **icdo**: Clarify BFF detail coverage
+  ([`0280834`](https://github.com/hniedner/ontoprism/commit/0280834efbcdeb838f5fefe92650bd8cd832a511))
+
+- **icdo**: Pin URL-safe code segments
+  ([`0280834`](https://github.com/hniedner/ontoprism/commit/0280834efbcdeb838f5fefe92650bd8cd832a511))
+
+
 ## v0.22.4 (2026-09-05)
 
 ### Bug Fixes
