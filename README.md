@@ -395,7 +395,7 @@ pdm run test               # Hermetic: ontolib unit + backend unit/api/security 
 pdm run test-unit          # Unit-marked only
 pdm run test-integration   # Safe default: nonce-owned disposable Postgres/QLever
 pdm run test-integration-full-store  # Explicit read-only contracts against configured corpora
-pdm run test-ci            # CI gate with ≥90% coverage
+pdm run test-ci            # Sequential parity for 4 CI partitions; ≥90% coverage gate
 pdm run pre-commit run --all-files  # Local quality gate
 ```
 

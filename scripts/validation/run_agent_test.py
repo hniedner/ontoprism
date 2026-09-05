@@ -705,6 +705,8 @@ def _controlled_environment() -> dict[str, str]:
     ):
         environment.pop(name, None)
     environment["PYTHONNOUSERSITE"] = "1"
+    if environment.get("ONTOPRISM_TEST_PARTITION_LANE") is not None:
+        environment["ONTOPRISM_TEST_PARTITION_NESTED_BYPASS"] = "1"
     return environment
 
 

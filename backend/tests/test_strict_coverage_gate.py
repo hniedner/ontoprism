@@ -340,9 +340,12 @@ def test_repository_wires_strict_gate_into_local_and_ci_entrypoints() -> None:
     root = Path(__file__).resolve().parents[2]
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = pyproject["tool"]["pdm"]["scripts"]
-    test_ci = scripts["test-ci"]["shell"]
-    assert "strict_coverage_gate.py python" in test_ci
-    assert "coverage report --include=" not in test_ci
+    test_ci = scripts["test-ci"]
+    assert test_ci == "python scripts/run_ci_test_partitions.py all"
+    orchestrator = (root / "scripts/run_ci_test_partitions.py").read_text()
+    assert "strict_coverage_gate.py" in orchestrator
+    assert "coverage combine" in orchestrator
+    assert "coverage report --include=" not in orchestrator
 
     package = json.loads((root / "frontend/package.json").read_text(encoding="utf-8"))
     frontend_coverage = package["scripts"]["test:coverage"]

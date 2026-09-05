@@ -86,9 +86,12 @@ test-integration-full-build = "pytest --require-full-store ontolib/tests backend
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
-test-integration-ci-coverage = { shell = "COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report=" }
-test-ci = { shell = "COVERAGE_FILE=.coverage.unit pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report= && coverage combine .coverage.unit .coverage.integration && python scripts/validation/strict_coverage_gate.py python --coverage-data .coverage --root ." }
-test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
+# Local parity runs the same four CI matrix children sequentially, validates their
+# receipts/identities, and combines only the four exact coverage files. It is a parity
+# contract, not a local speed optimization.
+test-ci = "python scripts/run_ci_test_partitions.py all"
+ci-test-partition = "python scripts/run_ci_test_partitions.py partition"
+ci-test-measure-integration = "python scripts/run_ci_test_partitions.py measure-integration"
 # The single pre-PR gate: everything CI enforces, in CI's own commands. Run this before
 # opening or updating a pull request, and before each merge into a milestone branch.
 # "Gates green" means this command exited 0 — not a subset of it. Three defects reached
@@ -96,8 +99,10 @@ test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov
 # selection) were run instead of the real gate commands.
 # The one gate it cannot reproduce is
 # CodeQL, which is GitHub default setup and runs only on pull requests and pushes to
-# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every ordinary job;
-# only Docker and the pinned embedding-model contract remain path-gated.
+# main. ci.yml defines nine top-level jobs and eleven stable visible checks after the
+# backend and integration jobs each expand to two matrix children. workflow_dispatch
+# runs every ordinary job; only Docker and the pinned embedding-model contract remain
+# path-gated.
 verify = "python -m scripts.validation.run_verify"
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }

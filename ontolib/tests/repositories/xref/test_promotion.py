@@ -15,7 +15,6 @@ corroborate itself.
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -23,6 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rdflib import Graph
 from rdflib.namespace import OWL, RDFS
+from test_support.robot import require_robot
 
 from ontolib.repositories.xref.coverage import (
     CdeAnchor,
@@ -1328,8 +1328,7 @@ def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
     could never be refuted — and the anchor's ancestor edges must actually have been
     fetched, or its upstream image is a parentless floating class ELK cannot walk from.
     """
-    if shutil.which("robot") is None:
-        pytest.skip("robot not on PATH")
+    require_robot()
 
     ncit_nervous = "C12755"
     uberon_nervous = f"{_OBO}UBERON_0000010"
@@ -1365,9 +1364,8 @@ def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
 @pytest.mark.integration
 def test_promotion_with_real_elk() -> None:
     """End-to-end through ROBOT + ELK: the golden Lung pair promotes, the Lung↔brain
-    pair does not.  Skipped where ``robot`` is not installed (see DATA_SETUP.md)."""
-    if shutil.which("robot") is None:
-        pytest.skip("robot not on PATH")
+    pair does not. Manual runs skip without ROBOT; managed lanes fail closed."""
+    require_robot()
 
     good = validate_candidate(_record(), _context(), reasoner=elk_reasoner)
     bad = validate_candidate(

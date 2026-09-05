@@ -20,7 +20,7 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Final, Literal, Self
+from typing import Annotated, Final, Literal, Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -1161,6 +1161,18 @@ def verify_identities(identities: Sequence[ArtifactIdentity]) -> None:
                 )
 
 
+def verify_layer_set(
+    identities: Sequence[ArtifactIdentity], expected_layers: Sequence[str]
+) -> None:
+    """Require each expected coverage layer exactly once before combining data."""
+    actual = tuple(identity.layer for identity in identities)
+    expected = tuple(expected_layers)
+    if len(actual) != len(set(actual)) or set(actual) != set(expected):
+        raise ValueError(
+            f"coverage identity layer set mismatch: expected {expected}, got {actual}"
+        )
+
+
 def verify_installed_tool_version(
     identities: Sequence[ArtifactIdentity],
 ) -> str:
@@ -1314,6 +1326,7 @@ def _parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify-identities")
     verify.add_argument("identities", type=Path, nargs="+")
     verify.add_argument("--against-current", action="store_true")
+    verify.add_argument("--expected-layer", action="append", dest="expected_layers")
     python_report = subparsers.add_parser("python-report")
     python_report.add_argument("--coverage-data", type=Path, required=True)
     python_report.add_argument("--identity", type=Path, required=True)
@@ -1326,6 +1339,40 @@ def _parser() -> argparse.ArgumentParser:
     frontend_report.add_argument("--output", type=Path, required=True)
     frontend_report.add_argument("--text-output", type=Path, required=True)
     return parser
+
+
+class _VerifyIdentityArguments(Protocol):
+    identities: Sequence[Path]
+    expected_layers: Sequence[str] | None
+    against_current: bool
+
+
+def _run_verify_identities(
+    args: _VerifyIdentityArguments, manifest: Manifest, root: Path
+) -> int:
+    if len(args.identities) > 1 and (
+        args.expected_layers is None
+        or len(args.expected_layers) != len(args.identities)
+    ):
+        raise ValueError("--expected-layer must be supplied exactly once per identity")
+    identities = tuple(
+        identity_from_mapping(_json_mapping(path)) for path in args.identities
+    )
+    verify_identities(identities)
+    if args.expected_layers:
+        verify_layer_set(identities, args.expected_layers)
+    if args.against_current:
+        baseline = identities[0]
+        installed_tool_version = verify_installed_tool_version(identities)
+        current = make_identity(
+            manifest,
+            layer="current-checkout",
+            tool=baseline.tool,
+            tool_version=installed_tool_version,
+            root=root,
+        )
+        verify_identities_against_current(identities, current)
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1356,22 +1403,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(args.output, identity.as_dict())
         return 0
     if args.command == "verify-identities":
-        identities = tuple(
-            identity_from_mapping(_json_mapping(path)) for path in args.identities
+        return _run_verify_identities(
+            cast("_VerifyIdentityArguments", args), manifest, root
         )
-        verify_identities(identities)
-        if args.against_current:
-            baseline = identities[0]
-            installed_tool_version = verify_installed_tool_version(identities)
-            current = make_identity(
-                manifest,
-                layer="current-checkout",
-                tool=baseline.tool,
-                tool_version=installed_tool_version,
-                root=root,
-            )
-            verify_identities_against_current(identities, current)
-        return 0
     if args.command == "python-report":
         identity = identity_from_mapping(_json_mapping(args.identity))
         raw = _python_raw_report(manifest, args.coverage_data, args.raw_output, root)

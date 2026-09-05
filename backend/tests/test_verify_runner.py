@@ -91,7 +91,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     assert "validate-python-runtime" not in scripts
     assert scripts["verify"] == "python -m scripts.validation.run_verify"
     assert "test-ci" in scripts
-    assert "pdm run verify" not in scripts["test-ci"]["shell"]
+    assert scripts["test-ci"] == "python scripts/run_ci_test_partitions.py all"
 
 
 @pytest.mark.unit

@@ -1079,6 +1079,7 @@ def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) 
     root = Path(__file__).resolve().parents[2]
     environment = {
         **os.environ,
+        "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
         "DATABASE_URL": (
             "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
             "ontoprism_test_forbidden"
@@ -1122,6 +1123,7 @@ def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
             "-q",
         ],
         cwd=root,
+        env={**os.environ, "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1"},
         capture_output=True,
         text=True,
         check=False,
@@ -1175,6 +1177,10 @@ async def test_write_without_mutating_marker(connection):
             result = subprocess.run(  # noqa: S603
                 [pytest_executable, str(probe), "-q"],
                 cwd=root,
+                env={
+                    **os.environ,
+                    "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+                },
                 capture_output=True,
                 text=True,
                 check=False,
@@ -1220,7 +1226,7 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     test_step = next(
         step
         for step in steps
-        if step.get("run") == "pdm run test-integration-ci-coverage"
+        if step.get("name") == "Integration file partition (disposable resources)"
     )
 
     assert job["env"] == {
@@ -1231,7 +1237,12 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
         "NCIT_SPARQL_URL": "http://127.0.0.1:9",
         "UBERON_SPARQL_URL": "http://127.0.0.1:9",
     }
-    assert "env" not in test_step
+    assert test_step["env"] == {
+        "COVERAGE_CONFIG_SET": "python-combined",
+        "OUTPUT_DIR": "${{ runner.temp }}/partition-integration-${{ matrix.index }}",
+    }
+    assert "pdm run ci-test-partition" in test_step["run"]
+    assert "--lane integration" in test_step["run"]
     step_names = {step.get("name") for step in steps}
     assert "Start QLever" not in step_names
     assert "Provision Postgres schema (Alembic migrations)" not in step_names

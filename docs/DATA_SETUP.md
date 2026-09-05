@@ -477,6 +477,28 @@ endpoint. It never uses the configured active store and is deliberately excluded
 checks that the tracked 26.07d review sample names that exact certified source and that
 all selected codes are members of its neoplasm hierarchy.
 
+`pdm run test-ci` runs the same two file-level backend partitions and two measured,
+file-level integration partitions as CI, sequentially for local safety. Both integration
+children preflight the pinned ROBOT and Jena installations and provision only the
+nonce-owned Postgres/QLever resources requested by their selected tests. The gate validates
+partition receipts and coverage identities before explicitly combining exactly four
+coverage files.
+
+Regenerate the tracked integration file weights after representative timing changes only
+from a clean committed worktree:
+
+```bash
+pdm run ci-test-measure-integration --output tmp/integration-file-durations.toml
+```
+
+That safe, serial run measures the eligible integration lane (excluding `slow`,
+`full_store`, and `full_build`) and records setup, call, and teardown time per module.
+It refuses dirty worktrees, collection errors, failures, skips, xfails, or any selected
+test without a successful call report. Review the generated commit, clean-worktree flag,
+selected test/module counts, and timings, then replace
+`test_support/ci_partition_weights.toml`; the tracked manifest is clean measurement
+evidence and the regular gate never rewrites it.
+
 ### Validation and recovery
 
 Run `pdm run data-build embeddings` first. It prints persisted build provenance and

@@ -31,9 +31,17 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
   workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
   successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
-  checks are all 9 `CI` jobs, `conventional commit subject`, `dependency review`, all
+  checks are these 11 visible `CI` checks: `detect changes`,
+  `quality (pre-commit parity)`, `backend tests (shard 1/2)`,
+  `backend tests (shard 2/2)`, `coverage verify (ontolib + backend)`,
+  `web tests + coverage`, `integration tests (services, shard 1/2)`,
+  `integration tests (services, shard 2/2)`, `pinned embedding model contract`,
+  `docker build smoke`, and `CI summary`; plus `conventional commit subject`,
+  `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
-  `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
+  `CI summary` is `"SUCCESS"`. The workflow retains exactly nine top-level job definitions,
+  and `CI summary` retains eight `needs` results because each matrix collapses to its
+  aggregate job ID there. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
   because of a documented path condition, including a dependent job skipped when its
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,
   was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
@@ -164,7 +172,9 @@ pdm install --dev       # Requires Python 3.14.7
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
 export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+export ONTOPRISM_ROBOT_DIR="$PWD/.tools/robot-1.9.10"
 pdm run data-build owl
 pdm run data-build ncit-bootstrap
 pdm run data-build uberon-store
