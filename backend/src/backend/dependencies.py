@@ -18,6 +18,12 @@ from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.icdo.models import (
+    CanonicalDataset,
+    IcdoAxis,
+    IcdoEdition,
+    IcdoSearchPage,
+)
 from ontolib.repositories.icdo.store import IcdoRepository
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
@@ -131,6 +137,29 @@ class NcitStatusClient(Protocol):
     async def version(self) -> str | None: ...
 
 
+class IcdoReader(Protocol):
+    async def search(
+        self,
+        edition: IcdoEdition,
+        axis: IcdoAxis,
+        *,
+        query: str,
+        limit: int,
+        offset: int,
+        behaviour: str | None = None,
+        level: str | None = None,
+        generation_id: str | None = None,
+    ) -> IcdoSearchPage: ...
+
+    async def detail(
+        self, edition: str, axis: str, code: str, generation_id: str | None = None
+    ) -> dict[str, object] | None: ...
+
+    async def dataset(
+        self, edition: str, axis: str, generation_id: str | None = None
+    ) -> CanonicalDataset | None: ...
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitStatus = Annotated[NcitStatusClient, Depends(get_ncit_client)]
 DecompositionReads = Annotated[DecompositionReader, Depends(get_decomposition_reader)]
@@ -143,7 +172,7 @@ UberonStore = Annotated[UberonGraphStore, Depends(get_uberon_store)]
 UberonSearch = Annotated[UberonSearchIndex, Depends(get_uberon_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
 XrefReads = Annotated[XrefStore, Depends(get_xref_store)]
-IcdoReads = Annotated[IcdoRepository, Depends(get_icdo_repository)]
+IcdoReads = Annotated[IcdoReader, Depends(get_icdo_repository)]
 RepositoryMetadataReads = Annotated[
     RepositoryMetadataReader, Depends(get_repository_metadata)
 ]

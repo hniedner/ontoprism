@@ -10,6 +10,9 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
+type IcdoEdition = Literal["3.2", "4.0"]
+type IcdoAxis = Literal["morphology", "topography"]
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -118,13 +121,12 @@ def _validate_record_shape(record: IcdoRecord) -> None:
         _validate_topography_record(record)
 
 
-def _invalid_morphology_edition(dataset: CanonicalDataset, pattern: str) -> bool:
-    invalid_shape = any(
-        re.fullmatch(pattern, row.code) is None for row in dataset.records
-    )
+def _invalid_morphology_edition(
+    edition: IcdoEdition, records: tuple[IcdoRecord, ...], pattern: str
+) -> bool:
+    invalid_shape = any(re.fullmatch(pattern, row.code) is None for row in records)
     invalid_specificity = any(
-        (dataset.edition == "3.2") == (row.specificity is not None)
-        for row in dataset.records
+        (edition == "3.2") == (row.specificity is not None) for row in records
     )
     return invalid_shape or invalid_specificity
 
@@ -176,15 +178,40 @@ def decode_icdo_record(value: Mapping[str, object]) -> IcdoRecord:
     return IcdoRecord.model_validate(normalized)
 
 
-def _validate_dataset_records(dataset: CanonicalDataset) -> None:
-    morphology = dataset.axis == "morphology"
-    if any((row.level == "morphology") != morphology for row in dataset.records):
+def _validate_records_for_dataset(
+    edition: IcdoEdition, axis: IcdoAxis, records: tuple[IcdoRecord, ...]
+) -> None:
+    morphology = axis == "morphology"
+    if any((row.level == "morphology") != morphology for row in records):
         raise ValueError("record level does not match dataset axis")
-    pattern = (
-        r"[0-9]{4}/[0-9]" if dataset.edition == "3.2" else r"[0-9]{4}[0-9A-Z]/[0-9]"
-    )
-    if morphology and _invalid_morphology_edition(dataset, pattern):
+    if not morphology:
+        return
+    pattern = r"[0-9]{4}/[0-9]" if edition == "3.2" else r"[0-9]{4}[0-9A-Z]/[0-9]"
+    if _invalid_morphology_edition(edition, records, pattern):
         raise ValueError("morphology record shape does not match dataset edition")
+
+
+class IcdoSearchPage(_StrictModel):
+    """Strict immutable repository boundary for one generation-bound ICD-O read."""
+
+    edition: IcdoEdition
+    axis: IcdoAxis
+    query: str
+    total: int
+    limit: int
+    offset: int
+    hits: tuple[IcdoRecord, ...]
+
+    @model_validator(mode="after")
+    def validate_dataset(self) -> IcdoSearchPage:
+        if (self.edition, self.axis) == ("3.2", "topography"):
+            raise ValueError("ICD-O-3.2 topography is not served")
+        _validate_records_for_dataset(self.edition, self.axis, self.hits)
+        return self
+
+
+def _validate_dataset_records(dataset: CanonicalDataset) -> None:
+    _validate_records_for_dataset(dataset.edition, dataset.axis, dataset.records)
 
 
 class CanonicalDataset(_StrictModel):

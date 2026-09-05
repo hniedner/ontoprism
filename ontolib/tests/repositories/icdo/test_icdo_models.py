@@ -3,7 +3,10 @@ from pydantic import ValidationError
 
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
+    IcdoAxis,
+    IcdoEdition,
     IcdoRecord,
+    IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
     SourceShape,
@@ -119,6 +122,59 @@ def test_dataset_binds_morphology_record_shape_to_edition(
                 sheet_names=(), headers=(), merged_ranges=(), trailing_blank_rows=0
             ),
             source_sha256="a" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    ("edition", "axis", "record", "message"),
+    [
+        ("3.2", "topography", None, r"3\.2 topography"),
+        (
+            "4.0",
+            "morphology",
+            IcdoRecord(code="C34", level="category"),
+            "axis",
+        ),
+        (
+            "3.2",
+            "morphology",
+            IcdoRecord(
+                code="85032/0",
+                level="morphology",
+                base_morphology="8503",
+                specificity="2",
+                behaviour="0",
+            ),
+            "edition",
+        ),
+        (
+            "4.0",
+            "morphology",
+            IcdoRecord(
+                code="8503/0",
+                level="morphology",
+                base_morphology="8503",
+                behaviour="0",
+            ),
+            "edition",
+        ),
+    ],
+)
+def test_search_page_rejects_cross_dataset_records(
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    record: IcdoRecord | None,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        IcdoSearchPage(
+            edition=edition,
+            axis=axis,
+            query="",
+            total=0 if record is None else 1,
+            limit=25,
+            offset=0,
+            hits=() if record is None else (record,),
         )
 
 

@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from fastapi.exceptions import ResponseValidationError
 from fastapi.testclient import TestClient
 
+from backend.api.v1.icdo import IcdoPage, list_records, search
 from backend.config import get_settings
 from backend.dependencies import (
     get_icdo_repository,
@@ -21,8 +21,18 @@ from backend.repository_metadata import (
     IcdoRepositoryReady,
     RepositoryUnhealthy,
 )
-from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
-from ontolib.repositories.icdo.store import IcdoCertificationError
+from ontolib.repositories.icdo.models import (
+    CanonicalDataset,
+    IcdoAxis,
+    IcdoEdition,
+    IcdoRecord,
+    IcdoSearchPage,
+    SourceShape,
+)
+from ontolib.repositories.icdo.store import (
+    IcdoCertificationError,
+    IcdoRepositoryDataError,
+)
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
@@ -55,26 +65,42 @@ class _Store:
         return await self.metadata(edition, axis)
 
     async def search(
-        self, edition: str, axis: str, **kwargs: object
-    ) -> dict[str, object]:
+        self, edition: IcdoEdition, axis: IcdoAxis, **kwargs: object
+    ) -> IcdoSearchPage:
         self.calls += 1
-        return {
-            "edition": edition,
-            "axis": axis,
-            "query": kwargs.get("query", ""),
-            "total": 1,
-            "limit": kwargs["limit"],
-            "offset": kwargs["offset"],
-            "hits": [
-                {
-                    "code": "8503/0",
-                    "level": "morphology",
-                    "preferred": "Intraductal papilloma",
-                    "base_morphology": "8503",
-                    "behaviour": "0",
-                }
-            ],
-        }
+        record = (
+            IcdoRecord(
+                code="8503/0",
+                level="morphology",
+                preferred="Intraductal papilloma",
+                base_morphology="8503",
+                behaviour="0",
+            )
+            if edition == "3.2"
+            else IcdoRecord(
+                code="85032/0",
+                level="morphology",
+                preferred="Intraductal papilloma",
+                base_morphology="8503",
+                specificity="2",
+                behaviour="0",
+            )
+            if axis == "morphology"
+            else IcdoRecord(code="C00", level="category", preferred="Lip")
+        )
+        limit = kwargs["limit"]
+        offset = kwargs["offset"]
+        assert isinstance(limit, int)
+        assert isinstance(offset, int)
+        return IcdoSearchPage(
+            edition=edition,
+            axis=axis,
+            query=str(kwargs.get("query", "")),
+            total=1,
+            limit=limit,
+            offset=offset,
+            hits=(record,),
+        )
 
     async def detail(
         self, edition: str, axis: str, code: str, **kwargs: object
@@ -310,6 +336,12 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.api
+def test_list_and_search_publish_the_typed_page_return_contract() -> None:
+    assert list_records.__annotations__["return"] is IcdoPage
+    assert search.__annotations__["return"] is IcdoPage
+
+
+@pytest.mark.api
 def test_topography_detail_decodes_production_shaped_json_arrays(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -348,34 +380,58 @@ def test_topography_detail_decodes_production_shaped_json_arrays(
 
 
 @pytest.mark.api
-def test_list_decodes_production_shaped_json_arrays(
+@pytest.mark.parametrize(
+    ("edition", "axis", "expected_code"),
+    [
+        ("3.2", "morphology", "8503/0"),
+        ("4.0", "morphology", "85032/0"),
+        ("4.0", "topography", "C00"),
+    ],
+)
+@pytest.mark.parametrize("operation", ["list", "search"])
+def test_list_and_search_serialize_each_typed_dataset_page(
     monkeypatch: pytest.MonkeyPatch,
+    edition: str,
+    axis: str,
+    expected_code: str,
+    operation: str,
 ) -> None:
-    class _PersistedLists(_Store):
-        async def search(
-            self, edition: str, axis: str, **kwargs: object
-        ) -> dict[str, object]:
-            result = await super().search(edition, axis, **kwargs)
-            hit = result["hits"][0]  # type: ignore[index]
-            assert isinstance(hit, dict)
-            hit["synonyms"] = ["Papilloma"]
-            hit["related"] = []
-            hit["notes"] = []
-            hit["code_references"] = []
-            hit["see_also"] = []
-            hit["see_notes"] = []
-            hit["includes"] = []
-            hit["excludes"] = []
-            hit["other_text"] = []
-            return result
-
-    response = next(_client(_PersistedLists(), monkeypatch)).get(
-        "/api/v1/icdo/3.2/morphology/list",
+    suffix = "?q=publisher" if operation == "search" else ""
+    response = next(_client(_Store(), monkeypatch)).get(
+        f"/api/v1/icdo/{edition}/{axis}/{operation}{suffix}",
         headers={"X-ICDO-Entitlement": "licensed"},
     )
 
     assert response.status_code == 200
-    assert response.json()["hits"][0]["synonyms"] == ["Papilloma"]
+    assert response.json()["edition"] == edition
+    assert response.json()["axis"] == axis
+    assert response.json()["hits"][0]["code"] == expected_code
+
+
+@pytest.mark.api
+def test_list_refuses_a_typed_page_for_another_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _WrongDataset(_Store):
+        async def search(self, *args: object, **kwargs: object) -> IcdoSearchPage:
+            del args, kwargs
+            return IcdoSearchPage(
+                edition="4.0",
+                axis="topography",
+                query="",
+                total=0,
+                limit=25,
+                offset=0,
+                hits=(),
+            )
+
+    response = next(_client(_WrongDataset(), monkeypatch)).get(
+        "/api/v1/icdo/3.2/morphology/list",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ICD-O generation is invalid."
 
 
 @pytest.mark.api
@@ -515,35 +571,6 @@ def test_icdo4_code_variants_round_trip_from_safe_segments(
 
 
 @pytest.mark.api
-def test_response_model_refuses_record_from_another_edition_axis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _WrongShape(_Store):
-        async def search(
-            self, edition: str, axis: str, **kwargs: object
-        ) -> dict[str, object]:
-            result = await super().search(edition, axis, **kwargs)
-            result["hits"] = [
-                {
-                    "code": "C34.9",
-                    "level": "leaf",
-                    "parent_code": "C34",
-                    "preferred": "Lung",
-                    "base_morphology": None,
-                    "specificity": None,
-                    "behaviour": None,
-                }
-            ]
-            return result
-
-    with pytest.raises(ResponseValidationError):
-        next(_client(_WrongShape(), monkeypatch)).get(
-            "/api/v1/icdo/3.2/morphology/list",
-            headers={"X-ICDO-Entitlement": "licensed"},
-        )
-
-
-@pytest.mark.api
 def test_well_formed_absent_code_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
     segment = base64.urlsafe_b64encode(b"9999/9").decode().rstrip("=")
     response = next(_client(_Store(), monkeypatch)).get(
@@ -673,7 +700,8 @@ def test_congruence_refuses_unhealthy_uberon_without_inventory_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _ReportStore(_Store):
-        async def dataset(self, edition: str, axis: str) -> object:
+        async def dataset(self, edition: str, axis: str, **kwargs: object) -> object:
+            del kwargs
             return object()
 
         async def metadata(self, edition: str, axis: str) -> object:
@@ -714,7 +742,8 @@ def test_congruence_refuses_uncertified_icdo_before_protected_rows_are_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _ReportStore(_Store):
-        async def dataset(self, edition: str, axis: str) -> object:
+        async def dataset(self, edition: str, axis: str, **kwargs: object) -> object:
+            del kwargs
             self.calls += 1
             return object()
 
@@ -856,7 +885,7 @@ def test_malformed_persisted_record_fails_closed(
     monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     class _Malformed(_Store):
-        async def search(self, *args: object, **kwargs: object) -> dict[str, object]:
+        async def search(self, *args: object, **kwargs: object) -> IcdoSearchPage:
             del args, kwargs
             raise ValueError("malformed persisted row")
 
@@ -869,3 +898,28 @@ def test_malformed_persisted_record_fails_closed(
     )
     assert response.status_code == 503
     assert "malformed persisted row" not in response.text
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/icdo/3.2/morphology/list",
+        "/api/v1/icdo/3.2/morphology/search?q=papilloma",
+    ],
+)
+def test_page_reads_map_repository_data_errors_without_leaking_payload(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    class _Malformed(_Store):
+        async def search(self, *args: object, **kwargs: object) -> IcdoSearchPage:
+            del args, kwargs
+            raise IcdoRepositoryDataError("sensitive malformed collection")
+
+    response = next(_client(_Malformed(), monkeypatch)).get(
+        path, headers={"X-ICDO-Entitlement": "licensed"}
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ICD-O record data is invalid."
+    assert "sensitive malformed collection" not in response.text
