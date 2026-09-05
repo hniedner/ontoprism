@@ -235,7 +235,7 @@ export function icdoCodeSegment(code: string): string {
 	const bytes = new TextEncoder().encode(code);
 	let binary = '';
 	for (const byte of bytes) binary += String.fromCharCode(byte);
-	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+	return btoa(binary).replace(/=+$/, '');
 }
 
 export function listIcdo<D extends IcdoDataset>(dataset: D, opts: {

@@ -18,7 +18,8 @@ import {
 	cdesForConcept,
 	similarConcepts,
 	similarCdes,
-	refreshRepositories
+	refreshRepositories,
+	icdoCodeSegment
 } from './api';
 import { getTrial, searchClinicalTrials } from './api.clinicaltrials';
 import { getArticle, getRelatedArticles, searchPubmed } from './api.pubmed';
@@ -33,6 +34,16 @@ describe('apiUrl', () => {
 		expect(apiUrl('/api/v1/ncit/search', { q: 'small cell', limit: 10 })).toBe(
 			'/api/v1/ncit/search?q=small+cell&limit=10'
 		);
+	});
+});
+
+describe('icdoCodeSegment', () => {
+	it.each([
+		['ICD-O-3.2 morphology', '8503/0', 'ODUwMy8w'],
+		['ICD-O-4 morphology', '85032/0', 'ODUwMzIvMA'],
+		['ICD-O-4 topography', 'C00.0', 'QzAwLjA']
+	])('encodes a valid %s code as an unpadded URL-safe segment', (_kind, code, expected) => {
+		expect(icdoCodeSegment(code)).toBe(expected);
 	});
 });
 

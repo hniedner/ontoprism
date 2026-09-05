@@ -8,7 +8,6 @@ vi.mock('$env/dynamic/private', () => ({
 	}
 }));
 
-import { icdoCodeSegment } from '$lib/api';
 import { GET as proxyGet } from '../../routes/api/[...path]/+server';
 import { load as detailLoad } from '../../routes/repositories/icdo/[edition]/[axis]/[code]/+page.server';
 import { load as repositoryLoad } from '../../routes/repositories/icdo/[edition]/[axis]/+page.server';
@@ -73,31 +72,36 @@ describe('ICD-O repository page BFF boundary', () => {
 		expect(JSON.stringify(loaded)).not.toContain('server-only-entitlement');
 	});
 
-	it('round-trips a slash-bearing morphology code through the detail page and BFF', async () => {
-		const segment = icdoCodeSegment('8503/0');
-		vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-			const url = new URL(String(input));
-			expect(url.pathname).toBe(`/api/v1/icdo/3.2/morphology/concepts/${segment}`);
-			expect(new Headers(init?.headers).get('x-icdo-entitlement')).toBe(
-				'server-only-entitlement'
-			);
-			return Response.json({
-				edition: '3.2',
-				axis: 'morphology',
-				activation_identity: 'a'.repeat(64),
-				serving_identity: 'b'.repeat(64),
-				record: { code: '8503/0', level: 'morphology' },
-				ncit_alignments: []
+	it.each([
+		['3.2', '8503/0', 'ODUwMy8w', '/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w'],
+		['4.0', '85032/0', 'ODUwMzIvMA', '/api/v1/icdo/4.0/morphology/concepts/ODUwMzIvMA']
+	] as const)(
+		'round-trips an ICD-O-%s slash-bearing morphology code through the detail page and BFF',
+		async (edition, code, segment, expectedPath) => {
+			vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = new URL(String(input));
+				expect(url.pathname).toBe(expectedPath);
+				expect(new Headers(init?.headers).get('x-icdo-entitlement')).toBe(
+					'server-only-entitlement'
+				);
+				return Response.json({
+					edition,
+					axis: 'morphology',
+					activation_identity: 'a'.repeat(64),
+					serving_identity: 'b'.repeat(64),
+					record: { code, level: 'morphology' },
+					ncit_alignments: []
+				});
 			});
-		});
-		if (typeof detailLoad !== 'function') throw new Error('detail load is not callable');
+			if (typeof detailLoad !== 'function') throw new Error('detail load is not callable');
 
-		const loaded = await detailLoad({
-			fetch: pageFetch(),
-			params: { edition: '3.2', axis: 'morphology', code: segment }
-		} as never);
+			const loaded = await detailLoad({
+				fetch: pageFetch(),
+				params: { edition, axis: 'morphology', code: segment }
+			} as never);
 
-		if (!loaded) throw new Error('detail load returned no data');
-		expect(loaded.record.code).toBe('8503/0');
-	});
+			if (!loaded) throw new Error('detail load returned no data');
+			expect(loaded.record.code).toBe(code);
+		}
+	);
 });
