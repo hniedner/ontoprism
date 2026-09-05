@@ -148,11 +148,9 @@ async def test_invalid_code_and_unknown_concept_fail_with_distinct_contracts() -
 
 
 @pytest.mark.asyncio
-async def test_search_and_cache_records_preserve_cl_source_and_synonyms() -> None:
+async def test_cache_records_preserve_cl_source_and_synonyms() -> None:
     class _SearchClient:
         async def select(self, query: str) -> list[dict[str, str]]:
-            if "COUNT(DISTINCT ?concept)" in query:
-                return [{"count": "1"}]
             return [
                 {
                     "concept": "http://purl.obolibrary.org/obo/CL_0000000",
@@ -164,16 +162,8 @@ async def test_search_and_cache_records_preserve_cl_source_and_synonyms() -> Non
 
     store = UberonGraphStore(_SearchClient())  # type: ignore[arg-type]
 
-    page = await store.search("cell", source="cl", limit=5, offset=10)
     records = await store.search_records(limit=5, offset=0)
 
-    assert page.total == 1
-    assert page.hits[0].model_dump() == {
-        "code": "CL:0000000",
-        "source": "cl",
-        "label": "cell",
-        "matched_synonym": "native cell",
-    }
     assert records == [
         {
             "code": "CL:0000000",
@@ -248,7 +238,7 @@ async def test_missing_required_sparql_binding_fails_closed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_list_and_search_counts_fail_closed() -> None:
+async def test_missing_list_count_fails_closed() -> None:
     class _MissingCountClient:
         async def select(self, query: str) -> list[dict[str, str]]:
             if "COUNT(DISTINCT ?concept)" in query:
@@ -259,8 +249,6 @@ async def test_missing_list_and_search_counts_fail_closed() -> None:
 
     with pytest.raises(StorageError, match="list count"):
         await store.list_concepts(source="uberon")
-    with pytest.raises(StorageError, match="search count"):
-        await store.search("lung", source="uberon")
 
 
 @pytest.mark.unit

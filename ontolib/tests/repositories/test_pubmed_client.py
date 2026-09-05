@@ -154,7 +154,7 @@ def _client(base: str) -> PubMedClient:
 @pytest.mark.unit
 async def test_search_resolves_idlist_to_summaries(pubmed_url: str) -> None:
     async with _client(pubmed_url) as client:
-        result = await client.search_articles("melanoma", retmax=20)
+        result = await client.search_articles("melanoma", retmax=25)
     assert result.total == 57
     assert [a.pmid for a in result.articles] == ["111", "222"]
     first = result.articles[0]
@@ -195,10 +195,12 @@ async def test_live_pubmed_pages_are_disjoint_and_echo_the_requested_window() ->
 
 
 @pytest.mark.unit
-async def test_search_retmax_is_clamped(pubmed_url: str) -> None:
+async def test_search_rejects_non_product_page_size(pubmed_url: str) -> None:
+    previous_queries = dict(_Handler.queries)
     async with _client(pubmed_url) as client:
-        await client.search_articles("melanoma", retmax=9999)
-    assert _Handler.queries["esearch"]["retmax"] == ["100"]
+        with pytest.raises(ValueError, match="page size"):
+            await client.search_articles("melanoma", retmax=20)  # type: ignore[arg-type]
+    assert _Handler.queries == previous_queries
 
 
 @pytest.mark.unit
@@ -222,6 +224,55 @@ async def test_search_empty_idlist_skips_esummary(pubmed_url: str) -> None:
         srv.server_close()
     assert result.total == 0
     assert result.articles == []
+
+
+@pytest.mark.unit
+async def test_search_accepts_empty_page_after_truthful_total() -> None:
+    class _PastTotal(_Handler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path.endswith("/esummary.fcgi"):
+                raise AssertionError("ESummary must not be called for an empty page")
+            self._json({"esearchresult": {"count": "57", "idlist": []}})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _PastTotal)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            result = await client.search_articles("melanoma", retmax=25, retstart=75)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert result.total == 57
+    assert result.offset == 75
+    assert result.articles == []
+
+
+@pytest.mark.unit
+async def test_search_rejects_empty_page_inside_truthful_total() -> None:
+    class _MissingIds(_Handler):
+        def do_GET(self) -> None:
+            self._json({"esearchresult": {"count": "57", "idlist": []}})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _MissingIds)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_articles("melanoma", retmax=25, retstart=25)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_an_unknown_sort_before_request() -> None:
+    async with _client("http://127.0.0.1:9") as client:
+        with pytest.raises(ValueError, match="sort"):
+            await client.search_articles("melanoma", sort="newest")  # type: ignore[arg-type]
 
 
 @pytest.mark.unit

@@ -38,6 +38,17 @@ def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
 
 
 @pytest.mark.api
+@pytest.mark.parametrize("path", ["list", "search?q=neoplasm"])
+def test_cadsr_rejects_removed_relevance_sort(
+    cadsr_client: TestClient, path: str
+) -> None:
+    separator = "&" if "?" in path else "?"
+    response = cadsr_client.get(f"/api/v1/cadsr/{path}{separator}sort=relevance")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
 def test_cdes_for_concept_join(cadsr_client: TestClient) -> None:
     # The caDSR<->NCIt cross-link: CDEs mapped to NCIt concept C3262.
     resp = cadsr_client.get("/api/v1/cadsr/concepts/C3262/cdes")

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import PubMedResultsTable from './PubMedResultsTable.svelte';
+import type { DataTableOperations } from '$lib/components/data-table/types';
 import type { PubMedArticleSummary } from '$lib/types';
 
 const articles: PubMedArticleSummary[] = [
@@ -50,6 +51,25 @@ describe('PubMedResultsTable', () => {
 	it('preserves upstream order', () => {
 		render(PubMedResultsTable, { articles });
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('111');
+	});
+
+	it('exposes publication date as a truthful descending-only sort', async () => {
+		const onintent = vi.fn();
+		const operations: DataTableOperations = {
+			kind: 'server',
+			sort: { key: 'date', direction: 'desc' },
+			defaultSort: null,
+			activeSortLabel: 'Publication date descending',
+			filters: {},
+			busy: false,
+			onintent
+		};
+		render(PubMedResultsTable, { articles, operations });
+
+		const header = screen.getByRole('columnheader', { name: /Date/ });
+		expect(header).toHaveAttribute('aria-sort', 'descending');
+		await fireEvent.click(within(header).getByRole('button', { name: 'Sort by Date' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'reset' });
 	});
 
 	it('escapes every source-controlled PubMed summary field', () => {

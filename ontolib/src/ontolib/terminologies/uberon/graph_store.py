@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowseSort,
     UberonConceptDetail,
     UberonConceptRef,
     UberonEdgeKind,
@@ -14,7 +14,6 @@ from ontolib.terminologies.uberon.models import (
     UberonGraphNode,
     UberonNeighborhood,
     UberonRelationship,
-    UberonRepositorySort,
     UberonSearchHit,
     UberonSearchPage,
     UberonSource,
@@ -75,10 +74,6 @@ def _source_filter(variable: str, source: UberonSource | None) -> str:
         )
     prefix = "UBERON" if source == "uberon" else "CL"
     return f'FILTER(STRSTARTS(STR({variable}), "{_OBO}{prefix}_"))'
-
-
-def _sparql_literal(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
 
 
 def _required(row: Mapping[str, str | None], *names: str) -> tuple[str, ...]:
@@ -207,10 +202,8 @@ class UberonGraphStore:
         source: UberonSource | None = None,
         limit: int = 25,
         offset: int = 0,
-        sort: UberonRepositorySort = "source",
+        sort: UberonBrowseSort = "source",
     ) -> UberonSearchPage:
-        if sort == "relevance":
-            raise ValueError("relevance sorting requires a search query")
         order = {
             "source": "?concept ?label",
             "code:asc": "?concept ?label",
@@ -241,42 +234,6 @@ class UberonGraphStore:
             limit=limit,
             offset=offset,
             sort=sort,
-            hits=self._hits(rows),
-        )
-
-    async def search(
-        self,
-        query_text: str,
-        *,
-        source: UberonSource | None = None,
-        limit: int = 25,
-        offset: int = 0,
-    ) -> UberonSearchPage:
-        term = _sparql_literal(query_text)
-        source_filter = _source_filter("?concept", source)
-        where = f"""
-          ?concept a owl:Class ; rdfs:label ?label . {source_filter}
-          OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym .
-            FILTER(CONTAINS(LCASE(?synonym), LCASE({term}))) }}
-          FILTER(CONTAINS(LCASE(?label), LCASE({term})) || BOUND(?synonym))
-        """
-        rows = await self._client.select(
-            f"""{_PREFIXES}
-            SELECT ?concept ?label (SAMPLE(?synonym) AS ?matched) WHERE {{
-              {where}
-            }} GROUP BY ?concept ?label ORDER BY ?concept ?label
-            LIMIT {limit} OFFSET {offset}"""
-        )
-        count_rows = await self._client.select(
-            f"{_PREFIXES} SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{{where}}}"
-        )
-        if len(count_rows) != 1:
-            raise StorageError("Uberon/CL search count was not a single row")
-        return UberonSearchPage(
-            query=query_text,
-            total=int(_required(count_rows[0], "count")[0]),
-            limit=limit,
-            offset=offset,
             hits=self._hits(rows),
         )
 

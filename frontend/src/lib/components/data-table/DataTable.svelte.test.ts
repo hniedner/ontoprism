@@ -37,7 +37,25 @@ describe('DataTable server-owned operations', () => {
 		expect(onintent).toHaveBeenCalledWith({ kind: 'sort', sort: { key: 'name', direction: 'asc' } });
 	});
 
-	it('uses supplied complete-domain options and preserves selected zero-count values', async () => {
+	it('resets an active one-way descending sort instead of advertising ascending', async () => {
+		const onintent = vi.fn();
+		const cell = createRawSnippet<[TestRow]>((getRow) => ({ render: () => `<span>${getRow().name}</span>` }));
+		render(DataTable, {
+			rows,
+			columns: [{ id: 'name', label: 'Name', cell, sortable: ['desc'] }],
+			caption: 'Records',
+			regionLabel: 'Records table',
+			getRowId: (row: TestRow) => row.id,
+			operations: { kind: 'server', sort: { key: 'name', direction: 'desc' }, defaultSort: null, activeSortLabel: 'Name descending', filters: {}, busy: false, onintent }
+		} as never);
+
+		const header = screen.getByRole('columnheader', { name: /Name/ });
+		expect(header).toHaveAttribute('aria-sort', 'descending');
+		await fireEvent.click(within(header).getByRole('button', { name: 'Sort by Name' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'reset' });
+	});
+
+	it('uses supplied complete-domain options and preserves selected values', async () => {
 		const onintent = vi.fn();
 		render(DataTableTestHost, {
 			rows,
@@ -46,10 +64,10 @@ describe('DataTable server-owned operations', () => {
 		});
 		const group = screen.getByRole('group', { name: 'Filter groups' });
 		expect(within(group).getAllByRole('checkbox').map((node) => node.getAttribute('aria-label'))).toEqual([
-			'Current (8)', 'Archived (0)'
+			'Current', 'Archived'
 		]);
-		expect(within(group).getByRole('checkbox', { name: 'Archived (0)' })).toBeChecked();
-		await fireEvent.click(within(group).getByRole('checkbox', { name: 'Current (8)' }));
+		expect(within(group).getByRole('checkbox', { name: 'Archived' })).toBeChecked();
+		await fireEvent.click(within(group).getByRole('checkbox', { name: 'Current' }));
 		expect(onintent).toHaveBeenCalledWith({
 			kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Archived', 'Current'] }
 		});
@@ -58,29 +76,6 @@ describe('DataTable server-owned operations', () => {
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filter', columnId: 'group' });
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filters' });
-	});
-
-	it('renders and clears an active text filter chip', async () => {
-		const onintent = vi.fn();
-		render(DataTableTestHost, { rows, onintent, filters: { name: { kind: 'text', query: 'alpha' } } });
-		expect(screen.getByText('name: alpha ×')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Clear name filter' }));
-		expect(onintent).toHaveBeenCalledWith({ kind: 'clear-filter', columnId: 'name' });
-	});
-
-	it('debounces text intent by 300 ms while discrete reset is immediate', async () => {
-		vi.useFakeTimers();
-		const onintent = vi.fn();
-		render(DataTableTestHost, { rows, onintent });
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter names' }), { target: { value: 'alp' } });
-		expect(onintent).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(299);
-		expect(onintent).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(1);
-		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', query: 'alp' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Reset table' }));
-		expect(onintent).toHaveBeenLastCalledWith({ kind: 'reset' });
-		vi.useRealTimers();
 	});
 
 	it('fails closed for duplicate row identity and never renders source values', () => {
@@ -117,7 +112,7 @@ describe('DataTable fail-closed validation', () => {
 	const column = (changes: Record<string, unknown> = {}): DataTableColumn<TestRow> =>
 		({ id: 'name', label: 'Name', cell, ...changes }) as DataTableColumn<TestRow>;
 	const server = (changes: Record<string, unknown> = {}): DataTableOperations => ({
-		kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Source order', filters: {}, onintent: () => {}, ...changes
+		kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Source order', filters: {}, busy: false, onintent: () => {}, ...changes
 	}) as DataTableOperations;
 	const check = ({
 		rows: inputRows = rows, columns = [column()], operations = { kind: 'none' } as DataTableOperations,
@@ -135,18 +130,15 @@ describe('DataTable fail-closed validation', () => {
 		['empty column ID', { columns: [column({ id: '' })] }, 'DataTable column ID must not be empty'],
 		['empty column label', { columns: [column({ label: '' })] }, 'DataTable column "name" label must not be empty'],
 		['duplicate column ID', { columns: [column(), column()] }, 'DataTable duplicate column ID "name"'],
-		['empty filter label', { columns: [column({ filter: { kind: 'text', ariaLabel: '' } })] }, 'DataTable column "name" filter aria label must not be empty'],
+		['empty filter label', { columns: [column({ filter: { kind: 'categorical', ariaLabel: '', options: [] } })] }, 'DataTable column "name" filter aria label must not be empty'],
 		['duplicate categorical option', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }, { value: 'a', label: 'Again' }] } })] }, 'DataTable column "name" has duplicate options'],
-		['fractional option count', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A', count: 0.5 }] } })] }, 'DataTable column "name" has an invalid option count'],
-		['negative option count', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A', count: -1 }] } })] }, 'DataTable column "name" has an invalid option count'],
 		['infinite sticky offset', { columns: [column({ sticky: { side: 'left', offset: Number.POSITIVE_INFINITY } })] }, 'DataTable column "name" has an invalid sticky offset'],
 		['negative sticky offset', { columns: [column({ sticky: { side: 'left', offset: -1 } })] }, 'DataTable column "name" has an invalid sticky offset'],
 		['empty active sort label', { operations: server({ activeSortLabel: '' }) }, 'DataTable active sort label must not be empty'],
-		['unknown sort column', { operations: server({ sort: { key: 'missing', direction: 'asc' } }) }, 'DataTable sort key "missing" is not sortable'],
-		['unconfigured filter', { operations: server({ filters: { missing: { kind: 'text', query: 'x' } } }) }, 'DataTable filter "missing" is not configured'],
-		['wrong filter kind', { columns: [column({ filter: { kind: 'text', ariaLabel: 'Names' } })], operations: server({ filters: { name: { kind: 'categorical', selected: [] } } }) }, 'DataTable filter "name" is not configured'],
+		['unknown sort column', { operations: server({ sort: { key: 'missing', direction: 'asc' } }) }, 'DataTable sort key "missing" does not support asc'],
+		['unconfigured filter', { operations: server({ filters: { missing: { kind: 'categorical', selected: ['x'] } } }) }, 'DataTable filter "missing" is not configured'],
 		['invalid selected option', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }] } })], operations: server({ filters: { name: { kind: 'categorical', selected: ['b'] } } }) }, 'DataTable filter "name" selected an invalid option'],
-		['disabled sortable column', { columns: [column({ sortable: true })] }, 'DataTable operations "none" cannot configure sorting or filtering'],
+		['disabled sortable column', { columns: [column({ sortable: ['asc', 'desc'] })] }, 'DataTable operations "none" cannot configure sorting or filtering'],
 		['blank row ID', { getRowId: (): string => ' ' }, 'DataTable row IDs must not be empty'],
 		['duplicate row ID', { getRowId: (): string => 'same' }, 'DataTable duplicate row ID']
 	] as const)('rejects %s', (_name, input, message) => {

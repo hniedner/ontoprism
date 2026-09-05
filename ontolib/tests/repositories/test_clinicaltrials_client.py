@@ -131,13 +131,13 @@ def ct_base_url() -> Iterator[str]:
 async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         page = await client.search_studies(
-            condition="melanoma", intervention="widgetinib", term="oral", page_size=20
+            condition="melanoma", intervention="widgetinib", term="oral", page_size=25
         )
     assert _Handler.last_query["query.cond"] == ["melanoma"]
     assert _Handler.last_query["query.intr"] == ["widgetinib"]
     assert _Handler.last_query["query.term"] == ["oral"]
     assert _Handler.last_query["countTotal"] == ["true"]
-    assert _Handler.last_query["pageSize"] == ["20"]
+    assert _Handler.last_query["pageSize"] == ["25"]
     assert page.total == 42
     assert [s.nct_id for s in page.studies] == ["NCT01234567", "NCT07654321"]
     first = page.studies[0]
@@ -392,10 +392,17 @@ async def test_status_and_phase_filters_are_sent(ct_base_url: str) -> None:
 
 
 @pytest.mark.unit
-async def test_page_size_is_clamped_to_api_maximum(ct_base_url: str) -> None:
+async def test_search_accepts_largest_product_page_size(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
-        await client.search_studies(condition="melanoma", page_size=1000)
+        await client.search_studies(condition="melanoma", page_size=100)
     assert _Handler.last_query["pageSize"] == ["100"]
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_non_product_page_size_before_request() -> None:
+    async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
+        with pytest.raises(ValueError, match="page size"):
+            await client.search_studies(condition="melanoma", page_size=20)
 
 
 @pytest.mark.unit

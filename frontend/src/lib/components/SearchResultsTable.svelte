@@ -8,8 +8,8 @@
 	let { hits, operations = { kind: 'none' } }: { hits: readonly SearchHit[]; operations?: DataTableOperations } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<SearchHit>[] => [
-		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive, sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive },
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive ? ['asc', 'desc'] : undefined },
 		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell },
 		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter NCIt representation status', options: [{ value: 'legacy-precoordinated', label: 'Legacy pre-coordinated' }] } : undefined }
 	]);

@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy import text
 
 from ontolib.terminologies.uberon.models import (
-    UberonRepositorySort,
     UberonSearchHit,
     UberonSearchPage,
+    UberonSearchSort,
     UberonSource,
 )
 
@@ -32,9 +32,6 @@ SELECT code, source, label
 FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
   AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
-ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
-         ts_rank(tsv, q) DESC, length(label), label, code
-LIMIT :limit OFFSET :offset
 """
 _SEARCH_COUNT_SQL = """
 SELECT COUNT(*)
@@ -42,7 +39,9 @@ FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
   AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
 """
-_SEARCH_ORDERS: dict[UberonRepositorySort, str] = {
+# Relevance prioritizes an exact normalized label, then weighted term rank, then
+# shorter labels, and finally label/code as a deterministic identity tie-break.
+_SEARCH_ORDERS: dict[UberonSearchSort, str] = {
     "relevance": (
         r"""(lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC, """
         "ts_rank(tsv, q) DESC, length(label), label, code"
@@ -141,21 +140,16 @@ class UberonSearchIndex:
         source: UberonSource | None = None,
         limit: int = 25,
         offset: int = 0,
-        sort: UberonRepositorySort = "relevance",
+        sort: UberonSearchSort = "relevance",
     ) -> UberonSearchPage:
         async with self._sf() as session:
             params = {"q": query, "source": source, "limit": limit, "offset": offset}
             count_result = await session.execute(
                 text(_SEARCH_COUNT_SQL), {"q": query, "source": source}
             )
-            start = _SEARCH_SQL.index("ORDER BY")
-            end = _SEARCH_SQL.index("LIMIT :limit")
             sql = (
-                _SEARCH_SQL[:start]
-                + "ORDER BY "
-                + _SEARCH_ORDERS[sort]
-                + "\n"
-                + _SEARCH_SQL[end:]
+                f"{_SEARCH_SQL}\nORDER BY {_SEARCH_ORDERS[sort]} "
+                "LIMIT :limit OFFSET :offset"
             )
             result = await session.execute(
                 text(sql),

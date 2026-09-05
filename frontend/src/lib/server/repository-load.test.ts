@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadRepositoryPage, parseCursorGridUrl } from './repository-load';
+import { loadRepositoryPage, parseCursorGridUrl, parseOffsetGridUrl } from './repository-load';
 
 describe('loadRepositoryPage canonical offset state', () => {
 	it('threads typed size, aligned offset, sort, and repeated filters through the server query', async () => {
@@ -41,6 +41,19 @@ describe('loadRepositoryPage canonical offset state', () => {
 			{ defaultSort: 'source', sorts: ['source'], filters: {} }
 		)).rejects.toMatchObject({ status: 502 });
 	});
+
+	it('canonicalizes PubMed offsets to the final valid source-window boundary once', () => {
+		const spec = { defaultSort: 'relevance', sorts: ['relevance', 'pub_date'] as const, filters: {}, resultWindow: 10_000 };
+		let location = '';
+		try {
+			parseOffsetGridUrl(new URL('http://example.test/repositories/pubmed?q=cancer&offset=10000'), spec);
+		} catch (caught) {
+			location = (caught as { location: string }).location;
+		}
+
+		expect(location).toBe('/repositories/pubmed?q=cancer&offset=9975');
+		expect(() => parseOffsetGridUrl(new URL(`http://example.test${location}`), spec)).not.toThrow();
+	});
 });
 
 describe('parseCursorGridUrl', () => {
@@ -59,5 +72,32 @@ describe('parseCursorGridUrl', () => {
 			status: ['RECRUITING', 'COMPLETED'],
 			phase: ['PHASE1', 'PHASE2']
 		});
+	});
+
+	it.each([
+		['cursor=', '/repository?q=tumor'],
+		[`cursor=${'x'.repeat(1001)}`, '/repository?q=tumor'],
+		[new URLSearchParams(Array.from({ length: 51 }, (_, index) => ['cursor', `c${index}`])).toString(), '/repository?q=tumor'],
+		['size=24&status=BOGUS', '/repository?q=tumor'],
+		['q=%20tumor%20&phase=PHASE2&status=COMPLETED&status=RECRUITING', '/repository?q=tumor&phase=PHASE2&status=RECRUITING&status=COMPLETED']
+	])('canonicalizes malformed or unordered cursor state once: %s', (suffix, expected) => {
+		const separator = suffix.startsWith('q=') ? '' : 'q=tumor&';
+		const url = new URL(`http://example.test/repository?${separator}${suffix}`);
+		const spec = {
+			filters: {
+				status: ['RECRUITING', 'COMPLETED'],
+				phase: ['PHASE1', 'PHASE2']
+			}
+		};
+		let location = '';
+		try {
+			parseCursorGridUrl(url, spec);
+		} catch (caught) {
+			location = (caught as { location: string }).location;
+		}
+
+		expect(location).toBe(expected);
+		expect(location).not.toBe(`${url.pathname}${url.search}`);
+		expect(() => parseCursorGridUrl(new URL(`http://example.test${location}`), spec)).not.toThrow();
 	});
 });

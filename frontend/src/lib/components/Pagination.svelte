@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { PAGE_SIZES, type PageSize } from '$lib/grid-state';
 	interface Props {
 		offset: number;
 		limit: number;
 		total: number;
 		navigationTotal?: number;
 		onPage: (offset: number) => void;
-		onSize?: (size: 10 | 25 | 50 | 100) => void;
+		onSize?: (size: PageSize) => void;
 	}
 
 	let { offset, limit, total, navigationTotal = total, onPage, onSize }: Props = $props();
@@ -28,7 +29,7 @@
 		>
 		of <span class="font-medium text-default">{total.toLocaleString()}</span>
 	</span>
-		{#if onSize}<label class="text-muted">Rows per page <select aria-label="Rows per page" value={limit} onchange={(event) => onSize(Number(event.currentTarget.value) as 10 | 25 | 50 | 100)}>{#each [10, 25, 50, 100] as size (size)}<option value={size}>{size}</option>{/each}</select></label>{/if}
+		{#if onSize}<label class="text-muted">Rows per page <select aria-label="Rows per page" value={limit} onchange={(event) => onSize(Number(event.currentTarget.value) as PageSize)}>{#each PAGE_SIZES as size (size)}<option value={size}>{size}</option>{/each}</select></label>{/if}
 	<div class="flex items-center gap-2">
 		<button type="button" class={btn} disabled={!canPrev} onclick={() => onPage(0)} aria-label="First page">«</button>
 		<button

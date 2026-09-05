@@ -22,7 +22,9 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
     PubMedArticleSummary,
+    PubMedPageSize,
     PubMedSearchResult,
+    PubMedSort,
     RelatedArticlesResult,
 )
 from ontolib.repositories.pubmed.parser import parse_efetch_xml, parse_esummary
@@ -35,7 +37,6 @@ from ontolib.repositories.upstream import (
 logger = get_logger(__name__)
 
 DEFAULT_EUTILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-_MAX_RETMAX = 100
 _MAX_RESULT_WINDOW = 10_000
 # ELink linkname per related-article kind (fairdata parity).
 _LINK_NAMES = {
@@ -141,16 +142,21 @@ class PubMedClient:
         self,
         query: str,
         *,
-        retmax: int = 20,
+        retmax: PubMedPageSize = 25,
         retstart: int = 0,
-        sort: str = "relevance",
+        sort: PubMedSort = "relevance",
     ) -> PubMedSearchResult:
         """Search PubMed for *query*; resolve the id list to article summaries.
 
         Raises:
+            ValueError: if pagination is invalid or *sort* is unsupported.
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
-        effective_limit = max(1, min(retmax, _MAX_RETMAX))
+        if sort not in ("relevance", "pub_date"):
+            raise ValueError(f"Invalid PubMed sort: {sort!r}")
+        if retmax not in (10, 25, 50, 100):
+            raise ValueError(f"Invalid PubMed page size: {retmax!r}")
+        effective_limit = retmax
         if (
             retstart < 0
             or retstart % effective_limit
@@ -170,7 +176,7 @@ class PubMedClient:
                 "retmode": "json",
             },
         )
-        pmids, total = _parse_esearch(esearch)
+        pmids, total = _parse_esearch(esearch, retstart=retstart)
         if not pmids:
             return PubMedSearchResult(
                 query=query,
@@ -247,14 +253,16 @@ class PubMedClient:
         )
 
 
-def _validate_esearch_identities(pmids: list[str], total: int) -> None:
+def _validate_esearch_identities(
+    pmids: list[str], total: int, *, retstart: int
+) -> None:
     if not _valid_pmids(pmids) or len(pmids) != len(set(pmids)):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
-    if len(pmids) > total or (total > 0 and not pmids):
+    if len(pmids) > total or (total > retstart and not pmids):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
 
 
-def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
+def _parse_esearch(esearch: Any, *, retstart: int = 0) -> tuple[list[str], int]:
     """Return (pmids, total) from an ESearch JSON document."""
     if not isinstance(esearch, dict):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
@@ -266,7 +274,7 @@ def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     if not isinstance(count, str) or not count.isdigit():
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     total = int(count)
-    _validate_esearch_identities(pmids, total)
+    _validate_esearch_identities(pmids, total, retstart=retstart)
     return pmids, total
 
 

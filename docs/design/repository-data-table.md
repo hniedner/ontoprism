@@ -28,13 +28,14 @@ options, filtered rows, or sorted rows in the browser.
 | caDSR | offset, exact total | source/public ID and name | none |
 | ICD-O | offset, exact total | source/code and preferred term | level and morphology behaviour |
 | Uberon/CL | offset, exact total | relevance for search; source order for browse; code and label | ontology source |
-| PubMed | `retstart`, navigable through NCBI's 10,000-result window | relevance and publication date | none |
+| PubMed | `retstart`, navigable through NCBI's 10,000-result window | relevance; publication date descending | none |
 | ClinicalTrials.gov | opaque cursor trail | remote-service relevance order only | overall status and phase |
 
 Categorical values are closed source domains rather than values sampled from the
 loaded page. Repeated values are OR-combined within a column; filters in different
 columns and the search query are AND-combined. Selected values remain in canonical
-state even when a page contains no matching example.
+state even when a page contains no matching example. These closed filters do not
+display inferred per-option counts.
 
 Local PostgreSQL/SQLite ordering must be total and null-last. Every configurable
 order ends in the repository's immutable identifier. Certified NCIt and Uberon search
@@ -47,7 +48,8 @@ The table exposes semantic headers, `aria-sort`, labelled filter controls, an ac
 sort label, removable active-filter chips, reset actions, a keyboard-focusable
 horizontal-scroll region, `aria-busy`, and a polite row-count announcement. Cells are
 compiled typed snippets; trusted HTML is not part of the contract. Missing or duplicate
-row keys fail closed before rows render.
+row keys fail closed before rows render. Revalidation keeps the current table available,
+marks that table busy, and adds a delayed loading announcement.
 
 Routes distinguish an initial search instruction, an empty repository, no matches,
 revalidation, rate limiting, timeout, unavailability, and malformed source data.

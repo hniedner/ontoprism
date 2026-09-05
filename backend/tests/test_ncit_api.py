@@ -305,6 +305,13 @@ def test_status_filter_rejects_unknown_values(path: str) -> None:
 
 
 @pytest.mark.api
+def test_list_rejects_search_only_relevance_sort() -> None:
+    response = next(_client()).get("/api/v1/ncit/list", params={"sort": "relevance"})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
 def test_search_unhealthy_repository_is_503() -> None:
     store = _FakeStore()
     index = _FakeIndex()

@@ -28,10 +28,7 @@
 			<h2 class="text-sm font-semibold text-default">{title}</h2>
 			<span class="text-xs text-muted">{countLabel}</span>
 		</div>
-		{#if loading}
-			<LoadingState active label="Loading results" minHeight="6rem" />
-		{:else}
-			{@render children()}
-		{/if}
+		{@render children()}
+		<LoadingState active={loading} label="Loading results" minHeight={loading ? '6rem' : '0'} />
 	</div>
 {/if}

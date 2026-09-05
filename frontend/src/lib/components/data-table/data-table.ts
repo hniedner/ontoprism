@@ -11,7 +11,6 @@ function validateCategoricalOptions<Row>(column: DataTableColumn<Row>): void {
 		text(`column "${column.id}" option value`, option.value);
 		text(`column "${column.id}" option label`, option.label);
 		if (values.has(option.value)) invalid(`DataTable column "${column.id}" has duplicate options`);
-		if (option.count !== undefined && (!Number.isSafeInteger(option.count) || option.count < 0)) invalid(`DataTable column "${column.id}" has an invalid option count`);
 		values.add(option.value);
 	}
 }
@@ -29,12 +28,13 @@ function validateColumn<Row>(column: DataTableColumn<Row>, ids: Set<string>): vo
 function validateServerOperations<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {
 	text('active sort label', operations.activeSortLabel);
 	for (const state of [operations.sort, operations.defaultSort]) {
-		if (state && !columns.some((column) => column.id === state.key && column.sortable)) invalid(`DataTable sort key "${state.key}" is not sortable`);
+		const column = state && columns.find((candidate) => candidate.id === state.key);
+		if (state && (!column?.sortable || !column.sortable.includes(state.direction))) invalid(`DataTable sort key "${state.key}" does not support ${state.direction}`);
 	}
 	for (const [id, state] of Object.entries(operations.filters)) {
 		const filter = columns.find((column) => column.id === id)?.filter;
 		if (!filter || filter.kind !== state.kind) invalid(`DataTable filter "${id}" is not configured`);
-		if (state.kind === 'categorical' && filter?.kind === 'categorical') {
+		if (filter?.kind === 'categorical') {
 			const available = new Set(filter.options.map((option) => option.value));
 			if (state.selected.some((value) => !available.has(value))) invalid(`DataTable filter "${id}" selected an invalid option`);
 		}

@@ -8,8 +8,8 @@
 	const sourceLabel = (hit: UberonSearchHit) => hit.source === 'cl' ? 'Cell Ontology' : 'Uberon';
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<UberonSearchHit>[] => [
-		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive, sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive },
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive ? ['asc', 'desc'] : undefined },
 		{ id: 'source', label: 'Source', cell: sourceCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter ontology sources', options: [{ value: 'uberon', label: 'Uberon' }, { value: 'cl', label: 'Cell Ontology' }] } : undefined }
 	]);
 </script>

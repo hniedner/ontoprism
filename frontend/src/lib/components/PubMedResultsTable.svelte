@@ -10,7 +10,7 @@
 		{ id: 'pmid', label: 'PMID', cell: pmidCell, sticky: { side: 'left', offset: 0 } },
 		{ id: 'title', label: 'Title', cell: titleCell },
 		{ id: 'journal', label: 'Journal', cell: journalCell },
-		{ id: 'date', label: 'Date', cell: dateCell, sortable: interactive }
+		{ id: 'date', label: 'Date', cell: dateCell, sortable: interactive ? ['desc'] : undefined }
 	]);
 </script>
 

@@ -353,6 +353,31 @@ def test_search_preserves_repeated_filters_for_or_semantics(
 
 
 @pytest.mark.api
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [
+        ("4.0/topography/list", {"behaviour": "3"}),
+        ("4.0/morphology/list", {"level": "category"}),
+        ("3.2/topography/list", {}),
+    ],
+)
+def test_list_rejects_impossible_dataset_filter_combinations_before_store(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    store = _Store()
+    response = next(_client(store, monkeypatch)).get(
+        f"/api/v1/icdo/{path}",
+        params=params,
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 422
+    assert store.calls == 0
+
+
+@pytest.mark.api
 def test_list_and_search_publish_the_typed_page_return_contract() -> None:
     assert list_records.__annotations__["return"] is IcdoPage
     assert search.__annotations__["return"] is IcdoPage
@@ -538,7 +563,7 @@ def test_invalid_dataset_combination_and_code_are_input_errors(
     headers = {"X-ICDO-Entitlement": "licensed"}
     assert (
         client.get("/api/v1/icdo/3.2/topography/list", headers=headers).status_code
-        == 404
+        == 422
     )
     assert (
         client.get(

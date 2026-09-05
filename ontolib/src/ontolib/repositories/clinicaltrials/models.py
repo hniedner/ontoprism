@@ -5,9 +5,30 @@ mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` module tree t
 the client parses — enough to browse trials and open a trial detail.
 """
 
+from typing import Literal
+
 from pydantic import Field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+
+CTPageSize = Literal[10, 25, 50, 100]
+CTStatus = Literal[
+    "ACTIVE_NOT_RECRUITING",
+    "APPROVED_FOR_MARKETING",
+    "AVAILABLE",
+    "COMPLETED",
+    "ENROLLING_BY_INVITATION",
+    "NOT_YET_RECRUITING",
+    "NO_LONGER_AVAILABLE",
+    "RECRUITING",
+    "SUSPENDED",
+    "TEMPORARILY_NOT_AVAILABLE",
+    "TERMINATED",
+    "UNKNOWN",
+    "WITHDRAWN",
+    "WITHHELD",
+]
+CTPhase = Literal["EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
 
 
 class CTInterventionDetail(StrictBoundaryModel):
@@ -96,7 +117,7 @@ class CTStudySearchPage(StrictBoundaryModel):
     intervention: str | None = None
     term: str | None = None
     total: int
-    page_size: int
+    page_size: CTPageSize
     page_token: str | None = None
     next_page_token: str | None = None
     studies: list[CTStudySummary] = Field(default_factory=list)

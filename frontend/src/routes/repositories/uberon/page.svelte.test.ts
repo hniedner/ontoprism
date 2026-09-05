@@ -3,11 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Page from './+page.svelte';
 
 const goto = vi.fn().mockResolvedValue(undefined);
+const { navigation } = vi.hoisted(() => ({
+	navigation: { to: { url: new URL('https://example.test/repositories/uberon?q=heart') } as { url: URL } | null }
+}));
 vi.mock('$app/navigation', () => ({ goto: (target: string) => goto(target) }));
 vi.mock('$app/paths', () => ({ resolve: (target: string) => target }));
 vi.mock('$app/state', () => ({
 	page: { url: new URL('https://example.test/repositories/uberon?q=lung&source=uberon&offset=25') },
-	navigating: { to: null }
+	navigating: navigation
 }));
 
 const data = {
@@ -42,5 +45,11 @@ describe('Uberon repository page table ownership', () => {
 
 		await fireEvent.click(screen.getByRole('checkbox', { name: 'Uberon' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung');
+	});
+
+	it('marks the real repository table busy during same-route revalidation', () => {
+		render(Page, { data: data as never, params: {}, form: null });
+
+		expect(screen.getByRole('region', { name: 'Uberon and Cell Ontology repository results' })).toHaveAttribute('aria-busy', 'true');
 	});
 });

@@ -57,7 +57,8 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
-    RepositorySort,
+    RepositoryBrowseSort,
+    RepositorySearchSort,
     RepresentationStatus,
     SearchPage,
     SimilarConcept,
@@ -219,7 +220,6 @@ async def _attach_xref_upstream(
 
 @router.get("/search", response_model=SearchPage)
 async def search(
-    store: NcitStore,
     index: NcitSearch,
     metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1, description="Search term")],
@@ -229,7 +229,7 @@ async def search(
         RepresentationStatus | None,
         Query(description="Published representation status"),
     ] = None,
-    sort: RepositorySort = "relevance",
+    sort: RepositorySearchSort = "relevance",
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
     repository = await metadata.ncit()
@@ -268,9 +268,9 @@ async def list_concepts(
         RepresentationStatus | None,
         Query(description="Published representation status"),
     ] = None,
-    sort: RepositorySort = "source",
+    sort: RepositoryBrowseSort = "source",
 ) -> SearchPage:
-    """List concepts in natural order — powers no-search browse of the repository."""
+    """List concepts in the requested deterministic browse order."""
     return await store.list_concepts(
         limit=limit,
         offset=offset,

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { navigating, page } from '$app/state';
+	import { repositoryGridHref } from '$lib/repository-navigation';
 	import { repositorySearchHref } from '$lib/repository-search';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
@@ -11,7 +13,6 @@
 	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import type { DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
-	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	let { data }: PageProps = $props();
 	let queryValue = $derived(data.query);
@@ -21,15 +22,11 @@
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
 	const isEmpty = $derived((result?.articles.length ?? 0) === 0);
 
-	function navigate(update: (params: SvelteURLSearchParams) => void): void {
-		const params = new SvelteURLSearchParams(page.url.search);
-		update(params);
-		// eslint-disable-next-line svelte/no-navigation-without-resolve -- fixed route with URL state only
-		goto(`/repositories/pubmed${params.size ? `?${params}` : ''}`);
-	}
+	// eslint-disable-next-line svelte/no-navigation-without-resolve -- repositoryGridHref receives the resolved route before appending owned URL state
+	function navigate(update: (params: URLSearchParams) => void): void { goto(repositoryGridHref(resolve('/repositories/pubmed'), page.url, update)); }
 	function search(term = queryValue): void { const target = repositorySearchHref('pubmed', page.url, term); goto(target); }
 	function intent(value: DataTableIntent): void { if (value.kind !== 'sort' && value.kind !== 'reset') return; navigate((params) => { params.delete('offset'); if (value.kind === 'sort' && value.sort.key === 'date') params.set('sort', 'pub_date'); else params.delete('sort'); }); }
-	const operations = $derived<DataTableOperations>({ kind: 'server', sort: data.sort === 'pub_date' ? { key: 'date', direction: 'desc' } : null, defaultSort: null, activeSortLabel: data.sort === 'pub_date' ? 'Publication date descending' : 'Relevance', filters: {}, onintent: intent });
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: data.sort === 'pub_date' ? { key: 'date', direction: 'desc' } : null, defaultSort: null, activeSortLabel: data.sort === 'pub_date' ? 'Publication date descending' : 'Relevance', filters: {}, busy: loading, onintent: intent });
 </script>
 
 <svelte:head>

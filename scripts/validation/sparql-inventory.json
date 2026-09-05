@@ -1,7 +1,7 @@
 {
-  "query_shape_count": 298,
-  "query_shapes_sha256": "9e9db12d81f697d28e25fe802e1653ca3d48ea18846885e338a852f42bacfec5",
+  "query_shape_count": 292,
+  "query_shapes_sha256": "2597b5e116de99d997c8c45fb82dc966af2fe99fd4342babeb8335d401e15b35",
   "schema_version": 1,
-  "transport_operation_count": 153,
-  "transport_operations_sha256": "e6cec3e68aa09369a28509ffeea984898c36078633a75547e579f930c3d0a8a2"
+  "transport_operation_count": 149,
+  "transport_operations_sha256": "04e5ba2d10f84b41964bf0b20fa824e259f28361cb8fbf02911602b1016c27a6"
 }

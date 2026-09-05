@@ -31,10 +31,6 @@ from ontolib.repositories.embeddings.generate import cadsr_source_fingerprint
 def _cde_order(sort: CdeRepositorySort, *, table: str = "") -> str:
     prefix = f"{table}." if table else ""
     return {
-        "relevance": (
-            f"{prefix}long_name IS NULL, {prefix}long_name COLLATE NOCASE, "
-            f"CAST({prefix}public_id AS INTEGER), {prefix}version"
-        ),
         "source": f"CAST({prefix}public_id AS INTEGER), {prefix}version",
         "public_id:asc": f"CAST({prefix}public_id AS INTEGER), {prefix}version",
         "public_id:desc": (
@@ -146,7 +142,9 @@ class CdeRepository:
     ) -> CdeSearchPage:
         match = _fts_match_query(query)
         if not match:  # query was all punctuation/empty → no matches
-            return CdeSearchPage(query=query, total=0, limit=limit, offset=offset)
+            return CdeSearchPage(
+                query=query, total=0, limit=limit, offset=offset, sort=sort
+            )
         # COUNT(*) OVER () yields the full match total in every row — one query, and the
         # match uses the FTS index rather than a full table scan.
         # Order by name (deterministic): bm25() relevance ranking can't be combined
@@ -259,7 +257,7 @@ class CdeRepository:
     def list_cdes(
         self, *, limit: int = 25, offset: int = 0, sort: CdeRepositorySort = "source"
     ) -> CdeSearchPage:
-        """List all CDEs in natural (public_id) order — the no-search browse mode."""
+        """List all CDEs in the requested deterministic browse order."""
         with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
             rows = conn.execute(

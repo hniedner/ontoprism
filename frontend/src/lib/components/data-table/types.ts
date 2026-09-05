@@ -10,16 +10,11 @@ export interface DataTableStickyColumn {
 export interface DataTableCategoricalOption {
 	value: string;
 	label: string;
-	count?: number;
 }
 
-export type DataTableFilter =
-	| { kind: 'text'; ariaLabel: string }
-	| { kind: 'categorical'; ariaLabel: string; options: readonly DataTableCategoricalOption[] };
+export type DataTableFilter = { kind: 'categorical'; ariaLabel: string; options: readonly DataTableCategoricalOption[] };
 
-export type DataTableFilterState =
-	| { kind: 'text'; query: string }
-	| { kind: 'categorical'; selected: readonly string[] };
+export type DataTableFilterState = { kind: 'categorical'; selected: readonly string[] };
 
 export interface DataTableSortState {
 	key: string;
@@ -37,7 +32,7 @@ export interface DataTableColumn<Row> {
 	id: string;
 	label: string;
 	cell: Snippet<[Row]>;
-	sortable?: boolean;
+	sortable?: readonly DataTableSortDirection[];
 	filter?: DataTableFilter;
 	sticky?: DataTableStickyColumn;
 }
@@ -50,6 +45,7 @@ export type DataTableOperations =
 			defaultSort: DataTableSortState | null;
 			activeSortLabel: string;
 			filters: Readonly<Record<string, DataTableFilterState>>;
+			busy: boolean;
 			onintent: (intent: DataTableIntent) => void;
 	  };
 
@@ -62,5 +58,4 @@ export interface DataTableReadyProps<Row> {
 	operations: DataTableOperations;
 	emptyMessage: string;
 	stickyHeader: boolean;
-	busy: boolean;
 }

@@ -8,7 +8,7 @@
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import type { DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
-	import type { PageSize } from '$lib/server/repository-load';
+	import type { PageSize } from '$lib/grid-state';
 
 	// Full browse/search page for a paginated local repository: header, search
 	// bar, results card, and pagination over server-loaded URL state. Each concrete
@@ -52,6 +52,7 @@
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
+	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0));
 
 	async function navigate(update: (params: SvelteURLSearchParams) => void): Promise<void> {
 		const params = new SvelteURLSearchParams(page.url.search);
@@ -80,15 +81,14 @@
 		return `${key.replaceAll('_', ' ')} ${direction === 'desc' ? 'descending' : 'ascending'}`;
 	}
 	const tableFilters = $derived(Object.fromEntries(Object.entries(initial.filters).map(([key, selected]) => [key, { kind: 'categorical', selected } satisfies DataTableFilterState])));
-	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, onintent: handleIntent });
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, busy: loading, onintent: handleIntent });
 	function applySort(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'sort' }>): void {
 		const value = sortKeys[intent.sort.key]?.[intent.sort.direction];
 		if (value && value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
 	function applyFilter(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
 		params.delete(intent.columnId);
-		if (intent.filter.kind === 'categorical') for (const value of intent.filter.selected) params.append(intent.columnId, value);
-		else if (intent.filter.query.trim()) params.set(intent.columnId, intent.filter.query.trim());
+		for (const value of intent.filter.selected) params.append(intent.columnId, value);
 	}
 	function clearFilters(params: SvelteURLSearchParams): void {
 		for (const key of Object.keys(initial.filters)) params.delete(key);
@@ -144,7 +144,7 @@
 {/if}
 
 <RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
-		{#if initial.result.hits.length === 0 && mode === 'browse'}
+		{#if initial.result.hits.length === 0 && mode === 'browse' && !hasActiveFilters}
 			<p class="px-4 py-6 text-center text-sm text-muted">This repository contains no records.</p>
 		{:else if initial.result.hits.length === 0}
 			<div class="space-y-2 px-4 py-6 text-center text-sm text-muted">

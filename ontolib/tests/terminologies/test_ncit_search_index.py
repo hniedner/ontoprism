@@ -121,6 +121,7 @@ async def test_search_maps_rows_and_binds_params() -> None:
         limit=10,
         offset=5,
         representation_status="legacy-precoordinated",
+        sort="code:desc",
     )
 
     assert page.total == 2
@@ -142,6 +143,8 @@ async def test_search_maps_rows_and_binds_params() -> None:
     assert "CAST(:representation_status AS text) IS NULL" in sql
     assert status_filter in sql
     assert sql.index(status_filter) < sql.index("LIMIT :limit")
+    assert "ORDER BY code DESC" in sql
+    assert "COUNT(*) OVER" not in sql
 
 
 @pytest.mark.unit

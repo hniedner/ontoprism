@@ -19,7 +19,7 @@ const results = createRawSnippet<[Hit[]]>((getHits) => ({
 	render: () => `<div data-testid="results">${getHits().length} rows</div>`
 }));
 
-function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit') {
+function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit', filters: Record<string, string[]> = {}) {
 	return render(RepoBrowsePage, {
 		title: 'NCIt Browser',
 		description: 'Browse concepts',
@@ -31,7 +31,7 @@ function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit')
 		browseTitle: 'All concepts',
 		countLabel: (count: number, mode: string) => `${count} (${mode})`,
 		results: results as never,
-		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters: {} },
+		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters },
 		defaultSort: 'source',
 		sortKeys: {}
 	});
@@ -92,6 +92,15 @@ describe('RepoBrowsePage', () => {
 
 		setup('missing', 0, 0);
 		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
+	});
+
+	it('keeps populated categorical filters recoverable when they match no rows', async () => {
+		setup('', 0, 0, '/repositories/ncit', { representation_status: ['legacy-precoordinated'] });
+
+		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
+		expect(screen.queryByText('This repository contains no records.')).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
 	});

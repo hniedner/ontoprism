@@ -206,9 +206,26 @@ def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
     dataset = ServedIcdoDataset.parse(edition, axis)
     if dataset is None:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "ICD-O-3.2 topography is not served."
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "ICD-O-3.2 topography is not served.",
         )
     return dataset
+
+
+def _validate_grid_filters(
+    axis: Axis,
+    behaviour: list[Behaviour] | None,
+    level: list[RecordLevel] | None,
+) -> None:
+    if axis == "topography":
+        invalid = bool(behaviour) or "morphology" in (level or ())
+    else:
+        invalid = any(value != "morphology" for value in level or ())
+    if invalid:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "ICD-O filters do not apply to the requested axis.",
+        )
 
 
 async def _ready(
@@ -357,6 +374,7 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
+    _validate_grid_filters(axis, behaviour, level)
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
@@ -395,6 +413,7 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
+    _validate_grid_filters(axis, behaviour, level)
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:

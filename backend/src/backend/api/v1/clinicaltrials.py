@@ -5,10 +5,8 @@ A thin pass-through to the async :class:`ClinicalTrialsClient`. Direct-search on
 natural-language / LLM term-extraction layer from fairdata is not ported.
 """
 
-from typing import Literal
-
 from fastapi import APIRouter, HTTPException, status
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import ClinicalTrials
@@ -16,6 +14,9 @@ from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
+    CTPageSize,
+    CTPhase,
+    CTStatus,
     CTStudyDetail,
     CTStudySearchPage,
 )
@@ -32,10 +33,15 @@ class CTSearchRequest(StrictBoundaryModel):
     condition: str | None = Field(default=None, max_length=500)
     intervention: str | None = Field(default=None, max_length=500)
     term: str | None = Field(default=None, max_length=500)
-    status: list[str] = Field(default_factory=list)
-    phase: list[str] = Field(default_factory=list)
-    limit: Literal[10, 25, 50, 100] = 25
+    status: list[CTStatus] = Field(default_factory=list)
+    phase: list[CTPhase] = Field(default_factory=list)
+    limit: CTPageSize = 25
     page_token: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("status", "phase")
+    @classmethod
+    def deduplicate_filters(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
 
 @router.post("/search", response_model=CTStudySearchPage)

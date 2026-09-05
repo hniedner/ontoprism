@@ -7,8 +7,8 @@
 	let { hits, operations = { kind: 'none' } }: { hits: readonly CdeSummary[]; operations?: DataTableOperations } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<CdeSummary>[] => [
-		{ id: 'public_id', label: 'Public ID', cell: idCell, sortable: interactive, sticky: { side: 'left', offset: 0 } },
-		{ id: 'name', label: 'Name', cell: nameCell, sortable: interactive },
+		{ id: 'public_id', label: 'Public ID', cell: idCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
+		{ id: 'name', label: 'Name', cell: nameCell, sortable: interactive ? ['asc', 'desc'] : undefined },
 		{ id: 'context', label: 'Context', cell: contextCell },
 		{ id: 'datatype', label: 'Type', cell: datatypeCell }
 	]);

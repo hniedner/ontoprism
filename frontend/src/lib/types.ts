@@ -1,6 +1,9 @@
 // Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
 export type RepresentationStatus = 'legacy-precoordinated';
+export type RepositorySort = 'relevance' | 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type CdeRepositorySort = 'source' | 'public_id:asc' | 'public_id:desc' | 'name:asc' | 'name:desc';
+export type IcdoRepositorySort = 'source' | 'code:asc' | 'code:desc' | 'preferred:asc' | 'preferred:desc';
 
 export interface ConceptRef {
 	code: string;
@@ -41,7 +44,7 @@ export interface SearchPage {
 	total: number;
 	limit: number;
 	offset: number;
-	sort: string;
+	sort: RepositorySort;
 	hits: SearchHit[];
 }
 
@@ -143,7 +146,7 @@ export interface UberonSearchPage {
 	total: number;
 	limit: number;
 	offset: number;
-	sort: string;
+	sort: RepositorySort;
 	hits: UberonSearchHit[];
 }
 
@@ -234,7 +237,7 @@ interface IcdoPageBase {
 	total: number;
 	limit: number;
 	offset: number;
-	sort: string;
+	sort: IcdoRepositorySort;
 }
 
 export type IcdoPage =
@@ -295,7 +298,7 @@ export interface CdeSearchPage {
 	total: number;
 	limit: number;
 	offset: number;
-	sort: string;
+	sort: CdeRepositorySort;
 	hits: CdeSummary[];
 }
 
@@ -512,6 +515,24 @@ export interface RefreshReport {
 
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
+export type CTPageSize = 10 | 25 | 50 | 100;
+export type CTStatus =
+	| 'ACTIVE_NOT_RECRUITING'
+	| 'APPROVED_FOR_MARKETING'
+	| 'AVAILABLE'
+	| 'COMPLETED'
+	| 'ENROLLING_BY_INVITATION'
+	| 'NOT_YET_RECRUITING'
+	| 'NO_LONGER_AVAILABLE'
+	| 'RECRUITING'
+	| 'SUSPENDED'
+	| 'TEMPORARILY_NOT_AVAILABLE'
+	| 'TERMINATED'
+	| 'UNKNOWN'
+	| 'WITHDRAWN'
+	| 'WITHHELD';
+export type CTPhase = 'EARLY_PHASE1' | 'PHASE1' | 'PHASE2' | 'PHASE3' | 'PHASE4';
+
 export interface CTInterventionDetail {
 	type: string | null;
 	name: string;
@@ -580,9 +601,9 @@ export interface CTSearchRequest {
 	condition?: string | null;
 	intervention?: string | null;
 	term?: string | null;
-	status?: readonly string[];
-	phase?: readonly string[];
-	limit?: number;
+	status?: readonly CTStatus[];
+	phase?: readonly CTPhase[];
+	limit?: CTPageSize;
 	page_token?: string | null;
 }
 
@@ -591,7 +612,7 @@ export interface CTStudySearchPage {
 	intervention: string | null;
 	term: string | null;
 	total: number;
-	page_size: number;
+	page_size: CTPageSize;
 	page_token: string | null;
 	next_page_token: string | null;
 	studies: CTStudySummary[];

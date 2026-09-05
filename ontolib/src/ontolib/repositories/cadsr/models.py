@@ -7,7 +7,7 @@ from pydantic import Field
 from ontolib.common.boundary_models import StrictBoundaryModel
 
 CdeRepositorySort = Literal[
-    "relevance", "source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"
+    "source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"
 ]
 
 

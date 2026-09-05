@@ -2,10 +2,11 @@
 	import DataTableBody from './DataTableBody.svelte';
 	import DataTableHead from './DataTableHead.svelte';
 	import type { DataTableIntent, DataTableReadyProps } from './types';
-	let { rows, columns, caption, regionLabel, getRowId, operations, emptyMessage, stickyHeader, busy }: DataTableReadyProps<Row> = $props();
+	let { rows, columns, caption, regionLabel, getRowId, operations, emptyMessage, stickyHeader }: DataTableReadyProps<Row> = $props();
 	const filters = $derived(operations.kind === 'server' ? operations.filters : {});
 	const sort = $derived(operations.kind === 'server' ? operations.sort : null);
-	const activeFilters = $derived(Object.entries(filters).filter(([, state]) => state.kind === 'text' ? Boolean(state.query.trim()) : state.selected.length > 0));
+	const activeFilters = $derived(Object.entries(filters).filter(([, state]) => state.selected.length > 0));
+	const busy = $derived(operations.kind === 'server' && operations.busy);
 	function emit(intent: DataTableIntent): void { if (operations.kind === 'server') operations.onintent(intent); }
 </script>
 
@@ -14,7 +15,7 @@
 		<span class="text-xs text-muted">Sort: {operations.activeSortLabel}</span>
 		{#each activeFilters as [columnId, state] (columnId)}
 			<button type="button" class="rounded bg-subtle px-2 py-1 text-xs" onclick={() => emit({ kind: 'clear-filter', columnId })} aria-label={`Clear ${columnId} filter`}>
-				{columnId}: {state.kind === 'text' ? state.query : state.selected.join(', ')} ×
+				{columnId}: {state.selected.join(', ')} ×
 			</button>
 		{/each}
 		{#if activeFilters.length}<button type="button" class="text-xs underline" onclick={() => emit({ kind: 'clear-filters' })}>Clear all filters</button>{/if}

@@ -1,9 +1,9 @@
 """Materialized full-text search over NCIt concepts (Postgres tsvector + GIN).
 
-Serves NCIt search/browse from an index rather than a live SPARQL ``CONTAINS`` scan
+Serves NCIt search from an index rather than a live SPARQL ``CONTAINS`` scan
 over ~204k classes per request. The QLever store stays the source of truth: this
-cache is (re)populated from it via :func:`populate_from_store`, and callers fall back
-to the store's SPARQL search when the cache is empty (see the NCIt search endpoint).
+cache is (re)populated from it via :func:`populate_from_store`. The search endpoint
+fails closed when the source-bound certified publication is unavailable.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import text
 
 from ontolib.terminologies.ncit.models import (
-    RepositorySort,
+    RepositorySearchSort,
     RepresentationStatus,
     SearchHit,
     SearchPage,
@@ -28,9 +28,7 @@ if TYPE_CHECKING:
     from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 
 # websearch_to_tsquery gives users familiar query syntax (quoted phrases, OR, -term)
-# while being injection-safe. COUNT(*) OVER () returns the full total in one query.
-#
-# The ORDER BY has four tiers, and every one of them is load-bearing:
+# while being injection-safe. Relevance ordering has four load-bearing tiers:
 #
 # 1. An EXACT NAME MATCH wins. `ts_rank` scores by weighted term frequency, so every
 #    concept whose label contains the term once scores *identically* -- searching
@@ -58,16 +56,11 @@ if TYPE_CHECKING:
 #    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
 #    or on none.
 _SEARCH_SQL = r"""
-    SELECT code, label, semantic_type, representation_status,
-           COUNT(*) OVER () AS total
+    SELECT code, label, semantic_type, representation_status
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
       AND (CAST(:representation_status AS text) IS NULL
            OR representation_status = CAST(:representation_status AS text))
-    ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
-             ts_rank(tsv, q) DESC,
-             length(label), label, code
-    LIMIT :limit OFFSET :offset
 """
 _SEARCH_COUNT_SQL = r"""
     SELECT COUNT(*)
@@ -76,7 +69,7 @@ _SEARCH_COUNT_SQL = r"""
       AND (CAST(:representation_status AS text) IS NULL
            OR representation_status = CAST(:representation_status AS text))
 """
-_SEARCH_ORDERS: dict[RepositorySort, str] = {
+_SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "relevance": (
         r"""(lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC, """
         "ts_rank(tsv, q) DESC, length(label), label, code"
@@ -155,9 +148,9 @@ class NcitSearchIndex:
         limit: int = 25,
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
-        sort: RepositorySort = "relevance",
+        sort: RepositorySearchSort = "relevance",
     ) -> SearchPage:
-        """Full-text search the cache; total is the full match count (one query)."""
+        """Search one page and count all matches with two bounded SQL statements."""
         async with self._sf() as session:
             params = {
                 "q": query,
@@ -166,14 +159,9 @@ class NcitSearchIndex:
                 "representation_status": representation_status,
             }
             count_result = await session.execute(text(_SEARCH_COUNT_SQL), params)
-            order_start = _SEARCH_SQL.index("ORDER BY")
-            order_end = _SEARCH_SQL.index("LIMIT :limit")
             sql = (
-                _SEARCH_SQL[:order_start]
-                + "ORDER BY "
-                + _SEARCH_ORDERS[sort]
-                + "\n    "
-                + _SEARCH_SQL[order_end:]
+                f"{_SEARCH_SQL}\nORDER BY {_SEARCH_ORDERS[sort]} "
+                "LIMIT :limit OFFSET :offset"
             )
             result = await session.execute(
                 text(sql),

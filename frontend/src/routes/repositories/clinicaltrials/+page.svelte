@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { navigating, page } from '$app/state';
+	import { repositoryGridHref } from '$lib/repository-navigation';
 	import { repositorySearchHref } from '$lib/repository-search';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
@@ -11,7 +13,6 @@
 	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 	import CursorPagination from '$lib/components/CursorPagination.svelte';
 	import type { DataTableFilterState, DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
-	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const SUGGESTIONS = ['melanoma', 'breast cancer', 'immunotherapy', 'CAR-T', 'glioblastoma'];
 
@@ -22,16 +23,12 @@
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} trials` : '');
 	const isEmpty = $derived((result?.studies.length ?? 0) === 0);
 
-	function navigate(update: (params: SvelteURLSearchParams) => void): void {
-		const params = new SvelteURLSearchParams(page.url.search);
-		update(params);
-		// eslint-disable-next-line svelte/no-navigation-without-resolve -- fixed route with URL state only
-		goto(`/repositories/clinicaltrials${params.size ? `?${params}` : ''}`);
-	}
+	// eslint-disable-next-line svelte/no-navigation-without-resolve -- repositoryGridHref receives the resolved route before appending owned URL state
+	function navigate(update: (params: URLSearchParams) => void): void { goto(repositoryGridHref(resolve('/repositories/clinicaltrials'), page.url, update)); }
 	function search(term = queryValue): void { goto(repositorySearchHref('clinicaltrials', page.url, term)); }
 	const filters = $derived<Record<string, DataTableFilterState>>(Object.fromEntries(Object.entries(data.filters).map(([key, selected]) => [key, { kind: 'categorical', selected }])));
-	function intent(value: DataTableIntent): void { void navigate((params) => { params.delete('cursor'); if (value.kind === 'filter' && value.filter.kind === 'categorical') { params.delete(value.columnId); for (const selected of value.filter.selected) params.append(value.columnId, selected); } else if (value.kind === 'clear-filter') params.delete(value.columnId); else if (value.kind === 'clear-filters' || value.kind === 'reset') { params.delete('status'); params.delete('phase'); if (value.kind === 'reset') params.delete('size'); } }); }
-	const operations = $derived<DataTableOperations>({ kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'ClinicalTrials.gov relevance', filters, onintent: intent });
+	function intent(value: DataTableIntent): void { void navigate((params) => { params.delete('cursor'); if (value.kind === 'filter') { params.delete(value.columnId); for (const selected of value.filter.selected) params.append(value.columnId, selected); } else if (value.kind === 'clear-filter') params.delete(value.columnId); else if (value.kind === 'clear-filters' || value.kind === 'reset') { params.delete('status'); params.delete('phase'); if (value.kind === 'reset') params.delete('size'); } }); }
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'ClinicalTrials.gov relevance', filters, busy: loading, onintent: intent });
 </script>
 
 <svelte:head>

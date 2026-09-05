@@ -250,6 +250,15 @@ def test_list_preserves_source_facet_and_detail_refuses_unknown_or_invalid() -> 
 
 
 @pytest.mark.api
+def test_list_rejects_search_only_relevance_sort() -> None:
+    response = next(_client(_Store(), _Index(False))).get(
+        "/api/v1/uberon/list", params={"sort": "relevance"}
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
 def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
     xrefs = _Xrefs()
     client = next(_client(_Store(), _Index(False), xrefs=xrefs))

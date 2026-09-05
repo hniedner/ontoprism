@@ -14,9 +14,9 @@
 		regionLabel?: string;
 	} = $props();
 	let columns = $derived.by((): readonly DataTableColumn<TestRow>[] => [
-		{ id: 'name', label: 'Name', cell: nameCell, sortable: true, filter: { kind: 'text', ariaLabel: 'Filter names' }, sticky: sticky ? { side: 'left', offset: 0 } : undefined },
+		{ id: 'name', label: 'Name', cell: nameCell, sortable: ['asc', 'desc'], sticky: sticky ? { side: 'left', offset: 0 } : undefined },
 		{ id: 'group', label: 'Group', cell: groupCell, filter: { kind: 'categorical', ariaLabel: 'Filter groups', options: [
-			{ value: 'Current', label: 'Current', count: 8 }, { value: 'Archived', label: 'Archived', count: 0 }
+			{ value: 'Current', label: 'Current' }, { value: 'Archived', label: 'Archived' }
 		] } },
 		{ id: 'rank', label: 'Rank', cell: rankCell },
 		{ id: 'active', label: 'Active', cell: activeCell }
@@ -29,5 +29,5 @@
 {#snippet activeCell(row: TestRow)}{row.active ? 'Yes' : 'No'}{/snippet}
 
 <DataTable {rows} {columns} {caption} {regionLabel} getRowId={(row) => row.id}
-	operations={{ kind: 'server', sort, defaultSort: { key: 'name', direction: 'asc' }, activeSortLabel: sort?.direction === 'desc' ? 'Name descending' : 'Name ascending', filters, onintent }}
+	operations={{ kind: 'server', sort, defaultSort: { key: 'name', direction: 'asc' }, activeSortLabel: sort?.direction === 'desc' ? 'Name descending' : 'Name ascending', filters, busy: false, onintent }}
 	{emptyMessage} stickyHeader={sticky} />

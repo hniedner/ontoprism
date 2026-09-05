@@ -5,7 +5,7 @@ import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +30,7 @@ class _Handler(BaseHTTPRequestHandler):
     # When set, every response uses this status (drives the upstream-failure path).
     fail_status: ClassVar[int | None] = None
     fail_body: ClassVar[bytes] = b""
+    last_query: ClassVar[dict[str, list[str]]] = {}
 
     def do_GET(self) -> None:
         if _Handler.fail_status is not None:
@@ -38,7 +39,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(_Handler.fail_body)
             return
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        _Handler.last_query = parse_qs(parsed.query)
+        path = parsed.path
         if path == "/studies":
             self._json({"studies": [_STUDY], "totalCount": 1})
         elif path == "/studies/NCT01234567":
@@ -103,21 +106,21 @@ def test_search_requires_a_query_field(ct_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_search_invalid_status_is_400(ct_app: TestClient) -> None:
+def test_search_invalid_status_is_422(ct_app: TestClient) -> None:
     resp = ct_app.post(
         "/api/v1/clinicaltrials/search",
         json={"condition": "melanoma", "status": ["BOGUS"]},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
 @pytest.mark.api
-def test_search_invalid_phase_is_400(ct_app: TestClient) -> None:
+def test_search_invalid_phase_is_422(ct_app: TestClient) -> None:
     resp = ct_app.post(
         "/api/v1/clinicaltrials/search",
         json={"condition": "melanoma", "phase": ["PHASE9"]},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
 @pytest.mark.api
@@ -131,6 +134,22 @@ def test_search_accepts_multiple_values_with_or_semantics(ct_app: TestClient) ->
         },
     )
     assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.api
+def test_search_deduplicates_closed_filter_values(ct_app: TestClient) -> None:
+    response = ct_app.post(
+        "/api/v1/clinicaltrials/search",
+        json={
+            "condition": "melanoma",
+            "status": ["RECRUITING", "RECRUITING", "COMPLETED"],
+            "phase": ["PHASE2", "PHASE2"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert _Handler.last_query["filter.overallStatus"] == ["RECRUITING|COMPLETED"]
+    assert _Handler.last_query["aggFilters"] == ["phase:2"]
 
 
 @pytest.mark.api

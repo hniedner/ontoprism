@@ -17,7 +17,9 @@ from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
+    PubMedPageSize,
     PubMedSearchResult,
+    PubMedSort,
     RelatedArticlesResult,
 )
 from ontolib.repositories.upstream import UpstreamFailureError
@@ -34,9 +36,9 @@ class PubMedSearchRequest(StrictBoundaryModel):
     """Search parameters for PubMed."""
 
     query: Annotated[str, Field(min_length=1, max_length=2000)]
-    retmax: Literal[10, 25, 50, 100] = 25
+    retmax: PubMedPageSize = 25
     retstart: Annotated[int, Field(ge=0, lt=10_000)] = 0
-    sort: Literal["relevance", "pub_date"] = "relevance"
+    sort: PubMedSort = "relevance"
 
     @model_validator(mode="after")
     def valid_window(self) -> PubMedSearchRequest:

@@ -482,6 +482,15 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
             limit=10,
             offset=0,
         )
+        preferred_order = await repository.search(
+            "4.0",
+            "morphology",
+            query="",
+            behaviour=("3",),
+            sort="preferred:asc",
+            limit=10,
+            offset=0,
+        )
         inactive_hits = await repository.search(
             "4.0", "morphology", query="inactive", limit=10, offset=0
         )
@@ -494,6 +503,10 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert [row.code for row in filtered.hits] == [
             "8001A/3",
             "8010B/3",
+        ]
+        assert [row.code for row in preferred_order.hits] == [
+            "8010B/3",
+            "8001A/3",
         ]
         assert inactive_hits.total == 0
         assert inactive_hits.hits == ()

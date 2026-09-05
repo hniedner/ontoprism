@@ -26,10 +26,11 @@ from ontolib.repositories.xref.models import (
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowseSort,
     UberonConceptDetail,
     UberonNeighborhood,
-    UberonRepositorySort,
     UberonSearchPage,
+    UberonSearchSort,
     UberonSource,
 )
 
@@ -72,14 +73,13 @@ def _repository_failure(exc: StorageError) -> HTTPException:
 
 @router.get("/search", response_model=UberonSearchPage)
 async def search(
-    store: UberonStore,
     index: UberonSearch,
     metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1)],
     source: UberonSource | None = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    sort: UberonRepositorySort = "relevance",
+    sort: UberonSearchSort = "relevance",
 ) -> UberonSearchPage:
     repository = await _ready(metadata)
     try:
@@ -108,7 +108,7 @@ async def list_concepts(
     source: UberonSource | None = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    sort: UberonRepositorySort = "source",
+    sort: UberonBrowseSort = "source",
 ) -> UberonSearchPage:
     await _ready(metadata)
     try:
