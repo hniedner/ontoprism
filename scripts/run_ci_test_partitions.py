@@ -35,6 +35,13 @@ from scripts.validation.test_partitions import (  # noqa: E402
     validate_artifacts,
 )
 
+from ontolib.core.data_build_tools import (  # noqa: E402
+    JENA_INSTALL_DIR_ENV,
+    ROBOT_INSTALL_DIR_ENV,
+    identify_jena_installation,
+    identify_robot_installation,
+)
+
 EXPECTED_LAYERS = tuple(spec.layer for spec in PARTITION_SPECS)
 
 
@@ -48,6 +55,8 @@ def _parser() -> argparse.ArgumentParser:
     partition.add_argument("--coverage-file", type=Path, required=True)
     partition.add_argument("--coverage-xml", type=Path)
     partition.add_argument("--identity", type=Path, required=True)
+    measure = subparsers.add_parser("measure-integration")
+    measure.add_argument("--output", type=Path, required=True)
     subparsers.add_parser("all")
     return parser
 
@@ -59,7 +68,11 @@ def _partition_contract(lane: str, shard: str) -> PartitionSpec:
 
 
 def _pytest_command(
-    lane: str, *, collect_only: bool, coverage_xml: Path | None
+    lane: str,
+    *,
+    collect_only: bool,
+    coverage_xml: Path | None,
+    with_coverage: bool = True,
 ) -> list[str]:
     pytest = shutil.which("pytest")
     if pytest is None:
@@ -69,7 +82,7 @@ def _pytest_command(
     arguments = ["ontolib/tests", "backend/tests", "-m", marker]
     if collect_only:
         arguments.append("--collect-only")
-    else:
+    elif with_coverage:
         arguments.extend(
             [
                 "--cov=ontolib/src",
@@ -89,6 +102,26 @@ def _pytest_command(
             *arguments,
         ]
     return [pytest, *arguments]
+
+
+def _integration_tool_environment(environment: dict[str, str]) -> dict[str, str]:
+    """Fail closed unless both pinned external tools are configured and runnable."""
+    robot_raw = environment.get(ROBOT_INSTALL_DIR_ENV)
+    jena_raw = environment.get(JENA_INSTALL_DIR_ENV)
+    if not robot_raw or not jena_raw:
+        raise RuntimeError(
+            "ROBOT and Jena are required for every integration partition"
+        )
+    robot_dir = Path(robot_raw).resolve()
+    jena_dir = Path(jena_raw).resolve()
+    identify_robot_installation(robot_dir)
+    identify_jena_installation(jena_dir)
+    return {
+        **environment,
+        "PATH": f"{robot_dir}{os.pathsep}{environment.get('PATH', '')}",
+        ROBOT_INSTALL_DIR_ENV: str(robot_dir),
+        JENA_INSTALL_DIR_ENV: str(jena_dir),
+    }
 
 
 def _write_identity(path: Path, layer: str) -> ArtifactIdentity:
@@ -128,6 +161,7 @@ def run_partition(
     identity: Path,
 ) -> float:
     """Collect, receipt, then execute one validated fixed partition."""
+    started = time.monotonic()
     spec = _partition_contract(lane, shard)
     for output in (receipt, coverage_file, identity, coverage_xml):
         if output is not None and output.exists():
@@ -141,7 +175,9 @@ def run_partition(
         "ONTOPRISM_TEST_PARTITION_PHASE": "collect",
         "ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": "1",
     }
-    started = time.monotonic()
+    if lane == "integration":
+        environment = _integration_tool_environment(environment)
+    preflight_finished = time.monotonic()
     subprocess.run(  # noqa: S603 - fixed repository test command
         _pytest_command(lane, collect_only=True, coverage_xml=None),
         cwd=ROOT,
@@ -149,6 +185,7 @@ def run_partition(
         check=True,
     )
     load_receipt(receipt)
+    collection_finished = time.monotonic()
     execution_environment = {
         **environment,
         "ONTOPRISM_TEST_PARTITION_PHASE": "execute",
@@ -161,6 +198,37 @@ def run_partition(
         check=True,
     )
     _write_identity(identity, spec.layer)
+    finished = time.monotonic()
+    print(
+        f"partition phases {lane}/{shard}: "
+        f"preflight={preflight_finished - started:.1f}s, "
+        f"collection={collection_finished - preflight_finished:.1f}s, "
+        f"tests={finished - collection_finished:.1f}s"
+    )
+    return finished - started
+
+
+def measure_integration(output: Path) -> float:
+    """Run the full safe lane once and generate measured per-module weights."""
+    output = output.resolve()
+    output.unlink(missing_ok=True)
+    environment = _integration_tool_environment(
+        {**os.environ, "ONTOPRISM_TEST_TIMINGS_OUTPUT": str(output)}
+    )
+    started = time.monotonic()
+    subprocess.run(  # noqa: S603 - fixed repository test command
+        _pytest_command(
+            "integration",
+            collect_only=False,
+            coverage_xml=None,
+            with_coverage=False,
+        ),
+        cwd=ROOT,
+        env=environment,
+        check=True,
+    )
+    if not output.is_file():
+        raise RuntimeError("integration timing run produced no measurement")
     return time.monotonic() - started
 
 
@@ -314,7 +382,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "all":
         return run_all()
-    run_partition(
+    if args.command == "measure-integration":
+        duration = measure_integration(args.output)
+        print(f"integration timing measurement: {duration:.1f}s -> {args.output}")
+        return 0
+    duration = run_partition(
         args.lane,
         args.shard,
         receipt=args.receipt,
@@ -322,6 +394,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         coverage_xml=args.coverage_xml,
         identity=args.identity,
     )
+    print(f"partition {args.lane}/{args.shard}: {duration:.1f}s")
     return 0
 
 

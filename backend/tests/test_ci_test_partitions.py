@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +16,8 @@ from pydantic import ValidationError
 from scripts import run_ci_test_partitions as runner
 from scripts.validation import test_partitions as partitions
 from scripts.validation.test_partitions import (
-    ALGORITHM_VERSION,
+    BACKEND_ALGORITHM_VERSION,
+    INTEGRATION_ALGORITHM_VERSION,
     CollectionRecord,
     IntegrationClassification,
     Lane,
@@ -116,20 +118,197 @@ fixtures = ["isolated_postgres_settings"]
     )
 
     assert classification.qlever_files == ("tests/test_mixed.py",)
-    assert classification.postgres_files == (
+    assert classification.non_qlever_files == (
         "tests/test_nonmutating.py",
         "tests/test_pg.py",
     )
     assert classification.robot_files == ("tests/test_pg.py",)
     assert classification.jena_files == classification.qlever_files
     assert reordered == classification
-    assert set(classification.qlever_files + classification.postgres_files) == {
+    assert set(classification.qlever_files + classification.non_qlever_files) == {
         record.path for record in records
     }
     assert classification.evidence_sha256
 
 
-def test_integration_capabilities_reject_robot_qlever_conflict_and_missing_robot(
+def test_integration_weighted_partition_is_stable_balanced_and_file_level(
+    tmp_path: Path,
+) -> None:
+    weights = tmp_path / "weights.toml"
+    weights.write_text(
+        """
+schema_version = 1
+measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
+measurement_date = "2026-09-05"
+measurement_worktree_dirty = true
+measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
+default_weight_seconds = 5.0
+
+[weights]
+"tests/test_heavy.py" = 10.0
+"tests/test_medium.py" = 7.0
+"tests/test_light.py" = 3.0
+""".lstrip()
+    )
+    records = _records(
+        "tests/test_new.py",
+        "tests/test_light.py",
+        "tests/test_heavy.py",
+        "tests/test_medium.py",
+    )
+
+    first = partitions.assign_integration_modules(records, weights, shard_index=0)
+    second = partitions.assign_integration_modules(
+        tuple(reversed(records)), weights, shard_index=1
+    )
+
+    assert first.selected_files == (
+        "tests/test_heavy.py",
+        "tests/test_light.py",
+    )
+    assert second.selected_files == (
+        "tests/test_medium.py",
+        "tests/test_new.py",
+    )
+    assert first.total_weight_seconds == 13.0
+    assert second.total_weight_seconds == 12.0
+    assert first.unweighted_files == second.unweighted_files == ("tests/test_new.py",)
+    assert first.weights_sha256 == second.weights_sha256
+    assert set(first.selected_files).isdisjoint(second.selected_files)
+    assert set(first.selected_files + second.selected_files) == {
+        record.path for record in records
+    }
+
+
+def test_integration_weights_reject_stale_paths_and_multiple_unweighted_files(
+    tmp_path: Path,
+) -> None:
+    weights = tmp_path / "weights.toml"
+    weights.write_text(
+        """
+schema_version = 1
+measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
+measurement_date = "2026-09-05"
+measurement_worktree_dirty = true
+measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
+default_weight_seconds = 5.0
+
+[weights]
+"tests/test_stale.py" = 1.0
+""".lstrip()
+    )
+
+    with pytest.raises(ValueError, match="stale integration weight"):
+        partitions.assign_integration_modules(
+            _records("tests/test_current.py"), weights, shard_index=0
+        )
+
+    weights.write_text(weights.read_text().replace("test_stale", "test_current"))
+    with pytest.raises(ValueError, match="more than one unweighted"):
+        partitions.assign_integration_modules(
+            _records(
+                "tests/test_current.py", "tests/test_new_a.py", "tests/test_new_b.py"
+            ),
+            weights,
+            shard_index=0,
+        )
+
+
+def test_duration_capture_sums_all_pytest_phases_and_writes_generated_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "integration-file-durations.toml"
+    monkeypatch.setenv("ONTOPRISM_TEST_TIMINGS_OUTPUT", str(output))
+    partitions.pytest_sessionstart(SimpleNamespace())
+    for nodeid, when, duration in (
+        ("tests/test_b.py::test_two", "setup", 2.0),
+        ("tests/test_a.py::test_one", "call", 1.25),
+        ("tests/test_b.py::test_two", "call", 3.0),
+        ("tests/test_b.py::test_two", "teardown", 0.5),
+    ):
+        partitions.pytest_runtest_logreport(
+            SimpleNamespace(nodeid=nodeid, when=when, duration=duration)
+        )
+    monkeypatch.setattr(partitions, "_current_commit", lambda: "a" * 40)
+    monkeypatch.setattr(partitions, "_measurement_date", lambda: "2026-09-05")
+    monkeypatch.setattr(partitions, "_worktree_dirty", lambda: True)
+
+    partitions.pytest_sessionfinish(SimpleNamespace(), 0)
+
+    generated = tomllib.loads(output.read_text())
+    assert generated["measured_commit"] == "a" * 40
+    assert generated["measurement_date"] == "2026-09-05"
+    assert generated["measurement_worktree_dirty"] is True
+    assert generated["measurement_command"].startswith(
+        "pdm run ci-test-measure-integration --output "
+    )
+    assert generated["weights"] == {
+        "tests/test_a.py": 1.25,
+        "tests/test_b.py": 5.5,
+    }
+    assert generated["default_weight_seconds"] == 3.375
+
+
+def test_every_integration_partition_preflights_both_external_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    def reject_missing_tools(environment: dict[str, str]) -> dict[str, str]:
+        calls.append(environment)
+        raise RuntimeError("ROBOT and Jena are required")
+
+    monkeypatch.setattr(runner, "_integration_tool_environment", reject_missing_tools)
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("collection ran before tool preflight"),
+    )
+
+    for shard in ("0", "1"):
+        with pytest.raises(RuntimeError, match="ROBOT and Jena"):
+            runner.run_partition(
+                "integration",
+                shard,
+                receipt=tmp_path / f"receipt-{shard}.json",
+                coverage_file=tmp_path / f"coverage-{shard}",
+                coverage_xml=None,
+                identity=tmp_path / f"identity-{shard}.json",
+            )
+
+    assert len(calls) == 2
+
+
+def test_integration_tool_preflight_validates_pinned_installs_and_exports_robot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    robot = tmp_path / "robot"
+    jena = tmp_path / "jena"
+    observed: list[tuple[str, Path]] = []
+    monkeypatch.setattr(
+        runner,
+        "identify_robot_installation",
+        lambda path: observed.append(("robot", path)),
+    )
+    monkeypatch.setattr(
+        runner,
+        "identify_jena_installation",
+        lambda path: observed.append(("jena", path)),
+    )
+
+    environment = runner._integration_tool_environment(
+        {
+            "PATH": "/existing/bin",
+            "ONTOPRISM_ROBOT_DIR": str(robot),
+            "ONTOPRISM_JENA_DIR": str(jena),
+        }
+    )
+
+    assert observed == [("robot", robot), ("jena", jena)]
+    assert environment["PATH"] == f"{robot}{os.pathsep}/existing/bin"
+
+
+def test_integration_capabilities_require_nonempty_robot_evidence(
     tmp_path: Path,
 ) -> None:
     manifest = tmp_path / "integration_mutators.toml"
@@ -137,14 +316,8 @@ def test_integration_capabilities_reject_robot_qlever_conflict_and_missing_robot
         '[[mutator]]\npath = "tests/test_qlever.py"\n'
         'fixtures = ["isolated_qlever_settings"]\n'
     )
-    qlever_robot = _record_with(
-        "tests/test_qlever.py",
-        markers=frozenset({"integration", "requires_robot"}),
-    )
     postgres = _record_with("tests/test_postgres.py")
 
-    with pytest.raises(ValueError, match=r"ROBOT.*postgres"):
-        IntegrationClassification.from_collection((qlever_robot, postgres), manifest)
     with pytest.raises(ValueError, match=r"ROBOT.*nonempty"):
         IntegrationClassification.from_collection(
             (_record_with("tests/test_qlever.py"), postgres), manifest
@@ -163,8 +336,6 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
             spec.layer,
             spec.coverage_stem,
             spec.artifact_name,
-            spec.needs_robot,
-            spec.needs_jena,
         )
         for spec in specs
     ) == (
@@ -176,8 +347,6 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
             "python-unit-0",
             "unit-0",
             "coverage-backend-1",
-            False,
-            False,
         ),
         (
             "backend",
@@ -187,43 +356,35 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
             "python-unit-1",
             "unit-1",
             "coverage-backend-2",
-            False,
-            False,
         ),
         (
             "integration",
-            "qlever",
+            "0",
             0,
             2,
-            "python-integration-qlever",
-            "integration-qlever",
-            "coverage-integration-qlever",
-            False,
-            True,
+            "python-integration-0",
+            "integration-0",
+            "coverage-integration-1",
         ),
         (
             "integration",
-            "postgres",
+            "1",
             1,
             2,
-            "python-integration-postgres",
-            "integration-postgres",
-            "coverage-integration-postgres",
-            True,
-            False,
+            "python-integration-1",
+            "integration-1",
+            "coverage-integration-2",
         ),
     )
     with pytest.raises(ValidationError, match="correlation"):
         partitions.PartitionSpec(
             lane="backend",
-            shard_id="qlever",
+            shard_id="1",
             shard_index=0,
             shard_count=2,
             layer="python-unit-0",
             coverage_stem="unit-0",
             artifact_name="coverage-backend-1",
-            needs_robot=False,
-            needs_jena=False,
         )
 
 
@@ -277,14 +438,8 @@ def test_partition_environment_rejects_invalid_phase_and_boolean(
 def test_receipt_rejects_lane_shard_and_index_mismatch() -> None:
     full = ("tests/test_a.py::test_a",)
 
-    with pytest.raises(ValidationError, match="correlation"):
-        _receipt(
-            lane="backend",
-            shard_id="qlever",
-            shard_index=0,
-            full=full,
-            selected=full,
-        )
+    with pytest.raises(ValueError, match="invalid fixed partition"):
+        partitions.partition_spec("backend", "qlever")
     with pytest.raises(ValidationError, match="correlation"):
         _receipt(
             lane="backend",
@@ -470,7 +625,8 @@ def test_real_pytest_xdist_workers_collect_the_same_file_level_shard(
         sum(nodeid.startswith(f"{path}::") for nodeid in selected) == 2
         for path in selected_files
     )
-    assert ALGORITHM_VERSION == "sha256-mod-v1"
+    assert BACKEND_ALGORITHM_VERSION == "sha256-mod-v1"
+    assert INTEGRATION_ALGORITHM_VERSION == "greedy-weighted-lpt-v1"
 
 
 def test_artifact_validation_rejects_missing_unexpected_and_non_file_entries(
@@ -489,15 +645,15 @@ def test_artifact_validation_rejects_missing_unexpected_and_non_file_entries(
             "coverage-unit-1.xml",
             "partition-backend-1.json",
         },
-        "coverage-integration-qlever": {
-            ".coverage.integration-qlever",
-            "coverage-integration-qlever.identity.json",
-            "partition-integration-qlever.json",
+        "coverage-integration-1": {
+            ".coverage.integration-0",
+            "coverage-integration-0.identity.json",
+            "partition-integration-0.json",
         },
-        "coverage-integration-postgres": {
-            ".coverage.integration-postgres",
-            "coverage-integration-postgres.identity.json",
-            "partition-integration-postgres.json",
+        "coverage-integration-2": {
+            ".coverage.integration-1",
+            "coverage-integration-1.identity.json",
+            "partition-integration-1.json",
         },
     }
     for directory, names in expected.items():
@@ -538,7 +694,7 @@ def test_artifact_validation_loads_and_aggregates_receipt_files(tmp_path: Path) 
     classification = IntegrationClassification(
         manifest_sha256="a" * 64,
         qlever_files=("tests/test_qlever.py",),
-        postgres_files=("tests/test_postgres.py",),
+        non_qlever_files=("tests/test_postgres.py",),
         robot_files=("tests/test_postgres.py",),
         jena_files=("tests/test_qlever.py",),
         evidence_sha256="b" * 64,
@@ -556,7 +712,7 @@ def test_artifact_validation_loads_and_aggregates_receipt_files(tmp_path: Path) 
         selected = (
             backend_full[spec.shard_index : spec.shard_index + 1]
             if spec.lane == "backend"
-            else (f"tests/test_{spec.shard_id}.py::test_contract",)
+            else integration_full[spec.shard_index : spec.shard_index + 1]
         )
         receipt = build_receipt(
             lane=spec.lane,
@@ -568,6 +724,10 @@ def test_artifact_validation_loads_and_aggregates_receipt_files(tmp_path: Path) 
             ),
             selected_nodeids=selected,
             classification=classification if spec.lane == "integration" else None,
+            weights_sha256="c" * 64 if spec.lane == "integration" else None,
+            default_weight_seconds=5.0 if spec.lane == "integration" else None,
+            unweighted_files=(),
+            selected_weight_seconds=(1.0 if spec.lane == "integration" else None),
         )
         (artifact / spec.receipt_name).write_text(receipt.model_dump_json())
         (artifact / spec.identity_name).write_text(json.dumps({"layer": spec.layer}))
@@ -705,8 +865,8 @@ def test_run_all_removes_stale_root_coverage_and_uses_exact_combine_paths(
     assert [Path(path).name for path in combine[-4:]] == [
         ".coverage.unit-0",
         ".coverage.unit-1",
-        ".coverage.integration-qlever",
-        ".coverage.integration-postgres",
+        ".coverage.integration-0",
+        ".coverage.integration-1",
     ]
     report = next(command for command in commands if "python-report" in command)
     identity_index = report.index("--identity") + 1

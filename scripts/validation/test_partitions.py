@@ -7,22 +7,31 @@ import hashlib
 import importlib
 import json
 import os
+import re
+import shutil
+import statistics
+import subprocess
 import tempfile
 import tomllib
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ALGORITHM_VERSION = "sha256-mod-v1"
+BACKEND_ALGORITHM_VERSION = "sha256-mod-v1"
+INTEGRATION_ALGORITHM_VERSION = "greedy-weighted-lpt-v1"
 RECEIPT_SCHEMA_VERSION = 1
 SHARD_COUNT = 2
+MAX_UNWEIGHTED_INTEGRATION_FILES = 1
 _ENV_PREFIX = "ONTOPRISM_TEST_PARTITION_"
+_TIMINGS_OUTPUT_ENV = "ONTOPRISM_TEST_TIMINGS_OUTPUT"
 _QLEVER_FIXTURE_FRAGMENT = "qlever"
 Lane = Literal["backend", "integration"]
 Phase = Literal["collect", "execute"]
-ShardId = Literal["0", "1", "qlever", "postgres"]
+ShardId = Literal["0", "1"]
+_timings: dict[str, float] = {}
 
 
 def _usage_error(message: str) -> Exception:
@@ -80,8 +89,6 @@ class PartitionSpec(_Document):
     layer: str
     coverage_stem: str
     artifact_name: str
-    needs_robot: bool
-    needs_jena: bool
 
     @model_validator(mode="after")
     def validate_correlation(self) -> Self:
@@ -92,19 +99,17 @@ class PartitionSpec(_Document):
             expected_stem = f"unit-{self.shard_id}"
             expected_artifact = f"coverage-backend-{expected_index + 1}"
         else:
-            if self.shard_id not in {"qlever", "postgres"}:
+            if self.shard_id not in {"0", "1"}:
                 raise ValueError("partition lane/shard correlation is invalid")
-            expected_index = 0 if self.shard_id == "qlever" else 1
+            expected_index = int(self.shard_id)
             expected_stem = f"integration-{self.shard_id}"
-            expected_artifact = f"coverage-integration-{self.shard_id}"
+            expected_artifact = f"coverage-integration-{expected_index + 1}"
         if (
             self.shard_count != SHARD_COUNT
             or self.shard_index != expected_index
             or self.layer != f"python-{expected_stem}"
             or self.coverage_stem != expected_stem
             or self.artifact_name != expected_artifact
-            or self.needs_robot != (self.shard_id == "postgres")
-            or self.needs_jena != (self.shard_id == "qlever")
         ):
             raise ValueError("partition lane/shard correlation is invalid")
         return self
@@ -148,8 +153,6 @@ PARTITION_SPECS = (
         layer="python-unit-0",
         coverage_stem="unit-0",
         artifact_name="coverage-backend-1",
-        needs_robot=False,
-        needs_jena=False,
     ),
     PartitionSpec(
         lane="backend",
@@ -159,30 +162,24 @@ PARTITION_SPECS = (
         layer="python-unit-1",
         coverage_stem="unit-1",
         artifact_name="coverage-backend-2",
-        needs_robot=False,
-        needs_jena=False,
     ),
     PartitionSpec(
         lane="integration",
-        shard_id="qlever",
+        shard_id="0",
         shard_index=0,
         shard_count=2,
-        layer="python-integration-qlever",
-        coverage_stem="integration-qlever",
-        artifact_name="coverage-integration-qlever",
-        needs_robot=False,
-        needs_jena=True,
+        layer="python-integration-0",
+        coverage_stem="integration-0",
+        artifact_name="coverage-integration-1",
     ),
     PartitionSpec(
         lane="integration",
-        shard_id="postgres",
+        shard_id="1",
         shard_index=1,
         shard_count=2,
-        layer="python-integration-postgres",
-        coverage_stem="integration-postgres",
-        artifact_name="coverage-integration-postgres",
-        needs_robot=True,
-        needs_jena=False,
+        layer="python-integration-1",
+        coverage_stem="integration-1",
+        artifact_name="coverage-integration-2",
     ),
 )
 
@@ -254,7 +251,7 @@ class IntegrationClassification(_Document):
 
     manifest_sha256: str
     qlever_files: tuple[str, ...]
-    postgres_files: tuple[str, ...]
+    non_qlever_files: tuple[str, ...]
     robot_files: tuple[str, ...]
     jena_files: tuple[str, ...]
     evidence_sha256: str
@@ -296,7 +293,7 @@ class IntegrationClassification(_Document):
         qlever_files = tuple(
             sorted(inventory & (manifest_qlever_files | collected_qlever_files))
         )
-        postgres_files = tuple(sorted(inventory - set(qlever_files)))
+        non_qlever_files = tuple(sorted(inventory - set(qlever_files)))
         robot_files = tuple(
             sorted(
                 {
@@ -309,8 +306,6 @@ class IntegrationClassification(_Document):
         jena_files = qlever_files
         if not robot_files:
             raise ValueError("ROBOT file assignment must be nonempty")
-        if not set(robot_files) <= set(postgres_files):
-            raise ValueError("ROBOT files must be contained by the postgres shard")
         evidence = {
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "inventory": sorted(inventory),
@@ -323,11 +318,87 @@ class IntegrationClassification(_Document):
         return cls(
             manifest_sha256=evidence["manifest_sha256"],
             qlever_files=qlever_files,
-            postgres_files=postgres_files,
+            non_qlever_files=non_qlever_files,
             robot_files=robot_files,
             jena_files=jena_files,
             evidence_sha256=evidence_sha256,
         )
+
+
+class IntegrationPartition(_Document):
+    """One deterministic file assignment derived from measured weights."""
+
+    selected_files: tuple[str, ...]
+    total_weight_seconds: Annotated[float, Field(gt=0)]
+    weights_sha256: str
+    default_weight_seconds: Annotated[float, Field(gt=0)]
+    unweighted_files: tuple[str, ...]
+
+
+def assign_integration_modules(
+    records: Sequence[CollectionRecord], weights_path: Path, *, shard_index: int
+) -> IntegrationPartition:
+    """Assign whole integration modules by deterministic greedy LPT bin packing."""
+    if shard_index not in range(SHARD_COUNT):
+        raise ValueError("integration shard index is out of range")
+    manifest_bytes = weights_path.read_bytes()
+    raw = tomllib.loads(manifest_bytes.decode("utf-8"))
+    if raw.get("schema_version") != 1:
+        raise ValueError("unsupported integration weight schema")
+    measured_commit = raw.get("measured_commit")
+    measurement_date = raw.get("measurement_date")
+    measurement_worktree_dirty = raw.get("measurement_worktree_dirty")
+    measurement_command = raw.get("measurement_command")
+    default = raw.get("default_weight_seconds")
+    raw_weights = raw.get("weights")
+    if (
+        not isinstance(measured_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", measured_commit) is None
+        or not isinstance(measurement_date, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}", measurement_date) is None
+        or not isinstance(measurement_worktree_dirty, bool)
+        or not isinstance(measurement_command, str)
+        or not measurement_command.startswith(
+            "pdm run ci-test-measure-integration --output "
+        )
+        or not isinstance(default, float)
+        or default <= 0
+        or not isinstance(raw_weights, dict)
+        or not raw_weights
+        or not all(
+            isinstance(path, str) and isinstance(seconds, float) and seconds > 0
+            for path, seconds in raw_weights.items()
+        )
+    ):
+        raise ValueError("integration weight manifest is malformed")
+    inventory = {record.path for record in records}
+    stale = set(raw_weights) - inventory
+    if stale:
+        raise ValueError(f"stale integration weight paths: {sorted(stale)}")
+    unweighted = tuple(sorted(inventory - set(raw_weights)))
+    if len(unweighted) > MAX_UNWEIGHTED_INTEGRATION_FILES:
+        raise ValueError(
+            "more than one unweighted integration file; regenerate measured weights"
+        )
+    effective = {path: float(raw_weights.get(path, default)) for path in inventory}
+    bins: list[list[str]] = [[] for _ in range(SHARD_COUNT)]
+    totals = [0.0] * SHARD_COUNT
+    for path, seconds in sorted(
+        effective.items(), key=lambda item: (-item[1], item[0])
+    ):
+        target = min(range(SHARD_COUNT), key=lambda index: (totals[index], index))
+        bins[target].append(path)
+        totals[target] += seconds
+    selected = tuple(sorted(bins[shard_index]))
+    if not selected:
+        raise ValueError(f"empty integration shard {shard_index}/{SHARD_COUNT}")
+    return IntegrationPartition(
+        selected_files=selected,
+        total_weight_seconds=totals[shard_index],
+        weights_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        default_weight_seconds=default,
+        unweighted_files=unweighted,
+    )
 
 
 class PartitionReceipt(_Document):
@@ -345,12 +416,21 @@ class PartitionReceipt(_Document):
     selected_sha256: str
     selected_count: Annotated[int, Field(gt=0)]
     integration_classification: IntegrationClassification | None = None
+    weights_sha256: str | None = None
+    default_weight_seconds: Annotated[float, Field(gt=0)] | None = None
+    unweighted_files: tuple[str, ...] = ()
+    selected_weight_seconds: Annotated[float, Field(gt=0)] | None = None
 
     @model_validator(mode="after")
     def validate_internal_digests(self) -> Self:  # noqa: C901, PLR0912
         if self.schema_version != RECEIPT_SCHEMA_VERSION:
             raise ValueError("unsupported partition receipt schema")
-        if self.algorithm_version != ALGORITHM_VERSION:
+        expected_algorithm = (
+            BACKEND_ALGORITHM_VERSION
+            if self.lane == "backend"
+            else INTEGRATION_ALGORITHM_VERSION
+        )
+        if self.algorithm_version != expected_algorithm:
             raise ValueError("unsupported partition algorithm")
         if self.shard_count != SHARD_COUNT:
             raise ValueError("partition receipt must describe exactly two shards")
@@ -382,6 +462,17 @@ class PartitionReceipt(_Document):
             self.integration_classification is not None
         ):
             raise ValueError("integration classification presence disagrees with lane")
+        has_weight_evidence = (
+            self.weights_sha256 is not None
+            and self.default_weight_seconds is not None
+            and self.selected_weight_seconds is not None
+        )
+        if (self.lane == "integration") != has_weight_evidence:
+            raise ValueError("integration weight evidence presence disagrees with lane")
+        if self.lane == "backend" and self.unweighted_files:
+            raise ValueError(
+                "backend receipt cannot contain integration weight evidence"
+            )
         return self
 
 
@@ -430,6 +521,10 @@ def build_receipt(
     full_inventory: Sequence[str],
     selected_nodeids: Sequence[str],
     classification: IntegrationClassification | None,
+    weights_sha256: str | None = None,
+    default_weight_seconds: float | None = None,
+    unweighted_files: Sequence[str] = (),
+    selected_weight_seconds: float | None = None,
 ) -> PartitionReceipt:
     full = tuple(sorted(set(full_inventory)))
     selected = tuple(sorted(set(selected_nodeids)))
@@ -439,13 +534,21 @@ def build_receipt(
         shard_id=shard_id,
         shard_index=shard_index,
         shard_count=shard_count,
-        algorithm_version=ALGORITHM_VERSION,
+        algorithm_version=(
+            BACKEND_ALGORITHM_VERSION
+            if lane == "backend"
+            else INTEGRATION_ALGORITHM_VERSION
+        ),
         full_inventory=full,
         full_inventory_sha256=_digest_strings(full),
         selected_nodeids=selected,
         selected_sha256=_digest_strings(selected),
         selected_count=len(selected),
         integration_classification=classification,
+        weights_sha256=weights_sha256,
+        default_weight_seconds=default_weight_seconds,
+        unweighted_files=tuple(sorted(set(unweighted_files))),
+        selected_weight_seconds=selected_weight_seconds,
     )
 
 
@@ -490,20 +593,19 @@ def validate_partition_receipts(  # noqa: C901, PLR0912
             raise ValueError("integration classification evidence is missing")
         if not classification.robot_files:
             raise ValueError("ROBOT file assignment must be nonempty")
-        if not set(classification.robot_files) <= set(classification.postgres_files):
-            raise ValueError("ROBOT files must be contained by the postgres shard")
         if classification.jena_files != classification.qlever_files:
-            raise ValueError("Jena files must exactly equal the qlever shard files")
-        selected_files = [
-            {nodeid.partition("::")[0] for nodeid in receipt.selected_nodeids}
-            for receipt in receipts
-        ]
-        if selected_files != [
-            set(classification.qlever_files),
-            set(classification.postgres_files),
-        ]:
+            raise ValueError("Jena files must exactly equal QLever-dependent files")
+        weight_digests = {receipt.weights_sha256 for receipt in receipts}
+        defaults = {receipt.default_weight_seconds for receipt in receipts}
+        unweighted = {receipt.unweighted_files for receipt in receipts}
+        if len(weight_digests) != 1 or len(defaults) != 1 or len(unweighted) != 1:
+            raise ValueError("integration weight evidence differs between shards")
+        classified = set(classification.qlever_files + classification.non_qlever_files)
+        if classified != {
+            nodeid.partition("::")[0] for nodeid in receipts[0].full_inventory
+        }:
             raise ValueError(
-                "integration selections disagree with boundary classification"
+                "boundary classification does not cover integration inventory"
             )
 
 
@@ -532,7 +634,12 @@ def _eligible(record: CollectionRecord, lane: Lane) -> bool:
 
 def _selection(
     records: Sequence[CollectionRecord], lane: Lane, shard: str, root: Path
-) -> tuple[tuple[CollectionRecord, ...], IntegrationClassification | None, int]:
+) -> tuple[
+    tuple[CollectionRecord, ...],
+    IntegrationClassification | None,
+    IntegrationPartition | None,
+    int,
+]:
     eligible = tuple(record for record in records if _eligible(record, lane))
     if not eligible:
         raise _usage_error(f"{lane} full inventory is empty")
@@ -545,19 +652,20 @@ def _selection(
         selected_ids = set(
             assign_backend_modules([r.nodeid for r in eligible], index, SHARD_COUNT)
         )
-        return tuple(r for r in eligible if r.nodeid in selected_ids), None, index
+        return tuple(r for r in eligible if r.nodeid in selected_ids), None, None, index
     classification = IntegrationClassification.from_collection(
         eligible, root / "test_support/integration_mutators.toml"
     )
-    paths = (
-        set(classification.qlever_files)
-        if shard == "qlever"
-        else set(classification.postgres_files)
+    assignment = assign_integration_modules(
+        eligible,
+        root / "test_support/ci_partition_weights.toml",
+        shard_index=spec.shard_index,
     )
+    paths = set(assignment.selected_files)
     selected = tuple(record for record in eligible if record.path in paths)
     if not selected:
         raise _usage_error(f"empty integration shard {shard}")
-    return selected, classification, spec.shard_index
+    return selected, classification, assignment, spec.shard_index
 
 
 def _write_receipt(path: Path, receipt: PartitionReceipt) -> None:
@@ -634,6 +742,92 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _current_commit() -> str:
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required to identify timing evidence")
+    completed = subprocess.run(  # noqa: S603 - resolved git executable
+        [git, "rev-parse", "HEAD"],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _measurement_date() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+def _worktree_dirty() -> bool:
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required to identify timing evidence")
+    completed = subprocess.run(  # noqa: S603 - resolved git executable
+        [git, "status", "--porcelain"],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return bool(completed.stdout)
+
+
+def _write_timing_measurement(path: Path) -> None:
+    if not _timings:
+        raise RuntimeError("integration timing run recorded no test files")
+    default = statistics.median(_timings.values())
+    lines = [
+        "schema_version = 1",
+        f"measured_commit = {json.dumps(_current_commit())}",
+        f"measurement_date = {json.dumps(_measurement_date())}",
+        f"measurement_worktree_dirty = {str(_worktree_dirty()).lower()}",
+        "measurement_command = "
+        + json.dumps(
+            "pdm run ci-test-measure-integration --output "
+            "tmp/integration-file-durations.toml"
+        ),
+        f"default_weight_seconds = {default:.6f}",
+        "",
+        "[weights]",
+        *(
+            f"{json.dumps(module)} = {seconds:.6f}"
+            for module, seconds in sorted(_timings.items())
+        ),
+        "",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def pytest_sessionstart(session: Any) -> None:
+    """Reset optional whole-lane file timing capture before collection."""
+    del session
+    if os.environ.get(_TIMINGS_OUTPUT_ENV):
+        _timings.clear()
+        Path(os.environ[_TIMINGS_OUTPUT_ENV]).unlink(missing_ok=True)
+
+
+def pytest_runtest_logreport(report: Any) -> None:
+    """Attribute setup, call, and teardown durations to each test module."""
+    if os.environ.get(_TIMINGS_OUTPUT_ENV) and report.when in {
+        "setup",
+        "call",
+        "teardown",
+    }:
+        module = str(report.nodeid).partition("::")[0]
+        _timings[module] = _timings.get(module, 0.0) + float(report.duration)
+
+
+def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
+    """Publish a successful timing run as a generated TOML weight candidate."""
+    del session
+    output = os.environ.get(_TIMINGS_OUTPUT_ENV)
+    if output and exitstatus == 0:
+        _write_timing_measurement(Path(output))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "validate-artifacts":
@@ -666,7 +860,7 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     root = Path(str(config.rootpath)).resolve()
     records = tuple(_record(item, root) for item in items)
     eligible = tuple(record for record in records if _eligible(record, lane))
-    selected, classification, index = _selection(records, lane, shard, root)
+    selected, classification, assignment, index = _selection(records, lane, shard, root)
     selected_ids = {record.nodeid for record in selected}
     items[:] = [
         item
@@ -681,6 +875,16 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         full_inventory=[record.nodeid for record in eligible],
         selected_nodeids=[record.nodeid for record in selected],
         classification=classification,
+        weights_sha256=assignment.weights_sha256 if assignment is not None else None,
+        default_weight_seconds=(
+            assignment.default_weight_seconds if assignment is not None else None
+        ),
+        unweighted_files=(
+            assignment.unweighted_files if assignment is not None else ()
+        ),
+        selected_weight_seconds=(
+            assignment.total_weight_seconds if assignment is not None else None
+        ),
     )
     receipt_path = environment.receipt
     if environment.phase == "collect":

@@ -91,6 +91,7 @@ test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests back
 # contract, not a local speed optimization.
 test-ci = "python scripts/run_ci_test_partitions.py all"
 ci-test-partition = "python scripts/run_ci_test_partitions.py partition"
+ci-test-measure-integration = "python scripts/run_ci_test_partitions.py measure-integration"
 # The single pre-PR gate: everything CI enforces, in CI's own commands. Run this before
 # opening or updating a pull request, and before each merge into a milestone branch.
 # "Gates green" means this command exited 0 — not a subset of it. Three defects reached

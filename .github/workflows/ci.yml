@@ -250,23 +250,23 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          name: coverage-integration-qlever-receipt
-          path: coverage-integration-qlever
+          name: coverage-integration-1-receipt
+          path: coverage-integration-1
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          name: coverage-integration-qlever
-          path: coverage-integration-qlever
+          name: coverage-integration-1
+          path: coverage-integration-1
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          name: coverage-integration-postgres-receipt
-          path: coverage-integration-postgres
+          name: coverage-integration-2-receipt
+          path: coverage-integration-2
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          name: coverage-integration-postgres
-          path: coverage-integration-postgres
+          name: coverage-integration-2
+          path: coverage-integration-2
 
       - name: Validate partitions and combine same-commit coverage layers
         env:
@@ -277,17 +277,17 @@ jobs:
             --against-current \
             --expected-layer python-unit-0 \
             --expected-layer python-unit-1 \
-            --expected-layer python-integration-qlever \
-            --expected-layer python-integration-postgres \
+            --expected-layer python-integration-0 \
+            --expected-layer python-integration-1 \
             coverage-backend-1/coverage-unit-0.identity.json \
             coverage-backend-2/coverage-unit-1.identity.json \
-            coverage-integration-qlever/coverage-integration-qlever.identity.json \
-            coverage-integration-postgres/coverage-integration-postgres.identity.json
+            coverage-integration-1/coverage-integration-0.identity.json \
+            coverage-integration-2/coverage-integration-1.identity.json
           python -m coverage combine --keep \
             coverage-backend-1/.coverage.unit-0 \
             coverage-backend-2/.coverage.unit-1 \
-            coverage-integration-qlever/.coverage.integration-qlever \
-            coverage-integration-postgres/.coverage.integration-postgres
+            coverage-integration-1/.coverage.integration-0 \
+            coverage-integration-2/.coverage.integration-1
 
       - name: Verify independent Python line and branch coverage > 90%
         run: >-
@@ -380,7 +380,7 @@ jobs:
   # Both Postgres and QLever are started as pinned, nonce-owned containers by the
   # test harness; application endpoints remain dead sentinels until a test opts in.
   integration-tests:
-    name: integration tests (services, shard ${{ matrix.shard }})
+    name: integration tests (services, shard ${{ matrix.shard }}/2)
     needs: [changes]
     if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
@@ -388,12 +388,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: qlever
-            needs_robot: false
-            needs_jena: true
-          - shard: postgres
-            needs_robot: true
-            needs_jena: false
+          - shard: 1
+            index: 0
+          - shard: 2
+            index: 1
     env:
       DATABASE_URL: postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/ontoprism_test_forbidden
       NCIT_SPARQL_URL: http://127.0.0.1:9
@@ -413,17 +411,15 @@ jobs:
       - name: Install dependencies
         run: pdm sync --clean-unselected --dev
 
-      # Capability validation assigns every ROBOT/ELK contract to the postgres child,
-      # where this conditional installation prevents reasoner contracts from skipping.
-      - name: Set up Java 21 (for selected tools)
-        if: ${{ matrix.needs_robot || matrix.needs_jena }}
+      # Both balanced children get identical external-tool capabilities. The receipt
+      # still records QLever/Jena and ROBOT classifications as coverage evidence.
+      - name: Set up Java 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Install ROBOT
-        if: ${{ matrix.needs_robot }}
         env:
           ONTOPRISM_ROBOT_DIR: ${{ runner.temp }}/ontoprism-robot
         run: |
@@ -432,11 +428,9 @@ jobs:
           echo "ONTOPRISM_ROBOT_DIR=$ONTOPRISM_ROBOT_DIR" >> "$GITHUB_ENV"
 
       - name: Verify ROBOT
-        if: ${{ matrix.needs_robot }}
         run: robot --version
 
       - name: Install Apache Jena RIOT
-        if: ${{ matrix.needs_jena }}
         env:
           ONTOPRISM_JENA_DIR: ${{ runner.temp }}/ontoprism-jena
         run: |
@@ -444,7 +438,6 @@ jobs:
           echo "ONTOPRISM_JENA_DIR=$ONTOPRISM_JENA_DIR" >> "$GITHUB_ENV"
 
       - name: Verify Apache Jena RIOT
-        if: ${{ matrix.needs_jena }}
         run: |
           "$ONTOPRISM_JENA_DIR/bin/riot" --version
 
@@ -454,10 +447,10 @@ jobs:
         run: |
           pdm run ci-test-partition \
             --lane integration \
-            --shard "${{ matrix.shard }}" \
-            --receipt "partition-integration-${{ matrix.shard }}.json" \
-            --coverage-file ".coverage.integration-${{ matrix.shard }}" \
-            --identity "coverage-integration-${{ matrix.shard }}.identity.json"
+            --shard "${{ matrix.index }}" \
+            --receipt "partition-integration-${{ matrix.index }}.json" \
+            --coverage-file ".coverage.integration-${{ matrix.index }}" \
+            --identity "coverage-integration-${{ matrix.index }}.identity.json"
 
       - name: Upload integration partition receipt
         if: always()
@@ -465,7 +458,7 @@ jobs:
         with:
           name: coverage-integration-${{ matrix.shard }}-receipt
           if-no-files-found: error
-          path: partition-integration-${{ matrix.shard }}.json
+          path: partition-integration-${{ matrix.index }}.json
 
       - name: Upload integration coverage data
         if: success()
@@ -475,8 +468,8 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           path: |
-            .coverage.integration-${{ matrix.shard }}
-            coverage-integration-${{ matrix.shard }}.identity.json
+            .coverage.integration-${{ matrix.index }}
+            coverage-integration-${{ matrix.index }}.identity.json
 
   embedding-model-contract:
     name: pinned embedding model contract

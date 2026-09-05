@@ -34,8 +34,8 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   checks are these 11 visible `CI` checks: `detect changes`,
   `quality (pre-commit parity)`, `backend tests (shard 1/2)`,
   `backend tests (shard 2/2)`, `coverage verify (ontolib + backend)`,
-  `web tests + coverage`, `integration tests (services, shard qlever)`,
-  `integration tests (services, shard postgres)`, `pinned embedding model contract`,
+  `web tests + coverage`, `integration tests (services, shard 1/2)`,
+  `integration tests (services, shard 2/2)`, `pinned embedding model contract`,
   `docker build smoke`, and `CI summary`; plus `conventional commit subject`,
   `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify

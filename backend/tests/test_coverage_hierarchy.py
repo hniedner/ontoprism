@@ -353,8 +353,8 @@ def test_python_partition_identity_layer_set_is_exact() -> None:
     expected = (
         "python-unit-0",
         "python-unit-1",
-        "python-integration-qlever",
-        "python-integration-postgres",
+        "python-integration-0",
+        "python-integration-1",
     )
     identities = tuple(
         ArtifactIdentity(**{**_identity().as_dict(), "layer": layer})

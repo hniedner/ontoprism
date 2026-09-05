@@ -672,15 +672,24 @@ def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() ->
     assert integration["strategy"]["fail-fast"] is False
     assert integration["strategy"]["matrix"]["include"] == [
         {
-            "shard": spec.shard_id,
-            "needs_robot": spec.needs_robot,
-            "needs_jena": spec.needs_jena,
+            "shard": spec.shard_index + 1,
+            "index": spec.shard_index,
         }
         for spec in integration_specs
     ]
     assert (
-        integration["name"] == "integration tests (services, shard ${{ matrix.shard }})"
+        integration["name"]
+        == "integration tests (services, shard ${{ matrix.shard }}/2)"
     )
+    for name in (
+        "Set up Java 21",
+        "Install ROBOT",
+        "Verify ROBOT",
+        "Install Apache Jena RIOT",
+        "Verify Apache Jena RIOT",
+    ):
+        step = next(step for step in integration["steps"] if step.get("name") == name)
+        assert "if" not in step
 
     artifact_names = {
         step["with"]["name"]
@@ -700,6 +709,53 @@ def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() ->
     assert jobs["ci-summary"]["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == 8
 
 
+def test_robot_backed_integration_tests_have_the_static_requires_robot_marker() -> None:
+    robot_names = {
+        "classify",
+        "elk_reasoner",
+        "to_el_profile_and_check",
+        "validate_and_classify",
+    }
+    errors: list[str] = []
+    for path in sorted(_ROOT.glob("**/tests/**/test_*.py")):
+        tree = ast.parse(path.read_text())
+        module_robot_marker = False
+        module_integration_marker = False
+        for statement in tree.body:
+            if not isinstance(statement, ast.Assign):
+                continue
+            if not any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in statement.targets
+            ):
+                continue
+            module_markers = ast.unparse(statement.value)
+            module_robot_marker = "requires_robot" in module_markers
+            module_integration_marker = "integration" in module_markers
+        for function in (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        ):
+            decorators = " ".join(ast.unparse(item) for item in function.decorator_list)
+            if "integration" not in decorators and not module_integration_marker:
+                continue
+            referenced = {
+                node.id
+                for node in ast.walk(function)
+                if isinstance(node, ast.Name) and node.id in robot_names
+            }
+            if (
+                referenced
+                and not module_robot_marker
+                and "requires_robot" not in decorators
+            ):
+                errors.append(f"{path.relative_to(_ROOT)}::{function.name}")
+
+    assert errors == []
+
+
 def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() -> None:
     workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["coverage-verify"]["steps"]
@@ -711,10 +767,10 @@ def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() 
         "coverage-backend-1",
         "coverage-backend-2-receipt",
         "coverage-backend-2",
-        "coverage-integration-qlever-receipt",
-        "coverage-integration-qlever",
-        "coverage-integration-postgres-receipt",
-        "coverage-integration-postgres",
+        "coverage-integration-1-receipt",
+        "coverage-integration-1",
+        "coverage-integration-2-receipt",
+        "coverage-integration-2",
     ]
     combine_index, combine = next(
         (index, step)
@@ -731,8 +787,8 @@ def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() 
     for path in (
         "coverage-backend-1/.coverage.unit-0",
         "coverage-backend-2/.coverage.unit-1",
-        "coverage-integration-qlever/.coverage.integration-qlever",
-        "coverage-integration-postgres/.coverage.integration-postgres",
+        "coverage-integration-1/.coverage.integration-0",
+        "coverage-integration-2/.coverage.integration-1",
     ):
         assert path in run
     strict_index = next(

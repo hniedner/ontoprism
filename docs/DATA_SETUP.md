@@ -477,10 +477,22 @@ endpoint. It never uses the configured active store and is deliberately excluded
 checks that the tracked 26.07d review sample names that exact certified source and that
 all selected codes are members of its neoplasm hierarchy.
 
-`pdm run test-ci` runs the same two file-level backend partitions and two
-resource-boundary integration partitions as CI, sequentially for local safety. This is
-behavioral parity, not a local speed optimization: it validates partition receipts and
-coverage identities before explicitly combining exactly four coverage files.
+`pdm run test-ci` runs the same two file-level backend partitions and two measured,
+file-level integration partitions as CI, sequentially for local safety. Both integration
+children preflight the pinned ROBOT and Jena installations and provision only the
+nonce-owned Postgres/QLever resources requested by their selected tests. The gate validates
+partition receipts and coverage identities before explicitly combining exactly four
+coverage files.
+
+Regenerate the tracked integration file weights after representative timing changes with:
+
+```bash
+pdm run ci-test-measure-integration --output tmp/integration-file-durations.toml
+```
+
+That safe, serial full-lane run records setup, call, and teardown time per module in a
+generated candidate. Review the generated metadata and timings, then replace
+`test_support/ci_partition_weights.toml`; the regular gate never rewrites the manifest.
 
 ### Validation and recovery
 
