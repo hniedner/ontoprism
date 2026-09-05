@@ -7,10 +7,10 @@
 	let { hits }: { hits: readonly CdeSummary[] } = $props();
 	const operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply only to the rows loaded on this page.' } as const;
 	const columns: readonly DataTableColumn<CdeSummary>[] = [
-		{ id: 'public_id', label: 'Public ID', cell: idCell, sortValue: (cde) => cde.public_id, filterValue: (cde) => `${cde.public_id} ${cde.version}`, filterAriaLabel: 'Filter loaded CDE public IDs and versions' },
-		{ id: 'name', label: 'Name', cell: nameCell, sortValue: (cde) => cde.long_name, filterValue: (cde) => `${cde.long_name} ${cde.short_name}`, filterAriaLabel: 'Filter loaded CDE names' },
-		{ id: 'context', label: 'Context', cell: contextCell, sortValue: (cde) => cde.context, filterValue: (cde) => cde.context, filterAriaLabel: 'Filter loaded CDE contexts' },
-		{ id: 'datatype', label: 'Type', cell: datatypeCell, sortValue: (cde) => cde.datatype, filterValue: (cde) => cde.datatype, filterAriaLabel: 'Filter loaded CDE datatypes' }
+		{ id: 'public_id', label: 'Public ID', cell: idCell, sortValue: (cde) => cde.public_id, filter: { value: (cde) => `${cde.public_id} ${cde.version}`, ariaLabel: 'Filter loaded CDE public IDs and versions' }, sticky: { side: 'left', offset: 0 } },
+		{ id: 'name', label: 'Name', cell: nameCell, sortValue: (cde) => cde.long_name, filter: { value: (cde) => `${cde.long_name} ${cde.short_name}`, ariaLabel: 'Filter loaded CDE names' } },
+		{ id: 'context', label: 'Context', cell: contextCell, sortValue: (cde) => cde.context, filter: { value: (cde) => cde.context, ariaLabel: 'Filter loaded CDE contexts' } },
+		{ id: 'datatype', label: 'Type', cell: datatypeCell, sortValue: (cde) => cde.datatype, filter: { value: (cde) => cde.datatype, ariaLabel: 'Filter loaded CDE datatypes' } }
 	];
 </script>
 
@@ -27,4 +27,4 @@
 	{#if cde.datatype}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{cde.datatype}</span>{:else}<span class="text-muted">—</span>{/if}
 {/snippet}
 
-<DataTable rows={hits} {columns} caption="caDSR CDE results loaded on this page" regionLabel="caDSR CDE loaded-page results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} />
+<DataTable rows={hits} {columns} caption="caDSR CDE results loaded on this page" regionLabel="caDSR CDE loaded-page results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} stickyHeader={true} />

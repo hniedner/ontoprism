@@ -11,10 +11,10 @@
 		scopeLabel: 'Filters and sorting apply only to the rows loaded on this page.'
 	} as const;
 	const columns: readonly DataTableColumn<SearchHit>[] = [
-		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filterValue: (hit) => hit.code, filterAriaLabel: 'Filter loaded NCIt codes' },
-		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filterValue: (hit) => hit.label, filterAriaLabel: 'Filter loaded NCIt names' },
-		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortValue: (hit) => hit.semantic_type, filterValue: (hit) => hit.semantic_type, filterAriaLabel: 'Filter loaded NCIt semantic types' },
-		{ id: 'representation_status', label: 'Status', cell: statusCell, sortValue: (hit) => hit.representation_status, filterValue: (hit) => hit.representation_status, filterAriaLabel: 'Filter loaded NCIt statuses' }
+		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filter: { value: (hit) => hit.code, ariaLabel: 'Filter loaded NCIt codes' }, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filter: { value: (hit) => hit.label, ariaLabel: 'Filter loaded NCIt names' } },
+		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortValue: (hit) => hit.semantic_type, filter: { value: (hit) => hit.semantic_type, ariaLabel: 'Filter loaded NCIt semantic types' } },
+		{ id: 'representation_status', label: 'Status', cell: statusCell, sortValue: (hit) => hit.representation_status, filter: { value: (hit) => hit.representation_status, ariaLabel: 'Filter loaded NCIt statuses' } }
 	];
 </script>
 
@@ -38,6 +38,7 @@
 	regionLabel="NCIt loaded-page results"
 	getRowId={(hit) => hit.code}
 	{operations}
+	stickyHeader={true}
 	initialSort={{ columnId: 'label', direction: 'asc' }}
 	emptyMessage="No results."
 />

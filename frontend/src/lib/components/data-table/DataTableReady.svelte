@@ -1,30 +1,15 @@
 <script lang="ts" generics="Row">
+	import { untrack } from 'svelte';
 	import DataTableBody from './DataTableBody.svelte';
 	import DataTableHead from './DataTableHead.svelte';
 	import { filterRows, sortRows } from './data-table';
-	import type { DataTableColumn, DataTableInitialSort, DataTableOperations, DataTableSortDirection } from './types';
+	import type { DataTableColumn, DataTableReadyProps, DataTableSortDirection } from './types';
 
-	interface Props {
-		rows: readonly Row[];
-		columns: readonly DataTableColumn<Row>[];
-		caption: string;
-		regionLabel: string;
-		getRowId: (row: Row) => string;
-		operations: DataTableOperations;
-		initialSort?: DataTableInitialSort;
-		emptyMessage: string;
-		filteredEmptyMessage: string;
-		stickyHeaderOffset?: number;
-	}
-
-	let { rows, columns, caption, regionLabel, getRowId, operations, initialSort, emptyMessage, filteredEmptyMessage, stickyHeaderOffset }: Props = $props();
-	let sortColumnId = $state<string | null>(null);
-	let sortDirection = $state<DataTableSortDirection>('asc');
+	let { rows, columns, caption, regionLabel, getRowId, operations, initialSort, emptyMessage, stickyHeader }: DataTableReadyProps<Row> = $props();
+	const startingSort = untrack(() => initialSort);
+	let sortColumnId = $state<string | null>(startingSort?.columnId ?? null);
+	let sortDirection = $state<DataTableSortDirection>(startingSort?.direction ?? 'asc');
 	let filters = $state<Record<string, string>>({});
-	$effect.pre(() => {
-		sortColumnId = initialSort?.columnId ?? null;
-		sortDirection = initialSort?.direction ?? 'asc';
-	});
 	let hasActiveFilters = $derived(Object.values(filters).some((value) => value.trim()));
 	let displayedRows = $derived.by(() => {
 		const filtered = operations.kind === 'client-page' ? filterRows(rows, columns, filters) : [...rows];
@@ -48,11 +33,12 @@
 		{#if hasActiveFilters}<button type="button" class="underline" onclick={() => (filters = {})}>Clear page-local filters</button>{/if}
 	</div>
 {/if}
+<!-- The labelled scrollable region needs a tab stop so keyboard users can scroll it. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="overflow-x-auto" role="region" aria-label={regionLabel} tabindex="0">
 	<table class="table-auto min-w-full border-separate border-spacing-0 text-sm">
 		<caption class="sr-only">{caption}</caption>
-		<DataTableHead {columns} {operations} {filters} {sortColumnId} {sortDirection} {stickyHeaderOffset} onsort={toggleSort} onfilter={(columnId, value) => (filters = { ...filters, [columnId]: value })} />
-		<DataTableBody rows={displayedRows} {columns} {getRowId} {hasActiveFilters} {emptyMessage} {filteredEmptyMessage} />
+		<DataTableHead {columns} {operations} {filters} {sortColumnId} {sortDirection} {stickyHeader} onsort={toggleSort} onfilter={(columnId, value) => (filters = { ...filters, [columnId]: value })} />
+		<DataTableBody rows={displayedRows} sourceRowsPresent={rows.length > 0} {columns} {getRowId} {hasActiveFilters} {emptyMessage} />
 	</table>
 </div>

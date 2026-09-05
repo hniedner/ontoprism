@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { DataTableColumn, DataTableOperations, DataTableState } from './types';
+	import type { DataTableColumn, DataTableOperations } from './types';
 	import DataTable from './DataTable.svelte';
 
 	export interface TestRow {
@@ -13,14 +13,15 @@
 	interface Props {
 		rows?: readonly TestRow[];
 		operations?: DataTableOperations;
-		state?: DataTableState;
 		caption?: string;
 		regionLabel?: string;
 		emptyMessage?: string;
+		emptyColumns?: boolean;
 		duplicateColumns?: boolean;
 		sticky?: boolean;
 		invalidSticky?: boolean;
 		invalidFilter?: boolean;
+		controls?: boolean;
 		initialSort?: { columnId: string; direction: 'asc' | 'desc' };
 		rowId?: (row: TestRow) => string;
 	}
@@ -28,28 +29,28 @@
 	let {
 		rows = [],
 		operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply to this loaded page.' },
-		state = { kind: 'ready' },
 		caption = 'Loaded records',
 		regionLabel = 'Loaded records table',
 		emptyMessage = 'No source records.',
+		emptyColumns = false,
 		duplicateColumns = false,
 		sticky = false,
 		invalidSticky = false,
 		invalidFilter = false,
+		controls = true,
 		initialSort,
 		rowId = (row) => row.id
 	}: Props = $props();
 
 	let columns = $derived.by((): readonly DataTableColumn<TestRow>[] => {
+		if (emptyColumns) return [];
 		const result: DataTableColumn<TestRow>[] = [
 			{
 				id: 'name',
 				label: 'Name',
 				cell: nameCell,
-				sortValue: (row) => row.name,
-				filterValue: (row) => row.name,
-				filterAriaLabel: 'Filter loaded names',
-				filterPlaceholder: 'Filter names',
+				sortValue: controls ? (row) => row.name : undefined,
+				filter: controls ? { value: (row) => row.name, ariaLabel: 'Filter loaded names' } : undefined,
 				sticky: sticky
 					? { side: 'left', offset: invalidSticky ? -1 : 0 }
 					: undefined
@@ -58,23 +59,23 @@
 				id: duplicateColumns ? 'name' : 'group',
 				label: 'Group',
 				cell: groupCell,
-				sortValue: (row) => row.group,
-				filterValue: invalidFilter ? undefined : (row) => row.group,
-				filterAriaLabel: invalidFilter ? 'Broken filter' : 'Filter loaded groups',
-				sticky: sticky ? { side: 'left', offset: 120 } : undefined
+				sortValue: controls ? (row) => row.group : undefined,
+				filter: controls
+					? { value: (row) => row.group, ariaLabel: invalidFilter ? ' ' : 'Filter loaded groups' }
+					: undefined
 			},
 			{
 				id: 'rank',
 				label: 'Rank',
 				cell: rankCell,
-				sortValue: (row) => row.rank,
-				sticky: sticky ? { side: 'right', offset: 0 } : undefined
+				sortValue: controls ? (row) => row.rank : undefined,
+				sticky: undefined
 			},
 			{
 				id: 'active',
 				label: 'Active',
 				cell: activeCell,
-				sortValue: (row) => row.active
+				sortValue: controls ? (row) => row.active : undefined
 			}
 		];
 		return result;
@@ -101,8 +102,7 @@
 	{regionLabel}
 	getRowId={rowId}
 	{operations}
-	{state}
 	{emptyMessage}
 	{initialSort}
-	stickyHeaderOffset={sticky ? 0 : undefined}
+	stickyHeader={sticky}
 />

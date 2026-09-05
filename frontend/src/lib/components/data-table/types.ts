@@ -4,8 +4,14 @@ export type DataTableScalar = string | number | boolean | null;
 export type DataTableSortDirection = 'asc' | 'desc';
 
 export interface DataTableStickyColumn {
-	side: 'left' | 'right';
+	side: 'left';
 	offset: number;
+}
+
+export interface DataTableFilter<Row> {
+	value: (row: Row) => DataTableScalar;
+	ariaLabel: string;
+	placeholder?: string;
 }
 
 export interface DataTableColumn<Row> {
@@ -13,24 +19,27 @@ export interface DataTableColumn<Row> {
 	label: string;
 	cell: Snippet<[Row]>;
 	sortValue?: (row: Row) => DataTableScalar;
-	filterValue?: (row: Row) => DataTableScalar;
-	filterAriaLabel?: string;
-	filterPlaceholder?: string;
+	filter?: DataTableFilter<Row>;
 	sticky?: DataTableStickyColumn;
-	headerClass?: string;
-	cellClass?: string;
 }
 
 export type DataTableOperations =
 	| { kind: 'none' }
 	| { kind: 'client-page'; scopeLabel: string };
 
-export type DataTableState =
-	| { kind: 'ready' }
-	| { kind: 'loading'; label?: string }
-	| { kind: 'error'; message: string };
-
 export interface DataTableInitialSort {
 	columnId: string;
 	direction: DataTableSortDirection;
+}
+
+export interface DataTableReadyProps<Row> {
+	rows: readonly Row[];
+	columns: readonly DataTableColumn<Row>[];
+	caption: string;
+	regionLabel: string;
+	getRowId: (row: Row) => string;
+	operations: DataTableOperations;
+	initialSort?: DataTableInitialSort;
+	emptyMessage: string;
+	stickyHeader: boolean;
 }

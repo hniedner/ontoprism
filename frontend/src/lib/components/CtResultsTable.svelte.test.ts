@@ -35,6 +35,10 @@ describe('CtResultsTable', () => {
 			'href',
 			'/repositories/clinicaltrials/NCT01'
 		);
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('lists the conditions when present', () => {
@@ -54,7 +58,7 @@ describe('CtResultsTable', () => {
 		expect(screen.getByText('Filters and sorting apply only to the trials loaded on this page.')).toBeVisible();
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Title' }));
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('NCT02');
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded trial conditions' }), {
+		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded trial titles and conditions' }), {
 			target: { value: 'skin cancer' }
 		});
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);

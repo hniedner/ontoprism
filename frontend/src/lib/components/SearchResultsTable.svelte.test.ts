@@ -31,6 +31,10 @@ describe('SearchResultsTable', () => {
 		render(SearchResultsTable, { hits });
 		const link = screen.getByRole('link', { name: 'Melanoma' });
 		expect(link).toHaveAttribute('href', '/repositories/ncit/C3');
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('shows an accessible legacy badge only for the published marker', () => {

@@ -56,6 +56,7 @@ describe('RepoBrowsePage', () => {
 		expect(screen.getByText('Results for “melanoma”')).toBeInTheDocument();
 		expect(screen.getByText('100 (search)')).toBeInTheDocument();
 		expect(screen.getByText('Page 2 of 4')).toBeInTheDocument();
+		expect(screen.getAllByRole('navigation', { name: 'Pagination' })).toHaveLength(1);
 	});
 
 	it('enhances search and pagination as URL navigation', async () => {

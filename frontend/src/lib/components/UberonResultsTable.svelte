@@ -8,9 +8,9 @@
 	const sourceLabel = (hit: UberonSearchHit) => hit.source === 'cl' ? 'Cell Ontology' : 'Uberon';
 	const operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply only to the Uberon/CL rows loaded on this page.' } as const;
 	const columns: readonly DataTableColumn<UberonSearchHit>[] = [
-		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filterValue: (hit) => hit.code, filterAriaLabel: 'Filter loaded Uberon/CL codes' },
-		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filterValue: (hit) => hit.label, filterAriaLabel: 'Filter loaded Uberon/CL names' },
-		{ id: 'source', label: 'Source', cell: sourceCell, sortValue: sourceLabel, filterValue: sourceLabel, filterAriaLabel: 'Filter loaded ontology sources' }
+		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filter: { value: (hit) => hit.code, ariaLabel: 'Filter loaded Uberon/CL codes' }, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filter: { value: (hit) => hit.label, ariaLabel: 'Filter loaded Uberon/CL names' } },
+		{ id: 'source', label: 'Source', cell: sourceCell, sortValue: sourceLabel, filter: { value: sourceLabel, ariaLabel: 'Filter loaded ontology sources' } }
 	];
 </script>
 
@@ -18,4 +18,4 @@
 {#snippet labelCell(hit: UberonSearchHit)}<a href={resolve('/repositories/uberon/[curie]', { curie: hit.code })}>{hit.label ?? '—'}</a>{/snippet}
 {#snippet sourceCell(hit: UberonSearchHit)}{sourceLabel(hit)}{/snippet}
 
-<DataTable rows={hits} {columns} caption="Uberon and Cell Ontology results loaded on this page" regionLabel="Uberon and Cell Ontology loaded-page results" getRowId={(hit) => hit.code} {operations} />
+<DataTable rows={hits} {columns} caption="Uberon and Cell Ontology results loaded on this page" regionLabel="Uberon and Cell Ontology loaded-page results" getRowId={(hit) => hit.code} {operations} stickyHeader={true} />

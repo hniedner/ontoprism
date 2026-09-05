@@ -28,6 +28,10 @@ describe('IcdoResultsTable', () => {
 		expect(screen.getByText('No preferred term supplied')).toBeInTheDocument();
 		expect(screen.getAllByText('morphology')).toHaveLength(2);
 		expect(screen.getByText('Filters and sorting apply only to the ICD-O records loaded on this page.')).toBeVisible();
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('sorts and filters all four merged record variants on the loaded page', async () => {

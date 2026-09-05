@@ -6,42 +6,43 @@ import type {
 	DataTableSortDirection
 } from './types';
 
+class DataTableValidationError extends Error {}
+
+function invalid(message: string): never {
+	throw new DataTableValidationError(message);
+}
+
 function scalarType(value: Exclude<DataTableScalar, null>): string {
 	return typeof value;
 }
 
 function assertText(name: string, value: string): void {
-	if (!value.trim()) throw new Error(`DataTable ${name} must not be empty`);
+	if (!value.trim()) invalid(`DataTable ${name} must not be empty`);
 }
 
 function validateColumn<Row>(column: DataTableColumn<Row>): void {
-		assertText('column ID', column.id);
-		assertText(`column "${column.id}" label`, column.label);
-		if (column.filterAriaLabel !== undefined && column.filterValue === undefined) {
-			throw new Error(`DataTable column "${column.id}" has a filter label without a filter value`);
-		}
-		if (column.filterValue !== undefined) {
-			if (column.filterAriaLabel === undefined) {
-				throw new Error(`DataTable column "${column.id}" requires a filter aria label`);
-			}
-			assertText(`column "${column.id}" filter aria label`, column.filterAriaLabel);
-			if (column.filterPlaceholder !== undefined) {
-				assertText(`column "${column.id}" filter placeholder`, column.filterPlaceholder);
-			}
-		}
-		if (
-			column.sticky !== undefined &&
-			(!Number.isFinite(column.sticky.offset) || column.sticky.offset < 0)
-		) {
-			throw new Error(`DataTable column "${column.id}" has an invalid sticky offset`);
+	assertText('column ID', column.id);
+	assertText(`column "${column.id}" label`, column.label);
+	if (column.filter !== undefined) {
+		assertText(`column "${column.id}" filter aria label`, column.filter.ariaLabel);
+		if (column.filter.placeholder !== undefined) {
+			assertText(`column "${column.id}" filter placeholder`, column.filter.placeholder);
 		}
 	}
+	if (
+		column.sticky !== undefined &&
+		(!Number.isFinite(column.sticky.offset) || column.sticky.offset < 0)
+	) {
+		invalid(`DataTable column "${column.id}" has an invalid sticky offset`);
+	}
+}
 
 function validateColumns<Row>(columns: readonly DataTableColumn<Row>[]): void {
+	if (!columns.length) invalid('DataTable columns must not be empty');
 	const columnIds = new Set<string>();
 	for (const column of columns) {
 		validateColumn(column);
-		if (columnIds.has(column.id)) throw new Error(`DataTable duplicate column ID "${column.id}"`);
+		if (columnIds.has(column.id)) invalid(`DataTable duplicate column ID "${column.id}"`);
 		columnIds.add(column.id);
 	}
 }
@@ -50,8 +51,8 @@ function validateRowIds<Row>(rows: readonly Row[], getRowId: (row: Row) => strin
 	const rowIds = new Set<string>();
 	for (const row of rows) {
 		const id = getRowId(row);
-		if (typeof id !== 'string' || !id.trim()) throw new Error('DataTable row IDs must not be empty');
-		if (rowIds.has(id)) throw new Error(`DataTable duplicate row ID`);
+		if (typeof id !== 'string' || !id.trim()) invalid('DataTable row IDs must not be empty');
+		if (rowIds.has(id)) invalid('DataTable duplicate row ID');
 		rowIds.add(id);
 	}
 }
@@ -64,15 +65,61 @@ function validateSortableTypes<Row>(
 		if (column.sortValue === undefined) continue;
 		let expectedType: string | undefined;
 		for (const row of rows) {
-			const value = column.sortValue(row);
-			if (value === null) continue;
-			const currentType = scalarType(value);
-			if (expectedType !== undefined && currentType !== expectedType) {
-				throw new Error(`DataTable column "${column.id}" returned mixed sortable scalar types`);
-			}
-			expectedType = currentType;
+			expectedType = validatedScalarType(column.id, column.sortValue(row), expectedType);
 		}
 	}
+}
+
+function validatedScalarType(
+	columnId: string,
+	value: DataTableScalar,
+	expectedType: string | undefined
+): string | undefined {
+	if (value === null) return expectedType;
+	if (typeof value === 'number' && !Number.isFinite(value)) {
+		invalid(`DataTable column "${columnId}" requires finite numeric sort values`);
+	}
+	const currentType = scalarType(value);
+	if (expectedType !== undefined && currentType !== expectedType) {
+		invalid(`DataTable column "${columnId}" returned mixed sortable scalar types`);
+	}
+	return currentType;
+}
+
+export type DataTableValidation = { valid: true } | { valid: false; message: string };
+
+function assertDataTable<Row>(
+	rows: readonly Row[],
+	columns: readonly DataTableColumn<Row>[],
+	getRowId: (row: Row) => string,
+	operations: DataTableOperations,
+	initialSort: DataTableInitialSort | undefined,
+	caption: string,
+	regionLabel: string,
+	emptyMessage: string
+): void {
+	assertText('caption', caption);
+	assertText('region label', regionLabel);
+	assertText('empty message', emptyMessage);
+	if (operations.kind === 'client-page') assertText('scope label', operations.scopeLabel);
+	validateColumns(columns);
+	if (
+		operations.kind === 'none' &&
+		columns.some((column) => column.sortValue !== undefined || column.filter !== undefined)
+	) {
+		invalid('DataTable operations "none" cannot configure sorting or filtering');
+	}
+	if (initialSort !== undefined) {
+		const initialColumn = columns.find((column) => column.id === initialSort.columnId);
+		if (initialColumn?.sortValue === undefined) {
+			invalid(`DataTable initial sort column "${initialSort.columnId}" is not sortable`);
+		}
+		if (initialSort.direction !== 'asc' && initialSort.direction !== 'desc') {
+			invalid('DataTable initial sort direction is invalid');
+		}
+	}
+	validateRowIds(rows, getRowId);
+	validateSortableTypes(rows, columns);
 }
 
 export function validateDataTable<Row>(
@@ -81,24 +128,21 @@ export function validateDataTable<Row>(
 	getRowId: (row: Row) => string,
 	operations: DataTableOperations,
 	initialSort: DataTableInitialSort | undefined,
-	stickyHeaderOffset: number | undefined
-): void {
-	if (operations.kind === 'client-page') assertText('scope label', operations.scopeLabel);
-	if (stickyHeaderOffset !== undefined && (!Number.isFinite(stickyHeaderOffset) || stickyHeaderOffset < 0)) {
-		throw new Error('DataTable sticky header offset must be a non-negative finite number');
+	caption: string,
+	regionLabel: string,
+	emptyMessage: string
+): DataTableValidation {
+	try {
+		assertDataTable(rows, columns, getRowId, operations, initialSort, caption, regionLabel, emptyMessage);
+		return { valid: true };
+	} catch (error) {
+		return {
+			valid: false,
+			message: error instanceof DataTableValidationError
+				? error.message
+				: 'DataTable row validation failed'
+		};
 	}
-	validateColumns(columns);
-	if (initialSort !== undefined) {
-		const initialColumn = columns.find((column) => column.id === initialSort.columnId);
-		if (initialColumn?.sortValue === undefined) {
-			throw new Error(`DataTable initial sort column "${initialSort.columnId}" is not sortable`);
-		}
-		if (initialSort.direction !== 'asc' && initialSort.direction !== 'desc') {
-			throw new Error('DataTable initial sort direction is invalid');
-		}
-	}
-	validateRowIds(rows, getRowId);
-	validateSortableTypes(rows, columns);
 }
 
 function compareNonNull(left: Exclude<DataTableScalar, null>, right: Exclude<DataTableScalar, null>): number {
@@ -137,7 +181,7 @@ export function filterRows<Row>(
 ): Row[] {
 	const active = columns.flatMap((column) => {
 		const query = filters[column.id]?.trim().toLocaleLowerCase('en-US') ?? '';
-		return query && column.filterValue ? [{ query, value: column.filterValue }] : [];
+		return query && column.filter ? [{ query, value: column.filter.value }] : [];
 	});
 	if (!active.length) return [...rows];
 	return rows.filter((row) =>

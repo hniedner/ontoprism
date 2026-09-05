@@ -12,16 +12,21 @@ The `none | client-page` operation union deliberately names the only interactive
 repository query, offset, total, page size, filters, and navigation remain outside the
 table (`rg -n "client-page|scopeLabel|Pagination|goto" frontend/src/lib/components/data-table frontend/src/lib/components/RepoBrowsePage.svelte`).
 
-The behavior was derived from the Apache-2.0 Fairdata Workbench table tests and component
-identified in issue #326, then reduced to OntoPrism's contract. No Fairdata source was
-copied and no Fairdata or TanStack runtime package was added (`rg -n "tanstack|fairdata"
-frontend/package.json frontend/package-lock.json frontend/src || true`).
+The behavior was derived from the Fairdata Workbench table tests and component identified
+in issue #326, then implemented as a clean behavioral adaptation to OntoPrism's contract.
+Fairdata's `LICENSE` identifies Apache-2.0 (`cat ../fairdata/LICENSE`, inspected
+2026-09-05), as does OntoPrism's `LICENSE` (`cat LICENSE`, inspected 2026-09-05). No
+Fairdata source or dependency was copied, and no Fairdata or TanStack runtime package was
+added (`rg -n "tanstack|fairdata" frontend/package.json frontend/package-lock.json
+frontend/src || true`).
 
 ## Complete table-surface inventory
 
 The inventory was taken from all Svelte table markup before and after extraction (`rg -n
-"<table|ResultsTable" frontend/src --glob '*.svelte'`). Repository server loaders establish
-the local page size and URL state (`rg -n "PAGE_SIZE|offset|searchParams" frontend/src/routes/repositories --glob '+page.server.ts'`).
+"<table|ResultsTable" frontend/src --glob '*.svelte'`). The 25-row local page size is
+established by the applicable server loaders and API calls, while `RepoBrowsePage` owns
+the matching pagination contract (`rg -n "PAGE_SIZE|limit: 25|limit=\\{25\\}|offset|searchParams"
+frontend/src/routes/repositories frontend/src/lib/components/RepoBrowsePage.svelte`).
 
 | Surface and route | Row/column contract and source | Existing ownership and scale | Decision |
 | --- | --- | --- | --- |
@@ -31,8 +36,8 @@ the local page size and URL state (`rg -n "PAGE_SIZE|offset|searchParams" fronte
 | `CtResultsTable`, `/repositories/clinicaltrials` | `CTStudySummary`; typed NCT links, title/conditions, nullable status/phase; live ClinicalTrials.gov result subset | Route search state and `RepoResultsCard` own navigation, loading, remote error, count, and source-empty presentation; no table pagination | **Selected.** Preserve service order until user sorting and operate only on the returned subset. |
 | `IcdoResultsTable`, `/repositories/icdo/[edition]/[axis]` | The four `IcdoRecord` variants across 3.2 morphology, 4.0 morphology, and 4.0 topography; encoded code link, preferred fallback, level; protected local API | `RepoBrowsePage` owns `q`, `offset`, total, 25-row pages, loading, empty state, server behaviour/level filters, and pagination | **Selected.** Retain all variants and server filter state; page-local controls do not alter URLs. |
 | Inline Uberon/CL table, `/repositories/uberon` | `UberonSearchHit`; typed CURIE links, nullable label, normalized source display; local certified combined index | `RepoBrowsePage` owns `q`, `offset`, total, 25-row pages, loading, empty state, source filter URL/reset behavior, and pagination | **Selected and extracted** as `UberonResultsTable`; page-local controls never navigate. |
-| Refresh report, `/refresh` | Repository metadata rows with lifecycle status and certified source/manifest fields; one generated refresh report | The refresh workflow owns loading/error/report state and row rendering uses `RepositoryMetadataRow`; no query or pagination | **Deferred.** It is an operational mutation report, not repository browsing; issue #326 explicitly excludes refresh. |
-| ICD-O congruence report, `/repositories/icdo/4.0/topography/congruence` | Congruence classifications, reasons, and candidate arrays from the protected report | The route renders the complete report and count summary without browse controls | **Deferred.** It is a specialized inspection report; issue #326 explicitly excludes congruence. |
+| Refresh report, `/refresh` | Repository metadata rows with lifecycle status and certified source/manifest fields; one generated refresh report | The refresh workflow owns loading/error/report state and row rendering uses `RepositoryMetadataRow`; no query or pagination | **Deferred.** The team kept this operational mutation report outside the repository-browsing table abstraction. |
+| ICD-O congruence report, `/repositories/icdo/4.0/topography/congruence` | Congruence classifications, reasons, and candidate arrays from the protected report | The route renders the complete report and count summary without browse controls | **Deferred.** The team kept this specialized inspection report outside the browse-table abstraction. |
 
 ## Behavioral contract
 
@@ -43,10 +48,15 @@ frontend/src/lib/components/data-table/DataTable.svelte.test.ts`). Filters trim 
 and projected values, compare case-insensitively, and combine by AND. Source-empty and
 filter-empty messages remain distinct.
 
-Rows and columns are validated before body rows render. Empty or duplicate row IDs,
-duplicate column IDs, invalid initial sort/filter metadata, mixed sortable types, and
-invalid sticky offsets throw configuration errors that omit row values. Sticky headers
-and columns use caller-provided pixel offsets with opaque backgrounds and explicit stacking
+Rows and columns are validated before body rows render. Blank captions/region labels,
+empty or duplicate column IDs, empty or duplicate row IDs, invalid initial sort/filter
+metadata, non-finite numbers, mixed sortable types, and invalid sticky offsets render a
+sanitized accessible error instead of stale or invalid rows. Configuration with no visible
+operation scope cannot expose sort or filter controls. All six selected adapters enable the
+top-zero sticky header and make their identifier/code column sticky left at offset zero;
+header and body cells retain opaque backgrounds and explicit stacking. Loading and remote
+errors remain owned by `RepoResultsCard` or `RepoBrowsePage`, so `DataTable` accepts ready
+rows and owns only source-empty and page-filter-empty presentation
 (`pdm run agent-test --frontend frontend/src/lib/components/data-table/DataTable.sticky.svelte.test.ts`).
 
 All core text uses normal Svelte interpolation, and rich cells are compiled snippets.

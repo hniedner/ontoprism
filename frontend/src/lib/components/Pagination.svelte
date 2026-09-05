@@ -19,7 +19,7 @@
 		'flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-secondary transition-colors enabled:hover:bg-subtle disabled:opacity-40 disabled:cursor-not-allowed';
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-3 border-t border-default px-4 py-3 text-sm">
+<nav aria-label="Pagination" class="flex flex-wrap items-center justify-between gap-3 border-t border-default px-4 py-3 text-sm">
 	<span class="text-muted">
 		Showing <span class="font-medium text-default">{from.toLocaleString()}</span>–<span
 			class="font-medium text-default">{to.toLocaleString()}</span
@@ -51,4 +51,4 @@
 			aria-label="Last page">»</button
 		>
 	</div>
-</div>
+</nav>

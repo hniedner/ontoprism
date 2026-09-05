@@ -18,6 +18,10 @@ describe('UberonResultsTable', () => {
 		expect(screen.getByText('Cell Ontology')).toBeInTheDocument();
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('UBERON:0002048');
 		expect(screen.getByText('Filters and sorting apply only to the Uberon/CL rows loaded on this page.')).toBeVisible();
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('sorts and filters the loaded subset without navigation controls', async () => {

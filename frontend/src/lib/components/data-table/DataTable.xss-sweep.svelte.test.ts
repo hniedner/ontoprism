@@ -32,17 +32,9 @@ describe('DataTable XSS surfaces', () => {
 		expectNoInjectedMarkup(container);
 	});
 
-	it('renders empty and error text without swallowing render failures or interpreting HTML', () => {
+	it('renders empty text without swallowing render failures or interpreting HTML', () => {
 		const empty = render(DataTableTestHost, { rows: [], emptyMessage: payload });
 		expect(screen.getByText(payload)).toBeInTheDocument();
 		expectNoInjectedMarkup(empty.container);
-		empty.unmount();
-
-		const error = render(DataTableTestHost, {
-			rows: [hostileRow],
-			state: { kind: 'error', message: payload }
-		});
-		expect(screen.getByRole('alert')).toHaveTextContent(payload);
-		expectNoInjectedMarkup(error.container);
 	});
 });
