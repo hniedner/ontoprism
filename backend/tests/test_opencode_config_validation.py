@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from scripts.validation.validate_opencode_config import (
+    CROSS_COMMAND_DENIES,
     RESERVES,
     ROLES,
     SPECIALIST_ROLES,
@@ -16,7 +17,9 @@ from scripts.validation.validate_opencode_config import (
     load_agent,
     safe_read_text,
     validate,
+    validate_agent_test_wrapper,
     validate_forbidden_content,
+    validate_github_wrappers,
     validate_permission_shadow_order,
 )
 
@@ -193,9 +196,39 @@ def test_github_wrapper_implementation_is_required(config_root: Path) -> None:
     (config_root / "scripts/validation/run_agent_github.py").unlink()
 
     assert (
-        "GITHUB_WRAPPER: required file missing: scripts/validation/run_agent_github.py"
+        "FILES: required file missing: scripts/validation/run_agent_github.py"
         in validate(config_root)
     )
+
+
+@pytest.mark.parametrize(
+    ("missing", "validator"),
+    [
+        ("scripts/validation/run_agent_github.py", validate_github_wrappers),
+        ("pyproject.toml", validate_github_wrappers),
+        ("scripts/validation/run_agent_test.py", validate_agent_test_wrapper),
+        ("pyproject.toml", validate_agent_test_wrapper),
+    ],
+)
+def test_wrapper_missing_file_has_one_canonical_diagnostic(
+    config_root: Path,
+    missing: str,
+    validator: Callable[[Validation], None],
+) -> None:
+    (config_root / missing).unlink()
+    validation = Validation(config_root)
+
+    validator(validation)
+
+    assert validation.errors == [f"FILES: required file missing: {missing}"]
+
+
+def test_missing_shared_pyproject_is_reported_once(config_root: Path) -> None:
+    (config_root / "pyproject.toml").unlink()
+
+    errors = validate(config_root)
+
+    assert errors.count("FILES: required file missing: pyproject.toml") == 1
 
 
 @pytest.mark.parametrize("suffix", ["admin", "auto", "queue", "bypass"])
@@ -1290,11 +1323,8 @@ def test_ci_python_and_frontend_trigger_filters_cover_inspected_contract_inputs(
 
     for path in (
         ".opencode/**",
-        "AGENTS.md",
-        "CLAUDE.local.md",
-        "README.md",
-        "docs/**",
-        "frontend/README.md",
+        "frontend/src/**",
+        "**/*.md",
         "pyproject.toml",
         "scripts/**",
         ".github/workflows/ci.yml",
@@ -1397,6 +1427,22 @@ def test_generic_permission_shadow_gate_rejects_unknown_leading_glob() -> None:
 
     assert validation.errors == [
         "TEST: role bash command pattern is unclassifiable: *unknown-future-guard*"
+    ]
+
+
+@pytest.mark.parametrize("guard", CROSS_COMMAND_DENIES)
+def test_cross_command_guards_must_follow_every_allow(guard: str) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"*": "deny", guard: "deny", "pdm run agent-test *": "allow"},
+    )
+
+    assert validation.errors == [
+        f"TEST: role cross-command deny {guard} must follow every bash allow"
     ]
 
 

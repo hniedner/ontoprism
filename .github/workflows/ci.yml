@@ -60,11 +60,8 @@ jobs:
               - 'pdm.lock'
               - '.pre-commit-config.yaml'
               - '.opencode/**'
-              - 'AGENTS.md'
-              - 'CLAUDE.local.md'
-              - 'README.md'
-              - 'docs/**'
-              - 'frontend/README.md'
+              - 'frontend/src/**'
+              - '**/*.md'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'

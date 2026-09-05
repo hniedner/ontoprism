@@ -212,11 +212,9 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
-# Together with the catch-all and explicit metacharacter/line-break guards, these are
-# the only leading-wildcard patterns exempt from command-family overlap analysis.
-# Any other leading wildcard is unclassifiable and rejected.
+# These global guards are exempt from command-family overlap analysis and are instead
+# required to follow every allow so OpenCode's last-match semantics cannot bypass them.
 CROSS_COMMAND_DENIES = (
-    "*agent-git*",
     "* /U?ers/*",
     "* /var/*",
     "* /tmp/*",
@@ -226,6 +224,9 @@ CROSS_COMMAND_DENIES = (
     "* -p *",
     "* --config *",
 )
+# This broad deny intentionally precedes narrower, canonical agent-git allows. It is
+# exempt from family analysis but is not a global tail guard.
+ORDERED_AGENT_GIT_DENY = "*agent-git*"
 ASK_ACTION = "a" + "sk"
 type PermissionAction = Literal["allow", "deny", "ask"]
 WRITER_HARD_DENIES = (
@@ -283,10 +284,14 @@ class Validation:
         try:
             is_file = path.is_file()
         except OSError:
-            self.error("FILES", f"cannot inspect {relative}")
+            error = f"FILES: cannot inspect {relative}"
+            if error not in self.errors:
+                self.errors.append(error)
             return None
         if not is_file:
-            self.error("FILES", f"required file missing: {relative}")
+            error = f"FILES: required file missing: {relative}"
+            if error not in self.errors:
+                self.errors.append(error)
             return None
         return path
 
@@ -514,13 +519,16 @@ def require_bash_rules(
 def _command_family(pattern: str) -> str | None:
     """Return a literal command family or ``None`` for explicit global guards.
 
-    The catch-all, shell-metacharacter, line-break, and ``CROSS_COMMAND_DENIES``
-    patterns are intentional cross-command rules. Other leading globs are rejected.
+    The catch-all, shell-metacharacter, line-break, ``CROSS_COMMAND_DENIES``, and
+    ``ORDERED_AGENT_GIT_DENY`` patterns are intentionally exempt. Cross-command
+    denies are separately required after all allows; the agent-git deny may precede
+    its narrower canonical allows. Other leading globs are rejected.
     """
     if pattern == "*" or pattern in {
         *SHELL_METACHARACTER_DENIES,
         *LINE_BREAK_DENIES,
         *CROSS_COMMAND_DENIES,
+        ORDERED_AGENT_GIT_DENY,
     }:
         return None
     if pattern.startswith("*"):
@@ -576,13 +584,31 @@ def _unsafe_shadow_order(
     return False
 
 
+def _validate_cross_command_deny_order(
+    validation: Validation,
+    code: str,
+    role: str,
+    rules: list[tuple[str, Any]],
+) -> None:
+    last_allow = max(
+        (index for index, (_pattern, action) in enumerate(rules) if action == "allow"),
+        default=-1,
+    )
+    for index, (pattern, action) in enumerate(rules):
+        if action == "deny" and pattern in CROSS_COMMAND_DENIES and index < last_allow:
+            validation.error(
+                code,
+                f"{role} cross-command deny {pattern} must follow every bash allow",
+            )
+
+
 def validate_permission_shadow_order(
     validation: Validation,
     code: str,
     role: str,
     bash: dict[str, Any],
 ) -> None:
-    """Require catch-all first and safe same-family order under last-match rules."""
+    """Require catch-all first and safe deny order under last-match rules."""
     rules = list(bash.items())
     for index, (pattern, _action) in enumerate(rules):
         if pattern == "*" and index > 0:
@@ -600,6 +626,7 @@ def validate_permission_shadow_order(
                 code, f"{role} bash command pattern is unclassifiable: {pattern}"
             )
             families[pattern] = None
+    _validate_cross_command_deny_order(validation, code, role, rules)
     for deny_index, (deny_pattern, action) in enumerate(rules):
         if action != "deny":
             continue
@@ -651,15 +678,9 @@ def validate_removed_plugin_files(validation: Validation) -> None:
 
 
 def validate_github_wrappers(validation: Validation) -> None:
-    wrapper = validation.require_file("scripts/validation/run_agent_github.py")
-    if wrapper is None:
-        validation.error(
-            "GITHUB_WRAPPER",
-            "required file missing: scripts/validation/run_agent_github.py",
-        )
+    validation.require_file("scripts/validation/run_agent_github.py")
     pyproject = validation.require_file("pyproject.toml")
     if pyproject is None:
-        validation.error("GITHUB_WRAPPER", "required file missing: pyproject.toml")
         return
     try:
         parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
@@ -709,9 +730,6 @@ def validate_agent_test_wrapper(validation: Validation) -> None:
         )
     pyproject = validation.require_file("pyproject.toml")
     if pyproject is None:
-        validation.error(
-            "FRONTEND_TEST_WRAPPER", "required file missing: pyproject.toml"
-        )
         return
     try:
         parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))

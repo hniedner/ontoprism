@@ -6,6 +6,7 @@ import ast
 import re
 import shutil
 import subprocess
+import sys
 from hashlib import sha256
 from pathlib import Path
 
@@ -350,6 +351,27 @@ def test_only_explicit_load_bearing_historical_decision_is_exempt() -> None:
                 f"\n### {decision}. Historical record\n\n"
                 "The product is an ontology-generic platform.\n"
             )
+
+
+@pytest.mark.unit
+def test_historical_overclaim_exemptions_exactly_match_live_decision_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decisions = _read("docs/DECISIONS.md")
+    decision_ids = re.findall(r"^### (D\d+)\.", decisions, flags=re.MULTILINE)
+    configured_exemptions = _HISTORICAL_OVERCLAIM_DECISIONS
+    monkeypatch.setattr(
+        sys.modules[__name__], "_HISTORICAL_OVERCLAIM_DECISIONS", frozenset()
+    )
+
+    discovered: set[int] = set()
+    for decision in decision_ids:
+        try:
+            _assert_no_current_overclaim(_decision_section(decisions, decision))
+        except AssertionError:
+            discovered.add(int(decision[1:]))
+
+    assert discovered == set(configured_exemptions) == {24}
 
 
 @pytest.mark.unit

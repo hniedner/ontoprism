@@ -134,8 +134,6 @@ def _subprocess_runner(
     except subprocess.TimeoutExpired as exc:
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        drained_stdout = exc.output
-        drained_stderr = exc.stderr
         try:
             drained_stdout, drained_stderr = process.communicate(
                 timeout=PROCESS_DRAIN_TIMEOUT_SECONDS
@@ -522,7 +520,7 @@ def _vitest_assertions(report: dict[str, object]) -> tuple[dict[object, object],
     return tuple(assertions)
 
 
-def _vitest_executed_requested_files(
+def _unexecuted_requested_frontend_files(
     report: dict[str, object], requested: tuple[FrontendTestPath, ...]
 ) -> frozenset[FrontendTestPath]:
     results = report.get("testResults")
@@ -655,7 +653,7 @@ def _frontend_result(
         report = _parse_vitest_report(payload)
         passed, failed = _vitest_counts(report)
         names = _vitest_failure_names(report, failed)
-        unexecuted = _vitest_executed_requested_files(report, requested)
+        unexecuted = _unexecuted_requested_frontend_files(report, requested)
     except OSError, UnicodeDecodeError, AgentTestInputError:
         print("frontend test report is invalid", file=sys.stderr)
         _print_frontend_diagnostic(diagnostic)
