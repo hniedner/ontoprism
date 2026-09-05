@@ -182,7 +182,6 @@ markers = [
     "e2e: End-to-end tests",
     "slow: Tests that take more than 1 second",
     "requires_robot: Integration contract requires the pinned ROBOT/ELK installation",
-    "requires_jena: Integration contract requires the pinned Apache Jena installation",
 ]
 
 [tool.ruff]

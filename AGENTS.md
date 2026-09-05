@@ -39,9 +39,9 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   `docker build smoke`, and `CI summary`; plus `conventional commit subject`,
   `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
-  The workflow retains exactly nine top-level job definitions and `CI summary` retains
-  eight `needs` results because each matrix collapses to its aggregate job ID there.
-  `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
+  `CI summary` is `"SUCCESS"`. The workflow retains exactly nine top-level job definitions,
+  and `CI summary` retains eight `needs` results because each matrix collapses to its
+  aggregate job ID there. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
   because of a documented path condition, including a dependent job skipped when its
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,
   was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before

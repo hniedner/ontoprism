@@ -9,7 +9,7 @@ import json
 import os
 import tempfile
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self, cast
 
@@ -21,6 +21,8 @@ SHARD_COUNT = 2
 _ENV_PREFIX = "ONTOPRISM_TEST_PARTITION_"
 _QLEVER_FIXTURE_FRAGMENT = "qlever"
 Lane = Literal["backend", "integration"]
+Phase = Literal["collect", "execute"]
+ShardId = Literal["0", "1", "qlever", "postgres"]
 
 
 def _usage_error(message: str) -> Exception:
@@ -39,6 +41,212 @@ class CollectionRecord(_Document):
     path: str
     markers: frozenset[str]
     fixtures: frozenset[str]
+
+
+class LaneSelector(_Document):
+    """One lane's pytest expression and equivalent marker-set rule."""
+
+    lane: Lane
+    marker_expression: str
+    required_markers: frozenset[str]
+    excluded_markers: frozenset[str]
+
+
+LANE_SELECTORS = (
+    LaneSelector(
+        lane="backend",
+        marker_expression="not integration",
+        required_markers=frozenset(),
+        excluded_markers=frozenset({"integration"}),
+    ),
+    LaneSelector(
+        lane="integration",
+        marker_expression=(
+            "integration and not full_store and not full_build and not slow"
+        ),
+        required_markers=frozenset({"integration"}),
+        excluded_markers=frozenset({"full_store", "full_build", "slow"}),
+    ),
+)
+
+
+class PartitionSpec(_Document):
+    """One correlated fixed partition and its emitted evidence names."""
+
+    lane: Lane
+    shard_id: ShardId
+    shard_index: Annotated[int, Field(ge=0)]
+    shard_count: Annotated[int, Field(gt=0)]
+    layer: str
+    coverage_stem: str
+    artifact_name: str
+    needs_robot: bool
+    needs_jena: bool
+
+    @model_validator(mode="after")
+    def validate_correlation(self) -> Self:
+        if self.lane == "backend":
+            if self.shard_id not in {"0", "1"}:
+                raise ValueError("partition lane/shard correlation is invalid")
+            expected_index = int(self.shard_id)
+            expected_stem = f"unit-{self.shard_id}"
+            expected_artifact = f"coverage-backend-{expected_index + 1}"
+        else:
+            if self.shard_id not in {"qlever", "postgres"}:
+                raise ValueError("partition lane/shard correlation is invalid")
+            expected_index = 0 if self.shard_id == "qlever" else 1
+            expected_stem = f"integration-{self.shard_id}"
+            expected_artifact = f"coverage-integration-{self.shard_id}"
+        if (
+            self.shard_count != SHARD_COUNT
+            or self.shard_index != expected_index
+            or self.layer != f"python-{expected_stem}"
+            or self.coverage_stem != expected_stem
+            or self.artifact_name != expected_artifact
+            or self.needs_robot != (self.shard_id == "postgres")
+            or self.needs_jena != (self.shard_id == "qlever")
+        ):
+            raise ValueError("partition lane/shard correlation is invalid")
+        return self
+
+    @property
+    def coverage_name(self) -> str:
+        return f".coverage.{self.coverage_stem}"
+
+    @property
+    def identity_name(self) -> str:
+        return f"coverage-{self.coverage_stem}.identity.json"
+
+    @property
+    def receipt_name(self) -> str:
+        return f"partition-{self.lane}-{self.shard_id}.json"
+
+    @property
+    def coverage_xml_name(self) -> str | None:
+        return f"coverage-{self.coverage_stem}.xml" if self.lane == "backend" else None
+
+    @property
+    def artifact_file_names(self) -> frozenset[str]:
+        return frozenset(
+            name
+            for name in (
+                self.coverage_name,
+                self.identity_name,
+                self.receipt_name,
+                self.coverage_xml_name,
+            )
+            if name is not None
+        )
+
+
+PARTITION_SPECS = (
+    PartitionSpec(
+        lane="backend",
+        shard_id="0",
+        shard_index=0,
+        shard_count=2,
+        layer="python-unit-0",
+        coverage_stem="unit-0",
+        artifact_name="coverage-backend-1",
+        needs_robot=False,
+        needs_jena=False,
+    ),
+    PartitionSpec(
+        lane="backend",
+        shard_id="1",
+        shard_index=1,
+        shard_count=2,
+        layer="python-unit-1",
+        coverage_stem="unit-1",
+        artifact_name="coverage-backend-2",
+        needs_robot=False,
+        needs_jena=False,
+    ),
+    PartitionSpec(
+        lane="integration",
+        shard_id="qlever",
+        shard_index=0,
+        shard_count=2,
+        layer="python-integration-qlever",
+        coverage_stem="integration-qlever",
+        artifact_name="coverage-integration-qlever",
+        needs_robot=False,
+        needs_jena=True,
+    ),
+    PartitionSpec(
+        lane="integration",
+        shard_id="postgres",
+        shard_index=1,
+        shard_count=2,
+        layer="python-integration-postgres",
+        coverage_stem="integration-postgres",
+        artifact_name="coverage-integration-postgres",
+        needs_robot=True,
+        needs_jena=False,
+    ),
+)
+
+
+def partition_spec(lane: Lane, shard_id: str) -> PartitionSpec:
+    try:
+        return next(
+            spec
+            for spec in PARTITION_SPECS
+            if spec.lane == lane and spec.shard_id == shard_id
+        )
+    except StopIteration as exc:
+        raise ValueError(f"invalid fixed partition {lane}/{shard_id}") from exc
+
+
+def lane_selector(lane: Lane) -> LaneSelector:
+    return next(selector for selector in LANE_SELECTORS if selector.lane == lane)
+
+
+class PartitionEnvironment(_Document):
+    """Validated selector environment shared by controller and xdist workers."""
+
+    lane: Lane
+    shard_id: ShardId
+    shard_count: int
+    receipt: Path
+    phase: Phase
+    fixed_roots: bool
+
+    @model_validator(mode="after")
+    def validate_partition(self) -> Self:
+        spec = partition_spec(self.lane, self.shard_id)
+        if self.shard_count != spec.shard_count:
+            raise ValueError("test partition count must be 2")
+        return self
+
+    @classmethod
+    def from_environ(cls, environ: Mapping[str, str]) -> Self:
+        def required(name: str) -> str:
+            value = environ.get(f"{_ENV_PREFIX}{name}")
+            if not value:
+                raise ValueError(f"test partition {name} is required")
+            return value
+
+        lane_value = required("LANE")
+        if lane_value not in {"backend", "integration"}:
+            raise ValueError("invalid test partition lane")
+        phase = required("PHASE")
+        if phase not in {"collect", "execute"}:
+            raise ValueError("test partition phase must be collect or execute")
+        fixed_roots = required("FIXED_ROOTS")
+        if fixed_roots not in {"0", "1"}:
+            raise ValueError("test partition FIXED_ROOTS must be exactly 0 or 1")
+        count = required("COUNT")
+        if count != str(SHARD_COUNT):
+            raise ValueError("test partition count must be 2")
+        return cls(
+            lane=cast("Lane", lane_value),
+            shard_id=cast("ShardId", required("SHARD")),
+            shard_count=SHARD_COUNT,
+            receipt=Path(required("RECEIPT")),
+            phase=cast("Phase", phase),
+            fixed_roots=fixed_roots == "1",
+        )
 
 
 class IntegrationClassification(_Document):
@@ -98,10 +306,11 @@ class IntegrationClassification(_Document):
                 }
             )
         )
-        explicit_jena_files = {
-            record.path for record in records if "requires_jena" in record.markers
-        }
-        jena_files = tuple(sorted(set(qlever_files) | explicit_jena_files))
+        jena_files = qlever_files
+        if not robot_files:
+            raise ValueError("ROBOT file assignment must be nonempty")
+        if not set(robot_files) <= set(postgres_files):
+            raise ValueError("ROBOT files must be contained by the postgres shard")
         evidence = {
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "inventory": sorted(inventory),
@@ -122,11 +331,11 @@ class IntegrationClassification(_Document):
 
 
 class PartitionReceipt(_Document):
-    """Minimal proof that one shard selected its exact share of one inventory."""
+    """Proof that one shard selected a self-consistent subset of one inventory."""
 
     schema_version: int
     lane: Lane
-    shard_id: str
+    shard_id: ShardId
     shard_index: Annotated[int, Field(ge=0)]
     shard_count: Annotated[int, Field(gt=0)]
     algorithm_version: str
@@ -138,7 +347,7 @@ class PartitionReceipt(_Document):
     integration_classification: IntegrationClassification | None = None
 
     @model_validator(mode="after")
-    def validate_internal_digests(self) -> Self:  # noqa: C901
+    def validate_internal_digests(self) -> Self:  # noqa: C901, PLR0912
         if self.schema_version != RECEIPT_SCHEMA_VERSION:
             raise ValueError("unsupported partition receipt schema")
         if self.algorithm_version != ALGORITHM_VERSION:
@@ -147,6 +356,16 @@ class PartitionReceipt(_Document):
             raise ValueError("partition receipt must describe exactly two shards")
         if self.shard_index >= self.shard_count:
             raise ValueError("partition receipt shard index is out of range")
+        try:
+            spec = partition_spec(self.lane, self.shard_id)
+        except ValueError as exc:
+            raise ValueError(
+                "partition receipt lane/shard correlation is invalid"
+            ) from exc
+        if self.shard_index != spec.shard_index:
+            raise ValueError(
+                "partition receipt lane/shard/index correlation is invalid"
+            )
         if self.full_inventory != tuple(sorted(set(self.full_inventory))):
             raise ValueError("full inventory must be sorted and unique")
         if self.selected_nodeids != tuple(sorted(set(self.selected_nodeids))):
@@ -205,7 +424,7 @@ def assign_backend_modules(
 def build_receipt(
     *,
     lane: Lane,
-    shard_id: str,
+    shard_id: ShardId,
     shard_index: int,
     shard_count: int,
     full_inventory: Sequence[str],
@@ -230,14 +449,13 @@ def build_receipt(
     )
 
 
-def validate_partition_receipts(  # noqa: C901
+def validate_partition_receipts(  # noqa: C901, PLR0912
     receipts: Sequence[PartitionReceipt],
     *,
     lane: Lane,
-    expected_shards: Sequence[str],
 ) -> None:
     """Require exact shard identities and an exact disjoint inventory union."""
-    expected = tuple(expected_shards)
+    expected = tuple(spec.shard_id for spec in PARTITION_SPECS if spec.lane == lane)
     if len(receipts) != len(expected):
         raise ValueError(f"missing partition receipt for {lane}")
     if tuple(receipt.shard_id for receipt in receipts) != expected:
@@ -270,6 +488,12 @@ def validate_partition_receipts(  # noqa: C901
             )
         if classification is None:
             raise ValueError("integration classification evidence is missing")
+        if not classification.robot_files:
+            raise ValueError("ROBOT file assignment must be nonempty")
+        if not set(classification.robot_files) <= set(classification.postgres_files):
+            raise ValueError("ROBOT files must be contained by the postgres shard")
+        if classification.jena_files != classification.qlever_files:
+            raise ValueError("Jena files must exactly equal the qlever shard files")
         selected_files = [
             {nodeid.partition("::")[0] for nodeid in receipt.selected_nodeids}
             for receipt in receipts
@@ -300,10 +524,9 @@ def _record(item: Any, root: Path) -> CollectionRecord:
 
 
 def _eligible(record: CollectionRecord, lane: Lane) -> bool:
-    if lane == "backend":
-        return "integration" not in record.markers
-    return "integration" in record.markers and not record.markers.intersection(
-        {"full_store", "full_build", "slow"}
+    selector = lane_selector(lane)
+    return selector.required_markers <= record.markers and not (
+        selector.excluded_markers & record.markers
     )
 
 
@@ -313,16 +536,16 @@ def _selection(
     eligible = tuple(record for record in records if _eligible(record, lane))
     if not eligible:
         raise _usage_error(f"{lane} full inventory is empty")
+    try:
+        spec = partition_spec(lane, shard)
+    except ValueError as exc:
+        raise _usage_error(str(exc)) from exc
     if lane == "backend":
-        if shard not in {"0", "1"}:
-            raise _usage_error("backend shard must be 0 or 1")
-        index = int(shard)
+        index = spec.shard_index
         selected_ids = set(
             assign_backend_modules([r.nodeid for r in eligible], index, SHARD_COUNT)
         )
         return tuple(r for r in eligible if r.nodeid in selected_ids), None, index
-    if shard not in {"qlever", "postgres"}:
-        raise _usage_error("integration shard must be qlever or postgres")
     classification = IntegrationClassification.from_collection(
         eligible, root / "test_support/integration_mutators.toml"
     )
@@ -334,7 +557,7 @@ def _selection(
     selected = tuple(record for record in eligible if record.path in paths)
     if not selected:
         raise _usage_error(f"empty integration shard {shard}")
-    return selected, classification, 0 if shard == "qlever" else 1
+    return selected, classification, spec.shard_index
 
 
 def _write_receipt(path: Path, receipt: PartitionReceipt) -> None:
@@ -352,12 +575,60 @@ def load_receipt(path: Path) -> PartitionReceipt:
     return PartitionReceipt.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def validate_artifacts(
+    root: Path,
+    *,
+    validate_receipts: bool = True,
+    validate_identities: bool = True,
+) -> None:
+    """Require the four exact artifact directories and their exact regular files."""
+    root = root.resolve()
+    expected_directories = {spec.artifact_name for spec in PARTITION_SPECS}
+    actual_directories = {
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and entry.name.startswith("coverage-")
+    }
+    unexpected = actual_directories - expected_directories
+    if unexpected:
+        raise ValueError(
+            f"unexpected coverage artifact directories: {sorted(unexpected)}"
+        )
+    for spec in PARTITION_SPECS:
+        path = root / spec.artifact_name
+        actual = {entry.name for entry in path.iterdir()} if path.is_dir() else set()
+        if actual != spec.artifact_file_names or not all(
+            (path / name).is_file() for name in spec.artifact_file_names
+        ):
+            raise ValueError(
+                f"coverage artifact {spec.artifact_name} files mismatch: "
+                f"expected {sorted(spec.artifact_file_names)}, got {sorted(actual)}"
+            )
+    if validate_receipts:
+        for lane in ("backend", "integration"):
+            receipts = tuple(
+                load_receipt(root / spec.artifact_name / spec.receipt_name)
+                for spec in PARTITION_SPECS
+                if spec.lane == lane
+            )
+            validate_partition_receipts(receipts, lane=lane)
+    if validate_identities:
+        for spec in PARTITION_SPECS:
+            identity_path = root / spec.artifact_name / spec.identity_name
+            raw_identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(raw_identity, dict)
+                or raw_identity.get("layer") != spec.layer
+            ):
+                raise ValueError(
+                    f"coverage identity layer mismatch for "
+                    f"{spec.artifact_name}/{spec.identity_name}"
+                )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    validate = subparsers.add_parser("validate-receipts")
-    validate.add_argument("--backend", type=Path, nargs=2, required=True)
-    validate.add_argument("--integration", type=Path, nargs=2, required=True)
     artifacts = subparsers.add_parser("validate-artifacts")
     artifacts.add_argument("--root", type=Path, required=True)
     return parser
@@ -365,80 +636,33 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.command == "validate-receipts":
-        backend = tuple(load_receipt(path) for path in args.backend)
-        integration = tuple(load_receipt(path) for path in args.integration)
-        validate_partition_receipts(backend, lane="backend", expected_shards=("0", "1"))
-        validate_partition_receipts(
-            integration,
-            lane="integration",
-            expected_shards=("qlever", "postgres"),
-        )
-        return 0
     if args.command == "validate-artifacts":
-        expected = {
-            "coverage-backend-1": {
-                ".coverage.unit-0",
-                "coverage-unit-0.identity.json",
-                "coverage-unit-0.xml",
-                "partition-backend-0.json",
-            },
-            "coverage-backend-2": {
-                ".coverage.unit-1",
-                "coverage-unit-1.identity.json",
-                "coverage-unit-1.xml",
-                "partition-backend-1.json",
-            },
-            "coverage-integration-qlever": {
-                ".coverage.integration-qlever",
-                "coverage-integration-qlever.identity.json",
-                "partition-integration-qlever.json",
-            },
-            "coverage-integration-postgres": {
-                ".coverage.integration-postgres",
-                "coverage-integration-postgres.identity.json",
-                "partition-integration-postgres.json",
-            },
-        }
-        root = args.root.resolve()
-        for directory, expected_names in expected.items():
-            path = root / directory
-            actual = (
-                {entry.name for entry in path.iterdir()} if path.is_dir() else set()
-            )
-            if actual != expected_names or not all(
-                (path / name).is_file() for name in expected_names
-            ):
-                raise ValueError(
-                    f"coverage artifact {directory} files mismatch: "
-                    f"expected {sorted(expected_names)}, got {sorted(actual)}"
-                )
+        validate_artifacts(args.root)
         return 0
     raise AssertionError(f"unhandled command {args.command}")
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
-    """Apply the same fixed file selection in controllers and xdist workers."""
+    """Apply one receipt-bound fixed selection in controller and xdist workers."""
     lane_value = os.environ.get(f"{_ENV_PREFIX}LANE")
     if lane_value is None:
         return
-    if os.environ.get(f"{_ENV_PREFIX}FIXED_ROOTS") == "1" and not {
+    try:
+        environment = PartitionEnvironment.from_environ(os.environ)
+    except ValueError as exc:
+        raise _usage_error(str(exc)) from exc
+    has_fixed_roots = {
         "ontolib/tests",
         "backend/tests",
-    } <= set(config.args):
-        # Tests in a partition can launch focused nested pytest contracts. Those
-        # subprocesses inherit the environment but are not the fixed CI collection.
+    } <= set(config.args)
+    if environment.fixed_roots and not has_fixed_roots:
+        if environment.phase == "collect":
+            raise _usage_error("fixed partition collect requires repository test roots")
+        # Partition tests may launch focused nested pytest processes. Execute-phase
+        # children inherit the selector but do not represent the fixed collection.
         return
-    if lane_value not in {"backend", "integration"}:
-        raise _usage_error("invalid test partition lane")
-    lane = cast("Lane", lane_value)
-    shard = os.environ.get(f"{_ENV_PREFIX}SHARD", "")
-    count = os.environ.get(f"{_ENV_PREFIX}COUNT")
-    if count != "2":
-        raise _usage_error("test partition count must be 2")
-    receipt_value = os.environ.get(f"{_ENV_PREFIX}RECEIPT")
-    if not receipt_value:
-        raise _usage_error("test partition receipt path is required")
+    lane = environment.lane
+    shard = environment.shard_id
     root = Path(str(config.rootpath)).resolve()
     records = tuple(_record(item, root) for item in items)
     eligible = tuple(record for record in records if _eligible(record, lane))
@@ -453,19 +677,20 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         lane=lane,
         shard_id=shard,
         shard_index=index,
-        shard_count=2,
+        shard_count=environment.shard_count,
         full_inventory=[record.nodeid for record in eligible],
         selected_nodeids=[record.nodeid for record in selected],
         classification=classification,
     )
-    receipt_path = Path(receipt_value)
-    phase = os.environ.get(f"{_ENV_PREFIX}PHASE")
-    if phase == "collect" or not receipt_path.exists():
+    receipt_path = environment.receipt
+    if environment.phase == "collect":
         _write_receipt(receipt_path, receipt)
-    else:
-        expected = load_receipt(receipt_path)
-        if expected != receipt:
-            raise _usage_error("execution collection differs from partition receipt")
+        return
+    if not receipt_path.is_file():
+        raise _usage_error("execute phase requires an existing partition receipt")
+    expected = load_receipt(receipt_path)
+    if expected != receipt:
+        raise _usage_error("execution collection differs from partition receipt")
 
 
 if __name__ == "__main__":

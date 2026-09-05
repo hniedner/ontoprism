@@ -19,6 +19,7 @@ import yaml
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 from scripts.validation.coverage_hierarchy import REPORT_RUNTIME_PACKAGES
+from scripts.validation.test_partitions import PARTITION_SPECS
 
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
@@ -632,13 +633,22 @@ def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:
     jobs = workflow["jobs"]
 
     for job_name in ("backend-tests", "integration-tests"):
-        upload = next(
+        uploads = [
             step
             for step in jobs[job_name]["steps"]
             if str(step.get("with", {}).get("name", "")).startswith("coverage-")
+        ]
+        assert len(uploads) == 2
+        receipt_upload = next(
+            step for step in uploads if "receipt" in step.get("name", "").casefold()
         )
-        assert upload["with"]["if-no-files-found"] == "error"
-        assert upload["if"] == "always()"
+        evidence_upload = next(step for step in uploads if step is not receipt_upload)
+        assert receipt_upload["with"]["if-no-files-found"] == "error"
+        assert receipt_upload["if"] == "always()"
+        assert evidence_upload["with"]["if-no-files-found"] == "error"
+        assert evidence_upload["if"] == "success()"
+        assert "partition-" in receipt_upload["with"]["path"]
+        assert "partition-" not in evidence_upload["with"]["path"]
 
 
 def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() -> None:
@@ -647,26 +657,41 @@ def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() ->
     backend = jobs["backend-tests"]
     integration = jobs["integration-tests"]
 
+    backend_specs = [spec for spec in PARTITION_SPECS if spec.lane == "backend"]
+    integration_specs = [spec for spec in PARTITION_SPECS if spec.lane == "integration"]
     assert backend["strategy"] == {
         "fail-fast": False,
-        "matrix": {"include": [{"shard": 1, "index": 0}, {"shard": 2, "index": 1}]},
+        "matrix": {
+            "include": [
+                {"shard": spec.shard_index + 1, "index": spec.shard_index}
+                for spec in backend_specs
+            ]
+        },
     }
     assert backend["name"] == "backend tests (shard ${{ matrix.shard }}/2)"
     assert integration["strategy"]["fail-fast"] is False
     assert integration["strategy"]["matrix"]["include"] == [
-        {"shard": "qlever", "needs_robot": False, "needs_jena": True},
-        {"shard": "postgres", "needs_robot": True, "needs_jena": False},
+        {
+            "shard": spec.shard_id,
+            "needs_robot": spec.needs_robot,
+            "needs_jena": spec.needs_jena,
+        }
+        for spec in integration_specs
     ]
     assert (
         integration["name"] == "integration tests (services, shard ${{ matrix.shard }})"
     )
 
     artifact_names = {
-        jobs[job]["steps"][-1]["with"]["name"]
+        step["with"]["name"]
         for job in ("backend-tests", "integration-tests")
+        for step in jobs[job]["steps"]
+        if str(step.get("with", {}).get("name", "")).startswith("coverage-")
     }
     assert artifact_names == {
+        "coverage-backend-${{ matrix.shard }}-receipt",
         "coverage-backend-${{ matrix.shard }}",
+        "coverage-integration-${{ matrix.shard }}-receipt",
         "coverage-integration-${{ matrix.shard }}",
     }
     assert jobs["coverage-verify"]["needs"] == ["backend-tests", "integration-tests"]
@@ -682,9 +707,13 @@ def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() 
         step for step in steps if "actions/download-artifact" in step.get("uses", "")
     ]
     assert [step["with"]["name"] for step in downloads] == [
+        "coverage-backend-1-receipt",
         "coverage-backend-1",
+        "coverage-backend-2-receipt",
         "coverage-backend-2",
+        "coverage-integration-qlever-receipt",
         "coverage-integration-qlever",
+        "coverage-integration-postgres-receipt",
         "coverage-integration-postgres",
     ]
     combine_index, combine = next(
@@ -694,9 +723,9 @@ def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() 
         == "Validate partitions and combine same-commit coverage layers"
     )
     run = combine["run"]
-    assert "validate-receipts" in run
+    assert "validate-artifacts" in run
     assert "verify-identities" in run
-    assert run.index("validate-receipts") < run.index("coverage combine")
+    assert run.index("validate-artifacts") < run.index("coverage combine")
     assert run.index("verify-identities") < run.index("coverage combine")
     assert "coverage combine --keep" in run
     for path in (
@@ -713,6 +742,18 @@ def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() 
         == "Verify independent Python line and branch coverage > 90%"
     )
     assert combine_index < strict_index
+
+
+def test_failed_python_matrix_cannot_be_accepted_by_coverage_or_summary() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    jobs = workflow["jobs"]
+
+    assert "if" not in jobs["coverage-verify"]
+    assert jobs["coverage-verify"]["needs"] == ["backend-tests", "integration-tests"]
+    summary = jobs["ci-summary"]
+    assert summary["if"] == "always()"
+    assert "success|skipped)" in summary["steps"][0]["run"]
+    assert "failure" not in summary["steps"][0]["run"]
 
 
 def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:

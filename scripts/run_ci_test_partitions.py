@@ -13,6 +13,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -23,25 +24,18 @@ from scripts.validation.coverage_hierarchy import (  # noqa: E402
     load_manifest,
     make_identity,
     verify_identities,
-    verify_layer_set,
 )
 from scripts.validation.test_partitions import (  # noqa: E402
+    LANE_SELECTORS,
+    PARTITION_SPECS,
+    Lane,
+    PartitionSpec,
     load_receipt,
-    validate_partition_receipts,
+    partition_spec,
+    validate_artifacts,
 )
 
-EXPECTED_LAYERS = (
-    "python-unit-0",
-    "python-unit-1",
-    "python-integration-qlever",
-    "python-integration-postgres",
-)
-_PARTITIONS = (
-    ("backend", "0"),
-    ("backend", "1"),
-    ("integration", "qlever"),
-    ("integration", "postgres"),
-)
+EXPECTED_LAYERS = tuple(spec.layer for spec in PARTITION_SPECS)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -58,16 +52,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _partition_contract(lane: str, shard: str) -> tuple[int, str, str]:
-    if lane == "backend" and shard in {"0", "1"}:
-        return int(shard), f"python-unit-{shard}", f"unit-{shard}"
-    if lane == "integration" and shard in {"qlever", "postgres"}:
-        return (
-            0 if shard == "qlever" else 1,
-            f"python-integration-{shard}",
-            f"integration-{shard}",
-        )
-    raise ValueError(f"invalid fixed partition {lane}/{shard}")
+def _partition_contract(lane: str, shard: str) -> PartitionSpec:
+    if lane not in {"backend", "integration"}:
+        raise ValueError(f"invalid fixed partition {lane}/{shard}")
+    return partition_spec(cast("Lane", lane), shard)
 
 
 def _pytest_command(
@@ -76,11 +64,8 @@ def _pytest_command(
     pytest = shutil.which("pytest")
     if pytest is None:
         raise RuntimeError("pytest console script is required")
-    marker = (
-        "not integration"
-        if lane == "backend"
-        else "integration and not full_store and not full_build and not slow"
-    )
+    selector = next(selector for selector in LANE_SELECTORS if selector.lane == lane)
+    marker = selector.marker_expression
     arguments = ["ontolib/tests", "backend/tests", "-m", marker]
     if collect_only:
         arguments.append("--collect-only")
@@ -143,7 +128,7 @@ def run_partition(
     identity: Path,
 ) -> float:
     """Collect, receipt, then execute one validated fixed partition."""
-    _index, layer, _stem = _partition_contract(lane, shard)
+    spec = _partition_contract(lane, shard)
     for output in (receipt, coverage_file, identity, coverage_xml):
         if output is not None and output.exists():
             output.unlink()
@@ -175,66 +160,89 @@ def run_partition(
         env=execution_environment,
         check=True,
     )
-    _write_identity(identity, layer)
+    _write_identity(identity, spec.layer)
     return time.monotonic() - started
 
 
-def _validate_local_outputs(output: Path) -> tuple[ArtifactIdentity, ...]:
-    backend_receipts = tuple(
-        load_receipt(output / f"partition-backend-{shard}.json") for shard in ("0", "1")
+def validate_identity_layers(
+    paths: Sequence[Path], identities: Sequence[ArtifactIdentity]
+) -> None:
+    """Bind every identity path to the exact layer assigned to that artifact."""
+    actual = tuple(
+        ("/".join(path.parts[-2:]), identity.layer)
+        for path, identity in zip(paths, identities, strict=True)
     )
-    integration_receipts = tuple(
-        load_receipt(output / f"partition-integration-{shard}.json")
-        for shard in ("qlever", "postgres")
+    expected = tuple(
+        (f"{spec.artifact_name}/{spec.identity_name}", layer)
+        for spec, layer in zip(PARTITION_SPECS, EXPECTED_LAYERS, strict=True)
     )
-    validate_partition_receipts(
-        backend_receipts, lane="backend", expected_shards=("0", "1")
-    )
-    validate_partition_receipts(
-        integration_receipts,
-        lane="integration",
-        expected_shards=("qlever", "postgres"),
-    )
-    identities = tuple(
-        ArtifactIdentity.model_validate_json(
-            (output / f"coverage-{lane}-{shard}.identity.json").read_text()
-        )
-        for lane, shard in _PARTITIONS
-    )
-    verify_layer_set(identities, EXPECTED_LAYERS)
-    # Local TDD runs before commit. Exact source/config hashes still bind all
-    # four same-process artifacts; only CI requires the collected checkout to be clean.
+    if len(paths) != len(set(paths)) or {path for path, _layer in actual} != {
+        path for path, _layer in expected
+    }:
+        raise ValueError("coverage identity path set is not exact")
+    expected_layers = dict(expected)
+    for path, layer in actual:
+        if expected_layers[path] != layer:
+            raise ValueError(f"coverage identity layer mismatch for {path}")
+
+
+def validate_local_identities(
+    paths: Sequence[Path], identities: Sequence[ArtifactIdentity]
+) -> None:
+    validate_identity_layers(paths, identities)
+    # Local TDD runs before commit. Source/config hashes still bind all four artifacts;
+    # only CI requires the checkout itself to be clean while they are collected.
     verify_identities(
         tuple(
             identity.model_copy(update={"worktree_dirty": False})
             for identity in identities
         )
     )
+
+
+def _validate_local_outputs(output: Path) -> tuple[ArtifactIdentity, ...]:
+    validate_artifacts(output)
+    identity_paths = tuple(
+        output / spec.artifact_name / spec.identity_name for spec in PARTITION_SPECS
+    )
+    identities = tuple(
+        ArtifactIdentity.model_validate_json(path.read_text())
+        for path in identity_paths
+    )
+    validate_local_identities(identity_paths, identities)
     return identities
 
 
 def run_all() -> int:
     """Run CI's children sequentially; parity is semantic, not a speed claim."""
+    root_coverage = ROOT / ".coverage"
+    pending_coverage = ROOT / ".coverage.pending"
+    root_coverage.unlink(missing_ok=True)
+    pending_coverage.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix="ontoprism-python-ci-") as directory:
         output = Path(directory)
         durations: dict[str, float] = {}
         coverage_paths: list[Path] = []
-        for lane, shard in _PARTITIONS:
-            coverage_file = output / f".coverage.{lane}-{shard}"
+        for spec in PARTITION_SPECS:
+            artifact = output / spec.artifact_name
+            artifact.mkdir()
+            coverage_file = artifact / spec.coverage_name
             coverage_paths.append(coverage_file)
-            durations[f"{lane}/{shard}"] = run_partition(
-                lane,
-                shard,
-                receipt=output / f"partition-{lane}-{shard}.json",
+            durations[f"{spec.lane}/{spec.shard_id}"] = run_partition(
+                spec.lane,
+                spec.shard_id,
+                receipt=artifact / spec.receipt_name,
                 coverage_file=coverage_file,
                 coverage_xml=(
-                    output / f"coverage-unit-{shard}.xml" if lane == "backend" else None
+                    artifact / spec.coverage_xml_name
+                    if spec.coverage_xml_name is not None
+                    else None
                 ),
-                identity=output / f"coverage-{lane}-{shard}.identity.json",
+                identity=artifact / spec.identity_name,
             )
         identities = _validate_local_outputs(output)
         combined = output / ".coverage"
-        # Exact local equivalent of `coverage combine --keep <four paths>` in CI.
+        # Local equivalent of CI's explicit four-path coverage combine.
         subprocess.run(  # noqa: S603 - fixed coverage command
             [
                 sys.executable,
@@ -269,7 +277,11 @@ def run_all() -> int:
                 "--coverage-data",
                 str(combined),
                 "--identity",
-                str(output / "coverage-backend-0.identity.json"),
+                str(
+                    output
+                    / PARTITION_SPECS[0].artifact_name
+                    / PARTITION_SPECS[0].identity_name
+                ),
                 "--raw-output",
                 str(output / "python-native.json"),
                 "--output",
@@ -280,16 +292,21 @@ def run_all() -> int:
             cwd=ROOT,
             check=True,
         )
-        shutil.copyfile(combined, ROOT / ".coverage")
         print("partition inventory and durations:")
-        for (lane, shard), identity in zip(_PARTITIONS, identities, strict=True):
-            receipt = load_receipt(output / f"partition-{lane}-{shard}.json")
+        for spec, identity in zip(PARTITION_SPECS, identities, strict=True):
+            receipt = load_receipt(output / spec.artifact_name / spec.receipt_name)
             modules = {nodeid.partition("::")[0] for nodeid in receipt.selected_nodeids}
             print(
-                f"  {lane}/{shard}: {receipt.selected_count} nodeids, "
-                f"{len(modules)} modules, {durations[f'{lane}/{shard}']:.1f}s, "
+                f"  {spec.lane}/{spec.shard_id}: {receipt.selected_count} nodeids, "
+                f"{len(modules)} modules, "
+                f"{durations[f'{spec.lane}/{spec.shard_id}']:.1f}s, "
                 f"layer={identity.layer}"
             )
+        try:
+            shutil.copyfile(combined, pending_coverage)
+            pending_coverage.replace(root_coverage)
+        finally:
+            pending_coverage.unlink(missing_ok=True)
     return 0
 
 

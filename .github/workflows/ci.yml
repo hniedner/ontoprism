@@ -183,8 +183,16 @@ jobs:
             --coverage-xml "coverage-unit-${{ matrix.index }}.xml" \
             --identity "coverage-unit-${{ matrix.index }}.identity.json"
 
-      - name: Upload coverage data
+      - name: Upload backend partition receipt
         if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-backend-${{ matrix.shard }}-receipt
+          if-no-files-found: error
+          path: partition-backend-${{ matrix.index }}.json
+
+      - name: Upload backend coverage data
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-backend-${{ matrix.shard }}
@@ -195,7 +203,6 @@ jobs:
             .coverage.unit-${{ matrix.index }}
             coverage-unit-${{ matrix.index }}.xml
             coverage-unit-${{ matrix.index }}.identity.json
-            partition-backend-${{ matrix.index }}.json
 
   coverage-verify:
     name: coverage verify (ontolib + backend)
@@ -223,8 +230,18 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
+          name: coverage-backend-1-receipt
+          path: coverage-backend-1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
           name: coverage-backend-1
           path: coverage-backend-1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: coverage-backend-2-receipt
+          path: coverage-backend-2
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -233,8 +250,18 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
+          name: coverage-integration-qlever-receipt
+          path: coverage-integration-qlever
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
           name: coverage-integration-qlever
           path: coverage-integration-qlever
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: coverage-integration-postgres-receipt
+          path: coverage-integration-postgres
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -246,13 +273,6 @@ jobs:
           COVERAGE_CONFIG_SET: python-combined
         run: |
           python -m scripts.validation.test_partitions validate-artifacts --root .
-          python -m scripts.validation.test_partitions validate-receipts \
-            --backend \
-              coverage-backend-1/partition-backend-0.json \
-              coverage-backend-2/partition-backend-1.json \
-            --integration \
-              coverage-integration-qlever/partition-integration-qlever.json \
-              coverage-integration-postgres/partition-integration-postgres.json
           python scripts/validation/coverage_hierarchy.py verify-identities \
             --against-current \
             --expected-layer python-unit-0 \
@@ -393,9 +413,8 @@ jobs:
       - name: Install dependencies
         run: pdm sync --clean-unselected --dev
 
-      # ROBOT + ELK (D28): without these on PATH the non-circular validation tests
-      # (EL profile gate -> ELK classification -> promotion, #73) silently skip, and a
-      # broken reasoner call looks exactly like "no candidate qualified".
+      # Capability validation assigns every ROBOT/ELK contract to the postgres child,
+      # where this conditional installation prevents reasoner contracts from skipping.
       - name: Set up Java 21 (for selected tools)
         if: ${{ matrix.needs_robot || matrix.needs_jena }}
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
@@ -440,8 +459,16 @@ jobs:
             --coverage-file ".coverage.integration-${{ matrix.shard }}" \
             --identity "coverage-integration-${{ matrix.shard }}.identity.json"
 
-      - name: Upload integration coverage data
+      - name: Upload integration partition receipt
         if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-integration-${{ matrix.shard }}-receipt
+          if-no-files-found: error
+          path: partition-integration-${{ matrix.shard }}.json
+
+      - name: Upload integration coverage data
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-integration-${{ matrix.shard }}
@@ -450,7 +477,6 @@ jobs:
           path: |
             .coverage.integration-${{ matrix.shard }}
             coverage-integration-${{ matrix.shard }}.identity.json
-            partition-integration-${{ matrix.shard }}.json
 
   embedding-model-contract:
     name: pinned embedding model contract
