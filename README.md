@@ -415,18 +415,18 @@ _This table is auto-updated by CI after successful builds on `main`._
 
 | Language | Files | Lines |
 | --- | ---: | ---: |
-| Python | 430 | 174,636 |
+| Python | 431 | 176,700 |
 | JSON | 31 | 60,013 |
-| Markdown | 36 | 12,501 |
-| TypeScript | 113 | 8,494 |
+| Markdown | 38 | 13,241 |
+| TypeScript | 114 | 8,526 |
 | Svelte | 68 | 4,285 |
 | CSS | 3 | 1,993 |
-| YAML | 10 | 1,263 |
+| YAML | 10 | 1,276 |
 | TOML | 5 | 1,054 |
 | Shell | 1 | 105 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **699** | **264,403** |
+| **Total** | **703** | **267,252** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
