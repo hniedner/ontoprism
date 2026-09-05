@@ -161,15 +161,15 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
 
 
 @pytest.mark.api
-def test_search_identity_mismatch_falls_back_to_certified_store() -> None:
+def test_search_identity_mismatch_fails_closed() -> None:
     store = _Store()
 
     response = next(_client(store, _Index(False))).get(
         "/api/v1/uberon/search", params={"q": "lung", "source": "uberon"}
     )
 
-    assert response.status_code == 200
-    assert store.search_calls == [("lung", "uberon")]
+    assert response.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
+from backend.api.v1.grid import PageSize
 from backend.dependencies import (
     RepositoryMetadataReads,
     UberonSearch,
@@ -27,6 +28,7 @@ from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
     UberonNeighborhood,
+    UberonRepositorySort,
     UberonSearchPage,
     UberonSource,
 )
@@ -75,25 +77,28 @@ async def search(
     metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1)],
     source: UberonSource | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: UberonRepositorySort = "relevance",
 ) -> UberonSearchPage:
     repository = await _ready(metadata)
     try:
-        if await index.is_populated(
+        if not await index.is_populated(
             repository.source_identity, repository.observation.serving.sha256
         ):
-            return await index.search(q, source=source, limit=limit, offset=offset)
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Uberon/CL certified search index is unavailable.",
+            )
+        return await index.search(
+            q, source=source, limit=limit, offset=offset, sort=sort
+        )
     except SQLAlchemyError as exc:
         logger.exception("Uberon/CL FTS read failed")
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Uberon/CL search cache is unavailable.",
         ) from exc
-    try:
-        return await store.search(q, source=source, limit=limit, offset=offset)
-    except StorageError as exc:
-        raise _repository_failure(exc) from exc
 
 
 @router.get("/list", response_model=UberonSearchPage)
@@ -101,12 +106,15 @@ async def list_concepts(
     store: UberonStore,
     metadata: RepositoryMetadataReads,
     source: UberonSource | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: UberonRepositorySort = "source",
 ) -> UberonSearchPage:
     await _ready(metadata)
     try:
-        return await store.list_concepts(source=source, limit=limit, offset=offset)
+        return await store.list_concepts(
+            source=source, limit=limit, offset=offset, sort=sort
+        )
     except StorageError as exc:
         raise _repository_failure(exc) from exc
 

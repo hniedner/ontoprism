@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { icdoCodeSegment } from '$lib/api';
 import type { IcdoRecord } from '$lib/types';
@@ -27,29 +27,10 @@ describe('IcdoResultsTable', () => {
 		);
 		expect(screen.getByText('No preferred term supplied')).toBeInTheDocument();
 		expect(within(document.querySelector('tbody') as HTMLElement).getAllByText('morphology')).toHaveLength(2);
-		expect(screen.getByText('Filters and sorting apply only to the ICD-O records loaded on this page.')).toBeVisible();
 		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
 		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
 		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
 		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
-	});
-
-	it('sorts and filters all four merged record variants on the loaded page', async () => {
-		render(IcdoResultsTable, { dataset: { edition: '4.0', axis: 'topography' }, hits });
-		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'leaf (1)' }));
-		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
-		expect(screen.getByRole('link', { name: 'C00.1' })).toBeInTheDocument();
-	});
-
-	it('renders and categorically filters level, behaviour, and nullable specificity fields', () => {
-		render(IcdoResultsTable, { dataset: { edition: '4.0', axis: 'morphology' }, hits });
-		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O levels' })).toBeInTheDocument();
-		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O behaviours' })).toBeInTheDocument();
-		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O specificities' })).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'No behaviour (2)' })).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'No specificity (3)' })).toBeInTheDocument();
-		expect(within(document.querySelector('tbody') as HTMLElement).getByText('NOS')).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled ICD-O table field', () => {

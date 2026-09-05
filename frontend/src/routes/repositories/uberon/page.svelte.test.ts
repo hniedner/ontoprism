@@ -21,31 +21,26 @@ const data = {
 		},
 		query: 'lung',
 		offset: 25,
-		source: 'uberon'
+		size: 25,
+		sort: 'relevance',
+		filters: { source: ['uberon'] }
 	}
 };
 
 describe('Uberon repository page table ownership', () => {
 	beforeEach(() => goto.mockClear());
 
-	it('keeps source and server pagination in URL state while table controls stay local', async () => {
+	it('sends sort and categorical filter intents through canonical URL state', async () => {
 		render(Page, { data: data as never, params: {}, form: null });
 		expect(screen.getAllByRole('button', { name: 'Previous page' })).toHaveLength(1);
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded Uberon/CL names' }), {
-			target: { value: 'lung' }
-		});
-		expect(goto).not.toHaveBeenCalled();
+		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=uberon&sort=code%3Aasc');
 
-		await fireEvent.change(screen.getByRole('combobox', { name: 'Source' }), {
-			target: { value: 'cl' }
-		});
-		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=cl');
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cell Ontology' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=uberon&source=cl');
 
-		await fireEvent.change(screen.getByRole('combobox', { name: 'Source' }), {
-			target: { value: '' }
-		});
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Uberon' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung');
 	});
 });

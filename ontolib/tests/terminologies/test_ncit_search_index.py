@@ -110,7 +110,12 @@ async def test_search_maps_rows_and_binds_params() -> None:
             total=2,
         ),
     ]
-    sf = _SessionFactory({"ncit_search": _Result(rows=rows)})
+    sf = _SessionFactory(
+        {
+            "SELECT COUNT(*)": _Result(scalar=2),
+            "SELECT code": _Result(rows=rows),
+        }
+    )
     page = await NcitSearchIndex(sf).search(  # type: ignore[arg-type]
         "tumor",
         limit=10,
@@ -125,14 +130,14 @@ async def test_search_maps_rows_and_binds_params() -> None:
         None,
     ]
     assert page.limit == 10
-    _sql, params = sf.executed[0]
+    _sql, params = sf.executed[1]
     assert params == {
         "q": "tumor",
         "limit": 10,
         "offset": 5,
         "representation_status": "legacy-precoordinated",
     }
-    sql = sf.executed[0][0]
+    sql = sf.executed[1][0]
     status_filter = "representation_status = CAST(:representation_status AS text)"
     assert "CAST(:representation_status AS text) IS NULL" in sql
     assert status_filter in sql
@@ -141,7 +146,9 @@ async def test_search_maps_rows_and_binds_params() -> None:
 
 @pytest.mark.unit
 async def test_search_empty_result_is_zero_total() -> None:
-    sf = _SessionFactory({"ncit_search": _Result(rows=[])})
+    sf = _SessionFactory(
+        {"SELECT COUNT(*)": _Result(scalar=0), "SELECT code": _Result(rows=[])}
+    )
     page = await NcitSearchIndex(sf).search("nothing")  # type: ignore[arg-type]
     assert page.total == 0
     assert page.hits == []

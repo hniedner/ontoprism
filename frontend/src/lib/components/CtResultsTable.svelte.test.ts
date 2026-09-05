@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
 import type { CTStudySummary } from '$lib/types';
 
@@ -52,24 +52,9 @@ describe('CtResultsTable', () => {
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
-	it('preserves upstream order until a loaded-page sort and supports condition filters', async () => {
+	it('preserves upstream order', () => {
 		render(CtResultsTable, { studies });
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('NCT01');
-		expect(screen.getByText('Filters and sorting apply only to the trials loaded on this page.')).toBeVisible();
-		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Title' }));
-		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('NCT02');
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded trial titles and conditions' }), {
-			target: { value: 'skin cancer' }
-		});
-		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
-	});
-
-	it('uses categorical status and phase controls including null values', () => {
-		render(CtResultsTable, { studies });
-		expect(screen.getByRole('group', { name: 'Filter loaded trial statuses' })).toBeInTheDocument();
-		expect(screen.getByRole('group', { name: 'Filter loaded trial phases' })).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'No status (1)' })).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'No phase (1)' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled clinical-trial summary field', () => {

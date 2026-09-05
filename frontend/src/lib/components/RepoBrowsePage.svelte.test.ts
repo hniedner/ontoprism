@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import CursorPagination from './CursorPagination.svelte';
 import RepoBrowsePage from './RepoBrowsePage.svelte';
 
 const goto = vi.fn().mockResolvedValue(undefined);
@@ -30,7 +31,9 @@ function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit')
 		browseTitle: 'All concepts',
 		countLabel: (count: number, mode: string) => `${count} (${mode})`,
 		results: results as never,
-		initial: { result: { total, hits: [{ id: 'a' }] }, query, offset }
+		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters: {} },
+		defaultSort: 'source',
+		sortKeys: {}
 	});
 }
 
@@ -80,5 +83,38 @@ describe('RepoBrowsePage', () => {
 		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'lung' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 		expect(goto).toHaveBeenCalledWith('/repositories/uberon?q=lung');
+	});
+
+	it('distinguishes source-empty browse state from no matches with recovery', async () => {
+		const browse = setup('', 0, 0);
+		expect(screen.getByText('This repository contains no records.')).toBeInTheDocument();
+		browse.unmount();
+
+		setup('missing', 0, 0);
+		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
+	});
+});
+
+describe('CursorPagination', () => {
+	it('offers truthful previous and next cursor navigation without page numbers', async () => {
+		const onPrevious = vi.fn();
+		const onNext = vi.fn();
+		render(CursorPagination, {
+			count: 25,
+			total: 80,
+			hasPrevious: true,
+			hasNext: true,
+			size: 25,
+			onPrevious,
+			onNext,
+			onSize: vi.fn()
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+		expect(onPrevious).toHaveBeenCalledOnce();
+		expect(onNext).toHaveBeenCalledOnce();
+		expect(screen.queryByText(/Page \d/)).not.toBeInTheDocument();
 	});
 });

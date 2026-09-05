@@ -35,6 +35,12 @@ describe('apiUrl', () => {
 			'/api/v1/ncit/search?q=small+cell&limit=10'
 		);
 	});
+
+	it('preserves repeated values for categorical OR filters', () => {
+		expect(apiUrl('/api/v1/icdo/4.0/topography/list', { level: ['category', 'leaf'] })).toBe(
+			'/api/v1/icdo/4.0/topography/list?level=category&level=leaf'
+		);
+	});
 });
 
 describe('icdoCodeSegment', () => {
@@ -78,14 +84,19 @@ describe('getTrial', () => {
 });
 
 describe('searchPubmed', () => {
-	it('POSTs the query + retmax to the pubmed search endpoint', async () => {
+	it('POSTs canonical pagination and sort state to the PubMed search endpoint', async () => {
 		const fetchImpl = vi
 			.fn()
 			.mockResolvedValue(jsonResponse({ query: 'melanoma', total: 0, articles: [] }));
-		await searchPubmed('melanoma', 25, fetchImpl);
+		await searchPubmed('melanoma', 25, 0, 'relevance', fetchImpl);
 		const [url, init] = fetchImpl.mock.calls[0];
 		expect(url).toBe('/api/v1/pubmed/search');
-		expect(JSON.parse(init.body)).toEqual({ query: 'melanoma', retmax: 25 });
+		expect(JSON.parse(init.body)).toEqual({
+			query: 'melanoma',
+			retmax: 25,
+			retstart: 0,
+			sort: 'relevance'
+		});
 	});
 });
 
@@ -123,7 +134,7 @@ describe('error handling', () => {
 			)
 		);
 
-		await expect(searchPubmed('private patient query', 25, fetchImpl)).rejects.toMatchObject({
+		await expect(searchPubmed('private patient query', 25, 0, 'relevance', fetchImpl)).rejects.toMatchObject({
 			status: 429,
 			remoteState: 'rate-limited',
 			message: 'PubMed rate limit reached; try again later.'
@@ -296,7 +307,9 @@ describe('caDSR endpoints', () => {
 			.fn()
 			.mockResolvedValue(jsonResponse({ query: 'age', total: 0, limit: 25, offset: 0, hits: [] }));
 		await searchCadsr('age', { fetch: fetchImpl });
-		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/search?q=age&limit=25&offset=0');
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/cadsr/search?q=age&limit=25&offset=0&sort=source'
+		);
 	});
 
 	it('listCadsr builds the browse URL', async () => {
@@ -304,7 +317,7 @@ describe('caDSR endpoints', () => {
 			.fn()
 			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
 		await listCadsr({ fetch: fetchImpl });
-		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/list?limit=25&offset=0');
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/list?limit=25&offset=0&sort=source');
 	});
 
 	it('getCde omits the version param when not given', async () => {

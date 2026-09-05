@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { UberonSearchHit } from '$lib/types';
 import UberonResultsTable from './UberonResultsTable.svelte';
@@ -17,25 +17,10 @@ describe('UberonResultsTable', () => {
 		expect(screen.getByText('—')).toBeInTheDocument();
 		expect(within(document.querySelector('tbody') as HTMLElement).getByText('Cell Ontology')).toBeInTheDocument();
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('UBERON:0002048');
-		expect(screen.getByText('Filters and sorting apply only to the Uberon/CL rows loaded on this page.')).toBeVisible();
 		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
 		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
 		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
 		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
-	});
-
-	it('sorts and filters the loaded subset without navigation controls', async () => {
-		render(UberonResultsTable, { hits });
-		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
-		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('CL:0000540');
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cell Ontology (1)' }));
-		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
-		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
-	});
-
-	it('uses an explicit categorical source control', () => {
-		render(UberonResultsTable, { hits });
-		expect(screen.getByRole('group', { name: 'Filter loaded ontology sources' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled Uberon/CL field', () => {

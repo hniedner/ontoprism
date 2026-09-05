@@ -167,6 +167,34 @@ async def test_search_resolves_idlist_to_summaries(pubmed_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_search_pages_with_retstart_and_echoes_effective_window(
+    pubmed_url: str,
+) -> None:
+    async with _client(pubmed_url) as client:
+        result = await client.search_articles(
+            "melanoma", retmax=25, retstart=50, sort="relevance"
+        )
+    assert _Handler.queries["esearch"]["retstart"] == ["50"]
+    assert result.limit == 25
+    assert result.offset == 50
+    assert [article.pmid for article in result.articles] == ["111", "222"]
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_pubmed_pages_are_disjoint_and_echo_the_requested_window() -> None:
+    async with PubMedClient() as client:
+        first = await client.search_articles("melanoma[Title]", retmax=10)
+        second = await client.search_articles("melanoma[Title]", retmax=10, retstart=10)
+    assert first.limit == second.limit == 10
+    assert (first.offset, second.offset) == (0, 10)
+    assert first.total == second.total
+    assert {row.pmid for row in first.articles}.isdisjoint(
+        row.pmid for row in second.articles
+    )
+
+
+@pytest.mark.unit
 async def test_search_retmax_is_clamped(pubmed_url: str) -> None:
     async with _client(pubmed_url) as client:
         await client.search_articles("melanoma", retmax=9999)

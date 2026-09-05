@@ -7,6 +7,9 @@ from pydantic import Field
 from ontolib.common.boundary_models import StrictBoundaryModel
 
 RepresentationStatus = Literal["legacy-precoordinated"]
+RepositorySort = Literal[
+    "relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"
+]
 
 
 class ConceptRef(StrictBoundaryModel):
@@ -75,6 +78,7 @@ class SearchPage(StrictBoundaryModel):
     total: int
     limit: int
     offset: int
+    sort: RepositorySort = "source"
     hits: list[SearchHit] = Field(default_factory=list)
 
 

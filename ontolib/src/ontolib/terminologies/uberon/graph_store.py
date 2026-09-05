@@ -14,6 +14,7 @@ from ontolib.terminologies.uberon.models import (
     UberonGraphNode,
     UberonNeighborhood,
     UberonRelationship,
+    UberonRepositorySort,
     UberonSearchHit,
     UberonSearchPage,
     UberonSource,
@@ -206,13 +207,23 @@ class UberonGraphStore:
         source: UberonSource | None = None,
         limit: int = 25,
         offset: int = 0,
+        sort: UberonRepositorySort = "source",
     ) -> UberonSearchPage:
+        if sort == "relevance":
+            raise ValueError("relevance sorting requires a search query")
+        order = {
+            "source": "?concept ?label",
+            "code:asc": "?concept ?label",
+            "code:desc": "DESC(?concept) ?label",
+            "label:asc": "?label ?concept",
+            "label:desc": "DESC(?label) ?concept",
+        }[sort]
         source_filter = _source_filter("?concept", source)
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label WHERE {{
               ?concept a owl:Class ; rdfs:label ?label . {source_filter}
-            }} ORDER BY ?concept ?label LIMIT {limit} OFFSET {offset}"""
+            }} ORDER BY {order} LIMIT {limit} OFFSET {offset}"""
         )
         if source not in self._totals:
             count_rows = await self._client.select(
@@ -229,6 +240,7 @@ class UberonGraphStore:
             total=self._totals[source],
             limit=limit,
             offset=offset,
+            sort=sort,
             hits=self._hits(rows),
         )
 

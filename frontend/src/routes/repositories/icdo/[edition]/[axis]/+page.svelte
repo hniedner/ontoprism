@@ -5,6 +5,7 @@
 	import type { IcdoDataset } from '$lib/icdo-routes';
 	import type { IcdoRecord } from '$lib/types';
 	import type { PageProps } from './$types';
+	import type { DataTableOperations } from '$lib/components/data-table/types';
 
 	let { data }: PageProps = $props();
 	const dataset = $derived({ edition: data.edition, axis: data.axis } as IcdoDataset);
@@ -20,7 +21,9 @@
 	ariaLabel={`Search ${label}`}
 	suggestions={[]}
 	browseTitle={`Browsing ${label} records`}
-	initial={{ result: data.result, query: data.query, offset: data.result.offset }}
+	initial={data.initial}
+	defaultSort="source"
+	sortKeys={{ code: { asc: 'code:asc', desc: 'code:desc' }, preferred: { asc: 'preferred:asc', desc: 'preferred:desc' } }}
 	countLabel={(count, mode) => `${count.toLocaleString()} ${mode === 'search' ? 'matches' : 'records'}`}
 >
 	{#snippet filters()}
@@ -32,7 +35,7 @@
 		Search publisher codes, preferred terms, synonyms, and related terms in this certified
 		edition/axis dataset.
 	{/snippet}
-	{#snippet results(hits: IcdoRecord[])}
-		<IcdoResultsTable {dataset} {hits} />
+	{#snippet results(hits: IcdoRecord[], operations: DataTableOperations)}
+		<IcdoResultsTable {dataset} {hits} {operations} />
 	{/snippet}
 </RepoBrowsePage>

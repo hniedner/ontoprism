@@ -73,10 +73,12 @@ async function failedResponse(response: Response, url: string): Promise<ApiReque
 }
 
 /** Build an API URL with query params (pure — unit tested). */
-export function apiUrl(path: string, params: Record<string, string | number> = {}): string {
-	const qs = new URLSearchParams(
-		Object.entries(params).map(([k, v]) => [k, String(v)])
-	).toString();
+export function apiUrl(path: string, params: Record<string, string | number | readonly string[]> = {}): string {
+	const query = new URLSearchParams();
+	for (const [key, raw] of Object.entries(params)) {
+		for (const value of Array.isArray(raw) ? raw : [raw]) query.append(key, String(value));
+	}
+	const qs = query.toString();
 	return `${BASE}${path}${qs ? `?${qs}` : ''}`;
 }
 
@@ -122,6 +124,7 @@ export function searchNcit(
 		limit?: number;
 		offset?: number;
 		representationStatus?: RepresentationStatus;
+		sort?: string;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<SearchPage> {
@@ -133,6 +136,7 @@ export function searchNcit(
 	if (opts.representationStatus) {
 		params.representation_status = opts.representationStatus;
 	}
+	if (opts.sort) params.sort = opts.sort;
 	const url = apiUrl('/api/v1/ncit/search', params);
 	return getJson<SearchPage>(url, opts.fetch);
 }
@@ -143,6 +147,7 @@ export function listNcit(
 		limit?: number;
 		offset?: number;
 		representationStatus?: RepresentationStatus;
+		sort?: string;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<SearchPage> {
@@ -153,6 +158,7 @@ export function listNcit(
 	if (opts.representationStatus) {
 		params.representation_status = opts.representationStatus;
 	}
+	if (opts.sort) params.sort = opts.sort;
 	const url = apiUrl('/api/v1/ncit/list', params);
 	return getJson<SearchPage>(url, opts.fetch);
 }
@@ -176,7 +182,7 @@ export function getNeighborhood(
 
 export function searchUberon(
 	q: string,
-	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: string; fetch?: typeof fetch } = {}
 ): Promise<UberonSearchPage> {
 	const params: Record<string, string | number> = {
 		q,
@@ -184,17 +190,19 @@ export function searchUberon(
 		offset: opts.offset ?? 0
 	};
 	if (opts.source) params.source = opts.source;
+	if (opts.sort) params.sort = opts.sort;
 	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
 }
 
 export function listUberon(
-	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: string; fetch?: typeof fetch } = {}
 ): Promise<UberonSearchPage> {
 	const params: Record<string, string | number> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	};
 	if (opts.source) params.source = opts.source;
+	if (opts.sort) params.sort = opts.sort;
 	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
 }
 
@@ -238,22 +246,30 @@ export function icdoCodeSegment(code: string): string {
 	return btoa(binary).replace(/=+$/, '');
 }
 
-export function listIcdo<D extends IcdoDataset>(dataset: D, opts: {
-	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<IcdoPageFor<D>> {
-	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
-	if (opts.behaviour) params.behaviour = opts.behaviour;
-	if (opts.level) params.level = opts.level;
-	return getJson<IcdoPageFor<D>>(apiUrl(icdoListPath(dataset), params), opts.fetch);
+interface IcdoGridOptions {
+	limit?: number;
+	offset?: number;
+	behaviour?: readonly string[];
+	level?: readonly string[];
+	sort?: string;
+	fetch?: typeof fetch;
 }
 
-export function searchIcdo<D extends IcdoDataset>(dataset: D, q: string, opts: {
-	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<IcdoPageFor<D>> {
-	const params: Record<string, string | number> = { q, limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+function icdoGridParams(q: string | undefined, opts: IcdoGridOptions): Record<string, string | number | readonly string[]> {
+	const params: Record<string, string | number | readonly string[]> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (q !== undefined) params.q = q;
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
-	return getJson<IcdoPageFor<D>>(apiUrl(icdoSearchPath(dataset), params), opts.fetch);
+	if (opts.sort) params.sort = opts.sort;
+	return params;
+}
+
+export function listIcdo<D extends IcdoDataset>(dataset: D, opts: IcdoGridOptions = {}): Promise<IcdoPageFor<D>> {
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoListPath(dataset), icdoGridParams(undefined, opts)), opts.fetch);
+}
+
+export function searchIcdo<D extends IcdoDataset>(dataset: D, q: string, opts: IcdoGridOptions = {}): Promise<IcdoPageFor<D>> {
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoSearchPath(dataset), icdoGridParams(q, opts)), opts.fetch);
 }
 
 
@@ -314,23 +330,25 @@ export function getCdeNeighborhood(
 
 export function searchCadsr(
 	q: string,
-	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sort?: string; fetch?: typeof fetch } = {}
 ): Promise<CdeSearchPage> {
 	const url = apiUrl('/api/v1/cadsr/search', {
 		q,
 		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0
+		offset: opts.offset ?? 0,
+		sort: opts.sort ?? 'source'
 	});
 	return getJson<CdeSearchPage>(url, opts.fetch);
 }
 
 /** List caDSR CDEs in natural order (no search term) — browse mode. */
 export function listCadsr(
-	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sort?: string; fetch?: typeof fetch } = {}
 ): Promise<CdeSearchPage> {
 	const url = apiUrl('/api/v1/cadsr/list', {
 		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0
+		offset: opts.offset ?? 0,
+		sort: opts.sort ?? 'source'
 	});
 	return getJson<CdeSearchPage>(url, opts.fetch);
 }

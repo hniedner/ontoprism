@@ -15,6 +15,11 @@ path = "backend/tests/test_ncit_search_index_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
+path = "backend/tests/test_ncit_api_integration.py"
+tests = ["test_search_returns_hits", "test_disposable_published_representation_marker_surfaces_across_ncit_reads"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
+
+[[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
 tests = ["test_isolated_postgres_is_migrated_and_owner_marked"]
 fixtures = ["isolated_postgres_url"]

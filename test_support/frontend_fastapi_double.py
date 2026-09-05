@@ -258,6 +258,7 @@ async def list_icdo(
     axis: str,
     limit: int = 25,
     offset: int = 0,
+    sort: str = "source",
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
@@ -287,6 +288,7 @@ async def list_icdo(
         "total": 51,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 **record,
@@ -315,9 +317,17 @@ async def search_icdo(
     q: str,
     limit: int = 25,
     offset: int = 0,
+    sort: str = "source",
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
-    result = await list_icdo(edition, axis, limit, offset, x_icdo_entitlement)
+    result = await list_icdo(
+        edition,
+        axis,
+        limit,
+        offset,
+        sort,
+        x_icdo_entitlement,
+    )
     result["query"] = q
     return result
 

@@ -2,20 +2,17 @@
 	import { resolve } from '$app/paths';
 	import type { SearchHit } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn } from '$lib/components/data-table/types';
+	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
-	let { hits }: { hits: readonly SearchHit[] } = $props();
-	const operations = {
-		kind: 'client-page',
-		scopeLabel: 'Filters and sorting apply only to the rows loaded on this page.'
-	} as const;
-	const columns: readonly DataTableColumn<SearchHit>[] = [
-		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filter: { kind: 'text', value: (hit) => hit.code, ariaLabel: 'Filter loaded NCIt codes' }, sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filter: { kind: 'text', value: (hit) => hit.label, ariaLabel: 'Filter loaded NCIt names' } },
-		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortValue: (hit) => hit.semantic_type, filter: { kind: 'categorical', value: (hit) => hit.semantic_type, ariaLabel: 'Filter loaded NCIt semantic types', emptyLabel: 'No semantic type' } },
-		{ id: 'representation_status', label: 'Status', cell: statusCell, sortValue: (hit) => hit.representation_status, filter: { kind: 'categorical', value: (hit) => hit.representation_status, ariaLabel: 'Filter loaded NCIt statuses', emptyLabel: 'No status' } }
-	];
+	let { hits, operations = { kind: 'none' } }: { hits: readonly SearchHit[]; operations?: DataTableOperations } = $props();
+	const interactive = $derived(operations.kind === 'server');
+	let columns = $derived.by((): readonly DataTableColumn<SearchHit>[] => [
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive },
+		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell },
+		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter NCIt representation status', options: [{ value: 'legacy-precoordinated', label: 'Legacy pre-coordinated' }] } : undefined }
+	]);
 </script>
 
 {#snippet codeCell(hit: SearchHit)}
@@ -34,11 +31,10 @@
 <DataTable
 	rows={hits}
 	{columns}
-	caption="NCIt results loaded on this page"
-	regionLabel="NCIt loaded-page results"
+	caption="NCIt repository results"
+	regionLabel="NCIt repository results"
 	getRowId={(hit) => hit.code}
 	{operations}
 	stickyHeader={true}
-	initialSort={{ columnId: 'label', direction: 'asc' }}
 	emptyMessage="No results."
 />

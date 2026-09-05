@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import text
 
 from ontolib.terminologies.ncit.models import (
+    RepositorySort,
     RepresentationStatus,
     SearchHit,
     SearchPage,
@@ -68,6 +69,24 @@ _SEARCH_SQL = r"""
              length(label), label, code
     LIMIT :limit OFFSET :offset
 """
+_SEARCH_COUNT_SQL = r"""
+    SELECT COUNT(*)
+    FROM ncit_search, websearch_to_tsquery('english', :q) AS q
+    WHERE tsv @@ q
+      AND (CAST(:representation_status AS text) IS NULL
+           OR representation_status = CAST(:representation_status AS text))
+"""
+_SEARCH_ORDERS: dict[RepositorySort, str] = {
+    "relevance": (
+        r"""(lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC, """
+        "ts_rank(tsv, q) DESC, length(label), label, code"
+    ),
+    "source": "code",
+    "code:asc": "code",
+    "code:desc": "code DESC",
+    "label:asc": "label NULLS LAST, code",
+    "label:desc": "label DESC NULLS LAST, code",
+}
 
 _UPSERT_SQL = """
     INSERT INTO ncit_search (
@@ -136,20 +155,32 @@ class NcitSearchIndex:
         limit: int = 25,
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
+        sort: RepositorySort = "relevance",
     ) -> SearchPage:
         """Full-text search the cache; total is the full match count (one query)."""
         async with self._sf() as session:
+            params = {
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+                "representation_status": representation_status,
+            }
+            count_result = await session.execute(text(_SEARCH_COUNT_SQL), params)
+            order_start = _SEARCH_SQL.index("ORDER BY")
+            order_end = _SEARCH_SQL.index("LIMIT :limit")
+            sql = (
+                _SEARCH_SQL[:order_start]
+                + "ORDER BY "
+                + _SEARCH_ORDERS[sort]
+                + "\n    "
+                + _SEARCH_SQL[order_end:]
+            )
             result = await session.execute(
-                text(_SEARCH_SQL),
-                {
-                    "q": query,
-                    "limit": limit,
-                    "offset": offset,
-                    "representation_status": representation_status,
-                },
+                text(sql),
+                params,
             )
             rows = result.all()
-        total = int(rows[0].total) if rows else 0
+        total = int(count_result.scalar_one())
         hits = [
             SearchHit(
                 code=row.code,
@@ -161,7 +192,7 @@ class NcitSearchIndex:
             for row in rows
         ]
         return SearchPage(
-            query=query, total=total, limit=limit, offset=offset, hits=hits
+            query=query, total=total, limit=limit, offset=offset, sort=sort, hits=hits
         )
 
     async def rebuild(

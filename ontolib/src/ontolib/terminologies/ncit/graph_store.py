@@ -27,6 +27,7 @@ from ontolib.terminologies.ncit.models import (
     GraphNode,
     Neighborhood,
     Relationship,
+    RepositorySort,
     RepresentationStatus,
     SearchHit,
     SearchPage,
@@ -323,6 +324,7 @@ class NcitGraphStore:
         limit: int = 25,
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
+        sort: RepositorySort = "source",
     ) -> SearchPage:
         """Case-insensitive search over preferred label and synonyms."""
         term = _escape_literal(query_text)
@@ -335,6 +337,15 @@ class NcitGraphStore:
             }}
             FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?synValue))
         """
+        if sort == "relevance":
+            raise ValueError("relevance sorting requires a search query")
+        order = {
+            "source": "?concept",
+            "code:asc": "?concept",
+            "code:desc": "DESC(?concept)",
+            "label:asc": "?label ?concept",
+            "label:desc": "DESC(?label) ?concept",
+        }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
@@ -349,7 +360,7 @@ class NcitGraphStore:
                    (SAMPLE(?representationStatusValue) AS ?representationStatus)
             WHERE {{{where}{page_status}}}
             GROUP BY ?concept ?label
-            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
         count_rows = await self._client.select(
@@ -400,12 +411,22 @@ class NcitGraphStore:
         limit: int = 25,
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
+        sort: RepositorySort = "source",
     ) -> SearchPage:
         """List all named concepts in natural (code) order — the no-search browse mode.
 
         The total class count is expensive to compute over the full store, so it is
         memoized after the first call (the concept universe is static between reloads).
         """
+        if sort == "relevance":
+            raise ValueError("relevance sorting requires a search query")
+        order = {
+            "source": "?concept",
+            "code:asc": "?concept",
+            "code:desc": "DESC(?concept)",
+            "label:asc": "?label ?concept",
+            "label:desc": "DESC(?label) ?concept",
+        }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
@@ -420,7 +441,7 @@ class NcitGraphStore:
                 {page_status}
             }}
             GROUP BY ?concept ?label
-            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
         if representation_status not in self._total_concepts:
@@ -456,6 +477,7 @@ class NcitGraphStore:
             total=self._total_concepts[representation_status],
             limit=limit,
             offset=offset,
+            sort=sort,
             hits=hits,
         )
 

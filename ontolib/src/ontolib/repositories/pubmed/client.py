@@ -36,6 +36,7 @@ logger = get_logger(__name__)
 
 DEFAULT_EUTILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 _MAX_RETMAX = 100
+_MAX_RESULT_WINDOW = 10_000
 # ELink linkname per related-article kind (fairdata parity).
 _LINK_NAMES = {
     "similar": "pubmed_pubmed",
@@ -137,32 +138,59 @@ class PubMedClient:
             ) from exc
 
     async def search_articles(
-        self, query: str, *, retmax: int = 20, sort: str = "relevance"
+        self,
+        query: str,
+        *,
+        retmax: int = 20,
+        retstart: int = 0,
+        sort: str = "relevance",
     ) -> PubMedSearchResult:
         """Search PubMed for *query*; resolve the id list to article summaries.
 
         Raises:
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
+        effective_limit = max(1, min(retmax, _MAX_RETMAX))
+        if (
+            retstart < 0
+            or retstart % effective_limit
+            or retstart + effective_limit > _MAX_RESULT_WINDOW
+        ):
+            raise ValueError(
+                "PubMed offset must be aligned and within its 10,000-result window"
+            )
         esearch = await self._json(
             "/esearch.fcgi",
             {
                 "db": "pubmed",
                 "term": query,
-                "retmax": max(1, min(retmax, _MAX_RETMAX)),
+                "retmax": effective_limit,
+                "retstart": retstart,
                 "sort": sort,
                 "retmode": "json",
             },
         )
         pmids, total = _parse_esearch(esearch)
         if not pmids:
-            return PubMedSearchResult(query=query, total=total, articles=[])
+            return PubMedSearchResult(
+                query=query,
+                total=total,
+                limit=effective_limit,
+                offset=retstart,
+                sort=sort,
+                articles=[],
+            )
         summary = await self._json(
             "/esummary.fcgi",
             {"db": "pubmed", "id": ",".join(pmids), "retmode": "json"},
         )
         return PubMedSearchResult(
-            query=query, total=total, articles=_parse_esummary_docs(summary, pmids)
+            query=query,
+            total=total,
+            limit=effective_limit,
+            offset=retstart,
+            sort=sort,
+            articles=_parse_esummary_docs(summary, pmids),
         )
 
     async def get_article(self, pmid: str) -> PubMedArticleDetail | None:

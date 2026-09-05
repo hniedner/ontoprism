@@ -1,50 +1,32 @@
 <script lang="ts" generics="Row">
-	import { untrack } from 'svelte';
 	import DataTableBody from './DataTableBody.svelte';
 	import DataTableHead from './DataTableHead.svelte';
-	import { filterRows, pruneCategoricalFilters, sortRows } from './data-table';
-	import type { DataTableColumn, DataTableFilterState, DataTableReadyProps, DataTableSortDirection } from './types';
-
-	let { rows, columns, caption, regionLabel, getRowId, operations, initialSort, emptyMessage, stickyHeader }: DataTableReadyProps<Row> = $props();
-	const startingSort = untrack(() => initialSort);
-	let sortColumnId = $state<string | null>(startingSort?.columnId ?? null);
-	let sortDirection = $state<DataTableSortDirection>(startingSort?.direction ?? 'asc');
-	// Row changes permanently prune unavailable values without resetting selections that remain valid.
-	// eslint-disable-next-line svelte/prefer-writable-derived
-	let filters = $state<Record<string, DataTableFilterState>>({});
-	let hasActiveFilters = $derived(Object.values(filters).some((state) => state.kind === 'text' ? Boolean(state.query.trim()) : state.selected.length > 0));
-	let displayedRows = $derived.by(() => {
-		const filtered = operations.kind === 'client-page' ? filterRows(rows, columns, filters) : [...rows];
-		const sortedColumn = columns.find((column) => column.id === sortColumnId);
-		return sortedColumn?.sortValue ? sortRows(filtered, sortedColumn.sortValue, sortDirection) : filtered;
-	});
-
-	function toggleSort(column: DataTableColumn<Row>): void {
-		if (!column.sortValue) return;
-		if (sortColumnId === column.id) sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-		else {
-			sortColumnId = column.id;
-			sortDirection = 'asc';
-		}
-	}
-
-	$effect(() => {
-		filters = pruneCategoricalFilters(filters, rows, columns);
-	});
+	import type { DataTableIntent, DataTableReadyProps } from './types';
+	let { rows, columns, caption, regionLabel, getRowId, operations, emptyMessage, stickyHeader, busy }: DataTableReadyProps<Row> = $props();
+	const filters = $derived(operations.kind === 'server' ? operations.filters : {});
+	const sort = $derived(operations.kind === 'server' ? operations.sort : null);
+	const activeFilters = $derived(Object.entries(filters).filter(([, state]) => state.kind === 'text' ? Boolean(state.query.trim()) : state.selected.length > 0));
+	function emit(intent: DataTableIntent): void { if (operations.kind === 'server') operations.onintent(intent); }
 </script>
 
-{#if operations.kind === 'client-page'}
-	<div class="flex items-center justify-between gap-3 px-4 py-2 text-xs text-muted">
-		<span>{operations.scopeLabel}</span>
-		{#if hasActiveFilters}<button type="button" class="underline" onclick={() => (filters = {})}>Clear page-local filters</button>{/if}
+{#if operations.kind === 'server'}
+	<div class="flex flex-wrap items-center gap-2 px-4 py-2" aria-label="Active filters">
+		<span class="text-xs text-muted">Sort: {operations.activeSortLabel}</span>
+		{#each activeFilters as [columnId, state] (columnId)}
+			<button type="button" class="rounded bg-subtle px-2 py-1 text-xs" onclick={() => emit({ kind: 'clear-filter', columnId })} aria-label={`Clear ${columnId} filter`}>
+				{columnId}: {state.kind === 'text' ? state.query : state.selected.join(', ')} ×
+			</button>
+		{/each}
+		{#if activeFilters.length}<button type="button" class="text-xs underline" onclick={() => emit({ kind: 'clear-filters' })}>Clear all filters</button>{/if}
+		<button type="button" class="ml-auto text-xs underline" onclick={() => emit({ kind: 'reset' })}>Reset table</button>
 	</div>
 {/if}
-<!-- The labelled scrollable region needs a tab stop so keyboard users can scroll it. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="overflow-x-auto" role="region" aria-label={regionLabel} tabindex="0">
+<div class="overflow-x-auto" role="region" aria-label={regionLabel} tabindex="0" aria-busy={busy}>
+	<div class="sr-only" aria-live="polite">{rows.length.toLocaleString()} rows displayed</div>
 	<table class="table-auto min-w-full border-separate border-spacing-0 text-sm">
 		<caption class="sr-only">{caption}</caption>
-		<DataTableHead {rows} {columns} {operations} {filters} {sortColumnId} {sortDirection} {stickyHeader} onsort={toggleSort} onfilter={(columnId, value) => (filters = { ...filters, [columnId]: value })} />
-		<DataTableBody rows={displayedRows} sourceRowsPresent={rows.length > 0} {columns} {getRowId} {hasActiveFilters} {emptyMessage} />
+		<DataTableHead {columns} {operations} {filters} {sort} {stickyHeader} onintent={emit} />
+		<DataTableBody {rows} {columns} {getRowId} {emptyMessage} />
 	</table>
 </div>

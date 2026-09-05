@@ -49,6 +49,7 @@ from ontolib.repositories.xref.vocab import (
 class _Store:
     def __init__(self) -> None:
         self.calls = 0
+        self.search_args: dict[str, object] = {}
 
     async def metadata(self, edition: str, axis: str) -> object:
         self.calls += 1
@@ -68,6 +69,7 @@ class _Store:
         self, edition: IcdoEdition, axis: IcdoAxis, **kwargs: object
     ) -> IcdoSearchPage:
         self.calls += 1
+        self.search_args = kwargs
         record = (
             IcdoRecord(
                 code="8503/0",
@@ -333,6 +335,21 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         "C3",
     ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
+
+
+@pytest.mark.api
+def test_search_preserves_repeated_filters_for_or_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _Store()
+    client = next(_client(store, monkeypatch))
+    response = client.get(
+        "/api/v1/icdo/4.0/topography/search",
+        params=[("q", "lip"), ("level", "category"), ("level", "leaf")],
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+    assert response.status_code == 200, response.text
+    assert store.search_args["level"] == ("category", "leaf")
 
 
 @pytest.mark.api

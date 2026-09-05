@@ -22,6 +22,7 @@ from ontolib.repositories.icdo.models import (
     CanonicalDataset,
     IcdoAxis,
     IcdoEdition,
+    IcdoRepositorySort,
     IcdoSearchPage,
 )
 from ontolib.repositories.icdo.store import IcdoRepository
@@ -146,8 +147,9 @@ class IcdoReader(Protocol):
         query: str,
         limit: int,
         offset: int,
-        behaviour: str | None = None,
-        level: str | None = None,
+        behaviour: tuple[str, ...] = (),
+        level: tuple[str, ...] = (),
+        sort: IcdoRepositorySort = "source",
         generation_id: str | None = None,
     ) -> IcdoSearchPage: ...
 

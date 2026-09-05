@@ -1,6 +1,5 @@
 import type { Snippet } from 'svelte';
 
-export type DataTableScalar = string | number | boolean | null;
 export type DataTableSortDirection = 'asc' | 'desc';
 
 export interface DataTableStickyColumn {
@@ -8,42 +7,51 @@ export interface DataTableStickyColumn {
 	offset: number;
 }
 
-export type DataTableFilter<Row> =
-	| { kind: 'text'; value: (row: Row) => DataTableScalar; ariaLabel: string }
-	| {
-			kind: 'categorical';
-			value: (row: Row) => string | null;
-			ariaLabel: string;
-			emptyLabel?: string;
-	  };
+export interface DataTableCategoricalOption {
+	value: string;
+	label: string;
+	count?: number;
+}
+
+export type DataTableFilter =
+	| { kind: 'text'; ariaLabel: string }
+	| { kind: 'categorical'; ariaLabel: string; options: readonly DataTableCategoricalOption[] };
 
 export type DataTableFilterState =
 	| { kind: 'text'; query: string }
-	| { kind: 'categorical'; selected: readonly (string | null)[] };
+	| { kind: 'categorical'; selected: readonly string[] };
 
-export interface DataTableCategoricalOption {
-	value: string | null;
-	label: string;
-	count: number;
+export interface DataTableSortState {
+	key: string;
+	direction: DataTableSortDirection;
 }
+
+export type DataTableIntent =
+	| { kind: 'sort'; sort: DataTableSortState }
+	| { kind: 'filter'; columnId: string; filter: DataTableFilterState }
+	| { kind: 'clear-filter'; columnId: string }
+	| { kind: 'clear-filters' }
+	| { kind: 'reset' };
 
 export interface DataTableColumn<Row> {
 	id: string;
 	label: string;
 	cell: Snippet<[Row]>;
-	sortValue?: (row: Row) => DataTableScalar;
-	filter?: DataTableFilter<Row>;
+	sortable?: boolean;
+	filter?: DataTableFilter;
 	sticky?: DataTableStickyColumn;
 }
 
 export type DataTableOperations =
 	| { kind: 'none' }
-	| { kind: 'client-page'; scopeLabel: string };
-
-export interface DataTableInitialSort {
-	columnId: string;
-	direction: DataTableSortDirection;
-}
+	| {
+			kind: 'server';
+			sort: DataTableSortState | null;
+			defaultSort: DataTableSortState | null;
+			activeSortLabel: string;
+			filters: Readonly<Record<string, DataTableFilterState>>;
+			onintent: (intent: DataTableIntent) => void;
+	  };
 
 export interface DataTableReadyProps<Row> {
 	rows: readonly Row[];
@@ -52,7 +60,7 @@ export interface DataTableReadyProps<Row> {
 	regionLabel: string;
 	getRowId: (row: Row) => string;
 	operations: DataTableOperations;
-	initialSort?: DataTableInitialSort;
 	emptyMessage: string;
 	stickyHeader: boolean;
+	busy: boolean;
 }

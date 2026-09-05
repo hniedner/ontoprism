@@ -120,7 +120,9 @@ def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[
     )
 
 
-def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
+def _validate_search_response(
+    data: object,
+) -> tuple[list[dict[str, Any]], int, str | None]:
     if not isinstance(data, Mapping):
         raise _invalid_search_response()
     raw = data.get("studies")
@@ -129,10 +131,15 @@ def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
         raise _invalid_search_response()
     if not _valid_search_total(total, raw):
         raise _invalid_search_response()
-    return raw, total
+    next_token = data.get("nextPageToken")
+    if next_token is not None and (
+        not isinstance(next_token, str) or not next_token.strip()
+    ):
+        raise _invalid_search_response()
+    return raw, total, next_token
 
 
-def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
+def _filter_params(status: tuple[str, ...], phase: tuple[str, ...]) -> dict[str, str]:
     """Validate and shape the optional status/phase filter params.
 
     Raises:
@@ -140,14 +147,17 @@ def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
     """
     params: dict[str, str] = {}
     if status:
-        if status not in VALID_STATUSES:
-            raise ValueError(f"Invalid trial status filter: {status!r}")
-        params["filter.overallStatus"] = status
+        invalid_statuses = set(status) - VALID_STATUSES
+        if invalid_statuses:
+            raise ValueError(
+                f"Invalid trial status filter: {sorted(invalid_statuses)!r}"
+            )
+        params["filter.overallStatus"] = "|".join(status)
     if phase:
-        agg = _PHASE_AGG.get(phase)
-        if agg is None:
-            raise ValueError(f"Invalid trial phase filter: {phase!r}")
-        params["aggFilters"] = f"phase:{agg}"
+        invalid_phases = set(phase) - VALID_PHASES
+        if invalid_phases:
+            raise ValueError(f"Invalid trial phase filter: {sorted(invalid_phases)!r}")
+        params["aggFilters"] = "phase:" + " ".join(_PHASE_AGG[value] for value in phase)
     return params
 
 
@@ -199,9 +209,10 @@ class ClinicalTrialsClient:
         condition: str | None,
         intervention: str | None,
         term: str | None,
-        status: str | None,
-        phase: str | None,
+        status: tuple[str, ...],
+        phase: tuple[str, ...],
         page_size: int,
+        page_token: str | None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "pageSize": max(1, min(page_size, _PAGE_SIZE_MAX)),
@@ -215,6 +226,10 @@ class ClinicalTrialsClient:
             if value:
                 params[key] = value
         params.update(_filter_params(status, phase))
+        if page_token is not None:
+            if not page_token.strip():
+                raise ValueError("ClinicalTrials.gov page token must not be blank")
+            params["pageToken"] = page_token
         return params
 
     async def search_studies(
@@ -223,9 +238,10 @@ class ClinicalTrialsClient:
         condition: str | None = None,
         intervention: str | None = None,
         term: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
-        page_size: int = 20,
+        status: tuple[str, ...] = (),
+        phase: tuple[str, ...] = (),
+        page_size: int = 25,
+        page_token: str | None = None,
     ) -> CTStudySearchPage:
         """Search trials by condition / intervention / free term (+ optional filters).
 
@@ -240,15 +256,30 @@ class ClinicalTrialsClient:
             status=status,
             phase=phase,
             page_size=page_size,
+            page_token=page_token,
         )
         data = await self._request_json("/studies", params)
-        studies, total = _validate_search_response(data)
+        if (
+            page_token is not None
+            and isinstance(data, Mapping)
+            and "totalCount" not in data
+        ):
+            count_params = {**params, "pageSize": 1}
+            count_params.pop("pageToken")
+            count_data = await self._request_json("/studies", count_params)
+            if not isinstance(count_data, Mapping):
+                raise _invalid_search_response()
+            data = {**data, "totalCount": count_data.get("totalCount")}
+        studies, total, next_page_token = _validate_search_response(data)
         try:
             return CTStudySearchPage(
                 condition=condition,
                 intervention=intervention,
                 term=term,
                 total=total,
+                page_size=max(1, min(page_size, _PAGE_SIZE_MAX)),
+                page_token=page_token,
+                next_page_token=next_page_token,
                 studies=[
                     parse_study_summary(s, index=i, total=max(len(studies), 1))
                     for i, s in enumerate(studies)

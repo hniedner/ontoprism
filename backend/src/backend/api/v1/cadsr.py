@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.api.v1.grid import PageSize
 from backend.dependencies import (
     CadsrRepo,
     Embeddings,
@@ -15,6 +16,7 @@ from backend.dependencies import (
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
+    CdeRepositorySort,
     CdeSearchPage,
     CdeSummary,
     SimilarCde,
@@ -52,12 +54,13 @@ _MAX_CDE_CONCEPTS = 12
 def search(
     repo: CadsrRepo,
     q: Annotated[str, Query(min_length=1)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> CdeSearchPage:
     """Search caDSR CDEs by short/long name and definition."""
     try:
-        return repo.search(q, limit=limit, offset=offset)
+        return repo.search(q, limit=limit, offset=offset, sort=sort)
     except sqlite3.OperationalError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
@@ -65,12 +68,13 @@ def search(
 @router.get("/list", response_model=CdeSearchPage)
 def list_cdes(
     repo: CadsrRepo,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> CdeSearchPage:
     """List CDEs in natural order — powers no-search browse of the repository."""
     try:
-        return repo.list_cdes(limit=limit, offset=offset)
+        return repo.list_cdes(limit=limit, offset=offset, sort=sort)
     except sqlite3.OperationalError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 

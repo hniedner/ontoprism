@@ -41,6 +41,7 @@ export interface SearchPage {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: string;
 	hits: SearchHit[];
 }
 
@@ -142,6 +143,7 @@ export interface UberonSearchPage {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: string;
 	hits: UberonSearchHit[];
 }
 
@@ -232,6 +234,7 @@ interface IcdoPageBase {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: string;
 }
 
 export type IcdoPage =
@@ -292,6 +295,7 @@ export interface CdeSearchPage {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: string;
 	hits: CdeSummary[];
 }
 
@@ -576,9 +580,10 @@ export interface CTSearchRequest {
 	condition?: string | null;
 	intervention?: string | null;
 	term?: string | null;
-	status?: string | null;
-	phase?: string | null;
+	status?: readonly string[];
+	phase?: readonly string[];
 	limit?: number;
+	page_token?: string | null;
 }
 
 export interface CTStudySearchPage {
@@ -586,6 +591,9 @@ export interface CTStudySearchPage {
 	intervention: string | null;
 	term: string | null;
 	total: number;
+	page_size: number;
+	page_token: string | null;
+	next_page_token: string | null;
 	studies: CTStudySummary[];
 }
 
@@ -629,6 +637,9 @@ export interface PubMedArticleDetail {
 export interface PubMedSearchResult {
 	query: string;
 	total: number;
+	limit: number;
+	offset: number;
+	sort: 'relevance' | 'pub_date';
 	articles: PubMedArticleSummary[];
 }
 

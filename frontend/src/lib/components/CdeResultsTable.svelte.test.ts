@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import CdeResultsTable from './CdeResultsTable.svelte';
 import type { CdeSummary } from '$lib/types';
 
@@ -74,24 +74,6 @@ describe('CdeResultsTable', () => {
 		});
 		// In Svelte 5, {undefined} in text interpolations renders as empty string.
 		expect(screen.getByText(/^v$/)).toBeInTheDocument();
-	});
-
-	it('sorts and filters only the loaded CDE page with visible scope disclosure', async () => {
-		render(CdeResultsTable, { hits });
-		expect(screen.getByText('Filters and sorting apply only to the rows loaded on this page.')).toBeVisible();
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded CDE contexts' }), {
-			target: { value: ' cadsr ' }
-		});
-		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
-		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Public ID' }));
-		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
-	});
-
-	it('uses a categorical datatype control while context remains text-filtered', () => {
-		render(CdeResultsTable, { hits });
-		expect(screen.getByRole('group', { name: 'Filter loaded CDE datatypes' })).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'No datatype (1)' })).toBeInTheDocument();
-		expect(screen.getByRole('searchbox', { name: 'Filter loaded CDE contexts' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled CDE field', () => {

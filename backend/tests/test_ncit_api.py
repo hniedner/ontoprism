@@ -52,6 +52,7 @@ class _FakeStore:
         limit: int,
         offset: int,
         representation_status: str | None = None,
+        sort: str = "source",
     ) -> SearchPage:
         self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
@@ -68,6 +69,7 @@ class _FakeStore:
         limit: int,
         offset: int,
         representation_status: str | None = None,
+        sort: str = "source",
     ) -> SearchPage:
         self.list_calls.append((limit, offset, representation_status))
         return SearchPage(
@@ -124,6 +126,7 @@ class _FakeIndex:
         limit: int,
         offset: int,
         representation_status: str | None = None,
+        sort: str = "relevance",
     ) -> SearchPage:
         self.searched = True
         self.search_calls.append((q, limit, offset, representation_status))
@@ -238,36 +241,33 @@ def ncit_client() -> Iterator[TestClient]:
 @pytest.mark.api
 def test_search_served_from_populated_cache(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     # A populated cache answers directly (label carries the cache marker).
     assert resp.json()["hits"][0]["label"] == "Neoplasm (from cache)"
 
 
 @pytest.mark.api
-def test_search_falls_back_to_store_when_cache_empty() -> None:
+def test_search_fails_closed_when_certified_cache_is_empty() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(populated=False))
     client = next(gen)
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
-    # Empty cache -> the store (source of truth) answered.
-    assert store.search_calls == [("neoplasm", 25, 0, None)]
-    assert resp.json()["hits"][0]["label"] == "Neoplasm"
+    assert resp.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api
-def test_search_falls_back_to_store_when_cache_errors() -> None:
+def test_search_fails_closed_when_certified_cache_errors() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(fail=True))
     client = next(gen)
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
-    # A cache failure degrades gracefully to the store rather than 500-ing.
-    assert store.search_calls == [("neoplasm", 25, 0, None)]
+    assert resp.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api
-def test_search_status_filter_flows_through_cache_and_fallback() -> None:
+def test_search_status_filter_flows_through_authoritative_cache() -> None:
     index = _FakeIndex()
     cached = next(_client(index=index))
     params = {
@@ -277,11 +277,6 @@ def test_search_status_filter_flows_through_cache_and_fallback() -> None:
 
     assert cached.get("/api/v1/ncit/search", params=params).status_code == 200
     assert index.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
-
-    store = _FakeStore()
-    fallback = next(_client(store=store, index=_FakeIndex(populated=False)))
-    assert fallback.get("/api/v1/ncit/search", params=params).status_code == 200
-    assert store.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
 
 
 @pytest.mark.api
@@ -344,8 +339,8 @@ def test_search_requires_nonempty_query(ncit_client: TestClient) -> None:
 
 @pytest.mark.api
 def test_list_browses_without_query(ncit_client: TestClient) -> None:
-    resp = ncit_client.get("/api/v1/ncit/list", params={"limit": 5})
-    assert resp.status_code == 200
+    resp = ncit_client.get("/api/v1/ncit/list", params={"limit": 10})
+    assert resp.status_code == 200, resp.text
     assert resp.json()["query"] == ""
 
 

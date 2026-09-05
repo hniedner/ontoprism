@@ -477,8 +477,8 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
             "4.0",
             "morphology",
             query="",
-            behaviour="3",
-            level="morphology",
+            behaviour=("3",),
+            level=("morphology",),
             limit=10,
             offset=0,
         )

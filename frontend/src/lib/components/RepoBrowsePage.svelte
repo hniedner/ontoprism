@@ -7,6 +7,8 @@
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import type { DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
+	import type { PageSize } from '$lib/server/repository-load';
 
 	// Full browse/search page for a paginated local repository: header, search
 	// bar, results card, and pagination over server-loaded URL state. Each concrete
@@ -22,9 +24,11 @@
 		suggestionsLabel?: string;
 		browseTitle: string;
 		countLabel: (total: number, mode: 'browse' | 'search') => string;
-		results: Snippet<[H[]]>;
+		results: Snippet<[H[], DataTableOperations]>;
 		filters?: Snippet;
-		initial: { result: P; query: string; offset: number };
+		initial: { result: P; query: string; offset: number; size: PageSize; sort: string; filters: Record<string, string[]> };
+		defaultSort: string;
+		sortKeys: Readonly<Record<string, { asc: string; desc: string }>>;
 	}
 
 	let {
@@ -40,25 +44,70 @@
 		countLabel,
 		results,
 		filters,
-		initial
+		initial,
+		defaultSort,
+		sortKeys
 	}: Props = $props();
 
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 
-	async function load(nextOffset: number, term: string): Promise<void> {
+	async function navigate(update: (params: SvelteURLSearchParams) => void): Promise<void> {
 		const params = new SvelteURLSearchParams(page.url.search);
-		const query = term.trim();
-		if (query) params.set('q', query);
-		else params.delete('q');
-		if (nextOffset) params.set('offset', String(nextOffset));
-		else params.delete('offset');
+		update(params);
 		const search: '' | `?${string}` = params.size ? `?${params}` : '';
 		const target = `${route}${search}`;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass a typed, resolved repository route; only URL state is appended here
 		await goto(target);
 	}
+	async function load(nextOffset: number, term: string): Promise<void> { await navigate((params) => {
+		const query = term.trim(); if (query) params.set('q', query); else params.delete('q');
+		if (query !== initial.query) params.delete('sort');
+		if (nextOffset) params.set('offset', String(nextOffset)); else params.delete('offset');
+	}); }
+	function sortState(value: string): DataTableSortState | null {
+		for (const [key, sorts] of Object.entries(sortKeys)) {
+			if (value === sorts.asc) return { key, direction: 'asc' };
+			if (value === sorts.desc) return { key, direction: 'desc' };
+		}
+		return null;
+	}
+	function sortLabel(value: string): string {
+		if (value === 'source') return 'Source order';
+		if (value === 'relevance') return 'Relevance';
+		const [key, direction] = value.split(':');
+		return `${key.replaceAll('_', ' ')} ${direction === 'desc' ? 'descending' : 'ascending'}`;
+	}
+	const tableFilters = $derived(Object.fromEntries(Object.entries(initial.filters).map(([key, selected]) => [key, { kind: 'categorical', selected } satisfies DataTableFilterState])));
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, onintent: handleIntent });
+	function applySort(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'sort' }>): void {
+		const value = sortKeys[intent.sort.key]?.[intent.sort.direction];
+		if (value && value !== defaultSort) params.set('sort', value); else params.delete('sort');
+	}
+	function applyFilter(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
+		params.delete(intent.columnId);
+		if (intent.filter.kind === 'categorical') for (const value of intent.filter.selected) params.append(intent.columnId, value);
+		else if (intent.filter.query.trim()) params.set(intent.columnId, intent.filter.query.trim());
+	}
+	function clearFilters(params: SvelteURLSearchParams): void {
+		for (const key of Object.keys(initial.filters)) params.delete(key);
+	}
+	function handleIntent(intent: DataTableIntent): void { void navigate((params) => {
+		params.delete('offset');
+		if (intent.kind === 'sort') applySort(params, intent);
+		else if (intent.kind === 'filter') applyFilter(params, intent);
+		else if (intent.kind === 'clear-filter') params.delete(intent.columnId);
+		else if (intent.kind === 'clear-filters') clearFilters(params);
+		else { params.delete('sort'); params.delete('size'); clearFilters(params); }
+	}); }
+	function recover(): void { void navigate((params) => {
+		params.delete('q');
+		params.delete('offset');
+		params.delete('sort');
+		params.delete('size');
+		clearFilters(params);
+	}); }
 
 	const resultTitle = $derived(
 		mode === 'search' ? `Results for “${initial.query}”` : browseTitle
@@ -95,11 +144,21 @@
 {/if}
 
 <RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
-	{@render results(initial.result.hits)}
-	<Pagination
-		offset={initial.offset}
-		limit={25}
-		total={initial.result.total}
-		onPage={(nextOffset) => load(nextOffset, initial.query)}
-	/>
+		{#if initial.result.hits.length === 0 && mode === 'browse'}
+			<p class="px-4 py-6 text-center text-sm text-muted">This repository contains no records.</p>
+		{:else if initial.result.hits.length === 0}
+			<div class="space-y-2 px-4 py-6 text-center text-sm text-muted">
+				<p>No records matched the current query and filters.</p>
+				<button type="button" class="underline" onclick={recover}>Clear search and filters</button>
+			</div>
+		{:else}
+			{@render results(initial.result.hits, operations)}
+		{/if}
+		<Pagination
+			offset={initial.offset}
+			limit={initial.size}
+			total={initial.result.total}
+			onPage={(nextOffset) => load(nextOffset, initial.query)}
+			onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })}
+		/>
 </RepoResultsCard>

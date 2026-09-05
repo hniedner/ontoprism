@@ -2,16 +2,16 @@
 	import { resolve } from '$app/paths';
 	import type { PubMedArticleSummary } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn } from '$lib/components/data-table/types';
+	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
-	let { articles }: { articles: readonly PubMedArticleSummary[] } = $props();
-	const operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply only to the articles loaded on this page.' } as const;
-	const columns: readonly DataTableColumn<PubMedArticleSummary>[] = [
-		{ id: 'pmid', label: 'PMID', cell: pmidCell, sortValue: (article) => article.pmid, filter: { kind: 'text', value: (article) => article.pmid, ariaLabel: 'Filter loaded article PMIDs' }, sticky: { side: 'left', offset: 0 } },
-		{ id: 'title', label: 'Title', cell: titleCell, sortValue: (article) => article.title, filter: { kind: 'text', value: (article) => `${article.title} ${article.authors.join(' ')}`, ariaLabel: 'Filter loaded article titles and authors' } },
-		{ id: 'journal', label: 'Journal', cell: journalCell, sortValue: (article) => article.journal, filter: { kind: 'text', value: (article) => article.journal, ariaLabel: 'Filter loaded article journals' } },
-		{ id: 'date', label: 'Date', cell: dateCell, sortValue: (article) => article.pub_date, filter: { kind: 'text', value: (article) => article.pub_date, ariaLabel: 'Filter loaded article dates' } }
-	];
+	let { articles, operations = { kind: 'none' } }: { articles: readonly PubMedArticleSummary[]; operations?: DataTableOperations } = $props();
+	const interactive = $derived(operations.kind === 'server');
+	let columns = $derived.by((): readonly DataTableColumn<PubMedArticleSummary>[] => [
+		{ id: 'pmid', label: 'PMID', cell: pmidCell, sticky: { side: 'left', offset: 0 } },
+		{ id: 'title', label: 'Title', cell: titleCell },
+		{ id: 'journal', label: 'Journal', cell: journalCell },
+		{ id: 'date', label: 'Date', cell: dateCell, sortable: interactive }
+	]);
 </script>
 
 {#snippet pmidCell(article: PubMedArticleSummary)}
@@ -24,4 +24,4 @@
 {#snippet journalCell(article: PubMedArticleSummary)}<span class="text-muted">{article.journal ?? '—'}</span>{/snippet}
 {#snippet dateCell(article: PubMedArticleSummary)}<span class="text-muted">{article.pub_date ?? '—'}</span>{/snippet}
 
-<DataTable rows={articles} {columns} caption="PubMed results loaded on this page" regionLabel="PubMed loaded-page results" getRowId={(article) => article.pmid} {operations} stickyHeader={true} />
+<DataTable rows={articles} {columns} caption="PubMed repository results" regionLabel="PubMed repository results" getRowId={(article) => article.pmid} {operations} stickyHeader={true} />

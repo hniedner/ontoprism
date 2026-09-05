@@ -12,6 +12,9 @@ from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 type IcdoEdition = Literal["3.2", "4.0"]
 type IcdoAxis = Literal["morphology", "topography"]
+type IcdoRepositorySort = Literal[
+    "source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"
+]
 
 
 class _StrictModel(BaseModel):
@@ -200,6 +203,7 @@ class IcdoSearchPage(_StrictModel):
     total: int
     limit: int
     offset: int
+    sort: IcdoRepositorySort = "source"
     hits: tuple[IcdoRecord, ...]
 
     @model_validator(mode="after")

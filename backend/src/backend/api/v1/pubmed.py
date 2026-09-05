@@ -8,7 +8,7 @@ ported.
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import PubMed
@@ -27,13 +27,27 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/pubmed", tags=["pubmed"])
 
 LinkType = Literal["similar", "cited_by", "references"]
+_PUBMED_RESULT_WINDOW = 10_000
 
 
 class PubMedSearchRequest(StrictBoundaryModel):
     """Search parameters for PubMed."""
 
     query: Annotated[str, Field(min_length=1, max_length=2000)]
-    retmax: Annotated[int, Field(ge=1, le=100)] = 20
+    retmax: Literal[10, 25, 50, 100] = 25
+    retstart: Annotated[int, Field(ge=0, lt=10_000)] = 0
+    sort: Literal["relevance", "pub_date"] = "relevance"
+
+    @model_validator(mode="after")
+    def valid_window(self) -> PubMedSearchRequest:
+        if (
+            self.retstart % self.retmax
+            or self.retstart + self.retmax > _PUBMED_RESULT_WINDOW
+        ):
+            raise ValueError(
+                "retstart must be aligned to retmax and within 10,000 results"
+            )
+        return self
 
 
 def _pmid_or_400(pmid: str) -> str:
@@ -46,7 +60,14 @@ def _pmid_or_400(pmid: str) -> str:
 async def search(client: PubMed, body: PubMedSearchRequest) -> PubMedSearchResult:
     """Search PubMed and return resolved article summaries."""
     try:
-        return await client.search_articles(body.query, retmax=body.retmax)
+        return await client.search_articles(
+            body.query,
+            retmax=body.retmax,
+            retstart=body.retstart,
+            sort=body.sort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except UpstreamFailureError as exc:
         logger.warning("PubMed search failed: %s", exc.state)
         raise upstream_http_exception(exc) from exc

@@ -25,11 +25,9 @@ describe('DataTable XSS surfaces', () => {
 		const { container } = render(DataTableTestHost, {
 			rows: [hostileRow],
 			caption: payload,
-			regionLabel: payload,
-			operations: { kind: 'client-page', scopeLabel: payload }
+			regionLabel: payload
 		});
 		expect(screen.getAllByText(payload).length).toBeGreaterThanOrEqual(3);
-		expect(screen.getByRole('checkbox', { name: `${payload} (1)` })).toBeInTheDocument();
 		expectNoInjectedMarkup(container);
 	});
 

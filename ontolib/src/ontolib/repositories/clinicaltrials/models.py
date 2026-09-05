@@ -96,4 +96,7 @@ class CTStudySearchPage(StrictBoundaryModel):
     intervention: str | None = None
     term: str | None = None
     total: int
+    page_size: int
+    page_token: str | None = None
+    next_page_token: str | None = None
     studies: list[CTStudySummary] = Field(default_factory=list)

@@ -4,6 +4,7 @@
 	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
 	import CdeResultsTable from '$lib/components/CdeResultsTable.svelte';
 	import type { PageProps } from './$types';
+	import type { DataTableOperations } from '$lib/components/data-table/types';
 
 	const SUGGESTIONS = ['tumor stage', 'age at diagnosis', 'race', 'gender', 'treatment response'];
 	let { data }: PageProps = $props();
@@ -19,6 +20,8 @@
 	suggestionsLabel="Quick:"
 	browseTitle="Browsing all CDEs"
 	initial={data.initial}
+	defaultSort="source"
+	sortKeys={{ public_id: { asc: 'public_id:asc', desc: 'public_id:desc' }, name: { asc: 'name:asc', desc: 'name:desc' } }}
 	countLabel={(n: number) => `${n.toLocaleString()} CDEs`}
 >
 	{#snippet helpText()}
@@ -26,7 +29,7 @@
 		permissible values, and embedding-based similar CDEs. Concept links cross-navigate to the NCIt
 		browser.
 	{/snippet}
-	{#snippet results(hits: CdeSummary[])}
-		<CdeResultsTable {hits} />
+	{#snippet results(hits: CdeSummary[], operations: DataTableOperations)}
+		<CdeResultsTable {hits} {operations} />
 	{/snippet}
 </RepoBrowsePage>

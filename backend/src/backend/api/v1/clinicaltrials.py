@@ -5,7 +5,7 @@ A thin pass-through to the async :class:`ClinicalTrialsClient`. Direct-search on
 natural-language / LLM term-extraction layer from fairdata is not ported.
 """
 
-from typing import Annotated
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import Field
@@ -32,9 +32,10 @@ class CTSearchRequest(StrictBoundaryModel):
     condition: str | None = Field(default=None, max_length=500)
     intervention: str | None = Field(default=None, max_length=500)
     term: str | None = Field(default=None, max_length=500)
-    status: str | None = None
-    phase: str | None = None
-    limit: Annotated[int, Field(ge=1, le=100)] = 20
+    status: list[str] = Field(default_factory=list)
+    phase: list[str] = Field(default_factory=list)
+    limit: Literal[10, 25, 50, 100] = 25
+    page_token: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 @router.post("/search", response_model=CTStudySearchPage)
@@ -50,9 +51,10 @@ async def search(client: ClinicalTrials, body: CTSearchRequest) -> CTStudySearch
             condition=body.condition,
             intervention=body.intervention,
             term=body.term,
-            status=body.status,
-            phase=body.phase,
+            status=tuple(body.status),
+            phase=tuple(body.phase),
             page_size=body.limit,
+            page_token=body.page_token,
         )
     except ValueError as exc:
         # Invalid status/phase enum — a client error, not an upstream failure.

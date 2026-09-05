@@ -11,6 +11,7 @@ from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
+from backend.api.v1.grid import PageSize
 from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
@@ -56,6 +57,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
+    RepositorySort,
     RepresentationStatus,
     SearchPage,
     SimilarConcept,
@@ -221,18 +223,15 @@ async def search(
     index: NcitSearch,
     metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1, description="Search term")],
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     representation_status: Annotated[
         RepresentationStatus | None,
         Query(description="Published representation status"),
     ] = None,
+    sort: RepositorySort = "relevance",
 ) -> SearchPage:
-    """Search NCIt by label/synonyms; served from the FTS cache when populated.
-
-    Falls back to the live SPARQL scan when the cache is empty or unreachable, so
-    search always works (the store remains the source of truth).
-    """
+    """Search NCIt through the source-bound certified FTS publication."""
     repository = await metadata.ncit()
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
@@ -240,38 +239,43 @@ async def search(
             repository.model_dump(mode="json"),
         )
     try:
-        if await index.is_populated(repository.source_identity):
-            return await index.search(
-                q,
-                limit=limit,
-                offset=offset,
-                representation_status=representation_status,
+        if not await index.is_populated(repository.source_identity):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "NCIt certified search index is unavailable.",
             )
+        return await index.search(
+            q,
+            limit=limit,
+            offset=offset,
+            representation_status=representation_status,
+            sort=sort,
+        )
     except SQLAlchemyError as exc:
-        logger.warning("NCIt FTS cache unavailable, falling back to SPARQL: %s", exc)
-    return await store.search(
-        q,
-        limit=limit,
-        offset=offset,
-        representation_status=representation_status,
-    )
+        logger.warning("NCIt FTS cache unavailable: %s", exc)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "NCIt certified search index is unavailable.",
+        ) from exc
 
 
 @router.get("/list", response_model=SearchPage)
 async def list_concepts(
     store: NcitStore,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     representation_status: Annotated[
         RepresentationStatus | None,
         Query(description="Published representation status"),
     ] = None,
+    sort: RepositorySort = "source",
 ) -> SearchPage:
     """List concepts in natural order — powers no-search browse of the repository."""
     return await store.list_concepts(
         limit=limit,
         offset=offset,
         representation_status=representation_status,
+        sort=sort,
     )
 
 

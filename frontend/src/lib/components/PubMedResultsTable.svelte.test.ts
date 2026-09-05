@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import PubMedResultsTable from './PubMedResultsTable.svelte';
 import type { PubMedArticleSummary } from '$lib/types';
 
@@ -47,22 +47,9 @@ describe('PubMedResultsTable', () => {
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
-	it('preserves upstream order until a loaded-page sort is requested', async () => {
+	it('preserves upstream order', () => {
 		render(PubMedResultsTable, { articles });
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('111');
-		expect(screen.getByText('Filters and sorting apply only to the articles loaded on this page.')).toBeVisible();
-		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Title' }));
-		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('222');
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded article journals' }), {
-			target: { value: 'j onc' }
-		});
-		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
-	});
-
-	it('keeps all PubMed filters textual because its metadata is free text', () => {
-		render(PubMedResultsTable, { articles });
-		expect(screen.queryByRole('group')).not.toBeInTheDocument();
-		expect(screen.getByRole('searchbox', { name: 'Filter loaded article journals' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled PubMed summary field', () => {

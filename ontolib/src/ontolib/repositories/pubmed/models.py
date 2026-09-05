@@ -58,6 +58,9 @@ class PubMedSearchResult(StrictBoundaryModel):
 
     query: str
     total: int
+    limit: int
+    offset: int
+    sort: str
     articles: list[PubMedArticleSummary] = Field(default_factory=list)
 
 

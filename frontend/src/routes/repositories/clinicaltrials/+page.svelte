@@ -9,6 +9,9 @@
 	import type { PageProps } from './$types';
 	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
 	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
+	import CursorPagination from '$lib/components/CursorPagination.svelte';
+	import type { DataTableFilterState, DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const SUGGESTIONS = ['melanoma', 'breast cancer', 'immunotherapy', 'CAR-T', 'glioblastoma'];
 
@@ -19,9 +22,16 @@
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} trials` : '');
 	const isEmpty = $derived((result?.studies.length ?? 0) === 0);
 
-	function search(term = queryValue): void {
-		goto(repositorySearchHref('clinicaltrials', page.url, term));
+	function navigate(update: (params: SvelteURLSearchParams) => void): void {
+		const params = new SvelteURLSearchParams(page.url.search);
+		update(params);
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- fixed route with URL state only
+		goto(`/repositories/clinicaltrials${params.size ? `?${params}` : ''}`);
 	}
+	function search(term = queryValue): void { goto(repositorySearchHref('clinicaltrials', page.url, term)); }
+	const filters = $derived<Record<string, DataTableFilterState>>(Object.fromEntries(Object.entries(data.filters).map(([key, selected]) => [key, { kind: 'categorical', selected }])));
+	function intent(value: DataTableIntent): void { void navigate((params) => { params.delete('cursor'); if (value.kind === 'filter' && value.filter.kind === 'categorical') { params.delete(value.columnId); for (const selected of value.filter.selected) params.append(value.columnId, selected); } else if (value.kind === 'clear-filter') params.delete(value.columnId); else if (value.kind === 'clear-filters' || value.kind === 'reset') { params.delete('status'); params.delete('phase'); if (value.kind === 'reset') params.delete('size'); } }); }
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'ClinicalTrials.gov relevance', filters, onintent: intent });
 </script>
 
 <svelte:head>
@@ -78,7 +88,8 @@
 				No trials matched “{data.query}”.
 			</p>
 		{:else}
-			<CtResultsTable studies={result?.studies ?? []} />
+			<CtResultsTable studies={result?.studies ?? []} {operations} />
+			<CursorPagination count={result?.studies.length ?? 0} total={result?.total ?? 0} hasPrevious={data.cursors.length > 0} hasNext={Boolean(result?.next_page_token)} size={data.size} onPrevious={() => navigate((params) => { const trail = params.getAll('cursor'); params.delete('cursor'); for (const cursor of trail.slice(0, -1)) params.append('cursor', cursor); })} onNext={() => { if (result?.next_page_token) navigate((params) => params.append('cursor', result.next_page_token!)); }} onSize={(size) => navigate((params) => { params.delete('cursor'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
 		{/if}
 	</RepoResultsCard>
 </RemoteSearchSurface>

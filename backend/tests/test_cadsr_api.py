@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 @pytest.mark.api
 def test_cde_detail_renders_concepts_and_pvs(cadsr_client: TestClient) -> None:
     resp = cadsr_client.get("/api/v1/cadsr/cdes/100")
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["short_name"] == "NEOPLASM_HIST"
     assert body["permissible_values"][0]["value"] == "Carcinoma"
@@ -30,7 +30,7 @@ def test_search_returns_hits(cadsr_client: TestClient) -> None:
 def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
     # The no-search browse endpoint: returns CDEs in natural order, no `q` needed.
     resp = cadsr_client.get("/api/v1/cadsr/list", params={"limit": 10})
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["query"] == ""
     assert body["total"] >= 1

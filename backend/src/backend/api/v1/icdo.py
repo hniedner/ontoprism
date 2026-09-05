@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from backend.api.v1.alignment import mapping_relative_to
+from backend.api.v1.grid import PageSize
 from backend.dependencies import (
     IcdoReads,
     RepositoryMetadataReads,
@@ -22,6 +23,7 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
+    IcdoRepositorySort,
     IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
@@ -43,6 +45,8 @@ router = APIRouter(
 )
 Edition = Literal["3.2", "4.0"]
 Axis = Literal["morphology", "topography"]
+Behaviour = Literal["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+RecordLevel = Literal["morphology", "category", "leaf"]
 
 
 class NcitAlignment(StrictBoundaryModel):
@@ -142,6 +146,7 @@ class _IcdoPage(StrictBoundaryModel):
     total: int
     limit: int
     offset: int
+    sort: IcdoRepositorySort
 
 
 class Morphology32Page(_IcdoPage):
@@ -235,6 +240,7 @@ def _page_response(
             "total": result.total,
             "limit": result.limit,
             "offset": result.offset,
+            "sort": result.sort,
             "hits": [record.model_dump() for record in result.hits],
         }
     )
@@ -345,10 +351,11 @@ async def list_records(
     repository_metadata: RepositoryMetadataReads,
     edition: Edition,
     axis: Axis,
-    behaviour: str | None = None,
-    level: Literal["category", "leaf"] | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    behaviour: Annotated[list[Behaviour] | None, Query()] = None,
+    level: Annotated[list[RecordLevel] | None, Query()] = None,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
@@ -357,11 +364,12 @@ async def list_records(
             dataset.edition,
             dataset.axis,
             query="",
-            behaviour=behaviour,
-            level=level,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
             limit=limit,
             offset=offset,
             generation_id=ready.activation_identity,
+            sort=sort,
         )
         return _page_response(result, dataset, ready)
     except IcdoRepositoryDataError as exc:
@@ -381,10 +389,11 @@ async def search(
     edition: Edition,
     axis: Axis,
     q: Annotated[str, Query(min_length=1)],
-    behaviour: str | None = None,
-    level: Literal["category", "leaf"] | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    behaviour: Annotated[list[Behaviour] | None, Query()] = None,
+    level: Annotated[list[RecordLevel] | None, Query()] = None,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
     dataset = _dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
@@ -393,11 +402,12 @@ async def search(
             dataset.edition,
             dataset.axis,
             query=q,
-            behaviour=behaviour,
-            level=level,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
             limit=limit,
             offset=offset,
             generation_id=ready.activation_identity,
+            sort=sort,
         )
         return _page_response(result, dataset, ready)
     except IcdoRepositoryDataError as exc:

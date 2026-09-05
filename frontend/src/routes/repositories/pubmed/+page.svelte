@@ -9,6 +9,9 @@
 	import type { PageProps } from './$types';
 	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
 	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
+	import type { DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	let { data }: PageProps = $props();
 	let queryValue = $derived(data.query);
@@ -18,9 +21,15 @@
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
 	const isEmpty = $derived((result?.articles.length ?? 0) === 0);
 
-	function search(term = queryValue): void {
-		goto(repositorySearchHref('pubmed', page.url, term));
+	function navigate(update: (params: SvelteURLSearchParams) => void): void {
+		const params = new SvelteURLSearchParams(page.url.search);
+		update(params);
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- fixed route with URL state only
+		goto(`/repositories/pubmed${params.size ? `?${params}` : ''}`);
 	}
+	function search(term = queryValue): void { const target = repositorySearchHref('pubmed', page.url, term); goto(target); }
+	function intent(value: DataTableIntent): void { if (value.kind !== 'sort' && value.kind !== 'reset') return; navigate((params) => { params.delete('offset'); if (value.kind === 'sort' && value.sort.key === 'date') params.set('sort', 'pub_date'); else params.delete('sort'); }); }
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: data.sort === 'pub_date' ? { key: 'date', direction: 'desc' } : null, defaultSort: null, activeSortLabel: data.sort === 'pub_date' ? 'Publication date descending' : 'Relevance', filters: {}, onintent: intent });
 </script>
 
 <svelte:head>
@@ -75,7 +84,8 @@
 				No articles matched “{data.query}”.
 			</p>
 		{:else}
-			<PubMedResultsTable articles={result?.articles ?? []} />
+			<PubMedResultsTable articles={result?.articles ?? []} {operations} />
+			<Pagination offset={data.offset} limit={data.size} total={result?.total ?? 0} navigationTotal={Math.min(result?.total ?? 0, 10000)} onPage={(offset) => navigate((params) => { if (offset) params.set('offset', String(offset)); else params.delete('offset'); })} onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
 		{/if}
 	</RepoResultsCard>
 </RemoteSearchSurface>

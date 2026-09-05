@@ -2,16 +2,16 @@
 	import { resolve } from '$app/paths';
 	import type { CdeSummary } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn } from '$lib/components/data-table/types';
+	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
-	let { hits }: { hits: readonly CdeSummary[] } = $props();
-	const operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply only to the rows loaded on this page.' } as const;
-	const columns: readonly DataTableColumn<CdeSummary>[] = [
-		{ id: 'public_id', label: 'Public ID', cell: idCell, sortValue: (cde) => cde.public_id, filter: { kind: 'text', value: (cde) => `${cde.public_id} ${cde.version}`, ariaLabel: 'Filter loaded CDE public IDs and versions' }, sticky: { side: 'left', offset: 0 } },
-		{ id: 'name', label: 'Name', cell: nameCell, sortValue: (cde) => cde.long_name, filter: { kind: 'text', value: (cde) => `${cde.long_name} ${cde.short_name}`, ariaLabel: 'Filter loaded CDE names' } },
-		{ id: 'context', label: 'Context', cell: contextCell, sortValue: (cde) => cde.context, filter: { kind: 'text', value: (cde) => cde.context, ariaLabel: 'Filter loaded CDE contexts' } },
-		{ id: 'datatype', label: 'Type', cell: datatypeCell, sortValue: (cde) => cde.datatype, filter: { kind: 'categorical', value: (cde) => cde.datatype, ariaLabel: 'Filter loaded CDE datatypes', emptyLabel: 'No datatype' } }
-	];
+	let { hits, operations = { kind: 'none' } }: { hits: readonly CdeSummary[]; operations?: DataTableOperations } = $props();
+	const interactive = $derived(operations.kind === 'server');
+	let columns = $derived.by((): readonly DataTableColumn<CdeSummary>[] => [
+		{ id: 'public_id', label: 'Public ID', cell: idCell, sortable: interactive, sticky: { side: 'left', offset: 0 } },
+		{ id: 'name', label: 'Name', cell: nameCell, sortable: interactive },
+		{ id: 'context', label: 'Context', cell: contextCell },
+		{ id: 'datatype', label: 'Type', cell: datatypeCell }
+	]);
 </script>
 
 {#snippet idCell(cde: CdeSummary)}
@@ -27,4 +27,4 @@
 	{#if cde.datatype}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{cde.datatype}</span>{:else}<span class="text-muted">—</span>{/if}
 {/snippet}
 
-<DataTable rows={hits} {columns} caption="caDSR CDE results loaded on this page" regionLabel="caDSR CDE loaded-page results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} stickyHeader={true} />
+<DataTable rows={hits} {columns} caption="caDSR CDE repository results" regionLabel="caDSR CDE repository results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} stickyHeader={true} />

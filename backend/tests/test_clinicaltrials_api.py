@@ -82,12 +82,18 @@ def ct_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
 @pytest.mark.api
 def test_search_returns_parsed_trials(ct_app: TestClient) -> None:
-    resp = ct_app.post("/api/v1/clinicaltrials/search", json={"condition": "melanoma"})
+    request_marker = "opaque"
+    resp = ct_app.post(
+        "/api/v1/clinicaltrials/search",
+        json={"condition": "melanoma", "limit": 25, "page_token": request_marker},
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
     assert body["studies"][0]["nct_id"] == "NCT01234567"
     assert body["studies"][0]["interventions"] == ["Widgetinib"]
+    assert body["page_size"] == 25
+    assert body["page_token"] == request_marker
 
 
 @pytest.mark.api
@@ -100,7 +106,7 @@ def test_search_requires_a_query_field(ct_app: TestClient) -> None:
 def test_search_invalid_status_is_400(ct_app: TestClient) -> None:
     resp = ct_app.post(
         "/api/v1/clinicaltrials/search",
-        json={"condition": "melanoma", "status": "BOGUS"},
+        json={"condition": "melanoma", "status": ["BOGUS"]},
     )
     assert resp.status_code == 400
 
@@ -109,9 +115,22 @@ def test_search_invalid_status_is_400(ct_app: TestClient) -> None:
 def test_search_invalid_phase_is_400(ct_app: TestClient) -> None:
     resp = ct_app.post(
         "/api/v1/clinicaltrials/search",
-        json={"condition": "melanoma", "phase": "PHASE9"},
+        json={"condition": "melanoma", "phase": ["PHASE9"]},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_search_accepts_multiple_values_with_or_semantics(ct_app: TestClient) -> None:
+    resp = ct_app.post(
+        "/api/v1/clinicaltrials/search",
+        json={
+            "condition": "melanoma",
+            "status": ["RECRUITING", "COMPLETED"],
+            "phase": ["PHASE1", "PHASE2"],
+        },
+    )
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.api
