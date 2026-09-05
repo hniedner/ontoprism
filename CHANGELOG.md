@@ -19,6 +19,41 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.22.4 (2026-09-05)
+
+### Bug Fixes
+
+- **ci**: Balance integration test partitions
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+- **ci**: Enforce partition capability and artifact contracts
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+- **ci**: Harden partition evidence contracts
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+### Continuous Integration
+
+- **test**: Partition backend and integration lanes
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+### Documentation
+
+- Update README code line-count table
+  ([`3596d6d`](https://github.com/hniedner/ontoprism/commit/3596d6d66742125eeda00138d9de92227a0301c4))
+
+### Testing
+
+- **ci**: Prove partition failure contracts
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+- **ci**: Record clean integration timings
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+- **ci**: Refresh SPARQL inventory
+  ([`66525ca`](https://github.com/hniedner/ontoprism/commit/66525ca85a536bcbc0ac1811f580cb9886f49dea))
+
+
 ## v0.22.3 (2026-09-05)
 
 ### Bug Fixes
