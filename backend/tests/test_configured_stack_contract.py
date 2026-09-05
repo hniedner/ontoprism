@@ -1,6 +1,7 @@
 """Read-only contracts for the exact configured UAT stack."""
 
 import asyncio
+import base64
 
 import asyncpg
 import pytest
@@ -103,3 +104,43 @@ def test_configured_detail_mapping_routes_do_not_fail(
     response = live_api_client.get(path, headers=headers)
 
     assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(
+    ("edition", "axis"),
+    [
+        ("3.2", "morphology"),
+        ("4.0", "morphology"),
+        ("4.0", "topography"),
+    ],
+)
+def test_configured_icdo_repository_routes_serve_certified_active_generation(
+    live_api_client: TestClient, edition: str, axis: str
+) -> None:
+    entitlement = get_settings().icdo_entitlement_key
+    assert entitlement
+    headers = {"X-ICDO-Entitlement": entitlement}
+    root = f"/api/v1/icdo/{edition}/{axis}"
+
+    metadata = live_api_client.get(f"{root}/metadata", headers=headers)
+    listing = live_api_client.get(f"{root}/list", headers=headers)
+
+    assert metadata.status_code == 200, metadata.text
+    assert listing.status_code == 200, listing.text
+    metadata_body = metadata.json()
+    listing_body = listing.json()
+    assert listing_body["hits"]
+    assert listing_body["activation_identity"] == metadata_body["activation_identity"]
+    assert listing_body["serving_identity"] == metadata_body["serving_identity"]
+
+    code = listing_body["hits"][0]["code"]
+    search = live_api_client.get(f"{root}/search", params={"q": code}, headers=headers)
+    segment = base64.urlsafe_b64encode(code.encode("ascii")).decode("ascii").rstrip("=")
+    detail = live_api_client.get(f"{root}/concepts/{segment}", headers=headers)
+
+    assert search.status_code == 200, search.text
+    assert detail.status_code == 200, detail.text
+    assert any(hit["code"] == code for hit in search.json()["hits"])
+    assert detail.json()["record"]["code"] == code
+    assert detail.json()["activation_identity"] == metadata_body["activation_identity"]
+    assert detail.json()["serving_identity"] == metadata_body["serving_identity"]

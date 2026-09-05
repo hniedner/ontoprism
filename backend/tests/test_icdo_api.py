@@ -348,6 +348,37 @@ def test_topography_detail_decodes_production_shaped_json_arrays(
 
 
 @pytest.mark.api
+def test_list_decodes_production_shaped_json_arrays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PersistedLists(_Store):
+        async def search(
+            self, edition: str, axis: str, **kwargs: object
+        ) -> dict[str, object]:
+            result = await super().search(edition, axis, **kwargs)
+            hit = result["hits"][0]  # type: ignore[index]
+            assert isinstance(hit, dict)
+            hit["synonyms"] = ["Papilloma"]
+            hit["related"] = []
+            hit["notes"] = []
+            hit["code_references"] = []
+            hit["see_also"] = []
+            hit["see_notes"] = []
+            hit["includes"] = []
+            hit["excludes"] = []
+            hit["other_text"] = []
+            return result
+
+    response = next(_client(_PersistedLists(), monkeypatch)).get(
+        "/api/v1/icdo/3.2/morphology/list",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["hits"][0]["synonyms"] == ["Papilloma"]
+
+
+@pytest.mark.api
 def test_detail_refuses_malformed_persisted_collection_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

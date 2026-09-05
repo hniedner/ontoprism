@@ -205,6 +205,16 @@ async def _ready(
     return result
 
 
+def _decode_page_hits(result: dict[str, object]) -> dict[str, object]:
+    hits = result.get("hits")
+    if not isinstance(hits, list):
+        raise ValueError("ICD-O page hits are invalid")
+    return {
+        **result,
+        "hits": [decode_icdo_record(hit).model_dump() for hit in hits],
+    }
+
+
 @router.get("/access", response_model=IcdoAccessReport)
 async def access_status(
     repository_metadata: RepositoryMetadataReads,
@@ -329,7 +339,7 @@ async def list_records(
             generation_id=ready.activation_identity,
         )
         return {
-            **result,
+            **_decode_page_hits(result),
             "activation_identity": ready.activation_identity,
             "serving_identity": ready.serving_identity,
         }
@@ -365,7 +375,7 @@ async def search(
             generation_id=ready.activation_identity,
         )
         return {
-            **result,
+            **_decode_page_hits(result),
             "activation_identity": ready.activation_identity,
             "serving_identity": ready.serving_identity,
         }
