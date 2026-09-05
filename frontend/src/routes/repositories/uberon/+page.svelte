@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
+	import UberonResultsTable from '$lib/components/UberonResultsTable.svelte';
 	import type { PageProps } from './$types';
 	import type { UberonSearchHit, UberonSource } from '$lib/types';
 
@@ -51,19 +52,6 @@
 		Ontology within the certified combined index.
 	{/snippet}
 	{#snippet results(hits: UberonSearchHit[])}
-		<div class="overflow-x-auto">
-			<table class="w-full border-collapse text-sm">
-				<thead><tr class="border-b border-default"><th class="px-4 py-2 text-left">Code</th><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-left">Source</th></tr></thead>
-				<tbody>
-					{#each hits as hit (hit.code)}
-						<tr class="border-b border-default/60">
-							<td class="px-4 py-2 font-mono text-xs"><a href={resolve('/repositories/uberon/[curie]', { curie: hit.code })}>{hit.code}</a></td>
-							<td class="px-4 py-2"><a href={resolve('/repositories/uberon/[curie]', { curie: hit.code })}>{hit.label ?? '—'}</a></td>
-							<td class="px-4 py-2">{hit.source === 'cl' ? 'Cell Ontology' : 'Uberon'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+		<UberonResultsTable {hits} />
 	{/snippet}
 </RepoBrowsePage>

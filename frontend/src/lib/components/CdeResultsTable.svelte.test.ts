@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import CdeResultsTable from './CdeResultsTable.svelte';
 import type { CdeSummary } from '$lib/types';
 
@@ -46,7 +46,7 @@ describe('CdeResultsTable', () => {
 
 	it('renders one body row per hit', () => {
 		render(CdeResultsTable, { hits });
-		expect(screen.getAllByRole('row').slice(1)).toHaveLength(2);
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
 	});
 
 	it('omits the short-name annotation when the CDE has none', () => {
@@ -62,5 +62,25 @@ describe('CdeResultsTable', () => {
 		});
 		// In Svelte 5, {undefined} in text interpolations renders as empty string.
 		expect(screen.getByText(/^v$/)).toBeInTheDocument();
+	});
+
+	it('sorts and filters only the loaded CDE page with visible scope disclosure', async () => {
+		render(CdeResultsTable, { hits });
+		expect(screen.getByText('Filters and sorting apply only to the rows loaded on this page.')).toBeVisible();
+		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded CDE contexts' }), {
+			target: { value: ' cadsr ' }
+		});
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
+		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Public ID' }));
+		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
+	});
+
+	it('escapes every source-controlled CDE field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(CdeResultsTable, {
+			hits: [{ public_id: payload, version: payload, short_name: payload, long_name: payload, context: payload, datatype: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(5);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

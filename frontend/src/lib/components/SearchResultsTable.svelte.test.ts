@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import SearchResultsTable from './SearchResultsTable.svelte';
 import type { SearchHit } from '$lib/types';
@@ -22,9 +22,7 @@ const hits: SearchHit[] = [
 ];
 
 function rowCodes(): string[] {
-	return screen
-		.getAllByRole('row')
-		.slice(1) // drop the header row
+	return Array.from(document.querySelectorAll('tbody tr'))
 		.map((r) => r.querySelector('a')?.textContent?.trim() ?? ''); // first col = code link
 }
 
@@ -104,5 +102,24 @@ describe('SearchResultsTable', () => {
 	it('shows a no-results message for an empty hit list', () => {
 		render(SearchResultsTable, { hits: [] });
 		expect(screen.getByText('No results.')).toBeInTheDocument();
+	});
+
+	it('discloses and applies page-local filters without adding pagination', async () => {
+		render(SearchResultsTable, { hits });
+		expect(screen.getByText('Filters and sorting apply only to the rows loaded on this page.')).toBeVisible();
+		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded NCIt names' }), {
+			target: { value: ' melanoma ' }
+		});
+		expect(rowCodes()).toEqual(['C3']);
+		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
+	});
+
+	it('escapes every source-controlled NCIt field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(SearchResultsTable, {
+			hits: [{ ...hits[0], code: payload, label: payload, semantic_type: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(3);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

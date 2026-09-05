@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
 import type { CTStudySummary } from '$lib/types';
 
@@ -46,5 +46,26 @@ describe('CtResultsTable', () => {
 		render(CtResultsTable, { studies });
 		expect(screen.getByText('Phase 2')).toBeInTheDocument();
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('preserves upstream order until a loaded-page sort and supports condition filters', async () => {
+		render(CtResultsTable, { studies });
+		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('NCT01');
+		expect(screen.getByText('Filters and sorting apply only to the trials loaded on this page.')).toBeVisible();
+		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Title' }));
+		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('NCT02');
+		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded trial conditions' }), {
+			target: { value: 'skin cancer' }
+		});
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
+	});
+
+	it('escapes every source-controlled clinical-trial summary field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(CtResultsTable, {
+			studies: [{ ...studies[0], nct_id: payload, title: payload, status: payload, phase: payload, conditions: [payload], interventions: [payload], start_date: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(4);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });
