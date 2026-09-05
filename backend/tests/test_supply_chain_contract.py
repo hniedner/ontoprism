@@ -84,10 +84,9 @@ def test_python_gate_documentation_describes_current_failure_and_ci_semantics() 
         "    # suppressions."
     ) in pyproject
     assert (
-        "# main. ci.yml defines all nine CI jobs. workflow_dispatch runs every "
-        "ordinary job;\n"
-        "# only Docker and the pinned embedding-model contract remain path-gated."
-    ) in pyproject
+        "ci.yml defines nine top-level jobs and eleven stable visible checks"
+        in pyproject
+    )
     assert (
         "# On-demand CI for a feature branch that has no pull request yet: "
         "workflow_dispatch\n"
@@ -95,14 +94,11 @@ def test_python_gate_documentation_describes_current_failure_and_ci_semantics() 
         "contract remain\n"
         "  # path-gated."
     ) in ci_workflow
-    assert (
-        "# Single aggregate status: it accepts `success` and any `skipped` result and "
-        "does not\n"
-        "  # distinguish the skip cause. The merge operator must validate skipped "
-        "checks against\n"
-        "  # documented path conditions. Use this as the branch-protection required "
-        "check."
-    ) in ci_workflow
+    assert "matrix children collapse to their top-level job result" in ci_workflow
+    assert "two two-child matrices still leave exactly eight dependency results" in (
+        ci_workflow
+    )
+    assert "Use this as the branch-protection required check." in ci_workflow
     assert "Workflow Python setup inputs" in d83
 
 
@@ -635,16 +631,88 @@ def test_coverage_uploads_fail_when_required_evidence_is_missing() -> None:
     workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
 
-    for job_name, artifact_name in (
-        ("backend-tests", "coverage-data"),
-        ("integration-tests", "coverage-integration-data"),
-    ):
+    for job_name in ("backend-tests", "integration-tests"):
         upload = next(
             step
             for step in jobs[job_name]["steps"]
-            if step.get("with", {}).get("name") == artifact_name
+            if str(step.get("with", {}).get("name", "")).startswith("coverage-")
         )
         assert upload["with"]["if-no-files-found"] == "error"
+        assert upload["if"] == "always()"
+
+
+def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    jobs = workflow["jobs"]
+    backend = jobs["backend-tests"]
+    integration = jobs["integration-tests"]
+
+    assert backend["strategy"] == {
+        "fail-fast": False,
+        "matrix": {"include": [{"shard": 1, "index": 0}, {"shard": 2, "index": 1}]},
+    }
+    assert backend["name"] == "backend tests (shard ${{ matrix.shard }}/2)"
+    assert integration["strategy"]["fail-fast"] is False
+    assert integration["strategy"]["matrix"]["include"] == [
+        {"shard": "qlever", "needs_robot": False, "needs_jena": True},
+        {"shard": "postgres", "needs_robot": True, "needs_jena": False},
+    ]
+    assert (
+        integration["name"] == "integration tests (services, shard ${{ matrix.shard }})"
+    )
+
+    artifact_names = {
+        jobs[job]["steps"][-1]["with"]["name"]
+        for job in ("backend-tests", "integration-tests")
+    }
+    assert artifact_names == {
+        "coverage-backend-${{ matrix.shard }}",
+        "coverage-integration-${{ matrix.shard }}",
+    }
+    assert jobs["coverage-verify"]["needs"] == ["backend-tests", "integration-tests"]
+    assert len(jobs) == 9
+    assert len(jobs["ci-summary"]["needs"]) == 8
+    assert jobs["ci-summary"]["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == 8
+
+
+def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["coverage-verify"]["steps"]
+    downloads = [
+        step for step in steps if "actions/download-artifact" in step.get("uses", "")
+    ]
+    assert [step["with"]["name"] for step in downloads] == [
+        "coverage-backend-1",
+        "coverage-backend-2",
+        "coverage-integration-qlever",
+        "coverage-integration-postgres",
+    ]
+    combine_index, combine = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("name")
+        == "Validate partitions and combine same-commit coverage layers"
+    )
+    run = combine["run"]
+    assert "validate-receipts" in run
+    assert "verify-identities" in run
+    assert run.index("validate-receipts") < run.index("coverage combine")
+    assert run.index("verify-identities") < run.index("coverage combine")
+    assert "coverage combine --keep" in run
+    for path in (
+        "coverage-backend-1/.coverage.unit-0",
+        "coverage-backend-2/.coverage.unit-1",
+        "coverage-integration-qlever/.coverage.integration-qlever",
+        "coverage-integration-postgres/.coverage.integration-postgres",
+    ):
+        assert path in run
+    strict_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name")
+        == "Verify independent Python line and branch coverage > 90%"
+    )
+    assert combine_index < strict_index
 
 
 def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:
@@ -770,9 +838,9 @@ def _assert_ci_job_contract(
 ) -> None:
     jobs = workflow["jobs"]
     assert len(jobs) == 9
-    assert f"all {len(jobs)} `CI` jobs" in agents
     count_words = {9: "nine"}
-    assert f"all {count_words[len(jobs)]} CI jobs" in project
+    assert f"exactly {count_words[len(jobs)]} top-level job definitions" in agents
+    assert f"{count_words[len(jobs)]} top-level jobs" in project
 
     legacy_job_id = "python-314-compatibility"
     legacy_display_name = "python 3.14 compatibility"

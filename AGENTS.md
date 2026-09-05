@@ -31,8 +31,16 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
   workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
   successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
-  checks are all 9 `CI` jobs, `conventional commit subject`, `dependency review`, all
+  checks are these 11 visible `CI` checks: `detect changes`,
+  `quality (pre-commit parity)`, `backend tests (shard 1/2)`,
+  `backend tests (shard 2/2)`, `coverage verify (ontolib + backend)`,
+  `web tests + coverage`, `integration tests (services, shard qlever)`,
+  `integration tests (services, shard postgres)`, `pinned embedding model contract`,
+  `docker build smoke`, and `CI summary`; plus `conventional commit subject`,
+  `dependency review`, all
   three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
+  The workflow retains exactly nine top-level job definitions and `CI summary` retains
+  eight `needs` results because each matrix collapses to its aggregate job ID there.
   `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
   because of a documented path condition, including a dependent job skipped when its
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,

@@ -23,6 +23,7 @@ from scripts.validation.coverage_hierarchy import (
     validate_manifest,
     verify_identities,
     verify_identities_against_current,
+    verify_layer_set,
     verify_runtime_dependencies,
 )
 from scripts.validation.coverage_hierarchy import (
@@ -346,6 +347,25 @@ def test_identity_mismatch_refuses_cross_commit_merge() -> None:
 
     with pytest.raises(ValueError, match="commit identity mismatch"):
         verify_identities((unit, integration))
+
+
+def test_python_partition_identity_layer_set_is_exact() -> None:
+    expected = (
+        "python-unit-0",
+        "python-unit-1",
+        "python-integration-qlever",
+        "python-integration-postgres",
+    )
+    identities = tuple(
+        ArtifactIdentity(**{**_identity().as_dict(), "layer": layer})
+        for layer in expected
+    )
+
+    verify_layer_set(identities, expected)
+    with pytest.raises(ValueError, match="coverage identity layer set"):
+        verify_layer_set(identities[:-1], expected)
+    with pytest.raises(ValueError, match="coverage identity layer set"):
+        verify_layer_set((*identities[:-1], identities[0]), expected)
 
 
 def test_identity_mismatch_refuses_configuration_and_source_drift() -> None:

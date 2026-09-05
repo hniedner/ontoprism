@@ -477,6 +477,11 @@ endpoint. It never uses the configured active store and is deliberately excluded
 checks that the tracked 26.07d review sample names that exact certified source and that
 all selected codes are members of its neoplasm hierarchy.
 
+`pdm run test-ci` runs the same two file-level backend partitions and two
+resource-boundary integration partitions as CI, sequentially for local safety. This is
+behavioral parity, not a local speed optimization: it validates partition receipts and
+coverage identities before explicitly combining exactly four coverage files.
+
 ### Validation and recovery
 
 Run `pdm run data-build embeddings` first. It prints persisted build provenance and

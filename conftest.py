@@ -60,6 +60,8 @@ from ontolib.core.data_build_tools import (  # noqa: E402
 from ontolib.decomposition import vocab as decomp_vocab  # noqa: E402
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI  # noqa: E402
 
+pytest_plugins = ("scripts.validation.test_partitions",)
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from contextlib import AbstractContextManager
@@ -483,14 +485,14 @@ def _prepare_qlever_ntriples(
     jena_dir = Path(configured).resolve()
 
     def identify_runner(
-        _args: list[str],
+        args: list[str],
         *,
         check: bool,
         capture_output: bool,
         text: bool,
         timeout: float,
     ) -> subprocess.CompletedProcess[str]:
-        del capture_output, text, timeout
+        del args, capture_output, text, timeout
         return docker_run(
             "run",
             "--rm",

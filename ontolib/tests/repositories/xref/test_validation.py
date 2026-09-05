@@ -309,6 +309,7 @@ def _owl_el_fixture() -> str:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_robot
 def test_robot_elk_smoke(tmp_path: Path) -> None:
     """A small EL ontology passes the profile gate and is classified by ELK.
 
@@ -328,6 +329,7 @@ def test_robot_elk_smoke(tmp_path: Path) -> None:
     assert to_el_profile_and_check(str(onto_path)) is True
 
     out_path = classify(str(onto_path))
+    assert out_path is not None
     assert out_path.exists()
 
     inferred = parse_inferred_subclasses(out_path)

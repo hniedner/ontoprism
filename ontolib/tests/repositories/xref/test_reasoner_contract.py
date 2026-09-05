@@ -48,7 +48,7 @@ _B = "http://example.org/B"
 _C = "http://example.org/C"
 _D = "http://example.org/D"
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.requires_robot]
 
 
 def _skip_without_robot() -> None:

@@ -1220,7 +1220,7 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     test_step = next(
         step
         for step in steps
-        if step.get("run") == "pdm run test-integration-ci-coverage"
+        if step.get("name") == "Integration file partition (disposable resources)"
     )
 
     assert job["env"] == {
@@ -1231,7 +1231,9 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
         "NCIT_SPARQL_URL": "http://127.0.0.1:9",
         "UBERON_SPARQL_URL": "http://127.0.0.1:9",
     }
-    assert "env" not in test_step
+    assert test_step["env"] == {"COVERAGE_CONFIG_SET": "python-combined"}
+    assert "pdm run ci-test-partition" in test_step["run"]
+    assert "--lane integration" in test_step["run"]
     step_names = {step.get("name") for step in steps}
     assert "Start QLever" not in step_names
     assert "Provision Postgres schema (Alembic migrations)" not in step_names

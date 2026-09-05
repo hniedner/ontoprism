@@ -1307,6 +1307,7 @@ def test_the_part_of_query_targets_the_bfo_part_of_property() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_robot
 def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
     """The satisfiability gate, proven against the real reasoner — and it must be the
     REASONER that stops this bridge, not an earlier gate.
@@ -1363,6 +1364,7 @@ def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_robot
 def test_promotion_with_real_elk() -> None:
     """End-to-end through ROBOT + ELK: the golden Lung pair promotes, the Lung↔brain
     pair does not.  Skipped where ``robot`` is not installed (see DATA_SETUP.md)."""
