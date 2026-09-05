@@ -1,5 +1,7 @@
 import type {
 	DataTableColumn,
+	DataTableCategoricalOption,
+	DataTableFilterState,
 	DataTableInitialSort,
 	DataTableOperations,
 	DataTableScalar,
@@ -25,6 +27,9 @@ function validateColumn<Row>(column: DataTableColumn<Row>): void {
 	assertText(`column "${column.id}" label`, column.label);
 	if (column.filter !== undefined) {
 		assertText(`column "${column.id}" filter aria label`, column.filter.ariaLabel);
+		if (column.filter.kind === 'categorical' && column.filter.emptyLabel !== undefined) {
+			assertText(`column "${column.id}" categorical empty label`, column.filter.emptyLabel);
+		}
 	}
 	if (
 		column.sticky !== undefined &&
@@ -63,6 +68,26 @@ function validateSortableTypes<Row>(
 		let expectedType: string | undefined;
 		for (const row of rows) {
 			expectedType = validatedScalarType(column.id, column.sortValue(row), expectedType);
+		}
+	}
+}
+
+function validateCategoricalFilters<Row>(
+	rows: readonly Row[],
+	columns: readonly DataTableColumn<Row>[]
+): void {
+	for (const column of columns) {
+		if (column.filter?.kind !== 'categorical') continue;
+		const values = new Set<string>();
+		for (const row of rows) {
+			const value = column.filter.value(row);
+			if (value !== null && typeof value !== 'string') {
+				invalid(`DataTable column "${column.id}" categorical filter requires string or null values`);
+			}
+			if (value !== null) values.add(value);
+			if (values.size > 25) {
+				invalid('DataTable categorical filter has more than 25 distinct values');
+			}
 		}
 	}
 }
@@ -117,6 +142,7 @@ function assertDataTable<Row>(
 	}
 	validateRowIds(rows, getRowId);
 	validateSortableTypes(rows, columns);
+	validateCategoricalFilters(rows, columns);
 }
 
 export function validateDataTable<Row>(
@@ -153,6 +179,55 @@ function compareNonNull(left: Exclude<DataTableScalar, null>, right: Exclude<Dat
 	throw new Error('DataTable cannot compare mixed sortable scalar types');
 }
 
+function compareCategoricalValues(left: string | null, right: string | null): number {
+	if (left === null && right === null) return 0;
+	if (left === null) return 1;
+	if (right === null) return -1;
+	return compareNonNull(left, right);
+}
+
+export function categoricalOptions<Row>(
+	rows: readonly Row[],
+	column: DataTableColumn<Row>
+): DataTableCategoricalOption[] {
+	if (column.filter?.kind !== 'categorical') return [];
+	const counts = new Map<string | null, number>();
+	for (const row of rows) {
+		const value = column.filter.value(row);
+		counts.set(value, (counts.get(value) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.map(([value, count], index) => ({ value, count, index }))
+		.sort((left, right) => compareCategoricalValues(left.value, right.value) || left.index - right.index)
+		.map(({ value, count }) => ({
+			value,
+			count,
+			label: value === null ? (column.filter?.kind === 'categorical' ? column.filter.emptyLabel : undefined) ?? 'No value' : value === '' ? 'Empty string' : value
+		}));
+}
+
+export function pruneCategoricalFilters<Row>(
+	filters: Readonly<Record<string, DataTableFilterState>>,
+	rows: readonly Row[],
+	columns: readonly DataTableColumn<Row>[]
+): Record<string, DataTableFilterState> {
+	let changed = false;
+	const next: Record<string, DataTableFilterState> = {};
+	for (const [columnId, state] of Object.entries(filters)) {
+		const column = columns.find((candidate) => candidate.id === columnId);
+		if (state.kind !== 'categorical' || column?.filter?.kind !== 'categorical') {
+			next[columnId] = state;
+			continue;
+		}
+		const available = categoricalOptions(rows, column).map((option) => option.value);
+		const selected = state.selected.filter((value) => available.some((candidate) => Object.is(candidate, value)));
+		if (selected.length !== state.selected.length) changed = true;
+		if (selected.length) next[columnId] = { kind: 'categorical', selected };
+		else changed = true;
+	}
+	return changed ? next : (filters as Record<string, DataTableFilterState>);
+}
+
 export function sortRows<Row>(
 	rows: readonly Row[],
 	value: (row: Row) => DataTableScalar,
@@ -174,15 +249,31 @@ export function sortRows<Row>(
 export function filterRows<Row>(
 	rows: readonly Row[],
 	columns: readonly DataTableColumn<Row>[],
-	filters: Readonly<Record<string, string>>
+	filters: Readonly<Record<string, DataTableFilterState>>
 ): Row[] {
-	const active = columns.flatMap((column) => {
-		const query = filters[column.id]?.trim().toLocaleLowerCase('en-US') ?? '';
-		return query && column.filter ? [{ query, value: column.filter.value }] : [];
-	});
+	type ActiveFilter =
+		| { kind: 'text'; query: string; value: (row: Row) => DataTableScalar }
+		| { kind: 'categorical'; selected: readonly (string | null)[]; value: (row: Row) => string | null };
+	const active: ActiveFilter[] = [];
+	for (const column of columns) {
+		const state = filters[column.id];
+		const filter = column.filter;
+		if (!state || !filter || state.kind !== filter.kind) continue;
+		if (state.kind === 'text' && filter.kind === 'text') {
+			const query = state.query.trim().toLocaleLowerCase('en-US');
+			if (query) active.push({ kind: 'text', query, value: filter.value });
+		} else if (state.kind === 'categorical' && filter.kind === 'categorical' && state.selected.length) {
+			active.push({ kind: 'categorical', selected: state.selected, value: filter.value });
+		}
+	}
 	if (!active.length) return [...rows];
 	return rows.filter((row) =>
-		active.every(({ query, value }) => {
+		active.every((filter) => {
+			if (filter.kind === 'categorical') {
+				const candidate = filter.value(row);
+				return filter.selected.some((selected) => Object.is(selected, candidate));
+			}
+			const { query, value } = filter;
 			const candidate = value(row);
 			return candidate !== null && String(candidate).trim().toLocaleLowerCase('en-US').includes(query);
 		})

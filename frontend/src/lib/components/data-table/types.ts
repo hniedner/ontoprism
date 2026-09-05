@@ -8,9 +8,23 @@ export interface DataTableStickyColumn {
 	offset: number;
 }
 
-export interface DataTableFilter<Row> {
-	value: (row: Row) => DataTableScalar;
-	ariaLabel: string;
+export type DataTableFilter<Row> =
+	| { kind: 'text'; value: (row: Row) => DataTableScalar; ariaLabel: string }
+	| {
+			kind: 'categorical';
+			value: (row: Row) => string | null;
+			ariaLabel: string;
+			emptyLabel?: string;
+	  };
+
+export type DataTableFilterState =
+	| { kind: 'text'; query: string }
+	| { kind: 'categorical'; selected: readonly (string | null)[] };
+
+export interface DataTableCategoricalOption {
+	value: string | null;
+	label: string;
+	count: number;
 }
 
 export interface DataTableColumn<Row> {

@@ -7,10 +7,10 @@
 	let { studies }: { studies: readonly CTStudySummary[] } = $props();
 	const operations = { kind: 'client-page', scopeLabel: 'Filters and sorting apply only to the trials loaded on this page.' } as const;
 	const columns: readonly DataTableColumn<CTStudySummary>[] = [
-		{ id: 'nct_id', label: 'NCT ID', cell: idCell, sortValue: (trial) => trial.nct_id, filter: { value: (trial) => trial.nct_id, ariaLabel: 'Filter loaded trial IDs' }, sticky: { side: 'left', offset: 0 } },
-		{ id: 'title', label: 'Title', cell: titleCell, sortValue: (trial) => trial.title, filter: { value: (trial) => `${trial.title} ${trial.conditions.join(' ')}`, ariaLabel: 'Filter loaded trial titles and conditions' } },
-		{ id: 'status', label: 'Status', cell: statusCell, sortValue: (trial) => trial.status, filter: { value: (trial) => trial.status, ariaLabel: 'Filter loaded trial statuses' } },
-		{ id: 'phase', label: 'Phase', cell: phaseCell, sortValue: (trial) => trial.phase, filter: { value: (trial) => trial.phase, ariaLabel: 'Filter loaded trial phases' } }
+		{ id: 'nct_id', label: 'NCT ID', cell: idCell, sortValue: (trial) => trial.nct_id, filter: { kind: 'text', value: (trial) => trial.nct_id, ariaLabel: 'Filter loaded trial IDs' }, sticky: { side: 'left', offset: 0 } },
+		{ id: 'title', label: 'Title', cell: titleCell, sortValue: (trial) => trial.title, filter: { kind: 'text', value: (trial) => `${trial.title} ${trial.conditions.join(' ')}`, ariaLabel: 'Filter loaded trial titles and conditions' } },
+		{ id: 'status', label: 'Status', cell: statusCell, sortValue: (trial) => trial.status, filter: { kind: 'categorical', value: (trial) => trial.status, ariaLabel: 'Filter loaded trial statuses', emptyLabel: 'No status' } },
+		{ id: 'phase', label: 'Phase', cell: phaseCell, sortValue: (trial) => trial.phase, filter: { kind: 'categorical', value: (trial) => trial.phase, ariaLabel: 'Filter loaded trial phases', emptyLabel: 'No phase' } }
 	];
 </script>
 

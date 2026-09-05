@@ -15,7 +15,7 @@ describe('UberonResultsTable', () => {
 			'href', '/repositories/uberon/UBERON:0002048'
 		);
 		expect(screen.getByText('—')).toBeInTheDocument();
-		expect(screen.getByText('Cell Ontology')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('Cell Ontology')).toBeInTheDocument();
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('UBERON:0002048');
 		expect(screen.getByText('Filters and sorting apply only to the Uberon/CL rows loaded on this page.')).toBeVisible();
 		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
@@ -28,11 +28,14 @@ describe('UberonResultsTable', () => {
 		render(UberonResultsTable, { hits });
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
 		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('CL:0000540');
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded ontology sources' }), {
-			target: { value: 'cell ontology' }
-		});
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cell Ontology (1)' }));
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
 		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
+	});
+
+	it('uses an explicit categorical source control', () => {
+		render(UberonResultsTable, { hits });
+		expect(screen.getByRole('group', { name: 'Filter loaded ontology sources' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled Uberon/CL field', () => {

@@ -1,20 +1,21 @@
 <script lang="ts" generics="Row">
-	import type { DataTableColumn, DataTableOperations, DataTableSortDirection } from './types';
+	import type { DataTableColumn, DataTableFilterState, DataTableOperations, DataTableSortDirection } from './types';
 	import DataTableFilterCell from './DataTableFilterCell.svelte';
 	import DataTableHeaderCell from './DataTableHeaderCell.svelte';
 
 	interface Props {
+		rows: readonly Row[];
 		columns: readonly DataTableColumn<Row>[];
 		operations: DataTableOperations;
-		filters: Readonly<Record<string, string>>;
+		filters: Readonly<Record<string, DataTableFilterState>>;
 		sortColumnId: string | null;
 		sortDirection: DataTableSortDirection;
 		stickyHeader: boolean;
 		onsort: (column: DataTableColumn<Row>) => void;
-		onfilter: (columnId: string, value: string) => void;
+		onfilter: (columnId: string, value: DataTableFilterState) => void;
 	}
 
-	let { columns, operations, filters, sortColumnId, sortDirection, stickyHeader, onsort, onfilter }: Props = $props();
+	let { rows, columns, operations, filters, sortColumnId, sortDirection, stickyHeader, onsort, onfilter }: Props = $props();
 	let hasFilters = $derived(operations.kind === 'client-page' && columns.some((column) => column.filter));
 
 	function stickyStyle(column: DataTableColumn<Row>): string | undefined {
@@ -40,7 +41,7 @@
 	{#if hasFilters}
 		<tr>
 			{#each columns as column (column.id)}
-				<DataTableFilterCell {column} value={filters[column.id] ?? ''} className={headerClass(column)} style={stickyStyle(column)} {onfilter} />
+				<DataTableFilterCell {rows} {column} value={filters[column.id]} className={headerClass(column)} style={stickyStyle(column)} {onfilter} />
 			{/each}
 		</tr>
 	{/if}

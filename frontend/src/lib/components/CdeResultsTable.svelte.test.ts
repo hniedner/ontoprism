@@ -43,7 +43,7 @@ describe('CdeResultsTable', () => {
 
 	it('renders the datatype chip, or a dash when absent', () => {
 		render(CdeResultsTable, { hits });
-		expect(screen.getByText('CHARACTER')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('CHARACTER')).toBeInTheDocument();
 		// The context-less / datatype-less second row falls back to em dashes.
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
@@ -51,6 +51,14 @@ describe('CdeResultsTable', () => {
 	it('renders one body row per hit', () => {
 		render(CdeResultsTable, { hits });
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+	});
+
+	it('renders distinct versions sharing a public ID without a duplicate-row alert', () => {
+		render(CdeResultsTable, { hits: [hits[0], { ...hits[0], version: '3.0', long_name: 'New version' }] });
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		expect(screen.getByText('v2.0')).toBeInTheDocument();
+		expect(screen.getByText('v3.0')).toBeInTheDocument();
 	});
 
 	it('omits the short-name annotation when the CDE has none', () => {
@@ -77,6 +85,13 @@ describe('CdeResultsTable', () => {
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Public ID' }));
 		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
+	});
+
+	it('uses a categorical datatype control while context remains text-filtered', () => {
+		render(CdeResultsTable, { hits });
+		expect(screen.getByRole('group', { name: 'Filter loaded CDE datatypes' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No datatype (1)' })).toBeInTheDocument();
+		expect(screen.getByRole('searchbox', { name: 'Filter loaded CDE contexts' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled CDE field', () => {

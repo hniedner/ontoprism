@@ -59,6 +59,12 @@ describe('PubMedResultsTable', () => {
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
 	});
 
+	it('keeps all PubMed filters textual because its metadata is free text', () => {
+		render(PubMedResultsTable, { articles });
+		expect(screen.queryByRole('group')).not.toBeInTheDocument();
+		expect(screen.getByRole('searchbox', { name: 'Filter loaded article journals' })).toBeInTheDocument();
+	});
+
 	it('escapes every source-controlled PubMed summary field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
 		const { container } = render(PubMedResultsTable, {

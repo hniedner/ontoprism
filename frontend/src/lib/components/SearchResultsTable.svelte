@@ -11,10 +11,10 @@
 		scopeLabel: 'Filters and sorting apply only to the rows loaded on this page.'
 	} as const;
 	const columns: readonly DataTableColumn<SearchHit>[] = [
-		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filter: { value: (hit) => hit.code, ariaLabel: 'Filter loaded NCIt codes' }, sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filter: { value: (hit) => hit.label, ariaLabel: 'Filter loaded NCIt names' } },
-		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortValue: (hit) => hit.semantic_type, filter: { value: (hit) => hit.semantic_type, ariaLabel: 'Filter loaded NCIt semantic types' } },
-		{ id: 'representation_status', label: 'Status', cell: statusCell, sortValue: (hit) => hit.representation_status, filter: { value: (hit) => hit.representation_status, ariaLabel: 'Filter loaded NCIt statuses' } }
+		{ id: 'code', label: 'Code', cell: codeCell, sortValue: (hit) => hit.code, filter: { kind: 'text', value: (hit) => hit.code, ariaLabel: 'Filter loaded NCIt codes' }, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortValue: (hit) => hit.label, filter: { kind: 'text', value: (hit) => hit.label, ariaLabel: 'Filter loaded NCIt names' } },
+		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortValue: (hit) => hit.semantic_type, filter: { kind: 'categorical', value: (hit) => hit.semantic_type, ariaLabel: 'Filter loaded NCIt semantic types', emptyLabel: 'No semantic type' } },
+		{ id: 'representation_status', label: 'Status', cell: statusCell, sortValue: (hit) => hit.representation_status, filter: { kind: 'categorical', value: (hit) => hit.representation_status, ariaLabel: 'Filter loaded NCIt statuses', emptyLabel: 'No status' } }
 	];
 </script>
 

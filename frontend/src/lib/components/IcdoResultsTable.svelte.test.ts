@@ -26,7 +26,7 @@ describe('IcdoResultsTable', () => {
 			`/repositories/icdo/${dataset.edition}/${dataset.axis}/${icdoCodeSegment('8000/0')}`
 		);
 		expect(screen.getByText('No preferred term supplied')).toBeInTheDocument();
-		expect(screen.getAllByText('morphology')).toHaveLength(2);
+		expect(within(document.querySelector('tbody') as HTMLElement).getAllByText('morphology')).toHaveLength(2);
 		expect(screen.getByText('Filters and sorting apply only to the ICD-O records loaded on this page.')).toBeVisible();
 		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
 		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
@@ -37,20 +37,26 @@ describe('IcdoResultsTable', () => {
 	it('sorts and filters all four merged record variants on the loaded page', async () => {
 		render(IcdoResultsTable, { dataset: { edition: '4.0', axis: 'topography' }, hits });
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded ICD-O levels' }), {
-			target: { value: 'leaf' }
-		});
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'leaf (1)' }));
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
 		expect(screen.getByRole('link', { name: 'C00.1' })).toBeInTheDocument();
 	});
 
+	it('renders and categorically filters level, behaviour, and nullable specificity fields', () => {
+		render(IcdoResultsTable, { dataset: { edition: '4.0', axis: 'morphology' }, hits });
+		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O levels' })).toBeInTheDocument();
+		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O behaviours' })).toBeInTheDocument();
+		expect(screen.getByRole('group', { name: 'Filter loaded ICD-O specificities' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No behaviour (2)' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No specificity (3)' })).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('NOS')).toBeInTheDocument();
+	});
+
 	it('escapes every source-controlled ICD-O table field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
-		const source = hits[3];
-		if (source.level !== 'leaf') throw new Error('Expected the leaf fixture');
-		const hostile: IcdoRecord = { ...source, code: payload, preferred: payload };
+		const hostile = { ...hits[1], code: payload, preferred: payload, level: payload, behaviour: payload, specificity: payload } as unknown as IcdoRecord;
 		const { container } = render(IcdoResultsTable, { dataset: { edition: '4.0', axis: 'topography' }, hits: [hostile] });
-		expect(within(container).getAllByText(payload)).toHaveLength(2);
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(3);
 		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

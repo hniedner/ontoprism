@@ -2,15 +2,17 @@
 	import { untrack } from 'svelte';
 	import DataTableBody from './DataTableBody.svelte';
 	import DataTableHead from './DataTableHead.svelte';
-	import { filterRows, sortRows } from './data-table';
-	import type { DataTableColumn, DataTableReadyProps, DataTableSortDirection } from './types';
+	import { filterRows, pruneCategoricalFilters, sortRows } from './data-table';
+	import type { DataTableColumn, DataTableFilterState, DataTableReadyProps, DataTableSortDirection } from './types';
 
 	let { rows, columns, caption, regionLabel, getRowId, operations, initialSort, emptyMessage, stickyHeader }: DataTableReadyProps<Row> = $props();
 	const startingSort = untrack(() => initialSort);
 	let sortColumnId = $state<string | null>(startingSort?.columnId ?? null);
 	let sortDirection = $state<DataTableSortDirection>(startingSort?.direction ?? 'asc');
-	let filters = $state<Record<string, string>>({});
-	let hasActiveFilters = $derived(Object.values(filters).some((value) => value.trim()));
+	// Row changes permanently prune unavailable values without resetting selections that remain valid.
+	// eslint-disable-next-line svelte/prefer-writable-derived
+	let filters = $state<Record<string, DataTableFilterState>>({});
+	let hasActiveFilters = $derived(Object.values(filters).some((state) => state.kind === 'text' ? Boolean(state.query.trim()) : state.selected.length > 0));
 	let displayedRows = $derived.by(() => {
 		const filtered = operations.kind === 'client-page' ? filterRows(rows, columns, filters) : [...rows];
 		const sortedColumn = columns.find((column) => column.id === sortColumnId);
@@ -25,6 +27,10 @@
 			sortDirection = 'asc';
 		}
 	}
+
+	$effect(() => {
+		filters = pruneCategoricalFilters(filters, rows, columns);
+	});
 </script>
 
 {#if operations.kind === 'client-page'}
@@ -38,7 +44,7 @@
 <div class="overflow-x-auto" role="region" aria-label={regionLabel} tabindex="0">
 	<table class="table-auto min-w-full border-separate border-spacing-0 text-sm">
 		<caption class="sr-only">{caption}</caption>
-		<DataTableHead {columns} {operations} {filters} {sortColumnId} {sortDirection} {stickyHeader} onsort={toggleSort} onfilter={(columnId, value) => (filters = { ...filters, [columnId]: value })} />
+		<DataTableHead {rows} {columns} {operations} {filters} {sortColumnId} {sortDirection} {stickyHeader} onsort={toggleSort} onfilter={(columnId, value) => (filters = { ...filters, [columnId]: value })} />
 		<DataTableBody rows={displayedRows} sourceRowsPresent={rows.length > 0} {columns} {getRowId} {hasActiveFilters} {emptyMessage} />
 	</table>
 </div>

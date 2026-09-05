@@ -5,7 +5,7 @@
 	export interface TestRow {
 		id: string;
 		name: string | null;
-		group: string;
+		group: string | null;
 		rank: number | null;
 		active: boolean;
 	}
@@ -50,7 +50,7 @@
 				label: 'Name',
 				cell: nameCell,
 				sortValue: controls ? (row) => row.name : undefined,
-				filter: controls ? { value: (row) => row.name, ariaLabel: 'Filter loaded names' } : undefined,
+				filter: controls ? { kind: 'text', value: (row) => row.name, ariaLabel: 'Filter loaded names' } : undefined,
 				sticky: sticky
 					? { side: 'left', offset: invalidSticky ? -1 : 0 }
 					: undefined
@@ -61,7 +61,7 @@
 				cell: groupCell,
 				sortValue: controls ? (row) => row.group : undefined,
 				filter: controls
-					? { value: (row) => row.group, ariaLabel: invalidFilter ? ' ' : 'Filter loaded groups' }
+					? { kind: 'categorical', value: (row) => row.group, ariaLabel: invalidFilter ? ' ' : 'Filter loaded groups', emptyLabel: 'No group' }
 					: undefined
 			},
 			{
@@ -86,7 +86,7 @@
 	<span>{row.name ?? '—'}</span>
 {/snippet}
 {#snippet groupCell(row: TestRow)}
-	<strong>{row.group}</strong>
+	<strong>{row.group ?? '—'}</strong>
 {/snippet}
 {#snippet rankCell(row: TestRow)}
 	{row.rank ?? '—'}

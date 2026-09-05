@@ -118,6 +118,13 @@ describe('SearchResultsTable', () => {
 		expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
 	});
 
+	it('exposes semantic type and representation status as categorical controls', () => {
+		render(SearchResultsTable, { hits });
+		expect(screen.getByRole('group', { name: 'Filter loaded NCIt semantic types' })).toBeInTheDocument();
+		expect(screen.getByRole('group', { name: 'Filter loaded NCIt statuses' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No status (1)' })).toBeInTheDocument();
+	});
+
 	it('escapes every source-controlled NCIt field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
 		const { container } = render(SearchResultsTable, {

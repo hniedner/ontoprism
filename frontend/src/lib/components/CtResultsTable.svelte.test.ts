@@ -48,7 +48,7 @@ describe('CtResultsTable', () => {
 
 	it('shows the phase chip, or a dash when the study has no phase', () => {
 		render(CtResultsTable, { studies });
-		expect(screen.getByText('Phase 2')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('Phase 2')).toBeInTheDocument();
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
@@ -62,6 +62,14 @@ describe('CtResultsTable', () => {
 			target: { value: 'skin cancer' }
 		});
 		expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
+	});
+
+	it('uses categorical status and phase controls including null values', () => {
+		render(CtResultsTable, { studies });
+		expect(screen.getByRole('group', { name: 'Filter loaded trial statuses' })).toBeInTheDocument();
+		expect(screen.getByRole('group', { name: 'Filter loaded trial phases' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No status (1)' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'No phase (1)' })).toBeInTheDocument();
 	});
 
 	it('escapes every source-controlled clinical-trial summary field', () => {

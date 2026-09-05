@@ -43,10 +43,26 @@ frontend/src/routes/repositories frontend/src/lib/components/RepoBrowsePage.svel
 
 Sorting is stable and scalar-typed. Strings compare case-insensitively with a fixed
 `en-US` normalization, numbers and booleans compare by value, mixed non-null scalar types
-are refused, and null remains last in both directions (`pdm run agent-test --frontend
-frontend/src/lib/components/data-table/DataTable.svelte.test.ts`). Filters trim both query
-and projected values, compare case-insensitively, and combine by AND. Source-empty and
-filter-empty messages remain distinct.
+are refused, and null remains last in both directions. Filters are an explicit `text |
+categorical` discriminated union; categorical behavior is never inferred from values.
+Text filters trim both query and projected values and compare case-insensitively.
+Categorical options come only from the currently loaded rows, use the same stable string
+ordering, include counts, and OR selected values within a column while all columns remain
+AND-combined. Null is a dedicated labelled option, while an empty string is a normal,
+separately labelled value distinct from null, the literal `null`, and the displayed dash.
+More than 25 distinct non-null values fails with a sanitized table validation error rather
+than truncating or changing filter type. Row updates rebuild the option inventory and prune
+only unavailable selections; losing every selected value clears that categorical filter
+(`pdm run agent-test --frontend frontend/src/lib/components/data-table/DataTable.svelte.test.ts`).
+Source-empty and filter-empty messages remain distinct.
+
+The selected adapters use categorical controls only for bounded semantic fields: NCIt
+semantic type and representation status; caDSR datatype (context stays text because it can
+be high-cardinality); ClinicalTrials.gov status and phase; ICD-O level, behaviour, and
+specificity across every dataset variant; and Uberon/CL source. PubMed has no categorical
+column because its journal and other metadata are free text. All are page-local over the
+existing at-most-25 loaded rows and do not take repository query or pagination ownership
+(`rg -n "kind: 'categorical'|scopeLabel" frontend/src/lib/components/{SearchResultsTable,CdeResultsTable,CtResultsTable,IcdoResultsTable,UberonResultsTable,PubMedResultsTable}.svelte`).
 
 Rows and columns are validated before body rows render. Blank captions/region labels,
 empty or duplicate column IDs, empty or duplicate row IDs, invalid initial sort/filter

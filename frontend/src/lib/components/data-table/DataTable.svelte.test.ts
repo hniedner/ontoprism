@@ -65,17 +65,85 @@ describe('DataTable', () => {
 		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded names' }), {
 			target: { value: ' ALP ' }
 		});
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded groups' }), {
-			target: { value: ' one ' }
-		});
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'One (2)' }));
 		expect(bodyNames()).toEqual(['alpha', 'Alpha']);
-		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded groups' }), {
-			target: { value: 'two' }
-		});
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'One (2)' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Two (2)' }));
 		expect(screen.getByText('No loaded rows match the page-local filters.')).toBeInTheDocument();
 		expect(screen.queryByText('No source records.')).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear page-local filters' }));
 		expect(bodyNames()).toEqual(['Beta', 'alpha', 'Alpha', '—']);
+	});
+
+	it('OR-combines categorical values and AND-combines them with text filters', async () => {
+		render(DataTableTestHost, { rows });
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'One (2)' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Two (2)' }));
+		expect(bodyNames()).toEqual(['Beta', 'alpha', 'Alpha', '—']);
+		await fireEvent.input(screen.getByRole('searchbox', { name: 'Filter loaded names' }), {
+			target: { value: 'alpha' }
+		});
+		expect(bodyNames()).toEqual(['alpha', 'Alpha']);
+	});
+
+	it('renders sorted categorical options with counts and distinct null and empty-string choices', () => {
+		render(DataTableTestHost, {
+			rows: [
+				{ ...rows[0], id: 'z', group: 'beta' },
+				{ ...rows[1], id: 'a', group: 'Alpha' },
+				{ ...rows[2], id: 'a2', group: 'Alpha' },
+				{ ...rows[3], id: 'empty', group: '' },
+				{ ...rows[3], id: 'null', group: null },
+				{ ...rows[3], id: 'literal-null', group: 'null' },
+				{ ...rows[3], id: 'dash', group: '—' }
+			]
+		});
+		const group = screen.getByRole('group', { name: 'Filter loaded groups' });
+		expect(within(group).getAllByRole('checkbox').map((option) => option.getAttribute('aria-label'))).toEqual([
+			'Empty string (1)', 'Alpha (2)', 'beta (1)', 'null (1)', '— (1)', 'No group (1)'
+		]);
+	});
+
+	it('accepts 25 distinct categorical values and rejects 26 without exposing source values', async () => {
+		const makeRows = (count: number): TestRow[] => Array.from({ length: count }, (_, index) => ({
+			id: String(index), name: `Name ${index}`, group: `SECRET-${String(index).padStart(2, '0')}`,
+			rank: index, active: true
+		}));
+		const { rerender } = render(DataTableTestHost, { rows: makeRows(25) });
+		expect(screen.getAllByRole('checkbox')).toHaveLength(25);
+		await rerender({ rows: makeRows(26) });
+		expect(screen.getByRole('alert')).toHaveTextContent('DataTable categorical filter has more than 25 distinct values');
+		expect(screen.getByRole('alert')).not.toHaveTextContent('SECRET');
+		expect(document.querySelector('tbody')).not.toBeInTheDocument();
+	});
+
+	it('prunes disappearing selections on row updates and clears the filter when none remain', async () => {
+		const { rerender } = render(DataTableTestHost, { rows });
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'One (2)' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Two (2)' }));
+		await rerender({ rows: rows.filter((row) => row.group === 'One') });
+		expect(screen.getByRole('checkbox', { name: 'One (2)' })).toBeChecked();
+		expect(screen.queryByRole('checkbox', { name: /Two/ })).not.toBeInTheDocument();
+		await rerender({ rows: [{ ...rows[0], group: 'Three' }] });
+		expect(screen.getByRole('checkbox', { name: 'Three (1)' })).not.toBeChecked();
+		expect(screen.queryByRole('button', { name: 'Clear page-local filters' })).not.toBeInTheDocument();
+		expect(bodyNames()).toEqual(['Beta']);
+	});
+
+	it('uses a labelled native checkbox group and clears individual selections or all filters', async () => {
+		render(DataTableTestHost, { rows });
+		const group = screen.getByRole('group', { name: 'Filter loaded groups' });
+		const one = within(group).getByRole('checkbox', { name: 'One (2)' });
+		const two = within(group).getByRole('checkbox', { name: 'Two (2)' });
+		await fireEvent.click(one);
+		await fireEvent.click(two);
+		expect(one).toBeChecked();
+		expect(two).toBeChecked();
+		await fireEvent.click(one);
+		expect(one).not.toBeChecked();
+		expect(bodyNames()).toEqual(['Beta', '—']);
+		await fireEvent.click(screen.getByRole('button', { name: 'Clear page-local filters' }));
+		expect(two).not.toBeChecked();
 	});
 
 	it('shows source-empty after rows disappear while a filter remains active', async () => {

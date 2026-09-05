@@ -29,6 +29,7 @@ describe('DataTable XSS surfaces', () => {
 			operations: { kind: 'client-page', scopeLabel: payload }
 		});
 		expect(screen.getAllByText(payload).length).toBeGreaterThanOrEqual(3);
+		expect(screen.getByRole('checkbox', { name: `${payload} (1)` })).toBeInTheDocument();
 		expectNoInjectedMarkup(container);
 	});
 
