@@ -25,9 +25,6 @@ function validateColumn<Row>(column: DataTableColumn<Row>): void {
 	assertText(`column "${column.id}" label`, column.label);
 	if (column.filter !== undefined) {
 		assertText(`column "${column.id}" filter aria label`, column.filter.ariaLabel);
-		if (column.filter.placeholder !== undefined) {
-			assertText(`column "${column.id}" filter placeholder`, column.filter.placeholder);
-		}
 	}
 	if (
 		column.sticky !== undefined &&

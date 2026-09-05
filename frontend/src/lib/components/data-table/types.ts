@@ -11,7 +11,6 @@ export interface DataTableStickyColumn {
 export interface DataTableFilter<Row> {
 	value: (row: Row) => DataTableScalar;
 	ariaLabel: string;
-	placeholder?: string;
 }
 
 export interface DataTableColumn<Row> {
