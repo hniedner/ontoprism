@@ -12,12 +12,40 @@
   <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen" alt="Coverage ≥90%">
 </p>
 
-**Pre-coordination Refactoring Into Semantic Modules.** An ontology exploration and
-decomposition platform for the cancer-research domain over NCIt and caDSR.
+**Pre-coordination Refactoring Into Semantic Modules.** The current product is an
+NCIt-centered ontology exploration and decomposition platform for cancer research, with
+certified local repository views and caDSR integration.
 
 ONTOPRISM refracts NCIt's **pre-coordinated** concepts into their **atomic** constituents so
 complex meaning can be *composed* — expressed purely as combinations of simple concepts —
 rather than baked into the terminology as thousands of named combinations.
+
+## Product identity: current product and target architecture
+
+**Current implementation.** OntoPrism serves certified local NCIt, caDSR, Uberon/CL, and
+entitlement-gated ICD-O repository views, remote ClinicalTrials.gov and PubMed navigation,
+and NCIt curation/decomposition surfaces. The implementation is NCIt-centered; there is no
+generic ontology-adapter system, generic editing/reasoning platform, generic AI authoring, or
+release-forward reconciliation system today.
+
+**Target architecture.** OntoPrism is intended to become an ontology-generic engineering and
+management framework built from a platform core, capability-declaring ontology adapters, and
+domain policy. NCIt remains the first and primary product rather than an architectural limit.
+The target includes view/navigation, visualization, editing/authoring, reasoning, validation,
+release/version/provenance/alignment management, and evidence-bound AI assistance. The following
+correction behavior is target-only: its effective correction contract keeps every suppressed
+canonical axiom retrievable in the immutable official source and shows that axiom as an explicit,
+nonempty `removed-from-effective` delta while composing a separately identified effective view.
+The effective enhanced view intentionally need not contain every official assertion. These are
+target capabilities, not a description of shipped generic functionality. See the
+[ontology-platform design](docs/design/ontology-platform.md) and D86.
+
+For enhanced NCIt, the current guarantee is narrow: graph/storage separation protects the
+official stated NCIt plane from overlay mutation. The target enhanced-release contract composes
+one identified official release source plane with separately identified/versioned OntoPrism
+overlays and makes the official source view independently selectable and recoverable. That target
+does not establish current certified recoverability, logical/query equivalence, D43 reversibility,
+or arbitrary drop-in compatibility.
 
 ## Terminology
 
@@ -140,7 +168,9 @@ approach:
 Refactor NCIt's pre-coordinated concepts into their **atomic constituents** so that
 complex meaning can be *composed* on demand — expressed purely as combinations of
 simple concepts using formally defined roles — while keeping the original
-pre-coordinated concepts intact for backward compatibility.
+pre-coordinated concepts intact as release-bound source anchors. This source-containment
+property is not a claim of conservative extension, logical or query equivalence, identical
+reasoner/search behavior, or full backward compatibility.
 
 ## The Vision — the long arc
 
@@ -180,15 +210,17 @@ vs. region, `R105` cell-of-origin vs. lineage). Composition over a conflated rol
 produces confident nonsense, so the roles are split into univocal `op:` axes *before*
 coverage is chased (D15/D17/D22: relation quality gates coverage).
 
-**3 · Ground in the upstream substrate.** NCIt becomes the oncology-specific
-**specialization layer** over vetted ontologies — Uberon and Cell Ontology for anatomy
-and cell type, Mondo for disease genus — extended where oncology needs granularity the
-substrate lacks.
+**3 · Align and corroborate.** OntoPrism-governed enhanced NCIt is derived from and aligned
+to identified terminology releases—Uberon and Cell Ontology for anatomy and cell type,
+and Mondo for disease genus—while retaining NCIt ownership and adding oncology-specific
+granularity where evidence supports it.
 
 > **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
 > ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure
-> genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
-> NCIt and caDSR anchoring are both preserved. And the discriminator is **dependency,
+> genuinely differs. Under D60, everything OntoPrism emits is OntoPrism-governed enhanced NCIt
+> content; identified terminology sources provide provenance, alignment, and corroboration rather
+> than a second canonical ownership plane. Official NCIt and caDSR source anchors remain
+> release-bound and preserved. The discriminator is **dependency,
 > not licence** (D38.2b, D60): *align, do not depend; learn, do not copy; corroborate,
 > do not inherit.* **No external source — open or licence-gated — may be a definitional
 > dependency.** An NCIt that cannot resolve without Uberon is a dependent ontology
@@ -329,7 +361,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 | NCIt + caDSR explorer | **Working** — search, browse, concept detail, graph explorer, CDE cross-links | |
 | Decomposition engine | **Working** — detector, extractor, writer, CLI (`pdm run decompose`); SME golden-set curation loop landed (#44) | [design docs](docs/design/) |
 | Extractor curation | **Pending final attestation** — the 20-concept source-bound/augmented review packet and reporting are ready, but are not yet the scorer oracle | [#57](https://github.com/hniedner/ontoprism/issues/57) · follow-ups [#261](https://github.com/hniedner/ontoprism/issues/261), [#262](https://github.com/hniedner/ontoprism/issues/262), [#263](https://github.com/hniedner/ontoprism/issues/263) |
-| External integration (dual-canonical) | **Phase-A foundation landed** — xref store, caDSR anchors, Uberon/CL candidates, ELK/ROBOT validation (#76 golden mapping set still open); Phase B–E pending | [#70](https://github.com/hniedner/ontoprism/issues/70) |
+| Terminology alignment | **Phase-A foundation landed** — xref store, caDSR anchors, Uberon/CL candidates, ELK/ROBOT validation (#76 golden mapping set still open); later phases pending | [#70](https://github.com/hniedner/ontoprism/issues/70) |
 | Graph balancing | **Not started** — depends on trustworthy decomposition output | [#5](https://github.com/hniedner/ontoprism/issues/5) |
 | Post-coordination grammar | **Not started** — depends on graph balancing | [#6](https://github.com/hniedner/ontoprism/issues/6) |
 
@@ -373,7 +405,7 @@ review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integra
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D60)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D86)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

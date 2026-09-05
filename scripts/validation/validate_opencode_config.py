@@ -4,13 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import ast
+import fnmatch
 import json
 import os
 import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -210,7 +212,23 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
+# These global guards are exempt from command-family overlap analysis and are instead
+# required to follow every allow so OpenCode's last-match semantics cannot bypass them.
+CROSS_COMMAND_DENIES = (
+    "* /U?ers/*",
+    "* /var/*",
+    "* /tmp/*",
+    "* --rootdir *",
+    "* --override-ini *",
+    "* -c *",
+    "* -p *",
+    "* --config *",
+)
+# This broad deny intentionally precedes narrower, canonical agent-git allows. It is
+# exempt from family analysis but is not a global tail guard.
+ORDERED_AGENT_GIT_DENY = "*agent-git*"
 ASK_ACTION = "a" + "sk"
+type PermissionAction = Literal["allow", "deny", "ask"]
 WRITER_HARD_DENIES = (
     "pdm install*",
     "pip install*",
@@ -266,10 +284,14 @@ class Validation:
         try:
             is_file = path.is_file()
         except OSError:
-            self.error("FILES", f"cannot inspect {relative}")
+            error = f"FILES: cannot inspect {relative}"
+            if error not in self.errors:
+                self.errors.append(error)
             return None
         if not is_file:
-            self.error("FILES", f"required file missing: {relative}")
+            error = f"FILES: required file missing: {relative}"
+            if error not in self.errors:
+                self.errors.append(error)
             return None
         return path
 
@@ -404,6 +426,30 @@ def permission_action(metadata: dict[str, Any], name: str) -> Any:
     return permission.get(name) if isinstance(permission, dict) else None
 
 
+def validate_permission_actions(
+    validation: Validation, role: str, metadata: dict[str, Any]
+) -> None:
+    """Reject permission values outside OpenCode's closed action vocabulary."""
+    permission = metadata.get("permission")
+    if not isinstance(permission, dict):
+        return
+    allowed: frozenset[PermissionAction] = frozenset({"allow", "deny", ASK_ACTION})
+    for tool, rule in permission.items():
+        if isinstance(rule, dict):
+            entries = (
+                (f"{tool}/{pattern}", action) for pattern, action in rule.items()
+            )
+        else:
+            entries = ((str(tool), rule),)
+        for label, action in entries:
+            if action not in allowed:
+                validation.error(
+                    "ROLE_PERMISSION",
+                    f"{role} permission action for {label} must be allow, deny, "
+                    f"or {ASK_ACTION}",
+                )
+
+
 def approved_bash_allows(role: str) -> tuple[str, ...]:
     """Return the exact ordered Bash allow surface for one project role."""
     if role == "implementer":
@@ -467,38 +513,134 @@ def require_bash_rules(
             validation.error(
                 "ROLE_PERMISSION", f"{role} bash rule {pattern} must be {action}"
             )
-    validate_deny_order(validation, "ROLE_PERMISSION", role, bash, required)
+    validate_permission_shadow_order(validation, "ROLE_PERMISSION", role, bash)
 
 
-def validate_deny_order(
+def _command_family(pattern: str) -> str | None:
+    """Return a literal command family or ``None`` for explicit global guards.
+
+    The catch-all, shell-metacharacter, line-break, ``CROSS_COMMAND_DENIES``, and
+    ``ORDERED_AGENT_GIT_DENY`` patterns are intentionally exempt. Cross-command
+    denies are separately required after all allows; the agent-git deny may precede
+    its narrower canonical allows. Other leading globs are rejected.
+    """
+    if pattern == "*" or pattern in {
+        *SHELL_METACHARACTER_DENIES,
+        *LINE_BREAK_DENIES,
+        *CROSS_COMMAND_DENIES,
+        ORDERED_AGENT_GIT_DENY,
+    }:
+        return None
+    if pattern.startswith("*"):
+        raise ValueError(pattern)
+    family = pattern.split(maxsplit=1)[0] if pattern.split() else ""
+    match = re.fullmatch(r"([A-Za-z0-9_.+/:-]+)\**", family)
+    if match is None:
+        raise ValueError(pattern)
+    return match.group(1)
+
+
+def _pattern_covers(broad: str, narrow: str) -> bool:
+    return fnmatch.fnmatchcase(narrow, broad)
+
+
+def _unsafe_shadow_order(
+    rules: list[tuple[str, Any]],
+    families: dict[str, str | None],
+    deny_index: int,
+    deny_pattern: str,
+    family: str,
+) -> bool:
+    for allow_index, (allow_pattern, allow_action) in enumerate(rules):
+        allow_family = families[allow_pattern]
+        if allow_action != "allow" or allow_family != family:
+            continue
+        deny_covers_allow = _pattern_covers(deny_pattern, allow_pattern)
+        allow_covers_deny = _pattern_covers(allow_pattern, deny_pattern)
+        if not deny_covers_allow and not allow_covers_deny:
+            deny_tokens = deny_pattern.split()
+            allow_tokens = allow_pattern.split()
+            demonstrably_disjoint = (
+                not set("*?") & set(deny_pattern)
+                or not set("*?") & set(allow_pattern)
+                or (
+                    len(deny_tokens) > 1
+                    and len(allow_tokens) > 1
+                    and not set("*?") & set(deny_tokens[1])
+                    and not set("*?") & set(allow_tokens[1])
+                    and deny_tokens[1] != allow_tokens[1]
+                )
+            )
+            if demonstrably_disjoint:
+                continue
+            if deny_index < allow_index:
+                return True
+            continue
+        if deny_covers_allow and not allow_covers_deny:
+            if deny_index > allow_index:
+                return True
+        elif deny_index < allow_index:
+            return True
+    return False
+
+
+def _validate_cross_command_deny_order(
+    validation: Validation,
+    code: str,
+    role: str,
+    rules: list[tuple[str, Any]],
+) -> None:
+    last_allow = max(
+        (index for index, (_pattern, action) in enumerate(rules) if action == "allow"),
+        default=-1,
+    )
+    for index, (pattern, action) in enumerate(rules):
+        if action == "deny" and pattern in CROSS_COMMAND_DENIES and index < last_allow:
+            validation.error(
+                code,
+                f"{role} cross-command deny {pattern} must follow every bash allow",
+            )
+
+
+def validate_permission_shadow_order(
     validation: Validation,
     code: str,
     role: str,
     bash: dict[str, Any],
-    required: dict[str, str] | tuple[str, ...],
 ) -> None:
+    """Require catch-all first and safe deny order under last-match rules."""
     rules = list(bash.items())
-    for deny_pattern in required:
-        if bash.get(deny_pattern) != "deny":
+    for index, (pattern, _action) in enumerate(rules):
+        if pattern == "*" and index > 0:
+            validation.error(
+                code, f"{role} bash catch-all must be the first command rule"
+            )
+            return
+    reported: set[str] = set()
+    families: dict[str, str | None] = {}
+    for pattern, _ in rules:
+        try:
+            families[pattern] = _command_family(pattern)
+        except ValueError:
+            validation.error(
+                code, f"{role} bash command pattern is unclassifiable: {pattern}"
+            )
+            families[pattern] = None
+    _validate_cross_command_deny_order(validation, code, role, rules)
+    for deny_index, (deny_pattern, action) in enumerate(rules):
+        if action != "deny":
             continue
-        command = deny_pattern.split(maxsplit=1)[0]
-        if command not in {"git", "gh"}:
+        family = families[deny_pattern]
+        if family is None:
             continue
-        deny_index = next(
-            index for index, (pattern, _) in enumerate(rules) if pattern == deny_pattern
-        )
-        allow_indices = [
-            index
-            for index, (pattern, action) in enumerate(rules)
-            if action == "allow"
-            and (pattern == "*" or pattern.split(maxsplit=1)[0] == command)
-        ]
-        if allow_indices and deny_index < max(allow_indices):
-            label = "Git" if command == "git" else "GH"
+        if family in reported:
+            continue
+        if _unsafe_shadow_order(rules, families, deny_index, deny_pattern, family):
             validation.error(
                 code,
-                f"{role} deny {deny_pattern} must follow all {label} allow rules",
+                f"{role} {family} deny/allow overlap has unsafe last-match order",
             )
+            reported.add(family)
 
 
 def validate_root(validation: Validation) -> dict[str, Any]:
@@ -536,15 +678,9 @@ def validate_removed_plugin_files(validation: Validation) -> None:
 
 
 def validate_github_wrappers(validation: Validation) -> None:
-    wrapper = validation.require_file("scripts/validation/run_agent_github.py")
-    if wrapper is None:
-        validation.error(
-            "GITHUB_WRAPPER",
-            "required file missing: scripts/validation/run_agent_github.py",
-        )
+    validation.require_file("scripts/validation/run_agent_github.py")
     pyproject = validation.require_file("pyproject.toml")
     if pyproject is None:
-        validation.error("GITHUB_WRAPPER", "required file missing: pyproject.toml")
         return
     try:
         parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
@@ -561,6 +697,56 @@ def validate_github_wrappers(validation: Validation) -> None:
     for name, command in expected.items():
         if not isinstance(scripts, dict) or scripts.get(name) != command:
             validation.error("GITHUB_WRAPPER", f"{name} script is not exact")
+
+
+def validate_agent_test_wrapper(validation: Validation) -> None:
+    wrapper = validation.require_file("scripts/validation/run_agent_test.py")
+    if wrapper is None:
+        return
+    wrapper_source = safe_read_text(wrapper, validation, "FRONTEND_TEST_WRAPPER")
+    if wrapper_source is None:
+        return
+    try:
+        wrapper_tree = ast.parse(wrapper_source, filename=str(wrapper))
+    except SyntaxError:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "agent-test wrapper is not valid Python"
+        )
+        return
+    shell_keywords = [
+        keyword.value
+        for call in ast.walk(wrapper_tree)
+        if isinstance(call, ast.Call)
+        for keyword in call.keywords
+        if keyword.arg == "shell"
+    ]
+    literal_shell_values = [
+        value.value for value in shell_keywords if isinstance(value, ast.Constant)
+    ]
+    if False not in literal_shell_values or True in literal_shell_values:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER",
+            "agent-test wrapper must execute with shell=False",
+        )
+    pyproject = validation.require_file("pyproject.toml")
+    if pyproject is None:
+        return
+    try:
+        parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        scripts = parsed["tool"]["pdm"]["scripts"]
+    except OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError:
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "cannot read PDM script configuration"
+        )
+        return
+    if (
+        not isinstance(scripts, dict)
+        or scripts.get("agent-test") != ("python scripts/validation/run_agent_test.py")
+        or "agent-frontend-test" in scripts
+    ):
+        validation.error(
+            "FRONTEND_TEST_WRAPPER", "agent-test script surface is not exact"
+        )
 
 
 def validate_tool_permissions(
@@ -679,6 +865,7 @@ def validate_role(
         validation.error(
             "DEFAULT_AGENT", "ontoprism-team must be a visible primary agent"
         )
+    validate_permission_actions(validation, role, metadata)
     for permission, action in (("edit", edit),):
         if permission_action(metadata, permission) != action:
             validation.error(
@@ -992,6 +1179,9 @@ def validate_r3_contract(
             "git status --porcelain",
             "git rev-parse HEAD",
             "never fix",
+            "changed deterministic frontend tests",
+            "pdm run agent-test --frontend <tracked-test-file>",
+            "no raw npm/npx arguments",
         ),
     )
     bash = permission_action(r3_metadata, "bash")
@@ -1003,6 +1193,8 @@ def validate_r3_contract(
     if bash.get("*") != "deny":
         validation.error("R3_PERMISSION", "R3 bash catch-all must be deny")
     required_denies = (
+        "npm *",
+        "npx *",
         "git add",
         "git add *",
         "git commit",
@@ -1031,12 +1223,11 @@ def validate_r3_contract(
     for pattern in required_denies:
         if bash.get(pattern) != "deny":
             validation.error("R3_PERMISSION", f"R3 must deny {pattern}")
-    validate_deny_order(
+    validate_permission_shadow_order(
         validation,
         "R3_PERMISSION",
         "pr-test-analyzer",
         bash,
-        required_denies,
     )
     for pattern in (
         "git status --porcelain",
@@ -1350,6 +1541,7 @@ def validate(root: Path) -> list[str]:
     root_config = validate_root(validation)
     validate_removed_plugin_files(validation)
     validate_github_wrappers(validation)
+    validate_agent_test_wrapper(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )

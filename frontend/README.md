@@ -1,42 +1,37 @@
-# sv
+# OntoPrism frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit 5 user interface for OntoPrism's current NCIt-centered ontology exploration
+product. It renders certified local NCIt, caDSR, Uberon/CL, and entitlement-gated ICD-O
+repository views and links to supported remote clinical-trial and literature services through
+the FastAPI/BFF boundary.
 
-## Creating a project
+The ontology-generic platform is a target architecture, not a shipped frontend capability.
+This application does not currently claim generic adapters, ontology editing/reasoning, generic
+AI authoring, or release-forward reconciliation.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Development
 
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv@0.16.1 create --template minimal --types ts --add eslint vitest="usages:unit" --no-download-check --install npm frontend
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Run these commands from the repository root:
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+npm ci --prefix frontend
+pdm run start-frontend
 ```
 
-## Building
+The supported development command starts the frontend on port `5175`; the same-origin `/api` BFF reads the private
+`ONTOPRISM_FASTAPI_ORIGIN`. Set environment values in the repository root `.env` as described
+in [`../docs/DATA_SETUP.md`](../docs/DATA_SETUP.md).
 
-To create a production version of your app:
+## Quality and build
+
+`pdm run verify` from the repository root is authoritative. The npm commands below are useful for
+frontend debugging and are not the complete quality gate:
 
 ```sh
-npm run build
+npm --prefix frontend run test:unit -- --run
+npm --prefix frontend run test:coverage
+npm --prefix frontend run lint
+npm --prefix frontend run check
+npm --prefix frontend run fallow
+npm --prefix frontend run build
 ```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.

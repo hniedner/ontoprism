@@ -11,6 +11,12 @@ The [shared terminology](../../README.md#terminology) provides a plain-language 
 Because this document specifies ontology alignment, the remainder retains exact terms such as
 axis, filler, genus, semantic type, partonomy, and curated projection.
 
+> **D86 scope.** This is the NCIt product's alignment strategy, not a generic ontology-adapter
+> specification and not a claim that OntoPrism is NCI Metathesaurus. The target mapping/link-out
+> capability is defined in [ontology-platform.md](./ontology-platform.md); independently identified
+> terminology releases supply typed evidence and alignments without becoming emitted NCIt or an
+> undisclosed runtime dependency.
+
 > **Origin.** This document responds to review feedback (a local input memo) recommending
 > that a next-generation NCIt be built on the OBO Foundry stack (**Uberon** anatomy, **Cell
 > Ontology** cells) plus **SNOMED CT / ICD-O-3** morphology and **Mondo / DO** disease, linked by
@@ -226,7 +232,7 @@ while the named terminology records are derivation evidence and alignments.
                           ┌───────────────┴──────────────────────────────┐
    REFERENCE PLANE        │  NCIt stated OWL (Cxxxxx) — NEVER MUTATED       │
    (canonical-of-record,  │  ← caDSR CDEs anchor here, unchanged           │
-   backward-compatible)   └────────────────────────────────────────────────┘
+   source-anchor-retained)└────────────────────────────────────────────────┘
 ```
 
 **Reading the stack bottom-up.** The NCIt stated OWL is the immutable base; the decomposition engine
@@ -283,7 +289,7 @@ emits is provisional NCIt content; other terminologies provide derivation eviden
 
 | Situation | Canonical plane | Why |
 |---|---|---|
-| Any concept/CDE that exists today | **NCIt** | Backward compatibility; caDSR anchoring; concept permanence [Cimino desiderata]. |
+| Any concept/CDE that exists today | **NCIt** | Historical requirement: source-code retention, caDSR anchoring, and concept permanence [Cimino desiderata], not blanket enhanced-product compatibility. |
 | New post-coordinated authoring | **Upstream (historical)** | Superseded by D60. |
 | Cross-terminology query / data exchange | **Upstream (historical)** | Superseded by D60. |
 | Future round-trip / reversibility proof | **NCIt** (via #153's complete `owl:equivalentClass` unfolding) | The current curated projection is not proof-bearing (D43). |
@@ -622,7 +628,9 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 ### 8.2 Named graphs and indexes (QLever)
 
 Each source publishes an immutable named graph under
-`Thesaurus-upstream-xref.owl/generation/{source}/{generation_id}`. A separate
+`Thesaurus-upstream-xref.owl/generation/{component}/{generation_id}`, where `component` is
+`source.casefold()` with each run outside ASCII `[a-z0-9]` replaced by `-` and leading/trailing `-`
+removed. A separate
 source-specific pointer graph identifies the active generation. Publication reconciles
 the PostgreSQL and RDF pointers under one source lock; reads never combine inactive
 graphs. Terminology repositories used for corroboration retain their separate indexes.

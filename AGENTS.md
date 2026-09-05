@@ -118,6 +118,21 @@ exactly matches, and was derived from, something in Uberon, Cell Ontology, SNOME
 All of it is provisional until NCI adopts it: `proposed → locally-approved → submitted →
 accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
 
+**D86 qualification:** NCIt is the current primary product, not OntoPrism's architectural
+limit. The target is an ontology-generic core plus capability-declaring ontology adapters and
+domain policy; those generic facilities are not currently implemented. NCI adoption is optional
+for local usefulness/publication, while official/NCI-authored/accepted claims require evidence
+from an identified certified official NCIt release. Everything emitted is OntoPrism-governed
+enhanced NCIt content; release-bound official identifiers are source anchors and crosswalk
+endpoints, not necessarily enhanced primary identifiers. A target effective correction preserves
+the official source plane and composes a separately identified effective view: every suppressed
+canonical axiom remains retrievable in the official source and is shown in a nonempty
+`removed-from-effective` delta, never deleted or returned as absent. The effective enhanced view
+intentionally need not contain that assertion. D86 qualifies
+rather than supersedes D60; #304 owns exact lifecycle-vocabulary convergence, #262 owns exact
+impact types, and #316 currently owns proposal transfer rather than correction-aware
+reconciliation.
+
 Derivation is recorded as provenance and alignment, never as ownership — the pattern
 `AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
 what it aligns to. Provenance exists so Metathesaurus integration and cross-terminology mapping
@@ -198,7 +213,14 @@ pdm run test-smoke           # frontend vitest via npm
   `pdm run agent-test --safe-integration <path>::<test> -v`.
   Run a focused read-only `full_store` contract with
   `pdm run agent-test --full-store <node> -v`; the full aggregate remains `pdm run test-integration-full-store`.
-- Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
+- **Agent frontend single/focused test:** use only `pdm run agent-test --frontend
+  <tracked-test-file> [<tracked-test-file> ...]`; it accepts exact tracked Vitest files under
+  `frontend/src` and no Vitest configuration, setup, reporter, update, or output-path flags. An
+  optional final `-t <bounded-test-name>` filter is supported for implementer use with exactly one
+  test path; R3 uses exact
+  path-only commands. Human developers
+  working outside an agent permission boundary may use `cd frontend && npx vitest run <path>` (or
+  `-t <name>`) as a debugging command.
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
   `integration` (real services), `mutating_integration` (nonce-owned disposable
   resources), `full_store` (read-only configured corpora), `full_build` (pinned

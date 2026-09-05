@@ -7,6 +7,148 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
+
+### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
+
+**Current observation:** the repository contains implemented NCIt local-store readers,
+backend endpoints, frontend routes, curation support, and decomposition surfaces; it does not
+contain a generic ontology-adapter type or system (`git ls-files
+ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
+frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontolib/src
+backend/src frontend/src`, which returned no matches, 2026-09-04). Current decomposition
+extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition`, 2026-09-04; expected output includes stated-graph query clauses
+in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
+`fanout_baseline.py`, `enhanced_showcase.py` (import plus source-release `SELECT`), and
+diagnostic/review modules). The narrower additive-projection reader is confined to the decomposed graph (`git grep
+-n STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py` and `git grep -n
+DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, 2026-09-04; expected
+output is no result from the first command and the decomposed-graph query from the second).
+
+Official-source protection is write isolation, not a prohibition on reading the source. The
+current overlay publishers and writers use decomposed, enhanced-showcase, upstream-xref, and their
+scoped staging/generation graphs; the stated constant's only result among the inspected overlay
+write modules is its import and valid source-release `SELECT` in `enhanced_showcase.py` (`git grep -n
+STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py
+ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/decomposition/vocab.py
+ontolib/src/ontolib/repositories/xref/vocab.py
+ontolib/src/ontolib/terminologies/ncit/owl_load.py`, 2026-09-04; expected output is the constant
+definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/publication.py
+ontolib/src/ontolib/decomposition/enhanced_showcase.py
+ontolib/src/ontolib/decomposition/legacy_writer.py ontolib/src/ontolib/decomposition/vocab.py`,
+`git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/enhanced_showcase.py`, and `git grep -n
+NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/publication.py
+ontolib/src/ontolib/repositories/xref/ttl_writer.py
+ontolib/src/ontolib/repositories/xref/vocab.py` (2026-09-04) are expected to show those isolated
+target namespaces and their staging/generation derivations. This current isolation does not establish
+that every enhanced release already has an independently selectable, certified recoverable source
+view.
+
+The current OntoPrism-authored decomposition, upstream-xref, and enhanced-showcase graphs all use
+NCI-domain graph IRIs (`git grep -n DECOMPOSED_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2 NCIT_UPSTREAM_XREF_GRAPH_IRI --
+ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/decomposition/enhanced_showcase.py`, 2026-09-04; expected output gives the two
+literal graph IRIs and shows the showcase IRI derived beneath the decomposed IRI). These collectively
+are namespace debt, not official NCI identifiers. Future enhanced exports require an
+OntoPrism-governed enhanced namespace and an implementation issue that migrates all such authored
+graph identities.
+
+**Decision:** OntoPrism's target architecture is an ontology-generic platform core, capability-
+declaring ontology adapters, and domain policy. The target core covers view and navigation,
+visualization, editing and authoring, reasoning, validation, and release/version/provenance/alignment
+management. An adapter supplies only the capabilities and ontology-specific contracts it declares;
+domain policy governs what may be proposed, validated, approved, and published. NCIt is the first
+and primary product, not an architectural limit. These are normative target boundaries, not claims
+that generic adapters, generic editing or reasoning, generic AI authoring, or generic release
+reconciliation are implemented.
+
+An enhanced NCIt release is targeted as the composition of one identified official release source
+plane and separately identified/versioned OntoPrism overlays or derived views. Compatibility means
+**source containment** only as immutable official-source preservation, use of source identifiers as
+**release-bound anchors**, target **source-view recoverability**, and an explicit **provenance and
+view distinction**. An effective enhanced view intentionally need not contain official assertions.
+It does not mean
+conservative extension, logical equivalence, query equivalence, identical hierarchy/search/reasoner
+behavior, arbitrary drop-in substitution, D43 reversibility, or official endorsement. Byte recovery
+requires retention of the original artifact and digest; no current certified byte-recovery guarantee
+is created by this decision. Do not use “fully backward compatible” without immediately narrowing it
+to a separately evidenced guarantee.
+
+The target effective correction contract treats an official source as authoritative evidence of
+what NCI published, not as presumed scientific or logical infallibility. Evidence-backed,
+accountably reviewed corrections may add assertions and may suppress an exact official source
+axiom from effective composition, replace it, or qualify it. The three error classes are source
+publication/representation error, empirical/scientific error, and logical/ontological error;
+modelling preference alone is not an error and cannot justify destructive suppression or
+replacement. Suppression is named effective-view composition subtraction before reasoning, never
+source mutation/deletion, an annotation-only fiction, or a contradictory/negating axiom. The exact
+composition is re-reasoned, and inconsistency or unsupported/missing targets refuse publication.
+The original canonical axiom remains retrievable in the official source and appears in target
+delta/impact as a nonempty `removed-from-effective` record, never deleted, absent, not-found, or
+empty, with exact identities, correction/evidence/decision, before/after effects, closure/boundary
+evidence, and dependent impacts.
+
+Every target enhanced NCIt concept and role, including an unchanged official rendition, has a
+stable OntoPrism-governed enhanced-NCIt code and a release-bound crosswalk to its official source
+anchor unless new. Official identity is the official release plus official concept/role code and
+canonical source fingerprints/profile. An enhanced entity revision is globally unique and
+content-addressed under its enhanced code; enhanced release, overlay, and composition identities are
+membership contexts rather than entity-revision identity components. Codes are never reused or
+replaced by later NCI adoption. Everything emitted is OntoPrism-governed enhanced NCIt content;
+official identifiers are source anchors/crosswalk endpoints, not necessarily emitted enhanced
+primary identifiers. This
+qualifies D60's product identity without changing D60's derivation, alignment, corroboration, or
+ownership rule.
+
+Target impact claims are complete only for a declared versioned graph closure with relation,
+direction, bounds, and boundary witnesses; stated and finite-profile inferred effects remain
+separate. The inferred comparison uses an identified offline reasoner and an exact finite
+entailment/query/signature set selected by a versioned profile; runtime reasoning remains disabled.
+Other dependents are registry impacts, not graph members, and require explicit non-success/currentness
+treatment. Unknown dependency coverage triggers the #262 full-run fallback or refusal.
+[#262](https://github.com/hniedner/ontoprism/issues/262) owns the exact impact vocabulary. All
+official-to-enhanced references require typed, non-success-like outcomes for split, merge,
+ambiguous, and unresolved cases. caDSR source anchors remain untouched official codes and resolve
+through the crosswalk without heuristic split selection.
+
+NCI adoption is optional and non-blocking for local usefulness and locally governed publication.
+Only evidence from an identified, certified official NCIt release can support “official,”
+“NCI-authored,” or `accepted-in-ncit`. Local approval and local publication do not establish any of
+those claims, and OntoPrism never assigns adoption to NCI. D60 remains authoritative for emitted NCIt
+enhancement: this decision **qualifies D60** and **does not supersede D60**. The exact lifecycle
+vocabulary and current model divergence belong to [#304](https://github.com/hniedner/ontoprism/issues/304);
+this decision neither enumerates a replacement lifecycle nor claims convergence is implemented.
+
+The Metathesaurus-interoperability target is a typed, evidence-bearing mapping and link-out
+capability, not a claim that OntoPrism is NCI Metathesaurus. Every relation binds the endpoint
+ontology/release/identity, relation type and direction, evidence/provenance/status, license, and
+remote availability/cache/freshness. A mutable URL is not identity, a link-out is not import or a
+runtime dependency, a shared CUI is not equivalence, and relation types remain distinct. Per D60,
+the emitted enhancement remains OntoPrism-governed NCIt, derived from, aligned to, or corroborated
+by independently identified terminology releases; provenance transfers no ownership.
+
+AI-enhanced ontology management is likewise a target for adapter-supported ontologies. AI outcomes
+must distinguish candidate, abstain, and failure and bind evidence plus model, tool, and source
+identity. Deterministic validation decides machine-checkable claims, while a human accountable
+authority approves semantic publication. AI cannot approve, publish, submit, adopt, or turn model
+confidence into evidence. The current product does not ship generic AI authoring.
+
+[#316](https://github.com/hniedner/ontoprism/issues/316) currently owns proposal transfer, not this
+whole correction contract. Correction-aware reconciliation requires a future amendment or new owner.
+That future work must reconcile every correction against exact old/new official-release assertions,
+classify every reference, refuse automatic replay/publication for unresolved, unsupported, split,
+or ambiguous outcomes, retain human review, and never assign adoption. Exact certified adoption
+evidence may make an override redundant; partial, ambiguous, or divergent adoption cannot. Nothing
+may be silently replayed, dropped, overridden, or carried forward.
+
 ## 2026-09-04 — Remote operations remain orchestrator-separated
 
 ### D85. Explicit requests permit only fixed remote wrappers before separately authorized merge
@@ -2162,8 +2304,9 @@ NCIt+upstream merges can leave EL, where classification over a 10M+-triple graph
 **Committed reasoner (2026-07-11): ELK, driven via ROBOT — free, local, no cloud.**
 - **ELK** (consequence-based OWL 2 EL reasoner; **Apache-2.0**, free) is the classifier. It classifies
   SNOMED CT (~300K classes) in seconds on a laptop and is the reasoner the OBO ontologies we integrate
-  (Uberon/CL/Mondo) are themselves built and released with, so profile compatibility is a solved problem
-  on the upstream side. NCIt (~200K classes), profiled to EL per point 3, is comfortably within budget.
+  (Uberon/CL/Mondo) are themselves built and released with, so the identified OWL 2 EL classifier
+  profile is supported by those source build processes. This does not guarantee equivalent behavior
+  for other reasoners or query profiles. NCIt (~200K classes), profiled to EL per point 3, is comfortably within budget.
 - **ROBOT** (BMC Bioinformatics 2019; OBO-community-standard CLI wrapping the OWL API + ELK; free) is the
   driver: `robot reason --reasoner ELK`, plus `relax`/`reduce`/`merge` and consistency checks. The
   validation harness (#NEW-3) shells out to ROBOT from the Python data-build; `owlready2` is an optional

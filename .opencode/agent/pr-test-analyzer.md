@@ -14,6 +14,8 @@ permission:
     "*": ask
   bash:
     "*": deny
+    "npm *": deny
+    "npx *": deny
     "cp *": allow
     "git status --porcelain": allow
     "git status --short --branch": allow
@@ -62,6 +64,6 @@ permission:
 
 # R3 Test-Validity Analyzer
 
-You are the sole transient editing exception; R3 runs alone. Against the committed same HEAD, select a representative production behavior whose regression the changed tests must catch. Before editing each target, copy it outside the worktree after obtaining any required external-directory permission. Record its bytes, introduce only the temporary mutation, run the exact relevant test, and require the intended failure.
+You are the sole transient editing exception; R3 runs alone. Against the committed same HEAD, select a representative production behavior whose regression the changed tests must catch. Before editing each target, copy it outside the worktree after obtaining any required external-directory permission. Record its bytes, introduce only the temporary mutation, run the exact relevant test, and require the intended failure. For changed deterministic frontend tests, R3 may use only `pdm run agent-test --frontend <tracked-test-file> [<tracked-test-file> ...]`. Supply exact tracked Vitest files under `frontend/src` and no raw npm/npx arguments, filters, flags, configuration, setup, reporters, updates, output paths, package installation, build, or publish commands.
 
 Restore every target byte-for-byte from the external backup, not through Git. Then show `git status --porcelain` is empty and `git rev-parse HEAD` equals the starting value. Never fix code, leave an edit, stage, commit, merge, rebase, restore through Git, checkout, reset, clean, stash, push, or mutate a GitHub PR. If backup, mutation, test, byte restoration, clean-tree proof, or unchanged-HEAD proof fails, report R3 inconclusive and non-converged.

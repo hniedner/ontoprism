@@ -1,5 +1,7 @@
 # Design — NCIt Decomposition Engine (Issue #4 / Milestone M5)
 
+This NCIt-specific decomposition design is not an enhanced-product compatibility claim.
+
 **Status:** Design of record · **Date:** 2026-07-06 · **Issue:** [#4](https://github.com/hniedner/ontoprism/issues/4) · **Tracker:** #18 · **Serves:** #9 (M6 API/UI), #5 (balancing), #6 (post-coordination)
 
 This is the design for the **engine** only — the core feature that gives OntoPrism its
@@ -186,7 +188,7 @@ decomp_work_item
   attempt_count integer NOT NULL
   claim_token   uuid                     -- fences stale workers
   outcome       text                     -- closed D56 classification; historical unknown
-  semantic_type text                     -- compatibility projection of source P106
+  semantic_type text                     -- retained projection of source P106
   semantic_types jsonb                   -- complete canonical source P106 value set
   flags/counts/error/timestamps           -- state/outcome-shape constrained
 
@@ -723,7 +725,7 @@ remain separately visible and retryable; a matching marker-ahead retry is idempo
 Preflight failures fail the run, while post-completion lock-release failures only surface
 cleanup failure (D53).
 
-`--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
+`--emit-equivalence` remains a reserved proof-emission seam for #153 but always refuses
 before configuration loads or clients are constructed.
 
 `--branch neoplasm` materializes strict descendants of `C3262`;

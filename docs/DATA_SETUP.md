@@ -12,6 +12,10 @@ repository or a locally built image:
 | backend | `:8011` | `:8001` |
 | SvelteKit Node/dev server | `:5175` | `:5173` |
 
+In this document, **repository/index** names an implemented storage or query surface;
+**ontology adapter** names D86's future capability-declaring platform boundary. The presence of
+NCIt, Uberon/CL, caDSR, or ICD-O repositories does not imply that a generic adapter system exists.
+
 ## 1. Install the pinned data-build tools
 
 Install the repository dependencies and copy the environment template:

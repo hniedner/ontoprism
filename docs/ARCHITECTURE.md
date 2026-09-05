@@ -1,9 +1,16 @@
 # Architecture
 
-ONTOPRISM is an ontology storage, query, and graph-visualization platform whose
-distinctive output is a **decomposed (non-pre-coordinated) NCIt**. It is built by lifting
+ONTOPRISM's current implementation is an NCIt-centered ontology storage, query, and
+graph-visualization product whose distinctive output is a **decomposed
+(non-pre-coordinated) NCIt**. It is built by lifting
 the ontology vertical slice of the `fairdata` platform (see [DECISIONS.md](DECISIONS.md)
 D1–D2) and adding a decomposition engine.
+
+Its [target architecture](design/ontology-platform.md) is ontology-generic: a platform core
+provides shared management capabilities, ontology adapters declare supported ontology-specific
+capabilities, and domain policy controls semantic governance. No generic adapter type/system
+currently exists. The implemented certified local repositories, curation, and
+decomposition surfaces remain NCIt-centered (D86).
 
 For plain-language definitions of decomposition, axes, fillers, genera, semantic types,
 curated projections, source occurrences, partonomies, and relationship groups, see the
@@ -41,6 +48,18 @@ ontoprism/
 
 ## Data planes
 
+For enhanced NCIt, these are distinct views rather than one blended identity. The official
+release source plane and every OntoPrism overlay or derived view require separate identities.
+Graph/storage separation currently protects the official stated plane from overlay mutation.
+Independent source-view selection and recoverability for every enhanced release are target
+guarantees, not current certification; byte recovery additionally requires retaining the original
+artifact and digest. In the target data plane, an effective correction preserves the official source
+plane and creates a named effective view by subtracting suppressed source axioms before
+reasoning. Each suppressed canonical axiom remains retrievable in the immutable official source
+and is shown in a nonempty `removed-from-effective` delta rather than deleted, absent, not-found,
+or empty. Source containment means only immutable official-source preservation; the effective
+enhanced view intentionally need not contain every official assertion.
+
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
   in a separate default-graph index. Runtime reasoning is disabled. The local Compose stack
@@ -77,12 +96,12 @@ ONTOPRISM uses both dataclasses and Pydantic deliberately; they are not intercha
   CLI-generated artifacts, manifests, and database/report payloads use strict Pydantic
   models because they validate untrusted or serialized shapes and provide a defined wire
   representation.
-- **Adapters convert explicitly.** A boundary model may not contain a domain dataclass as
+- **Boundary conversions are explicit.** A boundary model may not contain a domain dataclass as
   a field, and a domain dataclass may not contain a Pydantic model. Adapter functions map
   every field between the two representations. This keeps serialization concerns out of
   domain logic and prevents Pydantic's coercion/serialization behavior from becoming an
   implicit domain contract.
-- **Ordinary service/adapter classes remain ordinary classes.** A QLever reader, cache,
+- **Ordinary service/client classes remain ordinary classes.** A QLever reader, cache,
   repository, or orchestrator is behavior, not a value schema; it uses neither dataclass
   nor `BaseModel` merely for convenience.
 

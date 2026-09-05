@@ -608,6 +608,43 @@ def test_r3_literal_line_break_denies_override_wildcard_allows(command: str) -> 
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
+        (
+            "pdm run agent-test --frontend "
+            "frontend/src/lib/components/ConceptCard.test.ts",
+            "allow",
+        ),
+        (
+            "npm --prefix frontend run test:unit -- --run "
+            "src/lib/components/ConceptCard.test.ts",
+            "deny",
+        ),
+        ("npm --prefix frontend run build", "deny"),
+        ("npm --prefix frontend install", "deny"),
+        ("npm --prefix frontend run test:coverage", "deny"),
+        ("npx vitest run frontend/src/lib/components/ConceptCard.test.ts", "deny"),
+        (
+            "pdm run agent-test --frontend "
+            "frontend/src/lib/components/ConceptCard.test.ts && npm publish",
+            "deny",
+        ),
+        (
+            "pdm run agent-test --frontend "
+            "frontend/src/lib/components/ConceptCard.test.ts\nnpm publish",
+            "deny",
+        ),
+    ],
+)
+def test_r3_frontend_wrapper_commands_are_exact_and_non_chainable(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "pr-test-analyzer")
+
+    assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
         ("git status --porcelain", "allow"),
         ("git status --short --branch", "allow"),
         ("git rev-parse HEAD", "allow"),

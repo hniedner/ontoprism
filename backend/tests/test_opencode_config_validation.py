@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from scripts.validation.validate_opencode_config import (
+    CROSS_COMMAND_DENIES,
     RESERVES,
     ROLES,
     SPECIALIST_ROLES,
@@ -16,7 +17,10 @@ from scripts.validation.validate_opencode_config import (
     load_agent,
     safe_read_text,
     validate,
+    validate_agent_test_wrapper,
     validate_forbidden_content,
+    validate_github_wrappers,
+    validate_permission_shadow_order,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +50,10 @@ def config_root(tmp_path: Path) -> Path:
     shutil.copy2(
         ROOT / "scripts/validation/run_agent_github.py",
         scripts / "run_agent_github.py",
+    )
+    shutil.copy2(
+        ROOT / "scripts/validation/run_agent_test.py",
+        scripts / "run_agent_test.py",
     )
     return tmp_path
 
@@ -188,9 +196,39 @@ def test_github_wrapper_implementation_is_required(config_root: Path) -> None:
     (config_root / "scripts/validation/run_agent_github.py").unlink()
 
     assert (
-        "GITHUB_WRAPPER: required file missing: scripts/validation/run_agent_github.py"
+        "FILES: required file missing: scripts/validation/run_agent_github.py"
         in validate(config_root)
     )
+
+
+@pytest.mark.parametrize(
+    ("missing", "validator"),
+    [
+        ("scripts/validation/run_agent_github.py", validate_github_wrappers),
+        ("pyproject.toml", validate_github_wrappers),
+        ("scripts/validation/run_agent_test.py", validate_agent_test_wrapper),
+        ("pyproject.toml", validate_agent_test_wrapper),
+    ],
+)
+def test_wrapper_missing_file_has_one_canonical_diagnostic(
+    config_root: Path,
+    missing: str,
+    validator: Callable[[Validation], None],
+) -> None:
+    (config_root / missing).unlink()
+    validation = Validation(config_root)
+
+    validator(validation)
+
+    assert validation.errors == [f"FILES: required file missing: {missing}"]
+
+
+def test_missing_shared_pyproject_is_reported_once(config_root: Path) -> None:
+    (config_root / "pyproject.toml").unlink()
+
+    errors = validate(config_root)
+
+    assert errors.count("FILES: required file missing: pyproject.toml") == 1
 
 
 @pytest.mark.parametrize("suffix", ["admin", "auto", "queue", "bypass"])
@@ -699,6 +737,59 @@ def test_r3_requires_exact_committed_diff_scope_allows(
     assert f"R3_PERMISSION: R3 must allow {pattern}" in validate(config_root)
 
 
+def test_r3_frontend_unit_permission_is_wrapper_only_and_last_match_safe(
+    config_root: Path,
+) -> None:
+    metadata, body = load_agent(
+        config_root / ".opencode/agent/pr-test-analyzer.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+    allow = "pdm run agent-test *"
+
+    assert bash[allow] == "allow"
+    assert bash["npm *"] == "deny"
+    assert bash["npx *"] == "deny"
+    assert list(bash).index("*&*") > list(bash).index(allow)
+    assert list(bash)[-2:] == ["*\n*", "*\r*"]
+    assert "changed deterministic frontend tests" in body
+    assert "pdm run agent-test --frontend <tracked-test-file>" in body
+    assert "no raw npm/npx arguments" in body.lower()
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        (
+            '    "pdm run agent-test *": allow\n',
+            "",
+            "R3_PERMISSION: R3 must allow pdm run agent-test *",
+        ),
+        (
+            '    "npm *": deny\n',
+            "",
+            "R3_PERMISSION: R3 must deny npm *",
+        ),
+        (
+            '    "npx *": deny\n',
+            "",
+            "R3_PERMISSION: R3 must deny npx *",
+        ),
+    ],
+)
+def test_r3_frontend_unit_permission_contract_rejects_widening(
+    config_root: Path, old: str, new: str, expected: str
+) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-test-analyzer.md",
+        old,
+        new,
+    )
+
+    assert expected in validate(config_root)
+
+
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
     shutil.copy2(
         config_root / ".opencode/agent/architect.md",
@@ -903,23 +994,9 @@ def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
         ),
         (
             ".opencode/agent/pr-test-analyzer.md",
-            '    "git status --porcelain": allow\n',
-            '    "git commit *": deny\n    "git status --porcelain": allow\n',
-            "R3_PERMISSION: pr-test-analyzer deny git commit * must follow all "
-            "Git allow rules",
-        ),
-        (
-            ".opencode/agent/pr-test-analyzer.md",
             '  bash:\n    "*": deny\n',
             "  bash:\n",
             "R3_PERMISSION: R3 bash permissions must place broad rule first",
-        ),
-        (
-            ".opencode/agent/architect.md",
-            '    "git show --stat --oneline HEAD": allow\n',
-            '    "git reset *": deny\n    "git show --stat --oneline HEAD": allow\n',
-            "ROLE_PERMISSION: architect deny git reset * must follow all Git "
-            "allow rules",
         ),
     ],
 )
@@ -1182,11 +1259,264 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     assert pyproject["tool"]["pdm"]["scripts"]["agent-test"] == (
         "python scripts/validation/run_agent_test.py"
     )
+    assert "agent-frontend-test" not in pyproject["tool"]["pdm"]["scripts"]
+    assert not (ROOT / "scripts/validation/run_agent_frontend_test.py").exists()
     assert pyproject["tool"]["pdm"]["scripts"]["agent-git"] == (
         "python scripts/validation/run_agent_git.py"
     )
     assert pyproject["tool"]["pdm"]["scripts"]["agent-replay"] == (
         "python -m scripts.validation.run_agent_replay"
+    )
+
+
+def test_agent_test_wrapper_validator_rejects_missing_process_safety_primitives(
+    config_root: Path,
+) -> None:
+    wrapper = config_root / "scripts/validation/run_agent_test.py"
+    source = wrapper.read_text(encoding="utf-8")
+    assert "shell=False" in source
+    wrapper.write_text(source.replace("shell=False", "shell=True"), encoding="utf-8")
+
+    assert (
+        "FRONTEND_TEST_WRAPPER: agent-test wrapper must execute with shell=False"
+        in validate(config_root)
+    )
+
+
+def test_web_job_runs_exact_real_frontend_wrapper_contract_after_install() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    install = "      - name: Install\n        run: npm ci\n"
+    contract = (
+        "      - name: Real agent frontend wrapper contract\n"
+        "        run: pdm run agent-test --frontend "
+        "frontend/src/lib/vitest-examples/greet.spec.ts\n"
+        "        working-directory: ${{ github.workspace }}\n"
+    )
+
+    assert workflow.count(contract) == 1
+    assert workflow.index(install) < workflow.index(contract)
+    frontend_filter = workflow.split("            frontend:\n", 1)[1].split(
+        "            embeddings:\n", 1
+    )[0]
+    for path in (
+        "scripts/validation/run_agent_test.py",
+        "scripts/validation/validate_opencode_config.py",
+        "scripts/validation/validate_opencode_runtime.py",
+        "pyproject.toml",
+        "AGENTS.md",
+        ".opencode/**",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in frontend_filter
+
+
+def test_ci_python_and_frontend_trigger_filters_cover_inspected_contract_inputs() -> (
+    None
+):
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    backend_filter = workflow.split("            backend:\n", 1)[1].split(
+        "            frontend:\n", 1
+    )[0]
+    frontend_filter = workflow.split("            frontend:\n", 1)[1].split(
+        "            embeddings:\n", 1
+    )[0]
+
+    for path in (
+        ".opencode/**",
+        "frontend/src/**",
+        "**/*.md",
+        "pyproject.toml",
+        "scripts/**",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in backend_filter
+    for path in (
+        "frontend/**",
+        "pyproject.toml",
+        "scripts/validation/run_agent_test.py",
+        "scripts/validation/validate_opencode_config.py",
+        ".github/workflows/ci.yml",
+    ):
+        assert f"- '{path}'" in frontend_filter
+    assert "- 'docs/**'" not in frontend_filter
+
+
+@pytest.mark.parametrize(
+    ("rules", "family"),
+    [
+        (
+            {
+                "npm --prefix frontend run test:unit -- --run *": "allow",
+                "npm *": "deny",
+            },
+            "npm",
+        ),
+        (
+            {
+                "pdm run agent-test --safe-integration *": "deny",
+                "pdm run agent-test *": "allow",
+            },
+            "pdm",
+        ),
+        ({"git push --force *": "deny", "git push *": "allow"}, "git"),
+        ({"cp private-* *": "deny", "cp *": "allow"}, "cp"),
+        ({"future-tool dangerous *": "deny", "future-tool *": "allow"}, "future-tool"),
+        ({"git push *": "deny", "git * --dry-run": "allow"}, "git"),
+        (
+            {
+                "pdm run agent-test --safe-integration *": "deny",
+                "pdm run * --dry-run": "allow",
+            },
+            "pdm",
+        ),
+        ({"cp private-* *": "deny", "cp * public-*": "allow"}, "cp"),
+        (
+            {"future-tool literal-*": "deny", "future-tool * --preview": "allow"},
+            "future-tool",
+        ),
+    ],
+)
+def test_generic_permission_shadow_gate_rejects_deny_before_overlapping_allow(
+    rules: dict[str, str], family: str
+) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(validation, "TEST", "role", rules)
+
+    assert validation.errors == [
+        f"TEST: role {family} deny/allow overlap has unsafe last-match order"
+    ]
+
+
+def test_generic_permission_shadow_gate_accepts_disjoint_same_family_patterns() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {
+            "git status --porcelain": "allow",
+            "git push *": "deny",
+            "npm --prefix frontend run lint": "allow",
+            "npm publish*": "deny",
+        },
+    )
+
+    assert validation.errors == []
+
+
+def test_generic_permission_shadow_gate_rejects_unparseable_command_pattern() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation, "TEST", "role", {"[invalid command": "deny"}
+    )
+
+    assert validation.errors == [
+        "TEST: role bash command pattern is unclassifiable: [invalid command"
+    ]
+
+
+def test_generic_permission_shadow_gate_rejects_unknown_leading_glob() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation, "TEST", "role", {"*unknown-future-guard*": "deny"}
+    )
+
+    assert validation.errors == [
+        "TEST: role bash command pattern is unclassifiable: *unknown-future-guard*"
+    ]
+
+
+@pytest.mark.parametrize("guard", CROSS_COMMAND_DENIES)
+def test_cross_command_guards_must_follow_every_allow(guard: str) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"*": "deny", guard: "deny", "pdm run agent-test *": "allow"},
+    )
+
+    assert validation.errors == [
+        f"TEST: role cross-command deny {guard} must follow every bash allow"
+    ]
+
+
+def test_generic_permission_shadow_gate_rejects_late_allow_catch_all() -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"git push *": "deny", "*": "allow"},
+    )
+
+    assert validation.errors == [
+        "TEST: role bash catch-all must be the first command rule"
+    ]
+
+
+@pytest.mark.parametrize("action", ["deny", "ask"])
+def test_generic_permission_shadow_gate_rejects_any_late_catch_all(
+    action: str,
+) -> None:
+    validation = Validation(ROOT)
+
+    validate_permission_shadow_order(
+        validation,
+        "TEST",
+        "role",
+        {"git status --porcelain": "allow", "*": action},
+    )
+
+    assert validation.errors == [
+        "TEST: role bash catch-all must be the first command rule"
+    ]
+
+
+def test_r3_safe_integration_deny_must_follow_agent_test_allow(
+    config_root: Path,
+) -> None:
+    relative = ".opencode/agent/pr-test-analyzer.md"
+    path = config_root / relative
+    text = path.read_text(encoding="utf-8")
+    deny = '    "pdm run agent-test --safe-integration *": deny\n'
+    assert deny in text
+    text = text.replace(deny, "")
+    allow = '    "pdm run agent-test *": allow\n'
+    assert allow in text
+    path.write_text(text.replace(allow, deny + allow), encoding="utf-8")
+
+    assert any(
+        error
+        == (
+            "R3_PERMISSION: pr-test-analyzer pdm deny/allow overlap has unsafe "
+            "last-match order"
+        )
+        for error in validate(config_root)
+    )
+
+
+def test_permission_actions_are_closed(config_root: Path) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-code-reviewer.md",
+        '    "git status --porcelain": allow\n',
+        '    "git status --porcelain": permit\n',
+    )
+
+    assert any(
+        error
+        == (
+            "ROLE_PERMISSION: pr-code-reviewer permission action for "
+            "bash/git status --porcelain must be allow, deny, or ask"
+        )
+        for error in validate(config_root)
     )
 
 

@@ -357,6 +357,20 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         return (("touch forbidden", "deny"), ("git status --porcelain", "allow"))
     if name == "pr-test-analyzer":
         return (
+            (
+                "pdm run agent-test --frontend "
+                "frontend/src/lib/components/ConceptCard.test.ts",
+                "allow",
+            ),
+            (
+                "npm --prefix frontend run test:unit -- --run "
+                "src/lib/components/ConceptCard.test.ts",
+                "deny",
+            ),
+            ("npm --prefix frontend run build", "deny"),
+            ("npm --prefix frontend install", "deny"),
+            ("npm --prefix frontend run test:coverage", "deny"),
+            ("npx vitest run frontend/src/lib/components/ConceptCard.test.ts", "deny"),
             ("cp source target", "allow"),
             ("git status --porcelain", "allow"),
             ("git diff --no-ext-diff main...HEAD", "allow"),
@@ -371,6 +385,16 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ("git push --force", "deny"),
             ("gh pr merge", "deny"),
             ("touch forbidden", "deny"),
+            (
+                "pdm run agent-test --frontend "
+                "frontend/src/lib/components/ConceptCard.test.ts && npm publish",
+                "deny",
+            ),
+            (
+                "pdm run agent-test --frontend "
+                "frontend/src/lib/components/ConceptCard.test.ts\nnpm publish",
+                "deny",
+            ),
             ("cp source target\ngh pr merge", "deny"),
             ("pdm run agent-test backend/tests/test_x.py\r\ngit push", "deny"),
         )
