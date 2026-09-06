@@ -3,8 +3,12 @@
 
 import type {
 	CdeDetail,
+	CdeRepositorySort,
 	CdeSearchPage,
 	CdeSummary,
+	IcdoBehaviour,
+	IcdoRecordLevel,
+	IcdoRepositorySort,
 	ConceptDecomposition,
 	EnhancedNcitShowcaseView,
 	ConceptDetail,
@@ -255,9 +259,9 @@ export function icdoCodeSegment(code: string): string {
 interface IcdoGridOptions {
 	limit?: number;
 	offset?: number;
-	behaviour?: readonly string[];
-	level?: readonly string[];
-	sort?: string;
+	behaviour?: readonly IcdoBehaviour[];
+	level?: readonly IcdoRecordLevel[];
+	sort?: IcdoRepositorySort;
 	fetch?: typeof fetch;
 }
 
@@ -336,7 +340,7 @@ export function getCdeNeighborhood(
 
 export function searchCadsr(
 	q: string,
-	opts: { limit?: number; offset?: number; sort?: string; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
 ): Promise<CdeSearchPage> {
 	const url = apiUrl('/api/v1/cadsr/search', {
 		q,
@@ -349,7 +353,7 @@ export function searchCadsr(
 
 /** List caDSR CDEs in the requested deterministic browse order. */
 export function listCadsr(
-	opts: { limit?: number; offset?: number; sort?: string; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
 ): Promise<CdeSearchPage> {
 	const url = apiUrl('/api/v1/cadsr/list', {
 		limit: opts.limit ?? 25,

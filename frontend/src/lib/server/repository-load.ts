@@ -1,22 +1,22 @@
 import { error, redirect } from '@sveltejs/kit';
 import { isPageSize, type PageSize } from '$lib/grid-state';
 
-export interface OffsetGridState<Sort extends string> {
+type FilterSpec = Readonly<Record<string, readonly string[]>>;
+type FilterState<Filters extends FilterSpec> = { [Key in keyof Filters]: Array<Filters[Key][number] & string> };
+
+export interface OffsetGridState<Sort extends string, Filters extends FilterSpec = FilterSpec> {
 	size: PageSize;
 	offset: number;
 	sort: Sort;
-	filters: Record<string, string[]>;
+	filters: FilterState<Filters>;
 }
 
-export interface OffsetGridSpec<Sort extends string> {
+export interface OffsetGridSpec<Sort extends string, Filters extends FilterSpec = FilterSpec> {
 	defaultSort: Sort;
 	sorts: readonly Sort[];
-	filters: Readonly<Record<string, readonly string[]>>;
+	filters: Filters;
 	resultWindow?: number;
 }
-
-type FilterSpec = Readonly<Record<string, readonly string[]>>;
-type FilterState<Filters extends FilterSpec> = { [Key in keyof Filters]?: Array<Filters[Key][number] & string> };
 
 export interface CursorGridSpec<Filters extends FilterSpec = FilterSpec> {
 	filters: Filters;
@@ -59,8 +59,9 @@ function parseFilters<Filters extends FilterSpec>(params: URLSearchParams, spec:
 	let invalid = false;
 	for (const [key, allowed] of Object.entries(spec.filters)) {
 		const selected = new Set(params.getAll(key));
-		if ([...selected].some((item) => !allowed.includes(item))) invalid = true;
-		else if (selected.size) value[key] = allowed.filter((item) => selected.has(item));
+		const invalidSelection = [...selected].some((item) => !allowed.includes(item));
+		if (invalidSelection) invalid = true;
+		value[key] = invalidSelection ? [] : allowed.filter((item) => selected.has(item));
 	}
 	return { value: value as FilterState<Filters>, invalid };
 }
@@ -91,7 +92,7 @@ export function parseCursorGridUrl<Filters extends FilterSpec>(url: URL, spec: C
 	return state;
 }
 
-export function canonicalOffsetGridSearch<Sort extends string>(query: string, state: OffsetGridState<Sort>, spec: OffsetGridSpec<Sort>): string {
+export function canonicalOffsetGridSearch<Sort extends string, Filters extends FilterSpec>(query: string, state: OffsetGridState<Sort, Filters>, spec: OffsetGridSpec<Sort, Filters>): string {
 	const params = new URLSearchParams();
 	if (query) params.set('q', query);
 	if (state.size !== 25) params.set('size', String(state.size));
@@ -101,7 +102,7 @@ export function canonicalOffsetGridSearch<Sort extends string>(query: string, st
 	return params.toString();
 }
 
-export function parseOffsetGridUrl<Sort extends string>(url: URL, spec: OffsetGridSpec<Sort>): { query: string; state: OffsetGridState<Sort>; canonical: string } {
+export function parseOffsetGridUrl<Sort extends string, Filters extends FilterSpec>(url: URL, spec: OffsetGridSpec<Sort, Filters>): { query: string; state: OffsetGridState<Sort, Filters>; canonical: string } {
 	const rawQuery = url.searchParams.get('q') ?? '';
 	const query = rawQuery.trim();
 	const size = parseSize(url.searchParams);
@@ -109,7 +110,7 @@ export function parseOffsetGridUrl<Sort extends string>(url: URL, spec: OffsetGr
 	const sort = parseSort(url.searchParams, spec);
 	const filters = parseFilters(url.searchParams, spec);
 	const invalid = rawQuery !== query || size.invalid || offset.invalid || sort.invalid || filters.invalid;
-	const state = { size: size.value, offset: offset.value, sort: sort.value, filters: filters.value as Record<string, string[]> };
+	const state = { size: size.value, offset: offset.value, sort: sort.value, filters: filters.value };
 	const canonical = canonicalOffsetGridSearch(query, state, spec);
 	if (invalid || url.search.slice(1) !== canonical) {
 		throw redirect(307, `${url.pathname}${canonical ? `?${canonical}` : ''}`);
@@ -117,14 +118,14 @@ export function parseOffsetGridUrl<Sort extends string>(url: URL, spec: OffsetGr
 	return { query, state, canonical };
 }
 
-export interface RepositoryPageData<T, Sort extends string> { initial: { result: T; query: string } & OffsetGridState<Sort>; }
+export interface RepositoryPageData<T, Sort extends string, Filters extends FilterSpec = FilterSpec> { initial: { result: T; query: string } & OffsetGridState<Sort, Filters>; }
 
-export async function loadRepositoryPage<T extends PageResult>(
+export async function loadRepositoryPage<T extends PageResult, Filters extends FilterSpec = FilterSpec>(
 	url: URL,
-	search: (query: string, state: OffsetGridState<T['sort']>) => Promise<T>,
-	list: (state: OffsetGridState<T['sort']>) => Promise<T>,
-	spec: OffsetGridSpec<T['sort']>
-): Promise<RepositoryPageData<T, T['sort']>> {
+	search: (query: string, state: OffsetGridState<T['sort'], Filters>) => Promise<T>,
+	list: (state: OffsetGridState<T['sort'], Filters>) => Promise<T>,
+	spec: OffsetGridSpec<T['sort'], Filters>
+): Promise<RepositoryPageData<T, T['sort'], Filters>> {
 	const { query, state } = parseOffsetGridUrl(url, spec);
 	const result = await (query ? search(query, state) : list(state));
 	if (result.limit !== state.size || result.offset !== state.offset || result.sort !== state.sort) error(502, 'Repository page metadata did not match the request.');

@@ -1,11 +1,13 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
     IcdoAxis,
+    IcdoBehaviour,
     IcdoEdition,
     IcdoRecord,
+    IcdoRecordLevel,
     IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
@@ -65,6 +67,15 @@ def test_record_refuses_cross_axis_fields_but_accepts_publisher_85032_0() -> Non
         behaviour="0",
     )
     assert record.code == "85032/0"
+
+
+def test_record_schema_exposes_closed_level_and_behaviour_domains() -> None:
+    assert TypeAdapter(IcdoRecordLevel).json_schema()["enum"] == [
+        "morphology",
+        "category",
+        "leaf",
+    ]
+    assert TypeAdapter(IcdoBehaviour).json_schema()["enum"] == list("0123456789")
 
 
 pytestmark = pytest.mark.unit

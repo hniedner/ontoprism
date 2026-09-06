@@ -77,7 +77,7 @@ class CTStudySummary(StrictBoundaryModel):
     nct_id: str
     title: str
     status: str | None = None
-    phase: str | None = None
+    phase: list[CTPhase] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
     interventions: list[str] = Field(default_factory=list)
     start_date: str | None = None
@@ -93,7 +93,7 @@ class CTStudyDetail(StrictBoundaryModel):
     title: str
     official_title: str | None = None
     status: str | None = None
-    phase: str | None = None
+    phase: list[CTPhase] = Field(default_factory=list)
     study_type: str | None = None
     primary_purpose: str | None = None
     conditions: list[str] = Field(default_factory=list)

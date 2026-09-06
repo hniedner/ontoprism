@@ -91,10 +91,7 @@ def _assert_multi_filter_domain(page: CTStudySearchPage) -> None:
     requested_statuses = set(_MULTI_STATUSES)
     requested_phases = set(_MULTI_PHASES)
     returned_statuses = {study.status for study in page.studies}
-    returned_phase_sets = [
-        set(study.phase.split(", ")) if study.phase is not None else set()
-        for study in page.studies
-    ]
+    returned_phase_sets = [set(study.phase) for study in page.studies]
 
     assert page.status == list(_MULTI_STATUSES)
     assert page.phase == list(_MULTI_PHASES)
@@ -167,7 +164,7 @@ async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -
     first = page.studies[0]
     assert first.title == "A Study of Widgetinib in Solid Tumors"
     assert first.status == "RECRUITING"
-    assert first.phase == "PHASE2"
+    assert first.phase == ["PHASE2"]
     assert first.conditions == ["Solid Tumor", "Melanoma"]
     assert first.interventions == ["Widgetinib"]
     assert first.enrollment == 120

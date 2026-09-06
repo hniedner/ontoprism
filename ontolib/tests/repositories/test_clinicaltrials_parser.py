@@ -28,19 +28,19 @@ def test_summary_of_minimal_study_uses_safe_defaults() -> None:
     assert summary.nct_id == "NCT00000001"
     assert summary.title == "Bare"
     assert summary.status is None
-    assert summary.phase is None
+    assert summary.phase == []
     assert summary.conditions == []
     assert summary.interventions == []
     assert summary.enrollment is None
 
 
 @pytest.mark.unit
-def test_summary_joins_multiple_phases() -> None:
+def test_summary_preserves_multiple_phases_as_typed_values() -> None:
     study = _study(
         identificationModule={"nctId": "NCT00000002", "briefTitle": "Two phase"},
         designModule={"phases": ["PHASE1", "PHASE2"]},
     )
-    assert parse_study_summary(study).phase == "PHASE1, PHASE2"
+    assert parse_study_summary(study).phase == ["PHASE1", "PHASE2"]
 
 
 @pytest.mark.unit
@@ -161,7 +161,7 @@ def test_parses_modules_present_with_explicit_null() -> None:
     }
     summary = parse_study_summary(study)
     assert summary.enrollment is None
-    assert summary.phase is None
+    assert summary.phase == []
     assert summary.conditions == []
     assert summary.interventions == []
     detail = parse_study_detail(study)

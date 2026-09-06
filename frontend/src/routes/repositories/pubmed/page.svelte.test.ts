@@ -6,14 +6,14 @@ const goto = vi.fn().mockResolvedValue(undefined);
 vi.mock('$app/navigation', () => ({ goto: (target: string) => goto(target) }));
 vi.mock('$app/paths', () => ({ resolve: (target: string) => target }));
 vi.mock('$app/state', () => ({
-	page: { url: new URL('https://example.test/repositories/pubmed?q=missing&sort=pub_date') },
+	page: { url: new URL('https://example.test/repositories/pubmed?q=missing&size=50&offset=50&sort=pub_date') },
 	navigating: { to: null }
 }));
 
 const data = {
 	query: 'missing',
-	offset: 0,
-	size: 25,
+	offset: 50,
+	size: 50,
 	sort: 'pub_date',
 	result: {
 		state: 'ready',
@@ -32,5 +32,12 @@ describe('PubMed repository empty page', () => {
 		expect(screen.getByText('No articles matched “missing”.')).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Reset table' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/pubmed?q=missing');
+	});
+
+	it('maps the publication Date column to the exact upstream date sort', async () => {
+		render(Page, { data: { ...data, sort: 'relevance' } as never, params: {}, form: null });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Date' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/pubmed?q=missing&size=50&sort=pub_date');
 	});
 });

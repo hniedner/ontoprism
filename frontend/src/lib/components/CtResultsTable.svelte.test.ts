@@ -8,7 +8,7 @@ const studies: CTStudySummary[] = [
 		nct_id: 'NCT01',
 		title: 'Widgetinib in Melanoma',
 		status: 'Recruiting',
-		phase: 'Phase 2',
+		phase: ['PHASE1', 'PHASE2'],
 		conditions: ['Melanoma', 'Skin Cancer'],
 		interventions: ['Widgetinib'],
 		start_date: '2024-01',
@@ -19,7 +19,7 @@ const studies: CTStudySummary[] = [
 		nct_id: 'NCT02',
 		title: 'Observational Cohort',
 		status: null,
-		phase: null,
+		phase: [],
 		conditions: [],
 		interventions: [],
 		start_date: null,
@@ -48,7 +48,7 @@ describe('CtResultsTable', () => {
 
 	it('shows the phase chip, or a dash when the study has no phase', () => {
 		render(CtResultsTable, { studies });
-		expect(within(document.querySelector('tbody') as HTMLElement).getByText('Phase 2')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('PHASE1, PHASE2')).toBeInTheDocument();
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
@@ -60,7 +60,7 @@ describe('CtResultsTable', () => {
 	it('escapes every source-controlled clinical-trial summary field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
 		const { container } = render(CtResultsTable, {
-			studies: [{ ...studies[0], nct_id: payload, title: payload, status: payload, phase: payload, conditions: [payload], interventions: [payload], start_date: payload }]
+			studies: [{ ...studies[0], nct_id: payload, title: payload, status: payload, phase: ['PHASE1'], conditions: [payload], interventions: [payload], start_date: payload }]
 		});
 		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(4);
 		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();

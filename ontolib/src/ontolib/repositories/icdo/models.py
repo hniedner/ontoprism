@@ -8,13 +8,16 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-from pydantic import BaseModel, ConfigDict, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, TypeAdapter, computed_field, model_validator
 
 type IcdoEdition = Literal["3.2", "4.0"]
 type IcdoAxis = Literal["morphology", "topography"]
+type IcdoRecordLevel = Literal["morphology", "category", "leaf"]
+type IcdoBehaviour = Literal["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 type IcdoRepositorySort = Literal[
     "source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"
 ]
+_BEHAVIOUR = TypeAdapter(IcdoBehaviour)
 
 
 class _StrictModel(BaseModel):
@@ -35,8 +38,8 @@ class MorphologyCode32(_StrictModel):
 
     @computed_field
     @property
-    def behaviour(self) -> str:
-        return self.value[-1]
+    def behaviour(self) -> IcdoBehaviour:
+        return _BEHAVIOUR.validate_python(self.value[-1], strict=True)
 
 
 class MorphologyCode40(_StrictModel):
@@ -58,8 +61,8 @@ class MorphologyCode40(_StrictModel):
 
     @computed_field
     @property
-    def behaviour(self) -> str:
-        return self.value[-1]
+    def behaviour(self) -> IcdoBehaviour:
+        return _BEHAVIOUR.validate_python(self.value[-1], strict=True)
 
 
 class TopographyCode40(_StrictModel):
@@ -136,11 +139,11 @@ def _invalid_morphology_edition(
 
 class IcdoRecord(_StrictModel):
     code: str
-    level: Literal["morphology", "category", "leaf"]
+    level: IcdoRecordLevel
     parent_code: str | None = None
     base_morphology: str | None = None
     specificity: str | None = None
-    behaviour: str | None = None
+    behaviour: IcdoBehaviour | None = None
     preferred: str | None = None
     synonyms: tuple[str, ...] = ()
     related: tuple[str, ...] = ()

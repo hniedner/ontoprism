@@ -23,6 +23,10 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
+    IcdoAxis,
+    IcdoBehaviour,
+    IcdoEdition,
+    IcdoRecordLevel,
     IcdoRepositorySort,
     IcdoSearchPage,
     MorphologyCode32,
@@ -43,10 +47,6 @@ from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 router = APIRouter(
     prefix="/api/v1/icdo", tags=["icdo"], dependencies=[RequireIcdoEntitlement]
 )
-Edition = Literal["3.2", "4.0"]
-Axis = Literal["morphology", "topography"]
-Behaviour = Literal["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
-RecordLevel = Literal["morphology", "category", "leaf"]
 
 
 class NcitAlignment(StrictBoundaryModel):
@@ -82,7 +82,7 @@ class Morphology32Record(_RecordBase):
     parent_code: Literal[None] = None
     base_morphology: str
     specificity: Literal[None] = None
-    behaviour: str
+    behaviour: IcdoBehaviour
 
 
 class Morphology40Record(_RecordBase):
@@ -90,7 +90,7 @@ class Morphology40Record(_RecordBase):
     parent_code: Literal[None] = None
     base_morphology: str
     specificity: str
-    behaviour: str
+    behaviour: IcdoBehaviour
 
 
 class TopographyCategoryRecord(_RecordBase):
@@ -202,7 +202,7 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
+def _dataset(edition: IcdoEdition, axis: IcdoAxis) -> ServedIcdoDataset:
     dataset = ServedIcdoDataset.parse(edition, axis)
     if dataset is None:
         raise HTTPException(
@@ -213,9 +213,9 @@ def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
 
 
 def _validate_grid_filters(
-    axis: Axis,
-    behaviour: list[Behaviour] | None,
-    level: list[RecordLevel] | None,
+    axis: IcdoAxis,
+    behaviour: list[IcdoBehaviour] | None,
+    level: list[IcdoRecordLevel] | None,
 ) -> None:
     if axis == "topography":
         invalid = bool(behaviour) or "morphology" in (level or ())
@@ -284,7 +284,7 @@ async def access_status(
     return IcdoAccessReport()
 
 
-def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
+def _decode_code(segment: str, edition: IcdoEdition, axis: IcdoAxis) -> str:
     try:
         code = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)).decode(
             "ascii"
@@ -302,7 +302,7 @@ def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
 
 @router.get("/{edition}/{axis}/metadata")
 async def metadata(
-    repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
+    repository_metadata: RepositoryMetadataReads, edition: IcdoEdition, axis: IcdoAxis
 ) -> object:
     dataset = _dataset(edition, axis)
     result = await _ready(repository_metadata, dataset)
@@ -366,10 +366,10 @@ async def _uberon_congruence_records(
 async def list_records(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
-    behaviour: Annotated[list[Behaviour] | None, Query()] = None,
-    level: Annotated[list[RecordLevel] | None, Query()] = None,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
@@ -404,11 +404,11 @@ async def list_records(
 async def search(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     q: Annotated[str, Query(min_length=1)],
-    behaviour: Annotated[list[Behaviour] | None, Query()] = None,
-    level: Annotated[list[RecordLevel] | None, Query()] = None,
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
@@ -444,8 +444,8 @@ async def detail(
     repository: IcdoReads,
     xref_store: XrefReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     dataset = _dataset(edition, axis)

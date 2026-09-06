@@ -91,6 +91,7 @@ class _Index:
     def __init__(self, populated: bool, *, fail: bool = False) -> None:
         self.populated = populated
         self.fail = fail
+        self.search_calls: list[dict[str, object]] = []
 
     async def is_populated(self, source_identity: str, source_hash: str) -> bool:
         assert source_identity == "a" * 64
@@ -100,6 +101,7 @@ class _Index:
         return self.populated
 
     async def search(self, query: str, **kwargs: object) -> UberonSearchPage:
+        self.search_calls.append({"query": query, **kwargs})
         return UberonSearchPage(
             query=query,
             total=1,
@@ -175,6 +177,21 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
         "label": "cached cell",
         "matched_synonym": None,
     }
+
+
+@pytest.mark.api
+def test_search_defaults_to_and_echoes_relevance_sort() -> None:
+    index = _Index(True)
+
+    response = next(_client(_Store(), index)).get(
+        "/api/v1/uberon/search", params={"q": "cell"}
+    )
+
+    assert response.status_code == 200
+    assert index.search_calls == [
+        {"query": "cell", "source": None, "limit": 25, "offset": 0, "sort": "relevance"}
+    ]
+    assert response.json()["sort"] == "relevance"
 
 
 @pytest.mark.api

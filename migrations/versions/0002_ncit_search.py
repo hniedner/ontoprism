@@ -3,8 +3,8 @@
 A materialized full-text search cache over NCIt concept label + synonyms, so search
 and browse are served from an index instead of a live SPARQL ``CONTAINS`` scan over
 ~204k ``owl:Class`` per keystroke. The QLever index stays the source of truth; this
-cache is (re)populated from it (see ontolib.terminologies.ncit.search_index) and the
-API falls back to SPARQL when the cache is empty.
+cache is (re)populated from it (see ontolib.terminologies.ncit.search_index). Reads
+fail closed when the certified cache is unavailable or does not match its source.
 
 Revision ID: 0002_ncit_search
 Revises: 0001_embedding_tables

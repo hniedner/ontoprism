@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from ontolib.repositories.clinicaltrials.models import (
     CTInterventionDetail,
     CTLocation,
     CTOutcome,
+    CTPhase,
     CTReference,
     CTSponsor,
     CTStudyDetail,
@@ -42,11 +45,11 @@ def _section(study: dict[str, Any], module: str) -> dict[str, Any]:
     return _dict(_dict(study, "protocolSection"), module)
 
 
-def _phase(design: dict[str, Any]) -> str | None:
-    phases = _list(design, "phases")
-    if phases:
-        return ", ".join(str(p) for p in phases)
-    return None
+_PHASES = TypeAdapter(list[CTPhase])
+
+
+def _phase(design: dict[str, Any]) -> list[CTPhase]:
+    return _PHASES.validate_python(_list(design, "phases"), strict=True)
 
 
 def _enrollment(design: dict[str, Any]) -> int | None:

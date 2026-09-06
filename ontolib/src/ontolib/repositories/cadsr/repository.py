@@ -145,6 +145,8 @@ class CdeRepository:
             "SELECT COUNT(*) AS n FROM cdes_fts WHERE cdes_fts MATCH ?",
             (match,),
         ).fetchone()["n"]
+        # S608: `_cde_order` selects a fixed SQL fragment from the closed
+        # CdeRepositorySort domain; the source query and page values remain bound.
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS_Q} "  # noqa: S608
             "FROM cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid "
@@ -179,6 +181,8 @@ class CdeRepository:
             f"SELECT COUNT(*) AS n FROM cdes WHERE {where}",  # noqa: S608
             params,
         ).fetchone()["n"]
+        # S608: `_cde_order` selects a fixed SQL fragment from the closed
+        # CdeRepositorySort domain; the source query and page values remain bound.
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS} FROM cdes WHERE {where} "  # noqa: S608
             f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",
@@ -255,6 +259,8 @@ class CdeRepository:
         """List all CDEs in the requested deterministic browse order."""
         with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+            # S608: `_cde_order` selects a fixed SQL fragment from the closed
+            # CdeRepositorySort domain; page values remain bound parameters.
             rows = conn.execute(
                 f"SELECT {_SUMMARY_COLS} FROM cdes "  # noqa: S608 — module constant
                 f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",

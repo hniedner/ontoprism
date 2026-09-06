@@ -11,6 +11,8 @@ export type UberonSearchSort = 'relevance' | UberonBrowseSort;
 export type UberonRepositorySort = UberonSearchSort;
 export type CdeRepositorySort = 'source' | 'public_id:asc' | 'public_id:desc' | 'name:asc' | 'name:desc';
 export type IcdoRepositorySort = 'source' | 'code:asc' | 'code:desc' | 'preferred:asc' | 'preferred:desc';
+export type IcdoRecordLevel = 'morphology' | 'category' | 'leaf';
+export type IcdoBehaviour = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
 export interface ConceptRef {
 	code: string;
@@ -213,7 +215,7 @@ export interface IcdoMorphology32Record extends IcdoRecordBase {
 	parent_code: null;
 	base_morphology: string;
 	specificity: null;
-	behaviour: string;
+	behaviour: IcdoBehaviour;
 }
 
 export interface IcdoMorphology40Record extends IcdoRecordBase {
@@ -221,7 +223,7 @@ export interface IcdoMorphology40Record extends IcdoRecordBase {
 	parent_code: null;
 	base_morphology: string;
 	specificity: string;
-	behaviour: string;
+	behaviour: IcdoBehaviour;
 }
 
 export interface IcdoTopographyCategoryRecord extends IcdoRecordBase {
@@ -595,7 +597,7 @@ export interface CTStudySummary {
 	nct_id: string;
 	title: string;
 	status: string | null;
-	phase: string | null;
+	phase: CTPhase[];
 	conditions: string[];
 	interventions: string[];
 	start_date: string | null;
@@ -608,7 +610,7 @@ export interface CTStudyDetail {
 	title: string;
 	official_title: string | null;
 	status: string | null;
-	phase: string | null;
+	phase: CTPhase[];
 	study_type: string | null;
 	primary_purpose: string | null;
 	conditions: string[];

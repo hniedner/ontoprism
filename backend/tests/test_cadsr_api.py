@@ -28,7 +28,8 @@ def test_search_returns_hits(cadsr_client: TestClient) -> None:
 
 @pytest.mark.api
 def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
-    # The no-search browse endpoint: returns CDEs in natural order, no `q` needed.
+    # The no-search browse endpoint defaults to deterministic source order;
+    # no `q` is needed.
     resp = cadsr_client.get("/api/v1/cadsr/list", params={"limit": 10})
     assert resp.status_code == 200, resp.text
     body = resp.json()

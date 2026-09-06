@@ -7,7 +7,7 @@ export function trialDetail(over: Partial<CTStudyDetail> = {}): CTStudyDetail {
 		title: 'A Trial',
 		official_title: null,
 		status: null,
-		phase: null,
+		phase: [],
 		study_type: null,
 		primary_purpose: null,
 		conditions: [],

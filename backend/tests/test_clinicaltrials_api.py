@@ -17,7 +17,10 @@ _STUDY = {
     "protocolSection": {
         "identificationModule": {"nctId": "NCT01234567", "briefTitle": "Trial One"},
         "statusModule": {"overallStatus": "RECRUITING"},
-        "designModule": {"phases": ["PHASE2"], "enrollmentInfo": {"count": 50}},
+        "designModule": {
+            "phases": ["PHASE1", "PHASE2"],
+            "enrollmentInfo": {"count": 50},
+        },
         "conditionsModule": {"conditions": ["Melanoma"]},
         "armsInterventionsModule": {
             "interventions": [{"type": "DRUG", "name": "Widgetinib"}]
@@ -95,6 +98,7 @@ def test_search_returns_parsed_trials(ct_app: TestClient) -> None:
     assert body["total"] == 1
     assert body["studies"][0]["nct_id"] == "NCT01234567"
     assert body["studies"][0]["interventions"] == ["Widgetinib"]
+    assert body["studies"][0]["phase"] == ["PHASE1", "PHASE2"]
     assert body["page_size"] == 25
     assert body["page_token"] == request_marker
 

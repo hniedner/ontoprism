@@ -86,7 +86,7 @@ class SearchPage(StrictBoundaryModel):
 
 
 class BrowsePage(StrictBoundaryModel):
-    """A page in deterministic source browsing order."""
+    """A page in the requested deterministic browse sort order."""
 
     query: Literal[""] = ""
     total: int

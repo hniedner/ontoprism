@@ -23,7 +23,7 @@
 {/snippet}
 {#snippet statusCell(trial: CTStudySummary)}<span class="text-muted">{trial.status ?? '—'}</span>{/snippet}
 {#snippet phaseCell(trial: CTStudySummary)}
-	{#if trial.phase}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{trial.phase}</span>{:else}<span class="text-muted">—</span>{/if}
+	{#if trial.phase.length}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{trial.phase.join(', ')}</span>{:else}<span class="text-muted">—</span>{/if}
 {/snippet}
 
 <DataTable rows={studies} {columns} caption="ClinicalTrials.gov repository results" regionLabel="ClinicalTrials.gov repository results" getRowId={(trial) => trial.nct_id} {operations} {emptyMessage} stickyHeader={true} />
