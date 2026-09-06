@@ -455,6 +455,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
@@ -511,6 +512,9 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     assert calls[1]["group_packet"] == (
         tmp_path / "tmp/m1-6-group-review-packet-rev2.json"
     )
+    assert calls[1]["row_decisions"] == (
+        tmp_path / "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json"
+    )
     assert calls[1]["group_packet"] != (tmp_path / "tmp/m1-6-group-review-packet.json")
     assert calls[1]["r103_review_state"] == (
         tmp_path
@@ -566,6 +570,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
@@ -618,6 +623,7 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "tmp/m1-6-r103-review-packet.json",

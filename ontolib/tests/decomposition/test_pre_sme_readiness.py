@@ -13,9 +13,10 @@ from scripts.research.current_evidence import (
     CurrentEngineEvidence,
     CurrentRateMetric,
 )
+from scripts.research.golden_review import load_row_decisions
 from scripts.research.pre_sme_readiness import (
-    GroupingViews,
     MachineReadinessInputs,
+    MachineReadinessReport,
     PreSmeValidationError,
     PrimarySiteAudit,
     PrimarySiteObservation,
@@ -34,6 +35,7 @@ from ontolib.decomposition.corpus_baseline import (
     CorpusBaseline,
     corpus_baseline_identity,
 )
+from ontolib.decomposition.evaluation import MetricDenominatorRule
 from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
@@ -189,6 +191,7 @@ def _composed_readiness_inputs(
         "r101_report": unused,
         "r101_validation": validation_path,
         "proposal_registry": unused,
+        "row_decisions": golden / "neoplasm-row-decisions.json",
         "primary_site_audit": audit_path,
         "group_packet": unused,
         "r103_review_state": golden / "r103-review-state-26.07d-rev2.json",
@@ -200,7 +203,7 @@ def _composed_readiness_inputs(
 
 
 @pytest.mark.unit
-def test_primary_site_liveness_rejects_two_resolved_and_minus_one_passes(
+def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
     tmp_path: Path,
 ) -> None:
     artifact = tmp_path / "corpus.ttl"
@@ -210,13 +213,16 @@ def test_primary_site_liveness_rejects_two_resolved_and_minus_one_passes(
         + _site_line("C2", "C12", review=True)
     )
 
-    with pytest.raises(PreSmeValidationError, match="at most one resolved"):
-        audit_primary_site_artifact(
-            artifact=artifact,
-            baseline=_baseline(artifact),
-            source_identity="a" * 64,
-            source_release="26.07d",
-        )
+    blocked = audit_primary_site_artifact(
+        artifact=artifact,
+        baseline=_baseline(artifact),
+        source_identity="a" * 64,
+        source_release="26.07d",
+    )
+
+    assert [item.model_dump() for item in blocked.cardinality_violations] == [
+        {"concept_code": "C1", "filler_codes": ("C10", "C11")}
+    ]
 
     artifact.write_text(_site_line("C1", "C10") + _site_line("C2", "C12", review=True))
     audit = audit_primary_site_artifact(
@@ -228,6 +234,7 @@ def test_primary_site_liveness_rejects_two_resolved_and_minus_one_passes(
 
     assert audit.resolved_site_count == 1
     assert audit.review_required_site_count == 1
+    assert audit.cardinality_violations == ()
     assert audit.parser_passes == 1
 
 
@@ -364,7 +371,7 @@ ncit:C2 op:hasConstituent [ op:axis op:PrimarySubsite ; op:filler ncit:C11 ] .
                 PrimarySiteObservation(concept_code="C1", filler_code="C10"),
             ),
             (),
-            "resolved concepts",
+            "pairwise distinct",
         ),
         (
             (PrimarySiteObservation(concept_code="C1", filler_code="C10"),),
@@ -379,13 +386,14 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
     message: str,
 ) -> None:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_identity": "a" * 64,
         "source_release": "26.07d",
         "corpus_baseline_identity": "b" * 64,
         "corpus_artifact_identity": "c" * 64,
         "resolved_sites": resolved,
         "review_required_sites": review,
+        "cardinality_violations": (),
         "resolved_site_count": len(resolved),
         "review_required_site_count": len(review),
         "parser_passes": 1,
@@ -399,13 +407,14 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
 @pytest.mark.unit
 def test_primary_site_audit_model_refuses_zero_observations() -> None:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_identity": "a" * 64,
         "source_release": "26.07d",
         "corpus_baseline_identity": "b" * 64,
         "corpus_artifact_identity": "c" * 64,
         "resolved_sites": (),
         "review_required_sites": (),
+        "cardinality_violations": (),
         "resolved_site_count": 0,
         "review_required_site_count": 0,
         "parser_passes": 1,
@@ -431,9 +440,11 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "r101_current_packet_identity": "5" * 64,
         "r101_validation_identity": "6" * 64,
         "proposal_registry_identity": "7" * 64,
+        "row_decisions_identity": "d" * 64,
         "primary_site_audit_identity": "8" * 64,
         "primary_site_resolved_count": 1,
         "primary_site_review_required_count": 0,
+        "primary_site_cardinality_violations": (),
         "group_packet_identity": "9" * 64,
         "r103_packet_identity": "0" * 64,
         "verify_evidence_identity": "a" * 64,
@@ -441,6 +452,8 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "exact_pair_true_positive": 100,
         "exact_pair_emitted": 108,
         "exact_pair_expected": 153,
+        "historical_sme_include_count": 48,
+        "historical_engine_suggestion_count": 106,
         "full_partition_agreement": {
             "numerator": 2,
             "denominator": 20,
@@ -459,6 +472,255 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "r101_mechanical_unresolved": 0,
         "r101_non_r101_delta": 0,
     }
+
+
+@pytest.mark.unit
+def test_emitted_report_carries_all_five_metric_contracts_and_current_values() -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+
+    assert report.schema_version == 2
+    assert tuple(
+        (view.name, view.denominator_rule)
+        for view in (
+            report.metrics.sme_include_rate,
+            report.metrics.exact_pair_precision,
+            report.metrics.exact_pair_recall,
+            report.metrics.full_partition_agreement,
+            report.metrics.common_pair_partition_agreement,
+        )
+    ) == (
+        ("sme_include_rate", "historical_engine_suggestion_rows"),
+        ("exact_pair_precision", "current_emitted_ncit_bound_scoreable_pairs"),
+        ("exact_pair_recall", "ncit_bound_non_deferred_oracle_expectations"),
+        ("full_partition_agreement", "accepted_20_concept_cohort"),
+        (
+            "common_pair_partition_agreement",
+            "concepts_with_at_least_two_shared_pairs",
+        ),
+    )
+    assert report.metrics.sme_include_rate.fraction.model_dump() == {
+        "numerator": 48,
+        "denominator": 106,
+        "value": 48 / 106,
+    }
+    assert report.metrics.exact_pair_precision.fraction.numerator == 100
+    assert report.metrics.exact_pair_recall.fraction.numerator == 100
+    assert report.metrics.full_partition_agreement.fraction.denominator == 20
+    common = report.metrics.common_pair_partition_agreement.fraction
+    assert common.denominator == 18
+    assert common.ineligible == 2
+    assert report.quality_target.precision_at_least_90_percent is True
+    assert report.quality_target.recall_at_least_90_percent is False
+    assert report.quality_target.meets_quality_target is False
+
+
+@pytest.mark.unit
+def test_historical_include_rate_is_independent_of_current_engine_results() -> None:
+    baseline = _machine_readiness_input_payload()
+    changed = {**baseline, "exact_pair_true_positive": 81, "exact_pair_emitted": 100}
+
+    first = build_machine_readiness(MachineReadinessInputs.model_validate(baseline))
+    second = build_machine_readiness(MachineReadinessInputs.model_validate(changed))
+
+    assert first.metrics.sme_include_rate == second.metrics.sme_include_rate
+    assert first.metrics.exact_pair_precision != second.metrics.exact_pair_precision
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("true_positive", "emitted", "expected", "precision", "recall", "status"),
+    [
+        (80, 106, 153, False, False, "failed"),
+        (81, 107, 153, True, True, "passed"),
+        (80, 105, 153, True, False, "failed"),
+        (81, 108, 154, False, True, "failed"),
+    ],
+)
+def test_m1_6_improvement_gate_uses_exact_strict_fraction_comparisons(
+    true_positive: int,
+    emitted: int,
+    expected: int,
+    precision: bool,
+    recall: bool,
+    status: str,
+) -> None:
+    payload = _machine_readiness_input_payload()
+    payload.update(
+        exact_pair_true_positive=true_positive,
+        exact_pair_emitted=emitted,
+        exact_pair_expected=expected,
+    )
+
+    gate = build_machine_readiness(
+        MachineReadinessInputs.model_validate(payload)
+    ).m1_6_improvement
+
+    assert (gate.precision_improved, gate.recall_improved, gate.status) == (
+        precision,
+        recall,
+        status,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("true_positive", "emitted", "expected", "precision", "recall", "meets"),
+    [
+        (90, 100, 100, True, True, True),
+        (89, 98, 100, True, False, False),
+        (89, 100, 98, False, True, False),
+    ],
+)
+def test_quality_target_indicators_have_independent_inclusive_boundaries(
+    true_positive: int,
+    emitted: int,
+    expected: int,
+    precision: bool,
+    recall: bool,
+    meets: bool,
+) -> None:
+    payload = _machine_readiness_input_payload()
+    payload.update(
+        exact_pair_true_positive=true_positive,
+        exact_pair_emitted=emitted,
+        exact_pair_expected=expected,
+    )
+
+    target = build_machine_readiness(
+        MachineReadinessInputs.model_validate(payload)
+    ).quality_target
+
+    assert (
+        target.precision_at_least_90_percent,
+        target.recall_at_least_90_percent,
+        target.meets_quality_target,
+    ) == (precision, recall, meets)
+
+
+@pytest.mark.unit
+def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+
+    assert report.semantic_gate.status == "not-evaluated"
+    assert [entry.kind for entry in report.semantic_gate.entries] == [
+        "unclassified-delta",
+        "axis-contract-violation",
+        "normalized-group-violation",
+        "unadjudicated-golden-change",
+        "primary-site-cardinality",
+        "unexplained-r101-loss",
+    ]
+    deferred = report.semantic_gate.entries[:4]
+    assert all(entry.status == "not-evaluated" for entry in deferred)
+    assert all(not hasattr(entry, "blocker_count") for entry in deferred)
+    assert report.authorization is False
+    assert report.publication.status == "not-attempted"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value", "kind", "count"),
+    [
+        (
+            "primary_site_cardinality_violations",
+            ({"concept_code": "C1", "filler_codes": ("C10", "C11")},),
+            "primary-site-cardinality",
+            1,
+        ),
+        ("r101_mechanical_unresolved", 2, "unexplained-r101-loss", 2),
+        ("r101_non_r101_delta", 3, "unclassified-delta", 3),
+    ],
+)
+def test_supported_semantic_violations_emit_blocked_reports(
+    field: str, value: object, kind: str, count: int
+) -> None:
+    payload = _machine_readiness_input_payload()
+    payload[field] = value
+
+    report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
+    blocker = next(
+        entry for entry in report.semantic_gate.entries if entry.kind == kind
+    )
+
+    assert report.semantic_gate.status == "blocked"
+    assert blocker.status == "blocked"
+    assert blocker.blocker_count == count
+    assert blocker.evidence
+
+
+@pytest.mark.unit
+def test_high_metrics_cannot_clear_incomplete_semantic_gate() -> None:
+    payload = _machine_readiness_input_payload()
+    payload["exact_pair_true_positive"] = 100
+    payload["exact_pair_emitted"] = 100
+    payload["exact_pair_expected"] = 100
+
+    report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
+
+    assert report.quality_target.meets_quality_target is True
+    assert report.semantic_gate.status == "not-evaluated"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "mutation", ["duplicate-kind", "blocked-zero", "not-evaluated-count"]
+)
+def test_semantic_gate_rejects_invalid_correlated_variants(mutation: str) -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+    payload = report.model_dump(mode="python")
+    entries = list(payload["semantic_gate"]["entries"])
+    if mutation == "duplicate-kind":
+        entries[1]["kind"] = entries[0]["kind"]
+    elif mutation == "blocked-zero":
+        entries[4] = {
+            "kind": "primary-site-cardinality",
+            "status": "blocked",
+            "blocker_count": 0,
+            "evidence": ["audit:" + "8" * 64],
+        }
+    else:
+        entries[0]["blocker_count"] = 0
+    payload["semantic_gate"]["entries"] = tuple(entries)
+
+    with pytest.raises(
+        ValueError, match=r"semantic|blocker|greater than 0|Extra inputs"
+    ):
+        type(report).model_validate(payload)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("identities", "row_decisions_identity"), "f" * 64),
+        (("metrics", "sme_include_rate", "fraction", "numerator"), 47),
+        (("m1_6_improvement", "precision_improved"), False),
+        (("quality_target", "recall_at_least_90_percent"), True),
+        (("semantic_gate", "entries", 0, "reason"), "changed reason"),
+    ],
+)
+def test_report_identity_binds_every_new_load_bearing_section(
+    path: tuple[str | int, ...], replacement: object
+) -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+    payload = report.model_dump(mode="python")
+    target: Any = payload
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = replacement
+
+    with pytest.raises(
+        ValueError, match=r"identity|indicator|fraction|metric|semantic|conjunction"
+    ):
+        type(report).model_validate(payload)
 
 
 @pytest.mark.unit
@@ -494,18 +756,14 @@ def test_machine_readiness_inputs_refuse_empty_grouping_denominator() -> None:
 
 @pytest.mark.unit
 def test_grouping_views_require_common_and_ineligible_to_cover_full_cohort() -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+    metrics = report.metrics.model_dump(mode="python")
+    metrics["common_pair_partition_agreement"]["fraction"]["ineligible"] = 1
+
     with pytest.raises(ValueError, match="grouping denominators"):
-        GroupingViews.model_validate(
-            {
-                "full_view": {"numerator": 2, "denominator": 20, "value": 0.1},
-                "common_pair_view": {
-                    "numerator": 5,
-                    "denominator": 18,
-                    "value": 5 / 18,
-                    "ineligible": 1,
-                },
-            }
-        )
+        ReadinessMetrics.model_validate(metrics)
 
 
 @pytest.mark.unit
@@ -555,65 +813,25 @@ def test_verify_evidence_writer_documents_fixed_publication_field_as_a_claim() -
 def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta() -> (
     None
 ):
-    report = build_machine_readiness(
-        MachineReadinessInputs(
-            source_identity="a" * 64,
-            source_manifest_identity="b" * 64,
-            current_evidence_identity="c" * 64,
-            current_comparison_identity="d" * 64,
-            sample_artifact_identity="e" * 64,
-            corpus_baseline_identity="f" * 64,
-            corpus_artifact_identity="1" * 64,
-            r101_report_identity="2" * 64,
-            r101_registry_identity=(
-                "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
-            ),
-            r101_existing_packet_identity="a" * 64,
-            r101_current_packet_identity="b" * 64,
-            r101_validation_identity="3" * 64,
-            proposal_registry_identity="4" * 64,
-            primary_site_audit_identity="5" * 64,
-            primary_site_resolved_count=8039,
-            primary_site_review_required_count=5918,
-            group_packet_identity="6" * 64,
-            r103_packet_identity="7" * 64,
-            verify_evidence_identity="8" * 64,
-            git_head="9" * 40,
-            exact_pair_true_positive=100,
-            exact_pair_emitted=108,
-            exact_pair_expected=153,
-            full_partition_agreement={
-                "numerator": 2,
-                "denominator": 20,
-                "value": 0.1,
-            },
-            common_partition_agreement={
-                "numerator": 5,
-                "denominator": 18,
-                "value": 5 / 18,
-                "ineligible": 2,
-            },
-            group_review_count=18,
-            r103_review_count=3,
-            r101_exact_validation_established=False,
-            r101_occurrence_count=3291,
-            r101_mechanical_unresolved=0,
-            r101_non_r101_delta=0,
-        )
+    payload = _machine_readiness_input_payload()
+    payload.update(
+        primary_site_resolved_count=8039,
+        primary_site_review_required_count=5918,
+        r101_occurrence_count=3291,
     )
+    report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
 
-    assert report.status == "awaiting-human-review"
+    assert report.status == "awaiting-later-evaluation"
     assert report.authorization is False
     assert report.publication.status == "not-attempted"
     assert report.publication.publication_writes_performed is False
-    assert report.metrics.exceeds_historical_thresholds is True
-    assert report.grouping.full_view != report.grouping.common_pair_view
-    assert report.grouping.full_view.model_dump() == {
+    assert report.m1_6_improvement.status == "passed"
+    assert report.metrics.full_partition_agreement.fraction.model_dump() == {
         "numerator": 2,
         "denominator": 20,
         "value": 0.1,
     }
-    assert report.grouping.common_pair_view.model_dump() == {
+    assert report.metrics.common_pair_partition_agreement.fraction.model_dump() == {
         "numerator": 5,
         "denominator": 18,
         "value": 5 / 18,
@@ -623,7 +841,7 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     assert report.primary_site_audit.review_required_site_count == 5918
     assert report.r101_mechanical_unresolved == 0
     assert report.r101_non_r101_delta == 0
-    assert report.claims.no_unadjudicated_delta is None
+    assert "claims" not in report.model_dump()
     assert [item.requirement for item in report.human_requirements] == [
         "group-review",
         "r103-review",
@@ -638,48 +856,14 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
 def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity() -> (
     None
 ):
-    inputs = MachineReadinessInputs(
-        source_identity="a" * 64,
-        source_manifest_identity="b" * 64,
-        current_evidence_identity="c" * 64,
-        current_comparison_identity="d" * 64,
-        sample_artifact_identity="e" * 64,
-        corpus_baseline_identity="f" * 64,
-        corpus_artifact_identity="1" * 64,
-        r101_report_identity="2" * 64,
-        r101_registry_identity="3" * 64,
+    payload = _machine_readiness_input_payload()
+    payload.update(
         r101_existing_packet_identity="4" * 64,
         r101_current_packet_identity="4" * 64,
-        r101_validation_identity="5" * 64,
-        proposal_registry_identity="6" * 64,
-        primary_site_audit_identity="7" * 64,
-        primary_site_resolved_count=8039,
-        primary_site_review_required_count=5918,
-        group_packet_identity="8" * 64,
-        r103_packet_identity="9" * 64,
-        verify_evidence_identity="0" * 64,
-        git_head="a" * 40,
-        exact_pair_true_positive=100,
-        exact_pair_emitted=108,
-        exact_pair_expected=153,
-        full_partition_agreement={
-            "numerator": 2,
-            "denominator": 20,
-            "value": 0.1,
-        },
-        common_partition_agreement={
-            "numerator": 5,
-            "denominator": 18,
-            "value": 5 / 18,
-            "ineligible": 2,
-        },
-        group_review_count=18,
-        r103_review_count=3,
         r101_exact_validation_established=True,
         r101_occurrence_count=3291,
-        r101_mechanical_unresolved=0,
-        r101_non_r101_delta=0,
     )
+    inputs = MachineReadinessInputs.model_validate(payload)
 
     requirement = build_machine_readiness(inputs).human_requirements[2]
 
@@ -693,56 +877,23 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
 def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities() -> (
     None
 ):
-    inputs = MachineReadinessInputs(
-        source_identity="a" * 64,
-        source_manifest_identity="b" * 64,
-        current_evidence_identity="c" * 64,
-        current_comparison_identity="d" * 64,
-        sample_artifact_identity="e" * 64,
-        corpus_baseline_identity="f" * 64,
-        corpus_artifact_identity="1" * 64,
-        r101_report_identity="2" * 64,
-        r101_registry_identity="3" * 64,
+    input_payload = _machine_readiness_input_payload()
+    input_payload.update(
         r101_existing_packet_identity="4" * 64,
         r101_current_packet_identity="4" * 64,
-        r101_validation_identity="5" * 64,
-        proposal_registry_identity="6" * 64,
-        primary_site_audit_identity="7" * 64,
-        primary_site_resolved_count=8039,
-        primary_site_review_required_count=5918,
-        group_packet_identity="8" * 64,
-        r103_packet_identity="9" * 64,
-        verify_evidence_identity="0" * 64,
-        git_head="a" * 40,
-        exact_pair_true_positive=100,
-        exact_pair_emitted=108,
-        exact_pair_expected=153,
-        full_partition_agreement={
-            "numerator": 2,
-            "denominator": 20,
-            "value": 0.1,
-        },
-        common_partition_agreement={
-            "numerator": 5,
-            "denominator": 18,
-            "value": 5 / 18,
-            "ineligible": 2,
-        },
-        group_review_count=18,
-        r103_review_count=3,
         r101_exact_validation_established=True,
         r101_occurrence_count=3291,
-        r101_mechanical_unresolved=0,
-        r101_non_r101_delta=0,
     )
+    inputs = MachineReadinessInputs.model_validate(input_payload)
     report = build_machine_readiness(inputs)
-    payload = report.model_dump(mode="json")
-    payload["human_requirements"][2] = {
+    payload = report.model_dump(mode="python")
+    requirements = list(payload["human_requirements"])
+    requirements[2] = {
         "requirement": "r101-ledger-authorization",
         "count": 3291,
         "status": "pending",
     }
-    payload["human_requirements"] = tuple(payload["human_requirements"])
+    payload["human_requirements"] = tuple(requirements)
 
     with pytest.raises(
         ValueError, match="R101 requirement differs from packet identities"
@@ -774,33 +925,17 @@ def test_tracked_r101_grouping_schema_contains_only_consumed_totals() -> None:
 
 
 @pytest.mark.unit
-def test_readiness_metrics_refuse_inconsistent_fraction_and_threshold_claims() -> None:
-    with pytest.raises(ValueError, match="fraction"):
-        ReadinessMetrics.model_validate(
-            {
-                "exact_pair_precision": {
-                    "numerator": 100,
-                    "denominator": 108,
-                    "value": 0.1,
-                },
-                "exact_pair_recall": {
-                    "numerator": 100,
-                    "denominator": 153,
-                    "value": 100 / 153,
-                },
-                "historical_precision": {
-                    "numerator": 80,
-                    "denominator": 106,
-                    "value": 80 / 106,
-                },
-                "historical_recall": {
-                    "numerator": 80,
-                    "denominator": 153,
-                    "value": 80 / 153,
-                },
-                "exceeds_historical_thresholds": True,
-            }
-        )
+def test_readiness_metrics_refuse_a_metric_with_another_views_denominator() -> None:
+    report = build_machine_readiness(
+        MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
+    )
+    metrics = report.metrics.model_dump(mode="python")
+    metrics["exact_pair_precision"]["denominator_rule"] = (
+        MetricDenominatorRule.NCIT_BOUND_ORACLE_EXPECTATIONS
+    )
+
+    with pytest.raises(ValueError, match="canonical contract"):
+        ReadinessMetrics.model_validate(metrics)
 
 
 @pytest.mark.unit
@@ -855,6 +990,7 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             r101_report=tmp_path / "absent-report.json.gz",
             r101_validation=tmp_path / "absent-r101-validation.json",
             proposal_registry=tmp_path / "absent-proposals.json",
+            row_decisions=tmp_path / "absent-row-decisions.json",
             primary_site_audit=tmp_path / "absent-audit.json",
             group_packet=tmp_path / "absent-group.json",
             r103_review_state=tmp_path / "absent-r103-state.json",
@@ -878,7 +1014,41 @@ def test_composed_readiness_derives_zero_delta_from_current_r101_report(
 
     assert readiness.r101_mechanical_unresolved == report.counts.unresolved
     assert readiness.r101_non_r101_delta == report.counts.non_r101_delta
+    rows = load_row_decisions(Path(arguments["row_decisions"]))
+    assert readiness.identities.row_decisions_identity == rows.payload_identity
+    assert readiness.metrics.sme_include_rate.fraction.numerator == 48
+    assert readiness.metrics.sme_include_rate.fraction.denominator == 106
     assert Path(arguments["output"]).is_file()
+    assert (
+        MachineReadinessReport.model_validate_json(
+            Path(arguments["output"]).read_bytes()
+        )
+        == readiness
+    )
+
+
+@pytest.mark.unit
+def test_composed_readiness_rejects_changed_historical_row_decisions_without_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    row_payload = json.loads(Path(arguments["row_decisions"]).read_text())
+    row_payload["rows"][0]["sme_action"] = (
+        "revise" if row_payload["rows"][0]["sme_action"] == "include" else "include"
+    )
+    row_payload["payload_identity"] = _identity(
+        {key: value for key, value in row_payload.items() if key != "payload_identity"}
+    )
+    changed = tmp_path / "changed-row-decisions.json"
+    changed.write_text(json.dumps(row_payload), encoding="utf-8")
+    arguments["row_decisions"] = changed
+
+    with pytest.raises(PreSmeValidationError, match="row decision"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit
@@ -1064,11 +1234,11 @@ def test_readiness_independently_rejects_mutated_embedded_packet_bindings(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failure", ["stale-verify", "identity", "counts", "metrics"])
+@pytest.mark.parametrize("failure", ["stale-verify", "identity", "metrics"])
 def test_composed_readiness_reject_branches_are_live_without_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    arguments, module, report, comparison, group = _composed_readiness_inputs(
+    arguments, module, _report, comparison, group = _composed_readiness_inputs(
         tmp_path, monkeypatch
     )
     if failure == "stale-verify":
@@ -1091,12 +1261,6 @@ def test_composed_readiness_reject_branches_are_live_without_output(
                     "current_evidence_identity": "f" * 64,
                 }
             ),
-        )
-    elif failure == "counts":
-        bad_counts = report.counts.model_copy(update={"unresolved": 1})
-        bad_report = report.model_copy(update={"counts": bad_counts})
-        monkeypatch.setattr(
-            module, "load_r101_conservation_report", lambda _path: bad_report
         )
     else:
         recall = comparison.metrics.exact_pair_recall
@@ -1125,6 +1289,31 @@ def test_composed_readiness_reject_branches_are_live_without_output(
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_composed_readiness_emits_blocked_report_for_valid_unresolved_r101(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, module, report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    bad_counts = report.counts.model_copy(update={"unresolved": 1})
+    blocked_report = report.model_copy(update={"counts": bad_counts})
+    monkeypatch.setattr(
+        module, "load_r101_conservation_report", lambda _path: blocked_report
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.status == "machine-blocked"
+    blocker = next(
+        item
+        for item in readiness.semantic_gate.entries
+        if item.kind == "unexplained-r101-loss"
+    )
+    assert blocker.status == "blocked"
+    assert Path(arguments["output"]).is_file()
 
 
 @pytest.mark.unit

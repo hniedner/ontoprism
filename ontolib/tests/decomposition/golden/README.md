@@ -430,7 +430,7 @@ The operation observes the clean Git HEAD before and after running the literal
 selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
 local machine evidence and performs no ontology or store publication.
 
-After the current comparison, R101 reuse validation, primary-site audit, schema-4
+After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, schema-4
 `tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
 source manifest, and current-HEAD verify evidence all exist, generate the pending-human
 report from a clean worktree:
@@ -446,10 +446,17 @@ count, and packet-identity checks; it does not interpret registry decisions or d
 semantics in the report. Therefore changed or malformed registry or dry-run state still
 fails readiness closed, while all three R103 rows remain pending human requirements.
 
-The operation validates all fixed input identities and cohort invariants, refuses verify
-evidence from another Git HEAD, and atomically writes
-`tmp/m1-6-machine-readiness.json`. The output remains
-`awaiting-human-review`, records no authorization, and does not perform publication.
+The operation validates all fixed input identities and cohort invariants, including the
+row-decision identity that supplies the immutable historical 48/106 SME include rate,
+refuses verify evidence from another Git HEAD, and atomically writes
+`tmp/m1-6-machine-readiness.json`. Schema 2 reports the five named metric contracts,
+the strict M1.6 improvement gate, the separate #44 quality indicators, and one canonical
+entry for each semantic blocker. Unsupported later detectors remain `not-evaluated`
+with their owning issue; valid primary-site, R101-loss, or observed non-R101-delta
+violations produce a blocked report rather than publication authorization. The output
+always records authorization false and publication `not-attempted`
+(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
+2026-09-06).
 
 Generate the exhaustive fanout observation against the configured current source:
 
