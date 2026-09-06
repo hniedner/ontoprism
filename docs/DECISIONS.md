@@ -577,6 +577,19 @@ two reported high advisories are resolved at patched transitive versions, and op
 (`npm audit --prefix frontend --json` and `npm install-scripts ls --prefix frontend`,
 2026-08-14).
 
+**Current-status addition (2026-09-06):** `MachineReadinessReport` schema 2 now emits
+all five canonical metric names with their denominator rules, represents strict M1.6
+improvement and #44's inclusive 0.9 indicators separately, and carries the closed
+semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
+states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
+2026-09-06). A zero delta from the R101-isolated comparison remains not evaluated for
+total full-corpus classification; primary-site cardinality and unexplained R101 loss
+are evaluated from their identity-bound evidence, while #274 owns the deferred axis,
+normalized-group, and golden-cohort detectors and #127 owns total delta classification
+(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
+2026-09-06). The current high-severity npm audit reports no vulnerabilities
+(`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
+
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 
 ### D73. NCIt P334 values publish as proposed close alignments to ICD-O-3.2

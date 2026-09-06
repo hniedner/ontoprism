@@ -22,10 +22,16 @@ from scripts.research.current_evidence import (
     CurrentMetrics,
     validate_current_comparison,
 )
+from scripts.research.golden_review import load_row_decisions
 from scripts.research.group_review_packet import load_group_review_packet
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
+from ontolib.decomposition.evaluation import (
+    M1_6_METRIC_CONTRACTS,
+    EvaluationMetricName,
+    MetricDenominatorRule,
+)
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.r101_conservation import (
     R101ConservationReport,
@@ -53,6 +59,7 @@ _GROUP_REVIEW = "group-review"
 _R103_REVIEW = "r103-review"
 _R101_AUTHORIZATION = "r101-ledger-authorization"
 _FINAL_ACCEPTANCE = "final-full-corpus-scientific-acceptance-and-publication"
+_ACCEPTED_COHORT_COUNT = 20
 
 
 class PreSmeValidationError(ValueError):
@@ -112,14 +119,46 @@ class PrimarySiteObservation(_StrictModel):
     filler_code: str = Field(pattern=r"^C[0-9]+$")
 
 
+class PrimarySiteCardinalityViolation(_StrictModel):
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    filler_codes: tuple[str, ...] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _validate_fillers(self) -> Self:
+        if self.filler_codes != tuple(sorted(set(self.filler_codes))):
+            raise ValueError(
+                "primary-site violation fillers must be canonical and unique"
+            )
+        return self
+
+
+def _primary_site_cardinality_violations(
+    observations: tuple[PrimarySiteObservation, ...] | list[PrimarySiteObservation],
+) -> tuple[PrimarySiteCardinalityViolation, ...]:
+    by_concept: dict[str, set[str]] = {}
+    for observation in observations:
+        by_concept.setdefault(observation.concept_code, set()).add(
+            observation.filler_code
+        )
+    return tuple(
+        PrimarySiteCardinalityViolation(
+            concept_code=concept_code,
+            filler_codes=tuple(sorted(fillers)),
+        )
+        for concept_code, fillers in sorted(by_concept.items())
+        if len(fillers) > 1
+    )
+
+
 class PrimarySiteAudit(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     source_identity: str = Field(pattern=_SHA256)
     source_release: str
     corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
     resolved_sites: tuple[PrimarySiteObservation, ...]
     review_required_sites: tuple[PrimarySiteObservation, ...]
+    cardinality_violations: tuple[PrimarySiteCardinalityViolation, ...]
     resolved_site_count: int = Field(ge=0)
     review_required_site_count: int = Field(ge=0)
     parser_passes: Literal[1]
@@ -133,9 +172,6 @@ class PrimarySiteAudit(_StrictModel):
             raise ValueError("review-required site count differs")
         if self.resolved_site_count + self.review_required_site_count == 0:
             raise ValueError("primary-site audit requires at least one observation")
-        resolved_concepts = [item.concept_code for item in self.resolved_sites]
-        if len(resolved_concepts) != len(set(resolved_concepts)):
-            raise ValueError("resolved concepts must be unique")
         observations = [
             (item.concept_code, item.filler_code)
             for item in (*self.resolved_sites, *self.review_required_sites)
@@ -143,6 +179,11 @@ class PrimarySiteAudit(_StrictModel):
         if len(observations) != len(set(observations)):
             raise ValueError(
                 "resolved and review observations must be pairwise distinct"
+            )
+        expected_violations = _primary_site_cardinality_violations(self.resolved_sites)
+        if self.cardinality_violations != expected_violations:
+            raise ValueError(
+                "primary-site cardinality violations differ from observations"
             )
         expected = _identity(self.model_dump(mode="json", exclude={"audit_identity"}))
         if self.audit_identity != expected:
@@ -161,7 +202,6 @@ class _PrimarySiteStore(Store):
         self.resolved: list[PrimarySiteObservation] = []
         self.review: list[PrimarySiteObservation] = []
         self._seen: set[tuple[str, str, bool]] = set()
-        self._resolved_by_concept: dict[str, str] = {}
 
     @property
     def has_unbound_parts(self) -> bool:
@@ -200,7 +240,7 @@ class _PrimarySiteStore(Store):
                 raise PreSmeValidationError("duplicate needs-review data")
             part["review"] = value
 
-    def _add_constituent(  # noqa: C901, PLR0912 - validates the complete observation
+    def _add_constituent(  # noqa: C901 - validates the complete observation
         self, subject: rdflib.Node, value: rdflib.Node
     ) -> None:
         if not isinstance(value, rdflib.BNode):
@@ -238,12 +278,6 @@ class _PrimarySiteStore(Store):
         if review:
             self.review.append(observation)
             return
-        previous = self._resolved_by_concept.setdefault(concept_code, filler_code)
-        if previous != filler_code:
-            raise PreSmeValidationError(
-                f"{concept_code} has more than one resolved primary site; "
-                "at most one resolved site is permitted"
-            )
         self.resolved.append(observation)
 
 
@@ -293,13 +327,14 @@ def audit_primary_site_artifact(
     ):
         raise PreSmeValidationError("corpus artifact identity differs from baseline")
     payload: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_identity": source_identity,
         "source_release": source_release,
         "corpus_baseline_identity": baseline.baseline_identity,
         "corpus_artifact_identity": artifact_identity,
         "resolved_sites": tuple(store.resolved),
         "review_required_sites": tuple(store.review),
+        "cardinality_violations": _primary_site_cardinality_violations(store.resolved),
         "resolved_site_count": len(store.resolved),
         "review_required_site_count": len(store.review),
         "parser_passes": 1,
@@ -373,9 +408,11 @@ class MachineReadinessInputs(_StrictModel):
     r101_current_packet_identity: str = Field(pattern=_SHA256)
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    row_decisions_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     primary_site_resolved_count: int = Field(ge=0)
     primary_site_review_required_count: int = Field(ge=0)
+    primary_site_cardinality_violations: tuple[PrimarySiteCardinalityViolation, ...]
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
@@ -386,14 +423,16 @@ class MachineReadinessInputs(_StrictModel):
     exact_pair_true_positive: int = Field(ge=0)
     exact_pair_emitted: int = Field(gt=0)
     exact_pair_expected: int = Field(gt=0)
+    historical_sme_include_count: int = Field(ge=0)
+    historical_engine_suggestion_count: int = Field(gt=0)
     full_partition_agreement: ValidatedFraction
     common_partition_agreement: CommonValidatedFraction
     group_review_count: Literal[18]
     r103_review_count: Literal[3]
     r101_exact_validation_established: bool
     r101_occurrence_count: int = Field(gt=0)
-    r101_mechanical_unresolved: Literal[0]
-    r101_non_r101_delta: Literal[0]
+    r101_mechanical_unresolved: int = Field(ge=0)
+    r101_non_r101_delta: int = Field(ge=0)
 
     @model_validator(mode="after")
     def _validate_reuse_status(self) -> Self:
@@ -411,6 +450,26 @@ class MachineReadinessInputs(_StrictModel):
             != self.full_partition_agreement.denominator
         ):
             raise ValueError("grouping denominators do not describe one cohort")
+        if self.full_partition_agreement.denominator != _ACCEPTED_COHORT_COUNT:
+            raise ValueError(
+                "full partition agreement must cover the 20-concept cohort"
+            )
+        if self.exact_pair_true_positive > min(
+            self.exact_pair_emitted, self.exact_pair_expected
+        ):
+            raise ValueError("exact pair true-positive count exceeds a denominator")
+        if self.historical_sme_include_count > self.historical_engine_suggestion_count:
+            raise ValueError("historical include count exceeds suggestion count")
+        violation_concepts = tuple(
+            item.concept_code for item in self.primary_site_cardinality_violations
+        )
+        if violation_concepts != tuple(sorted(set(violation_concepts))):
+            raise ValueError("primary-site violations must be canonical and unique")
+        if (
+            len(self.primary_site_cardinality_violations)
+            > self.primary_site_resolved_count
+        ):
+            raise ValueError("primary-site violations exceed resolved observations")
         return self
 
     @model_validator(mode="after")
@@ -526,35 +585,105 @@ def generate_r101_reuse_validation(
     return result
 
 
-class ReadinessMetrics(_StrictModel):
-    exact_pair_precision: ValidatedFraction
-    exact_pair_recall: ValidatedFraction
-    historical_precision: ValidatedFraction
-    historical_recall: ValidatedFraction
-    exceeds_historical_thresholds: bool
+class MetricView(_StrictModel):
+    name: EvaluationMetricName
+    denominator_rule: MetricDenominatorRule
+    fraction: ValidatedFraction
 
     @model_validator(mode="after")
-    def _validate_thresholds(self) -> Self:
-        exceeds = (
-            self.exact_pair_precision.value > self.historical_precision.value
-            and self.exact_pair_recall.value > self.historical_recall.value
+    def _contract_is_canonical(self) -> Self:
+        expected = next(
+            contract.denominator
+            for contract in M1_6_METRIC_CONTRACTS
+            if contract.name == self.name
         )
-        if self.exceeds_historical_thresholds != exceeds:
-            raise ValueError("historical threshold claim differs from fractions")
+        if self.denominator_rule != expected:
+            raise ValueError("metric denominator rule differs from canonical contract")
         return self
 
 
-class GroupingViews(_StrictModel):
-    full_view: ValidatedFraction
-    common_pair_view: CommonValidatedFraction
+class CommonMetricView(_StrictModel):
+    name: Literal[EvaluationMetricName.COMMON_PAIR_PARTITION_AGREEMENT]
+    denominator_rule: Literal[MetricDenominatorRule.COMMON_PAIRS]
+    fraction: CommonValidatedFraction
+
+
+class ReadinessMetrics(_StrictModel):
+    sme_include_rate: MetricView
+    exact_pair_precision: MetricView
+    exact_pair_recall: MetricView
+    full_partition_agreement: MetricView
+    common_pair_partition_agreement: CommonMetricView
 
     @model_validator(mode="after")
-    def _views_share_cohort(self) -> Self:
+    def _views_are_exactly_the_five_contracts(self) -> Self:
+        views = (
+            self.sme_include_rate,
+            self.exact_pair_precision,
+            self.exact_pair_recall,
+            self.full_partition_agreement,
+            self.common_pair_partition_agreement,
+        )
+        actual = tuple((view.name, view.denominator_rule) for view in views)
+        expected = tuple(
+            (contract.name, contract.denominator) for contract in M1_6_METRIC_CONTRACTS
+        )
+        if actual != expected:
+            raise ValueError(
+                "readiness metrics differ from the five canonical contracts"
+            )
         if (
-            self.common_pair_view.denominator + self.common_pair_view.ineligible
-            != self.full_view.denominator
+            self.exact_pair_precision.fraction.numerator
+            != self.exact_pair_recall.fraction.numerator
+        ):
+            raise ValueError("exact pair true-positive counts differ")
+        common = self.common_pair_partition_agreement.fraction
+        if (
+            common.denominator + common.ineligible
+            != self.full_partition_agreement.fraction.denominator
         ):
             raise ValueError("grouping denominators do not describe one cohort")
+        return self
+
+
+class M16ImprovementGate(_StrictModel):
+    status: Literal["passed", "failed"]
+    precision_baseline: ValidatedFraction
+    recall_baseline: ValidatedFraction
+    precision_improved: bool
+    recall_improved: bool
+
+    @model_validator(mode="after")
+    def _validate_exact_comparisons(self) -> Self:
+        if self.precision_baseline != ValidatedFraction(
+            numerator=80, denominator=106, value=80 / 106
+        ) or self.recall_baseline != ValidatedFraction(
+            numerator=80, denominator=153, value=80 / 153
+        ):
+            raise ValueError("M1.6 baseline fractions differ")
+        expected_status = (
+            "passed" if self.precision_improved and self.recall_improved else "failed"
+        )
+        if self.status != expected_status:
+            raise ValueError("M1.6 improvement status differs from indicators")
+        return self
+
+
+class QualityTargetIndicators(_StrictModel):
+    threshold: ValidatedFraction
+    precision_at_least_90_percent: bool
+    recall_at_least_90_percent: bool
+    meets_quality_target: bool
+
+    @model_validator(mode="after")
+    def _validate_conjunction(self) -> Self:
+        if self.threshold != ValidatedFraction(numerator=9, denominator=10, value=0.9):
+            raise ValueError("quality target threshold differs")
+        expected = (
+            self.precision_at_least_90_percent and self.recall_at_least_90_percent
+        )
+        if self.meets_quality_target != expected:
+            raise ValueError("quality target conjunction differs")
         return self
 
 
@@ -562,11 +691,17 @@ class PrimarySiteAuditSummary(_StrictModel):
     audit_identity: str = Field(pattern=_SHA256)
     resolved_site_count: int = Field(ge=0)
     review_required_site_count: int = Field(ge=0)
+    cardinality_violations: tuple[PrimarySiteCardinalityViolation, ...]
 
     @model_validator(mode="after")
     def _validate_nonempty(self) -> Self:
         if self.resolved_site_count + self.review_required_site_count == 0:
             raise ValueError("primary-site audit requires at least one observation")
+        concepts = tuple(item.concept_code for item in self.cardinality_violations)
+        if concepts != tuple(sorted(set(concepts))):
+            raise ValueError("primary-site violations must be canonical and unique")
+        if len(self.cardinality_violations) > self.resolved_site_count:
+            raise ValueError("primary-site violations exceed resolved observations")
         return self
 
 
@@ -575,10 +710,73 @@ class PublicationState(_StrictModel):
     publication_writes_performed: Literal[False]
 
 
-class ReadinessClaims(_StrictModel):
-    """Claims withheld until human review; null means deliberately unasserted."""
+SemanticBlockerKind = Literal[
+    "unclassified-delta",
+    "axis-contract-violation",
+    "normalized-group-violation",
+    "unadjudicated-golden-change",
+    "primary-site-cardinality",
+    "unexplained-r101-loss",
+]
 
-    no_unadjudicated_delta: None
+
+class ClearSemanticBlocker(_StrictModel):
+    kind: SemanticBlockerKind
+    status: Literal["clear"]
+    blocker_count: Literal[0]
+    evidence: tuple[str, ...] = Field(min_length=1)
+
+
+class BlockedSemanticBlocker(_StrictModel):
+    kind: SemanticBlockerKind
+    status: Literal["blocked"]
+    blocker_count: int = Field(gt=0)
+    evidence: tuple[str, ...] = Field(min_length=1)
+
+
+class NotEvaluatedSemanticBlocker(_StrictModel):
+    kind: SemanticBlockerKind
+    status: Literal["not-evaluated"]
+    owning_issue: str = Field(pattern=r"^#[0-9]+$")
+    reason: str = Field(min_length=1)
+
+
+SemanticBlocker = Annotated[
+    ClearSemanticBlocker | BlockedSemanticBlocker | NotEvaluatedSemanticBlocker,
+    Field(discriminator="status"),
+]
+
+
+_SEMANTIC_BLOCKER_KINDS: tuple[SemanticBlockerKind, ...] = (
+    "unclassified-delta",
+    "axis-contract-violation",
+    "normalized-group-violation",
+    "unadjudicated-golden-change",
+    "primary-site-cardinality",
+    "unexplained-r101-loss",
+)
+
+
+class SemanticGateSummary(_StrictModel):
+    status: Literal["clear", "blocked", "not-evaluated"]
+    entries: tuple[SemanticBlocker, ...]
+
+    @model_validator(mode="after")
+    def _validate_complete_taxonomy_and_aggregate(self) -> Self:
+        kinds = tuple(entry.kind for entry in self.entries)
+        if kinds != _SEMANTIC_BLOCKER_KINDS:
+            raise ValueError("semantic blocker taxonomy must be complete and canonical")
+        statuses = {entry.status for entry in self.entries}
+        expected = (
+            "blocked"
+            if "blocked" in statuses
+            else "not-evaluated"
+            if "not-evaluated" in statuses
+            else "clear"
+        )
+        if self.status != expected:
+            raise ValueError("semantic gate aggregate differs from blocker statuses")
+        return self
 
 
 RequirementKind = Literal[
@@ -640,6 +838,7 @@ class ReportIdentities(_StrictModel):
     r101_current_packet_identity: str = Field(pattern=_SHA256)
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    row_decisions_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
@@ -650,23 +849,28 @@ class ReportIdentities(_StrictModel):
 
 
 class MachineReadinessReport(_StrictModel):
-    schema_version: Literal[1]
-    status: Literal["awaiting-human-review"]
+    schema_version: Literal[2]
+    status: Literal[
+        "machine-blocked", "awaiting-later-evaluation", "awaiting-human-review"
+    ]
     authorization: Literal[False]
     publication: PublicationState
     identities: ReportIdentities
     metrics: ReadinessMetrics
-    grouping: GroupingViews
+    m1_6_improvement: M16ImprovementGate
+    quality_target: QualityTargetIndicators
+    semantic_gate: SemanticGateSummary
     primary_site_audit: PrimarySiteAuditSummary
     r101_occurrence_count: int = Field(gt=0)
-    r101_mechanical_unresolved: Literal[0]
-    r101_non_r101_delta: Literal[0]
-    claims: ReadinessClaims
+    r101_mechanical_unresolved: int = Field(ge=0)
+    r101_non_r101_delta: int = Field(ge=0)
     human_requirements: tuple[HumanRequirement, ...]
     report_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
-    def _validate_identity(self) -> Self:
+    def _validate_identity(  # noqa: C901, PLR0912 - cross-validates full report
+        self,
+    ) -> Self:
         requirements = [item.requirement for item in self.human_requirements]
         if len(requirements) != len(set(requirements)):
             raise ValueError("human requirements must be unique")
@@ -687,6 +891,52 @@ class MachineReadinessReport(_StrictModel):
             != self.identities.primary_site_audit_identity
         ):
             raise ValueError("primary-site audit summary identity differs")
+        precision = self.metrics.exact_pair_precision.fraction
+        recall = self.metrics.exact_pair_recall.fraction
+        precision_improved = precision.numerator * 106 > 80 * precision.denominator
+        recall_improved = recall.numerator * 153 > 80 * recall.denominator
+        if (
+            self.m1_6_improvement.precision_improved != precision_improved
+            or self.m1_6_improvement.recall_improved != recall_improved
+        ):
+            raise ValueError("M1.6 indicators differ from current metrics")
+        precision_target = precision.numerator * 10 >= 9 * precision.denominator
+        recall_target = recall.numerator * 10 >= 9 * recall.denominator
+        if (
+            self.quality_target.precision_at_least_90_percent != precision_target
+            or self.quality_target.recall_at_least_90_percent != recall_target
+        ):
+            raise ValueError("quality target indicators differ from current metrics")
+        expected_status = {
+            "blocked": "machine-blocked",
+            "not-evaluated": "awaiting-later-evaluation",
+            "clear": "awaiting-human-review",
+        }[self.semantic_gate.status]
+        if self.status != expected_status:
+            raise ValueError("readiness status differs from semantic gate")
+        blockers = {item.kind: item for item in self.semantic_gate.entries}
+        primary_site = blockers["primary-site-cardinality"]
+        primary_count = len(self.primary_site_audit.cardinality_violations)
+        if (
+            not isinstance(primary_site, (ClearSemanticBlocker, BlockedSemanticBlocker))
+            or primary_site.blocker_count != primary_count
+        ):
+            raise ValueError("primary-site blocker differs from audit")
+        r101_blocker = blockers["unexplained-r101-loss"]
+        if (
+            not isinstance(r101_blocker, (ClearSemanticBlocker, BlockedSemanticBlocker))
+            or r101_blocker.blocker_count != self.r101_mechanical_unresolved
+        ):
+            raise ValueError("R101 blocker differs from conservation count")
+        unclassified = blockers["unclassified-delta"]
+        if self.r101_non_r101_delta:
+            if (
+                not isinstance(unclassified, BlockedSemanticBlocker)
+                or unclassified.blocker_count != self.r101_non_r101_delta
+            ):
+                raise ValueError("unclassified blocker differs from narrow delta")
+        elif not isinstance(unclassified, NotEvaluatedSemanticBlocker):
+            raise ValueError("zero narrow delta cannot establish total classification")
         r101 = by_requirement[_R101_AUTHORIZATION]
         if r101.count != self.r101_occurrence_count:
             raise ValueError("R101 requirement count differs from report")
@@ -721,6 +971,92 @@ class MachineReadinessReport(_StrictModel):
         return self
 
 
+def _metric_view(
+    name: EvaluationMetricName, fraction: ValidatedFraction
+) -> dict[str, object]:
+    contract = next(item for item in M1_6_METRIC_CONTRACTS if item.name == name)
+    return {
+        "name": contract.name,
+        "denominator_rule": contract.denominator,
+        "fraction": fraction.model_dump(mode="json"),
+    }
+
+
+def _evaluated_blocker(
+    kind: SemanticBlockerKind,
+    blocker_count: int,
+    evidence: tuple[str, ...],
+) -> ClearSemanticBlocker | BlockedSemanticBlocker:
+    if blocker_count:
+        return BlockedSemanticBlocker(
+            kind=kind,
+            status="blocked",
+            blocker_count=blocker_count,
+            evidence=evidence,
+        )
+    return ClearSemanticBlocker(
+        kind=kind, status="clear", blocker_count=0, evidence=evidence
+    )
+
+
+def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
+    entries: tuple[SemanticBlocker, ...] = (
+        (
+            _evaluated_blocker(
+                "unclassified-delta",
+                inputs.r101_non_r101_delta,
+                (f"r101-isolated-report:{inputs.r101_report_identity}",),
+            )
+            if inputs.r101_non_r101_delta
+            else NotEvaluatedSemanticBlocker(
+                kind="unclassified-delta",
+                status="not-evaluated",
+                owning_issue="#127",
+                reason=(
+                    "the R101-isolated report observed zero non-R101 deltas but is "
+                    "not a total full-corpus delta classification"
+                ),
+            )
+        ),
+        NotEvaluatedSemanticBlocker(
+            kind="axis-contract-violation",
+            status="not-evaluated",
+            owning_issue="#274",
+            reason="the final stabilized current-engine contract detector has not run",
+        ),
+        NotEvaluatedSemanticBlocker(
+            kind="normalized-group-violation",
+            status="not-evaluated",
+            owning_issue="#274",
+            reason="the final normalized-group correction and detector have not run",
+        ),
+        NotEvaluatedSemanticBlocker(
+            kind="unadjudicated-golden-change",
+            status="not-evaluated",
+            owning_issue="#274",
+            reason="the final current-engine golden-cohort replay has not run",
+        ),
+        _evaluated_blocker(
+            "primary-site-cardinality",
+            len(inputs.primary_site_cardinality_violations),
+            (f"primary-site-audit:{inputs.primary_site_audit_identity}",),
+        ),
+        _evaluated_blocker(
+            "unexplained-r101-loss",
+            inputs.r101_mechanical_unresolved,
+            (f"r101-conservation-report:{inputs.r101_report_identity}",),
+        ),
+    )
+    status = (
+        "blocked"
+        if any(item.status == "blocked" for item in entries)
+        else "not-evaluated"
+        if any(item.status == "not-evaluated" for item in entries)
+        else "clear"
+    )
+    return SemanticGateSummary(status=status, entries=entries)
+
+
 def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessReport:
     # D59 baseline is 80/106 precision and 80/153 recall
     # (`pdm run agent-test ontolib/tests/decomposition/test_m1_baseline.py -v`,
@@ -731,8 +1067,12 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     recall_better = (
         inputs.exact_pair_true_positive * 153 > 80 * inputs.exact_pair_expected
     )
-    if not precision_better or not recall_better:
-        raise PreSmeValidationError("current exact-pair metrics do not exceed baseline")
+    precision_target = (
+        inputs.exact_pair_true_positive * 10 >= 9 * inputs.exact_pair_emitted
+    )
+    recall_target = (
+        inputs.exact_pair_true_positive * 10 >= 9 * inputs.exact_pair_expected
+    )
     requirements: list[
         PendingHumanRequirement | SatisfiedR101Requirement | SatisfiedR103Requirement
     ] = [
@@ -781,9 +1121,25 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             status="pending",
         )
     )
+    semantic_gate = _semantic_gate(inputs)
+    report_status = {
+        "blocked": "machine-blocked",
+        "not-evaluated": "awaiting-later-evaluation",
+        "clear": "awaiting-human-review",
+    }[semantic_gate.status]
+    precision = ValidatedFraction(
+        numerator=inputs.exact_pair_true_positive,
+        denominator=inputs.exact_pair_emitted,
+        value=inputs.exact_pair_true_positive / inputs.exact_pair_emitted,
+    )
+    recall = ValidatedFraction(
+        numerator=inputs.exact_pair_true_positive,
+        denominator=inputs.exact_pair_expected,
+        value=inputs.exact_pair_true_positive / inputs.exact_pair_expected,
+    )
     payload: dict[str, object] = {
-        "schema_version": 1,
-        "status": "awaiting-human-review",
+        "schema_version": 2,
+        "status": report_status,
         "authorization": False,
         "publication": {
             "status": "not-attempted",
@@ -795,43 +1151,64 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             if key.endswith("identity") or key == "git_head"
         },
         "metrics": {
-            "exact_pair_precision": {
-                "numerator": inputs.exact_pair_true_positive,
-                "denominator": inputs.exact_pair_emitted,
-                "value": inputs.exact_pair_true_positive / inputs.exact_pair_emitted,
+            "sme_include_rate": _metric_view(
+                EvaluationMetricName.SME_INCLUDE_RATE,
+                ValidatedFraction(
+                    numerator=inputs.historical_sme_include_count,
+                    denominator=inputs.historical_engine_suggestion_count,
+                    value=(
+                        inputs.historical_sme_include_count
+                        / inputs.historical_engine_suggestion_count
+                    ),
+                ),
+            ),
+            "exact_pair_precision": _metric_view(
+                EvaluationMetricName.EXACT_PAIR_PRECISION, precision
+            ),
+            "exact_pair_recall": _metric_view(
+                EvaluationMetricName.EXACT_PAIR_RECALL, recall
+            ),
+            "full_partition_agreement": _metric_view(
+                EvaluationMetricName.FULL_PARTITION_AGREEMENT,
+                inputs.full_partition_agreement,
+            ),
+            "common_pair_partition_agreement": {
+                "name": EvaluationMetricName.COMMON_PAIR_PARTITION_AGREEMENT,
+                "denominator_rule": MetricDenominatorRule.COMMON_PAIRS,
+                "fraction": inputs.common_partition_agreement.model_dump(mode="json"),
             },
-            "exact_pair_recall": {
-                "numerator": inputs.exact_pair_true_positive,
-                "denominator": inputs.exact_pair_expected,
-                "value": inputs.exact_pair_true_positive / inputs.exact_pair_expected,
-            },
-            "historical_precision": {
+        },
+        "m1_6_improvement": {
+            "status": "passed" if precision_better and recall_better else "failed",
+            "precision_baseline": {
                 "numerator": 80,
                 "denominator": 106,
                 "value": 80 / 106,
             },
-            "historical_recall": {
+            "recall_baseline": {
                 "numerator": 80,
                 "denominator": 153,
                 "value": 80 / 153,
             },
-            "exceeds_historical_thresholds": True,
+            "precision_improved": precision_better,
+            "recall_improved": recall_better,
         },
-        "grouping": {
-            "full_view": inputs.full_partition_agreement.model_dump(mode="json"),
-            "common_pair_view": inputs.common_partition_agreement.model_dump(
-                mode="json"
-            ),
+        "quality_target": {
+            "threshold": {"numerator": 9, "denominator": 10, "value": 0.9},
+            "precision_at_least_90_percent": precision_target,
+            "recall_at_least_90_percent": recall_target,
+            "meets_quality_target": precision_target and recall_target,
         },
+        "semantic_gate": semantic_gate,
         "primary_site_audit": {
             "audit_identity": inputs.primary_site_audit_identity,
             "resolved_site_count": inputs.primary_site_resolved_count,
             "review_required_site_count": inputs.primary_site_review_required_count,
+            "cardinality_violations": inputs.primary_site_cardinality_violations,
         },
         "r101_occurrence_count": inputs.r101_occurrence_count,
         "r101_mechanical_unresolved": inputs.r101_mechanical_unresolved,
         "r101_non_r101_delta": inputs.r101_non_r101_delta,
-        "claims": {"no_unadjudicated_delta": None},
         "human_requirements": tuple(requirements),
     }
     return MachineReadinessReport.model_validate(
@@ -909,7 +1286,7 @@ def _validated_current_metrics(comparison: CurrentComparison) -> CurrentMetrics:
         raise PreSmeValidationError(str(exc)) from exc
 
 
-def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
+def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
     *,
     source_manifest: Path,
     current_evidence: Path,
@@ -919,6 +1296,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     r101_report: Path,
     r101_validation: Path,
     proposal_registry: Path,
+    row_decisions: Path,
     primary_site_audit: Path,
     group_packet: Path,
     r103_review_state: Path,
@@ -951,15 +1329,12 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         report = load_r101_conservation_report(r101_report)
         unresolved = report.counts.unresolved
         non_r101_delta = report.counts.non_r101_delta
-        if unresolved != 0 or non_r101_delta != 0:
-            raise PreSmeValidationError(
-                "R101 mechanical ledger is not zero-delta complete"
-            )
         validation_value, _validation_raw = _load_json_no_duplicates(
             r101_validation, "R101 current validation"
         )
         validation = R101ReuseValidation.model_validate(validation_value)
         proposals = load_proposal_registry(proposal_registry)
+        historical_rows = load_row_decisions(row_decisions)
         audit = PrimarySiteAudit.model_validate_json(
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
@@ -993,6 +1368,10 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             "proposal",
         ),
         (
+            historical_rows.payload_identity == evidence.row_decision_identity,
+            "row decision",
+        ),
+        (
             group.current_evidence_identity == evidence.evidence_identity,
             "group evidence",
         ),
@@ -1012,6 +1391,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = _validated_current_metrics(comparison)
+    historical_tally = historical_rows.cross_tab().engine_suggestion
     if (
         metrics.full_partition_agreement.rate is None
         or metrics.common_pair_partition_agreement.rate is None
@@ -1040,9 +1420,11 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r101_current_packet_identity=validation.current_packet_identity,
             r101_validation_identity=validation.validation_identity,
             proposal_registry_identity=proposals.registry_identity,
+            row_decisions_identity=historical_rows.payload_identity,
             primary_site_audit_identity=audit.audit_identity,
             primary_site_resolved_count=audit.resolved_site_count,
             primary_site_review_required_count=audit.review_required_site_count,
+            primary_site_cardinality_violations=audit.cardinality_violations,
             group_packet_identity=group.packet_identity,
             r103_packet_identity=r103.packet_identity,
             r103_registry_identity=r103_revision.registry.registry_identity,
@@ -1055,6 +1437,8 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             exact_pair_true_positive=metrics.exact_pair_precision.numerator,
             exact_pair_emitted=metrics.exact_pair_precision.denominator,
             exact_pair_expected=metrics.exact_pair_recall.denominator,
+            historical_sme_include_count=historical_tally.include,
+            historical_engine_suggestion_count=historical_tally.adjudicated,
             full_partition_agreement=ValidatedFraction(
                 numerator=metrics.full_partition_agreement.numerator,
                 denominator=metrics.full_partition_agreement.denominator,
@@ -1075,14 +1459,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc
-    if (
-        inputs.exact_pair_true_positive,
-        inputs.exact_pair_emitted,
-        inputs.exact_pair_expected,
-    ) != (100, 108, 153):
-        raise PreSmeValidationError(
-            "current exact-pair metrics differ from 100/108 and 100/153"
-        )
     readiness = build_machine_readiness(inputs)
     _atomic_write(output, _canonical_bytes(readiness))
     return readiness
