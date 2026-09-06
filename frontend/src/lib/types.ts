@@ -1,5 +1,7 @@
 // Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
+import type { PageSize } from './grid-state';
+
 export type RepresentationStatus = 'legacy-precoordinated';
 export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
 export type NcitSearchSort = 'relevance' | NcitBrowseSort;
@@ -540,7 +542,7 @@ export interface RefreshReport {
 
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
-export type CTPageSize = 10 | 25 | 50 | 100;
+export type CTPageSize = PageSize;
 export type CTStatus =
 	| 'ACTIVE_NOT_RECRUITING'
 	| 'APPROVED_FOR_MARKETING'

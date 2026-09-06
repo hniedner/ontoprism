@@ -1,14 +1,14 @@
 import { error, redirect } from '@sveltejs/kit';
 import { isPageSize, type PageSize } from '$lib/grid-state';
 
-export interface OffsetGridState<Sort extends string = string> {
+export interface OffsetGridState<Sort extends string> {
 	size: PageSize;
 	offset: number;
 	sort: Sort;
 	filters: Record<string, string[]>;
 }
 
-export interface OffsetGridSpec<Sort extends string = string> {
+export interface OffsetGridSpec<Sort extends string> {
 	defaultSort: Sort;
 	sorts: readonly Sort[];
 	filters: Readonly<Record<string, readonly string[]>>;
@@ -117,7 +117,7 @@ export function parseOffsetGridUrl<Sort extends string>(url: URL, spec: OffsetGr
 	return { query, state, canonical };
 }
 
-export interface RepositoryPageData<T, Sort extends string = string> { initial: { result: T; query: string } & OffsetGridState<Sort>; }
+export interface RepositoryPageData<T, Sort extends string> { initial: { result: T; query: string } & OffsetGridState<Sort>; }
 
 export async function loadRepositoryPage<T extends PageResult>(
 	url: URL,
