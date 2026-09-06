@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
 import { CT_PHASES, type CTStudySummary } from '$lib/types';
 import type { DataTableOperations } from './data-table/types';
@@ -53,12 +53,14 @@ describe('CtResultsTable', () => {
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
-	it('offers only the canonical filterable phases and never returned-only NA', () => {
+	it('offers only the canonical filterable phases and never returned-only NA', async () => {
 		const operations: DataTableOperations = { kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Relevance', filters: {}, busy: false, onintent: () => {} };
 		render(CtResultsTable, { studies, operations });
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Phase' }));
+		const phaseGroup = screen.getByRole('group', { name: 'Filter trial phases' });
 
-		for (const phase of CT_PHASES) expect(screen.getByRole('checkbox', { name: phase.replace('_', ' ') })).toBeInTheDocument();
-		expect(screen.queryByRole('checkbox', { name: 'NA' })).not.toBeInTheDocument();
+		for (const phase of CT_PHASES) expect(within(phaseGroup).getByRole('checkbox', { name: phase.replace('_', ' ') })).toBeInTheDocument();
+		expect(within(phaseGroup).queryByRole('checkbox', { name: 'NA' })).not.toBeInTheDocument();
 	});
 
 	it('preserves upstream order', () => {

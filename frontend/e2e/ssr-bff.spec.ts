@@ -118,6 +118,19 @@ test('all ICD-O datasets support search, pagination, detail, and explicit access
 		await expect(page.getByRole('heading', { name: code })).toBeVisible();
 	}
 
+	await page.goto('/repositories/icdo/3.2/morphology');
+	await page.getByRole('button', { name: 'Filter Behaviour' }).click();
+	await page.getByRole('group', { name: 'Filter ICD-O behaviours' }).getByRole('checkbox', { name: '9' }).check();
+	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology?behaviour=9');
+	await expect(page.getByText('No records matched the current query and filters.')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'ICD-O repository results' })).toHaveAttribute('aria-busy', 'false');
+	const activeBehaviour = page.getByRole('button', { name: 'Filter Behaviour, 1 selected: 9' });
+	await expect(activeBehaviour).toBeVisible();
+	const behaviourDialog = page.getByRole('dialog', { name: 'Behaviour filter' });
+	await expect(behaviourDialog).toBeVisible();
+	await behaviourDialog.getByRole('button', { name: 'Clear selections for Behaviour' }).click();
+	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology');
+
 	await page.goto('/repositories/icdo');
 	await expect(page.getByLabel('Ready and entitled').first()).toBeVisible();
 	const refused = await request.get('http://127.0.0.1:4174/repositories/icdo');
@@ -134,6 +147,10 @@ test('browser-side decomposition receives entitled ICD-O mappings through the BF
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({
 	page
 }) => {
+	const requestKey = 'GET /api/v1/ncit/list?limit=10&offset=0&sort=source';
+	const beforeResponse = await page.request.get('/api/v1/__test__/counts');
+	expect(beforeResponse.status()).toBe(200);
+	const before = (await beforeResponse.json()) as Record<string, number>;
 	const response = await page.goto('/repositories/ncit?size=10');
 
 	expect(response?.status()).toBe(200);
@@ -142,8 +159,8 @@ test('built adapter-node SSR includes NCIt browse data and hydration does not fe
 
 	const countsResponse = await page.request.get('/api/v1/__test__/counts');
 	expect(countsResponse.status()).toBe(200);
-	const counts = (await countsResponse.json()) as Record<string, number>;
-	expect(counts['GET /api/v1/ncit/list?limit=10&offset=0&sort=source']).toBe(1);
+	const after = (await countsResponse.json()) as Record<string, number>;
+	expect((after[requestKey] ?? 0) - (before[requestKey] ?? 0)).toBe(1);
 });
 
 test('NCIt search and pagination are URL state rerun through the server load', async ({ page }) => {

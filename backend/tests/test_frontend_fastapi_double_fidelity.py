@@ -1,14 +1,26 @@
-"""Validate the built-browser double's ICD-O, refresh, and mapping DTOs."""
+"""Validate built-browser page DTOs, input rejection, metadata echo, and mappings."""
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
 from test_support.frontend_fastapi_double import app
 
-from backend.api.v1.icdo import IcdoPage
+from backend.api.v1.icdo import (
+    IcdoDetail,
+    IcdoPage,
+    require_served_icdo_dataset,
+    validate_icdo_grid_filters,
+)
 from backend.api.v1.ncit import ConceptMappings
 from backend.api.v1.refresh import RefreshReport
 from ontolib.repositories.cadsr.models import CdeSearchPage
+from ontolib.repositories.icdo.models import (
+    IcdoAxis,
+    IcdoBehaviour,
+    IcdoRecordLevel,
+    decode_icdo_record,
+)
 from ontolib.terminologies.ncit.models import BrowsePage, SearchPage
 from ontolib.terminologies.uberon.models import UberonBrowsePage, UberonSearchPage
 
@@ -64,15 +76,54 @@ def test_double_local_repository_page_metadata_matches_production_contract(
     TypeAdapter(page_type).validate_python(body)
 
 
-def test_double_icdo_page_validates_against_production_dto() -> None:
+@pytest.mark.parametrize(
+    ("path", "code", "base", "specificity", "behaviour", "parent"),
+    [
+        ("/api/v1/icdo/3.2/morphology/list", "8503/0", "8503", None, "0", None),
+        ("/api/v1/icdo/4.0/morphology/list", "8240A/3", "8240", "A", "3", None),
+        ("/api/v1/icdo/4.0/topography/list", "C34.9", None, None, None, "C34"),
+    ],
+)
+def test_double_icdo_page_union_arms_validate_record_invariants(
+    path: str,
+    code: str,
+    base: str | None,
+    specificity: str | None,
+    behaviour: str | None,
+    parent: str | None,
+) -> None:
     with TestClient(app) as client:
-        response = client.get(
-            "/api/v1/icdo/4.0/topography/list",
-            headers={"X-ICDO-Entitlement": "licensed"},
-        )
+        response = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
 
     assert response.status_code == 200
     TypeAdapter(IcdoPage).validate_json(response.content)
+    record = decode_icdo_record(response.json()["hits"][0])
+    assert (
+        record.code,
+        record.base_morphology,
+        record.specificity,
+        record.behaviour,
+        record.parent_code,
+    ) == (code, base, specificity, behaviour, parent)
+
+
+@pytest.mark.parametrize(
+    ("path", "code"),
+    [
+        ("/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w", "8503/0"),
+        ("/api/v1/icdo/4.0/morphology/concepts/ODI0MEEvMw", "8240A/3"),
+        ("/api/v1/icdo/4.0/topography/concepts/QzM0Ljk", "C34.9"),
+    ],
+)
+def test_double_icdo_detail_union_arms_validate_record_invariants(
+    path: str, code: str
+) -> None:
+    with TestClient(app) as client:
+        response = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
+
+    assert response.status_code == 200
+    TypeAdapter(IcdoDetail).validate_json(response.content)
+    assert decode_icdo_record(response.json()["record"]).code == code
 
 
 @pytest.mark.parametrize(
@@ -93,7 +144,40 @@ def test_double_rejects_the_same_invalid_icdo_grid_inputs_as_production(
     assert response.status_code == 422
 
 
-def test_double_applies_and_echoes_valid_icdo_sort_and_repeated_filters() -> None:
+@pytest.mark.parametrize(
+    ("axis", "behaviour", "level", "path"),
+    [
+        ("topography", ["3"], None, "/api/v1/icdo/4.0/topography/list?behaviour=3"),
+        ("morphology", None, ["leaf"], "/api/v1/icdo/4.0/morphology/list?level=leaf"),
+    ],
+)
+def test_double_and_production_grid_validation_share_rejection_semantics(
+    axis: IcdoAxis,
+    behaviour: list[IcdoBehaviour] | None,
+    level: list[IcdoRecordLevel] | None,
+    path: str,
+) -> None:
+    with pytest.raises(HTTPException) as production_error:
+        validate_icdo_grid_filters(axis, behaviour, level)
+    with TestClient(app) as client:
+        doubled = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
+
+    assert production_error.value.status_code == doubled.status_code == 422
+
+
+def test_double_and_production_reject_unserved_detail_dataset_consistently() -> None:
+    with pytest.raises(HTTPException) as production_error:
+        require_served_icdo_dataset("3.2", "topography")
+    with TestClient(app) as client:
+        doubled = client.get(
+            "/api/v1/icdo/3.2/topography/concepts/QzM0Ljk",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert production_error.value.status_code == doubled.status_code == 422
+
+
+def test_double_echoes_valid_icdo_sort_and_applies_repeated_filters() -> None:
     with TestClient(app) as client:
         response = client.get(
             "/api/v1/icdo/4.0/topography/list",

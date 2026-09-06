@@ -40,6 +40,7 @@ describe('Uberon repository page table ownership', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Sort by Code' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=uberon&sort=code%3Aasc');
 
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Source, 1 selected: Uberon' }));
 		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cell Ontology' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=uberon&source=cl');
 
@@ -53,7 +54,7 @@ describe('Uberon repository page table ownership', () => {
 		expect(screen.getByRole('region', { name: 'Uberon and Cell Ontology repository results' })).toHaveAttribute('aria-busy', 'true');
 	});
 
-	it('keeps the server table and selected filter controls mounted for an empty page', () => {
+	it('keeps the server table and selected filter controls mounted for an empty page', async () => {
 		render(Page, {
 			data: {
 				initial: {
@@ -69,7 +70,8 @@ describe('Uberon repository page table ownership', () => {
 		});
 
 		expect(screen.getByRole('region', { name: 'Uberon and Cell Ontology repository results' })).toBeInTheDocument();
-		expect(screen.getByRole('columnheader', { name: 'Source' })).toBeInTheDocument();
+		expect(screen.getByRole('columnheader', { name: /Source/ })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Source, 1 selected: Uberon' }));
 		expect(screen.getByRole('checkbox', { name: 'Uberon' })).toBeChecked();
 		expect(screen.getByRole('button', { name: 'Clear source filter' })).toHaveTextContent('source: uberon');
 		expect(screen.getByRole('button', { name: 'Reset table' })).toBeInTheDocument();

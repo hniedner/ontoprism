@@ -15,11 +15,13 @@
 	} = $props();
 	let columns = $derived.by((): readonly DataTableColumn<TestRow>[] => [
 		{ id: 'name', label: 'Name', cell: nameCell, sortable: ['asc', 'desc'], sticky: sticky ? { side: 'left', offset: 0 } : undefined },
-		{ id: 'group', label: 'Group', cell: groupCell, filter: { kind: 'categorical', ariaLabel: 'Filter groups', options: [
+		{ id: 'group', label: 'Group', cell: groupCell, sortable: ['asc', 'desc'], filter: { kind: 'categorical', ariaLabel: 'Filter groups', options: [
 			{ value: 'Current', label: 'Current' }, { value: 'Archived', label: 'Archived' }
 		] } },
 		{ id: 'rank', label: 'Rank', cell: rankCell },
-		{ id: 'active', label: 'Active', cell: activeCell }
+		{ id: 'active', label: 'Active', cell: activeCell, filter: { kind: 'categorical', ariaLabel: 'Filter activity', options: [
+			{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }
+		] } }
 	]);
 </script>
 

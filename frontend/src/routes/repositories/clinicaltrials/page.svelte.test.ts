@@ -32,7 +32,10 @@ describe('ClinicalTrials.gov repository empty cursor page', () => {
 		render(Page, { data: data as never, params: {}, form: null });
 
 		expect(screen.getByRole('region', { name: 'ClinicalTrials.gov repository results' })).toBeInTheDocument();
-		expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual(['NCT ID', 'Title', 'Status', 'Phase']);
+		for (const name of ['NCT ID', 'Title', 'Status', 'Phase']) {
+			expect(screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+		}
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Status, 1 selected: RECRUITING' }));
 		expect(screen.getByRole('checkbox', { name: 'RECRUITING' })).toBeChecked();
 		expect(screen.getByRole('button', { name: 'Clear status filter' })).toHaveTextContent('status: RECRUITING');
 		expect(screen.getByText('No trials matched “melanoma”.')).toBeInTheDocument();

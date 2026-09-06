@@ -27,7 +27,7 @@
 	<div class="sr-only" aria-live="polite">{rows.length.toLocaleString()} rows displayed</div>
 	<table class="table-auto min-w-full border-separate border-spacing-0 text-sm">
 		<caption class="sr-only">{caption}</caption>
-		<DataTableHead {columns} {operations} {filters} {sort} {stickyHeader} onintent={emit} />
+		<DataTableHead {columns} {filters} {sort} {stickyHeader} onintent={emit} />
 		<DataTableBody {rows} {columns} {getRowId} {emptyMessage} />
 	</table>
 </div>

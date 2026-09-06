@@ -202,7 +202,10 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: IcdoEdition, axis: IcdoAxis) -> ServedIcdoDataset:
+def require_served_icdo_dataset(
+    edition: IcdoEdition, axis: IcdoAxis
+) -> ServedIcdoDataset:
+    """Return the requested served dataset or reject the unsupported pair."""
     dataset = ServedIcdoDataset.parse(edition, axis)
     if dataset is None:
         raise HTTPException(
@@ -212,11 +215,12 @@ def _dataset(edition: IcdoEdition, axis: IcdoAxis) -> ServedIcdoDataset:
     return dataset
 
 
-def _validate_grid_filters(
+def validate_icdo_grid_filters(
     axis: IcdoAxis,
     behaviour: list[IcdoBehaviour] | None,
     level: list[IcdoRecordLevel] | None,
 ) -> None:
+    """Reject filter values that do not apply to the requested ICD-O axis."""
     if axis == "topography":
         invalid = bool(behaviour) or "morphology" in (level or ())
     else:
@@ -304,7 +308,7 @@ def _decode_code(segment: str, edition: IcdoEdition, axis: IcdoAxis) -> str:
 async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: IcdoEdition, axis: IcdoAxis
 ) -> object:
-    dataset = _dataset(edition, axis)
+    dataset = require_served_icdo_dataset(edition, axis)
     result = await _ready(repository_metadata, dataset)
     return result.model_dump(mode="json")
 
@@ -374,8 +378,8 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    _validate_grid_filters(axis, behaviour, level)
-    dataset = _dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
@@ -413,8 +417,8 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    _validate_grid_filters(axis, behaviour, level)
-    dataset = _dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
@@ -448,7 +452,7 @@ async def detail(
     axis: IcdoAxis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
-    dataset = _dataset(edition, axis)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:

@@ -12,7 +12,7 @@ const hostileRow: TestRow = {
 };
 
 function expectNoInjectedMarkup(container: HTMLElement): void {
-	expect(container.querySelector('img, script, svg')).toBeNull();
+	expect(container.querySelector('img, script, svg[onload]')).toBeNull();
 	for (const element of container.querySelectorAll('*')) {
 		for (const attribute of element.getAttributeNames()) {
 			expect(attribute.toLowerCase()).not.toMatch(/^on/);

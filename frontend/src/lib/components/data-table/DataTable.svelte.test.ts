@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import DataTable from './DataTable.svelte';
@@ -12,7 +12,9 @@ const rows: readonly TestRow[] = [
 ];
 
 function bodyNames(): string[] {
-	return screen.getAllByRole('row').slice(2).map((row) => within(row).getAllByRole('cell')[0].textContent?.trim() ?? '');
+	return screen.getAllByRole('row')
+		.filter((row) => within(row).queryAllByRole('cell').length > 0)
+		.map((row) => within(row).getAllByRole('cell')[0].textContent?.trim() ?? '');
 }
 
 describe('DataTable server-owned operations', () => {
@@ -62,7 +64,17 @@ describe('DataTable server-owned operations', () => {
 			onintent,
 			filters: { group: { kind: 'categorical', selected: ['Archived'] } }
 		});
-		const group = screen.getByRole('group', { name: 'Filter groups' });
+		const trigger = screen.getByRole('button', { name: 'Filter Group, 1 selected: Archived' });
+		const groupHeader = screen.getByRole('columnheader', { name: /Group/ });
+		expect(within(groupHeader).getByRole('button', { name: 'Sort by Group' })).not.toBe(trigger);
+		expect(trigger).toHaveAttribute('aria-expanded', 'false');
+		expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+		expect(trigger).toHaveClass('text-accent');
+		expect(screen.queryByRole('group', { name: 'Filter groups' })).not.toBeInTheDocument();
+		await fireEvent.click(trigger);
+		expect(trigger).toHaveAttribute('aria-expanded', 'true');
+		const dialog = screen.getByRole('dialog', { name: 'Group filter' });
+		const group = within(dialog).getByRole('group', { name: 'Filter groups' });
 		expect(within(group).getAllByRole('checkbox').map((node) => node.getAttribute('aria-label'))).toEqual([
 			'Current', 'Archived'
 		]);
@@ -72,10 +84,74 @@ describe('DataTable server-owned operations', () => {
 			kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Archived', 'Current'] }
 		});
 		expect(bodyNames()).toEqual(['Beta', 'alpha']);
-		await fireEvent.click(screen.getByRole('button', { name: 'Clear group filter' }));
+		await fireEvent.click(within(dialog).getByRole('button', { name: 'Clear selections for Group' }));
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filter', columnId: 'group' });
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filters' });
+	});
+
+	it('keeps one popover open and restores trigger focus after Escape and outside activation', async () => {
+		render(DataTableTestHost, { rows });
+		const groupTrigger = screen.getByRole('button', { name: 'Filter Group' });
+		const activeTrigger = screen.getByRole('button', { name: 'Filter Active' });
+
+		await fireEvent.click(groupTrigger);
+		const initialDialog = screen.getByRole('dialog', { name: 'Group filter' });
+		await fireEvent.keyDown(document, { key: 'Tab' });
+		await fireEvent.pointerDown(groupTrigger);
+		await fireEvent.pointerDown(within(initialDialog).getByRole('checkbox', { name: 'Current' }));
+		expect(initialDialog).toBeInTheDocument();
+		await fireEvent.click(groupTrigger);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		await fireEvent.click(groupTrigger);
+		await fireEvent.keyDown(document, { key: 'Escape' });
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		expect(groupTrigger).toHaveFocus();
+
+		await fireEvent.click(groupTrigger);
+		await fireEvent.pointerDown(screen.getByRole('button', { name: 'Reset table' }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		expect(groupTrigger).toHaveFocus();
+
+		await fireEvent.click(groupTrigger);
+		await fireEvent.pointerDown(activeTrigger);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		await fireEvent.click(activeTrigger);
+		expect(screen.getAllByRole('dialog')).toHaveLength(1);
+		expect(screen.getByRole('dialog', { name: 'Active filter' })).toBeInTheDocument();
+		expect(groupTrigger).toHaveAttribute('aria-expanded', 'false');
+		expect(activeTrigger).toHaveAttribute('aria-expanded', 'true');
+	});
+
+	it('anchors the popover within the available viewport above or below its header', async () => {
+		render(DataTableTestHost, { rows });
+		const trigger = screen.getByRole('button', { name: 'Filter Group' });
+		const height = vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(768);
+		const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
+		const bounds = vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+			bottom: 728, height: 28, left: 100, right: 128, top: 700, width: 28, x: 100, y: 700,
+			toJSON: () => ({})
+		});
+
+		await fireEvent.click(trigger);
+		const dialog = screen.getByRole('dialog', { name: 'Group filter' });
+		const anchor = dialog.parentElement;
+		if (!anchor) throw new Error('filter dialog has no positioning anchor');
+		const scrollHeight = vi.spyOn(anchor, 'scrollHeight', 'get').mockReturnValue(400);
+		window.dispatchEvent(new Event('resize'));
+		await waitFor(() => expect(anchor).toHaveStyle('bottom: 72px; left: 100px; max-height: 692px; width: 288px'));
+
+		bounds.mockReturnValue({
+			bottom: 48, height: 28, left: 100, right: 128, top: 20, width: 28, x: 100, y: 20,
+			toJSON: () => ({})
+		});
+		window.dispatchEvent(new Event('resize'));
+		await waitFor(() => expect(anchor).toHaveStyle('left: 100px; max-height: 712px; top: 52px; width: 288px'));
+
+		scrollHeight.mockRestore();
+		bounds.mockRestore();
+		width.mockRestore();
+		height.mockRestore();
 	});
 
 	it('fails closed for duplicate row identity and never renders source values', () => {
@@ -89,6 +165,8 @@ describe('DataTable server-owned operations', () => {
 		render(DataTableTestHost, { rows: [], emptyMessage: 'No records match these server filters.' });
 		expect(screen.getByText('No records match these server filters.')).toBeInTheDocument();
 		expect(screen.queryByText(/loaded page|page-local/i)).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Filter Group' })).toBeInTheDocument();
+		expect(screen.getAllByRole('row').filter((row) => within(row).queryAllByRole('columnheader').length > 0)).toHaveLength(1);
 	});
 
 	it('renders a read-only table without exposing server controls', () => {

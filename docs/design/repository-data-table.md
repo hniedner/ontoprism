@@ -28,7 +28,7 @@ options, filtered rows, or sorted rows in the browser.
 | --- | --- | --- | --- |
 | NCIt | offset, exact total | relevance for search; source order for browse; code and label | representation status |
 | caDSR | offset, exact total | source/public ID and name | none |
-| ICD-O | offset, exact total | source/code and preferred term | level and morphology behaviour |
+| ICD-O | offset, exact total | source/code and preferred term | level; behaviour for morphology only |
 | Uberon/CL | offset, exact total | relevance for search; source order for browse; code and label | ontology source |
 | PubMed | `retstart`, navigable through NCBI's 10,000-result window | relevance; publication date descending | none |
 | ClinicalTrials.gov | opaque cursor trail | remote-service relevance order only | overall status and phase |
@@ -51,12 +51,24 @@ authoritative nonzero total.
 
 ## Presentation and failures
 
-The table exposes semantic headers, `aria-sort`, labelled filter controls, an active
-sort label, removable active-filter chips, reset actions, a keyboard-focusable
-horizontal-scroll region, `aria-busy`, and a polite row-count announcement. Cells are
-compiled typed snippets; trusted HTML is not part of the contract. Missing or duplicate
-row keys fail closed before rows render. Revalidation keeps the current table available,
-marks that table busy, and adds a delayed loading announcement.
+The table must not reserve a permanent second header row for filters. Each filterable
+column instead has a compact filter button beside, and distinct from, its sort button.
+The filter button's accessible name identifies the column and, when active, the selected
+count and value names. It opens one viewport-aware dialog anchored to that header; opening
+another closes the first. The dialog contains the complete closed-domain controls in a
+labelled group and a clear-column action. Categorical changes apply immediately. Escape,
+outside activation, and the trigger close the dialog, with focus restored to the trigger
+except when focus is moving directly to another filter trigger. The dialog must remain
+keyboard operable, bounded within responsive viewports, and available on successful
+zero-row pages.
+
+The table also exposes semantic headers, `aria-sort`, an active sort label, removable
+active-filter chips, clear-all and reset actions, a keyboard-focusable horizontal-scroll
+region, `aria-busy`, and a polite row-count announcement. Cells, filter labels, and filter
+values are rendered as text through compiled typed snippets; trusted HTML is not part of
+the contract. Missing or duplicate row keys fail closed before rows render. Revalidation
+keeps the current table available, marks that table busy, and adds a delayed loading
+announcement.
 
 Routes distinguish an initial search instruction, an empty repository, no matches,
 revalidation, rate limiting, timeout, unavailability, and malformed source data.
@@ -78,3 +90,10 @@ On 2026-09-06, the successful-empty table and recovery contracts passed
 (`pdm run agent-test ontolib/tests/repositories/test_cadsr_fts.py -v`, 7 passed), and the
 live two-status/two-phase ClinicalTrials.gov contract passed
 (`pdm run agent-test --full-store ontolib/tests/repositories/test_clinicaltrials_client.py::test_live_clinicaltrials_multi_filter_domain_and_union -v`, 1 passed).
+
+On 2026-09-06, the compact filter disclosure, focus restoration, complete-domain,
+zero-row, sticky-layout, and text-rendering component contracts passed
+(`pdm run agent-test --frontend frontend/src/lib/components/data-table/DataTable.svelte.test.ts frontend/src/lib/components/data-table/DataTable.sticky.svelte.test.ts frontend/src/lib/components/data-table/DataTable.xss-sweep.svelte.test.ts`, exit 0), the built-browser repository contracts passed
+(`npm --prefix frontend run test:e2e`, 34 passed), and the production-shaped FastAPI
+double's page DTO/input-rejection/metadata-echo contracts passed
+(`pdm run agent-test backend/tests/test_frontend_fastapi_double_fidelity.py -v`, 22 passed).

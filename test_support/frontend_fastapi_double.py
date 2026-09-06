@@ -12,7 +12,10 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from backend.api.v1 import clinicaltrials, pubmed
 from backend.api.v1.grid import PageSize
-from backend.icdo_datasets import ServedIcdoDataset
+from backend.api.v1.icdo import (
+    require_served_icdo_dataset,
+    validate_icdo_grid_filters,
+)
 from ontolib.repositories.cadsr.models import CdeRepositorySort
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.icdo.models import (
@@ -279,22 +282,6 @@ def _require_icdo(value: str | None) -> None:
         raise HTTPException(403, "ICD-O entitlement required.")
 
 
-def _validate_icdo_grid(
-    edition: IcdoEdition,
-    axis: IcdoAxis,
-    behaviour: list[IcdoBehaviour] | None,
-    level: list[IcdoRecordLevel] | None,
-) -> None:
-    if ServedIcdoDataset.parse(edition, axis) is None:
-        raise HTTPException(422, "ICD-O-3.2 topography is not served.")
-    if axis == "topography":
-        invalid = bool(behaviour) or "morphology" in (level or ())
-    else:
-        invalid = any(value != "morphology" for value in level or ())
-    if invalid:
-        raise HTTPException(422, "ICD-O filters do not apply to the requested axis.")
-
-
 @app.get("/api/v1/icdo/access")
 async def icdo_access(
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
@@ -315,7 +302,8 @@ async def list_icdo(
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
-    _validate_icdo_grid(edition, axis, behaviour, level)
+    require_served_icdo_dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
     if edition == "4.0" and axis == "topography":
         record = {
             "code": "C34.9",
@@ -398,12 +386,13 @@ async def search_icdo(
 
 @app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
 async def icdo_detail(
-    edition: str,
-    axis: str,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
+    require_served_icdo_dataset(edition, axis)
     records = {
         ("3.2", "morphology", "ODUwMy8w"): {
             "code": "8503/0",
