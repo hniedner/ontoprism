@@ -10,15 +10,21 @@ import type {
 	ConceptDetail,
 	ConceptAlignments,
 	Neighborhood,
+	NcitBrowsePage,
+	NcitBrowseSort,
+	NcitSearchPage,
+	NcitSearchSort,
 	RepresentationStatus,
 	RefreshReport,
-	SearchPage,
 	SimilarCde,
 	SimilarConcept
 	, UberonConceptDetail
 	, UberonAlignments
 	, UberonNeighborhood
+	, UberonBrowsePage
+	, UberonBrowseSort
 	, UberonSearchPage
+	, UberonSearchSort
 	, UberonSource
 } from './types';
 import {
@@ -124,10 +130,10 @@ export function searchNcit(
 		limit?: number;
 		offset?: number;
 		representationStatus?: RepresentationStatus;
-		sort?: string;
+		sort?: NcitSearchSort;
 		fetch?: typeof fetch;
 	} = {}
-): Promise<SearchPage> {
+): Promise<NcitSearchPage> {
 	const params: Record<string, string | number> = {
 		q,
 		limit: opts.limit ?? 25,
@@ -138,19 +144,19 @@ export function searchNcit(
 	}
 	if (opts.sort) params.sort = opts.sort;
 	const url = apiUrl('/api/v1/ncit/search', params);
-	return getJson<SearchPage>(url, opts.fetch);
+	return getJson<NcitSearchPage>(url, opts.fetch);
 }
 
-/** List NCIt concepts in natural order (no search term) — browse mode. */
+/** List NCIt concepts in the requested deterministic browse order. */
 export function listNcit(
 	opts: {
 		limit?: number;
 		offset?: number;
 		representationStatus?: RepresentationStatus;
-		sort?: string;
+		sort?: NcitBrowseSort;
 		fetch?: typeof fetch;
 	} = {}
-): Promise<SearchPage> {
+): Promise<NcitBrowsePage> {
 	const params: Record<string, string | number> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
@@ -160,7 +166,7 @@ export function listNcit(
 	}
 	if (opts.sort) params.sort = opts.sort;
 	const url = apiUrl('/api/v1/ncit/list', params);
-	return getJson<SearchPage>(url, opts.fetch);
+	return getJson<NcitBrowsePage>(url, opts.fetch);
 }
 
 export function getConcept(code: string, fetchImpl?: typeof fetch): Promise<ConceptDetail> {
@@ -182,7 +188,7 @@ export function getNeighborhood(
 
 export function searchUberon(
 	q: string,
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: string; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonSearchSort; fetch?: typeof fetch } = {}
 ): Promise<UberonSearchPage> {
 	const params: Record<string, string | number> = {
 		q,
@@ -195,15 +201,15 @@ export function searchUberon(
 }
 
 export function listUberon(
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: string; fetch?: typeof fetch } = {}
-): Promise<UberonSearchPage> {
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonBrowseSort; fetch?: typeof fetch } = {}
+): Promise<UberonBrowsePage> {
 	const params: Record<string, string | number> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	};
 	if (opts.source) params.source = opts.source;
 	if (opts.sort) params.sort = opts.sort;
-	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
+	return getJson<UberonBrowsePage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
 }
 
 export function getUberonConcept(
@@ -341,7 +347,7 @@ export function searchCadsr(
 	return getJson<CdeSearchPage>(url, opts.fetch);
 }
 
-/** List caDSR CDEs in natural order (no search term) — browse mode. */
+/** List caDSR CDEs in the requested deterministic browse order. */
 export function listCadsr(
 	opts: { limit?: number; offset?: number; sort?: string; fetch?: typeof fetch } = {}
 ): Promise<CdeSearchPage> {

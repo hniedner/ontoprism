@@ -1,8 +1,10 @@
 """Shared closed query vocabulary for repository grids."""
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BeforeValidator
+
+from ontolib.common.grid import ProductPageSize
 
 
 def _parse_page_size(value: object) -> object:
@@ -15,6 +17,6 @@ def _parse_page_size(value: object) -> object:
 
 
 PageSize = Annotated[
-    Literal[10, 25, 50, 100],
+    ProductPageSize,
     BeforeValidator(_parse_page_size),
 ]

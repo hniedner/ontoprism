@@ -15,8 +15,8 @@ interface Hit {
 const helpText = createRawSnippet(() => ({
 	render: () => `<span data-testid="help">help copy</span>`
 }));
-const results = createRawSnippet<[Hit[]]>((getHits) => ({
-	render: () => `<div data-testid="results">${getHits().length} rows</div>`
+const results = createRawSnippet<[Hit[], unknown, string]>((getHits, _getOperations, getEmptyMessage) => ({
+	render: () => `<div data-testid="results">${getHits().length} rows${getHits().length ? '' : `: ${getEmptyMessage()}`}</div>`
 }));
 
 function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit', filters: Record<string, string[]> = {}) {
@@ -85,24 +85,19 @@ describe('RepoBrowsePage', () => {
 		expect(goto).toHaveBeenCalledWith('/repositories/uberon?q=lung');
 	});
 
-	it('distinguishes source-empty browse state from no matches with recovery', async () => {
+	it('distinguishes source-empty browse state from no matches while retaining results', () => {
 		const browse = setup('', 0, 0);
-		expect(screen.getByText('This repository contains no records.')).toBeInTheDocument();
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: This repository contains no records.');
 		browse.unmount();
 
 		setup('missing', 0, 0);
-		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
-		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: No records matched the current query and filters.');
 	});
 
 	it('keeps populated categorical filters recoverable when they match no rows', async () => {
 		setup('', 0, 0, '/repositories/ncit', { representation_status: ['legacy-precoordinated'] });
 
-		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
-		expect(screen.queryByText('This repository contains no records.')).not.toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
-		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: No records matched the current query and filters.');
 	});
 });
 

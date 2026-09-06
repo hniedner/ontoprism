@@ -4,9 +4,12 @@ from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from backend.api.v1.uberon import router as uberon_router
 from backend.dependencies import (
     get_repository_metadata,
     get_uberon_search_index,
@@ -28,12 +31,19 @@ from ontolib.repositories.xref.vocab import (
 )
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonConceptDetail,
     UberonGraphNode,
     UberonNeighborhood,
     UberonSearchHit,
     UberonSearchPage,
 )
+
+
+def _int_arg(kwargs: dict[str, object], key: str) -> int:
+    value = kwargs[key]
+    assert isinstance(value, int)
+    return value
 
 
 class _Store:
@@ -46,15 +56,22 @@ class _Store:
         return UberonSearchPage(
             query=query,
             total=1,
-            limit=int(kwargs["limit"]),
-            offset=int(kwargs["offset"]),
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
             hits=[
                 UberonSearchHit(code="UBERON:0002048", source="uberon", label="lung")
             ],
         )
 
-    async def list_concepts(self, **kwargs: object) -> UberonSearchPage:
-        return await self.search("", **kwargs)
+    async def list_concepts(self, **kwargs: object) -> UberonBrowsePage:
+        return UberonBrowsePage(
+            total=1,
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
+            hits=[
+                UberonSearchHit(code="UBERON:0002048", source="uberon", label="lung")
+            ],
+        )
 
     async def get_concept_detail(self, code: str) -> UberonConceptDetail | None:
         if code == "bad":
@@ -86,8 +103,8 @@ class _Index:
         return UberonSearchPage(
             query=query,
             total=1,
-            limit=int(kwargs["limit"]),
-            offset=int(kwargs["offset"]),
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
             hits=[UberonSearchHit(code="CL:0000000", source="cl", label="cached cell")],
         )
 
@@ -256,6 +273,26 @@ def test_list_rejects_search_only_relevance_sort() -> None:
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_list_response_model_rejects_search_only_relevance_sort() -> None:
+    route = next(
+        route
+        for route in uberon_router.routes
+        if isinstance(route, APIRoute) and route.path == "/api/v1/uberon/list"
+    )
+    with pytest.raises(ValidationError):
+        route.response_model.model_validate(
+            {
+                "query": "",
+                "total": 0,
+                "limit": 25,
+                "offset": 0,
+                "sort": "relevance",
+                "hits": [],
+            }
+        )
 
 
 @pytest.mark.api

@@ -5,7 +5,7 @@
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
-	let { hits, operations = { kind: 'none' } }: { hits: readonly SearchHit[]; operations?: DataTableOperations } = $props();
+	let { hits, operations = { kind: 'none' }, emptyMessage = 'No results.' }: { hits: readonly SearchHit[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<SearchHit>[] => [
 		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
@@ -36,5 +36,5 @@
 	getRowId={(hit) => hit.code}
 	{operations}
 	stickyHeader={true}
-	emptyMessage="No results."
+	{emptyMessage}
 />

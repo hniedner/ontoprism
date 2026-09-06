@@ -21,6 +21,7 @@ from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     ConceptDetail,
     ConceptRef,
     GraphEdge,
@@ -30,7 +31,6 @@ from ontolib.terminologies.ncit.models import (
     RepositoryBrowseSort,
     RepresentationStatus,
     SearchHit,
-    SearchPage,
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
@@ -337,7 +337,7 @@ class NcitGraphStore:
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
         sort: RepositoryBrowseSort = "source",
-    ) -> SearchPage:
+    ) -> BrowsePage:
         """List all named concepts in the requested deterministic browse order.
 
         The total class count is expensive to compute over the full store, so it is
@@ -395,7 +395,7 @@ class NcitGraphStore:
             for r in rows
             if (concept := r.get("concept")) is not None
         ]
-        return SearchPage(
+        return BrowsePage(
             query="",
             total=self._total_concepts[representation_status],
             limit=limit,

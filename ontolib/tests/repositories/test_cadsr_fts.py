@@ -22,7 +22,7 @@ _ROWS = [
 
 @pytest.fixture
 def fts_db(tmp_path: Path) -> Path:
-    """A caDSR DB carrying the external-content cdes_fts FTS5 index (fairdata shape)."""
+    """A caDSR DB carrying the source-shaped cdes_fts FTS5 index."""
     path = tmp_path / "cde_fts.db"
     conn = sqlite3.connect(path)
     try:
@@ -93,11 +93,40 @@ def test_fts_search_is_prefix_matched(fts_db: Path) -> None:
 
 @pytest.mark.unit
 def test_fts_total_is_the_full_match_count_with_pagination(fts_db: Path) -> None:
-    # "of" appears in all three definitions — a broad match — so a page of 2 still
-    # reports the full total of 3 (via COUNT(*) OVER (), a single query).
+    # "of" appears in all three definitions, so a page of 2 still reports all 3.
     page = CdeRepository(fts_db).search("of", limit=2, offset=0)
     assert page.total == len(_ROWS)
     assert len(page.hits) == 2
+
+
+@pytest.mark.unit
+def test_fts_past_end_page_retains_exact_total_with_bounded_statements(
+    fts_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_connect = sqlite3.connect
+    select_statements: list[str] = []
+
+    def tracing_connect(database: str, *, uri: bool = False) -> sqlite3.Connection:
+        connection = original_connect(database, uri=uri)
+        connection.set_trace_callback(
+            lambda statement: (
+                select_statements.append(statement)
+                if statement.lstrip().upper().startswith("SELECT")
+                else None
+            )
+        )
+        return connection
+
+    monkeypatch.setattr(
+        "ontolib.repositories.cadsr.repository.sqlite3.connect", tracing_connect
+    )
+
+    page = CdeRepository(fts_db).search("of", limit=2, offset=len(_ROWS))
+
+    assert page.total == len(_ROWS)
+    assert page.hits == []
+    # SQLite's first FTS5 use reads its config table in addition to our three SELECTs.
+    assert len(select_statements) <= 4
 
 
 @pytest.mark.unit

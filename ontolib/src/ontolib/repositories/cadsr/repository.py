@@ -1,9 +1,4 @@
-"""caDSR CDE read model over the SQLite repository DB (read-only).
-
-The DB is the one built by fairdata's caDSR pipeline: a ``cdes`` table (with the full
-``cde_json``) and a ``cde_concepts`` table linking each CDE to NCIt concept codes —
-the shared identity that joins caDSR to the NCIt graph.
-"""
+"""caDSR CDE read model over the generated SQLite repository DB (read-only)."""
 
 from __future__ import annotations
 
@@ -64,7 +59,7 @@ def _fts_match_query(query: str) -> str:
 
 
 def _has_cdes_fts(conn: sqlite3.Connection) -> bool:
-    """True if the DB has the ``cdes_fts`` FTS5 index (fairdata-built DBs do)."""
+    """Return whether the DB exposes the ``cdes_fts`` FTS5 index."""
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cdes_fts'"
     ).fetchone()
@@ -120,9 +115,8 @@ class CdeRepository:
     ) -> CdeSearchPage:
         """Search CDE short/long name and definition.
 
-        Uses the ``cdes_fts`` FTS5 index (single windowed query, no leading-wildcard
-        scan) when present; falls back to a ``LIKE`` scan for DBs without the index
-        (e.g. minimal test fixtures).
+        Uses the ``cdes_fts`` FTS5 index when present and otherwise uses the table's
+        bounded ``LIKE`` search path.
         """
         with self._connect() as conn:
             if _has_cdes_fts(conn):
@@ -145,18 +139,19 @@ class CdeRepository:
             return CdeSearchPage(
                 query=query, total=0, limit=limit, offset=offset, sort=sort
             )
-        # COUNT(*) OVER () yields the full match total in every row — one query, and the
-        # match uses the FTS index rather than a full table scan.
-        # Order by name (deterministic): bm25() relevance ranking can't be combined
-        # with the COUNT(*) OVER () window in one statement.
+        # Count separately so pages beyond the final hit retain the authoritative total.
+        # Both bounded statements use the FTS index; the result order is deterministic.
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM cdes_fts WHERE cdes_fts MATCH ?",
+            (match,),
+        ).fetchone()["n"]
         rows = conn.execute(
-            f"SELECT {_SUMMARY_COLS_Q}, COUNT(*) OVER () AS _total "  # noqa: S608
+            f"SELECT {_SUMMARY_COLS_Q} "  # noqa: S608
             "FROM cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid "
             f"WHERE cdes_fts MATCH ? ORDER BY {_cde_order(sort, table='cdes')} "
             "LIMIT ? OFFSET ?",
             (match, limit, offset),
         ).fetchall()
-        total = rows[0]["_total"] if rows else 0
         return CdeSearchPage(
             query=query,
             total=total,

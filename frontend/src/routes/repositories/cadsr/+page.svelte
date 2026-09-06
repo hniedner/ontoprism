@@ -29,7 +29,7 @@
 		permissible values, and embedding-based similar CDEs. Concept links cross-navigate to the NCIt
 		browser.
 	{/snippet}
-	{#snippet results(hits: CdeSummary[], operations: DataTableOperations)}
-		<CdeResultsTable {hits} {operations} />
+	{#snippet results(hits: CdeSummary[], operations: DataTableOperations, emptyMessage: string)}
+		<CdeResultsTable {hits} {operations} {emptyMessage} />
 	{/snippet}
 </RepoBrowsePage>

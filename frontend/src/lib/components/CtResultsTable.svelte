@@ -4,7 +4,7 @@
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
-	let { studies, operations = { kind: 'none' } }: { studies: readonly CTStudySummary[]; operations?: DataTableOperations } = $props();
+	let { studies, operations = { kind: 'none' }, emptyMessage = 'No trials.' }: { studies: readonly CTStudySummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<CTStudySummary>[] => [
 		{ id: 'nct_id', label: 'NCT ID', cell: idCell, sticky: { side: 'left', offset: 0 } },
@@ -26,4 +26,4 @@
 	{#if trial.phase}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{trial.phase}</span>{:else}<span class="text-muted">—</span>{/if}
 {/snippet}
 
-<DataTable rows={studies} {columns} caption="ClinicalTrials.gov repository results" regionLabel="ClinicalTrials.gov repository results" getRowId={(trial) => trial.nct_id} {operations} stickyHeader={true} />
+<DataTable rows={studies} {columns} caption="ClinicalTrials.gov repository results" regionLabel="ClinicalTrials.gov repository results" getRowId={(trial) => trial.nct_id} {operations} {emptyMessage} stickyHeader={true} />

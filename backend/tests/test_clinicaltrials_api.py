@@ -150,6 +150,8 @@ def test_search_deduplicates_closed_filter_values(ct_app: TestClient) -> None:
     assert response.status_code == 200, response.text
     assert _Handler.last_query["filter.overallStatus"] == ["RECRUITING|COMPLETED"]
     assert _Handler.last_query["aggFilters"] == ["phase:2"]
+    assert response.json()["status"] == ["RECRUITING", "COMPLETED"]
+    assert response.json()["phase"] == ["PHASE2"]
 
 
 @pytest.mark.api

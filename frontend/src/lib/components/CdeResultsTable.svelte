@@ -4,7 +4,7 @@
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
-	let { hits, operations = { kind: 'none' } }: { hits: readonly CdeSummary[]; operations?: DataTableOperations } = $props();
+	let { hits, operations = { kind: 'none' }, emptyMessage = 'No records.' }: { hits: readonly CdeSummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<CdeSummary>[] => [
 		{ id: 'public_id', label: 'Public ID', cell: idCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
@@ -27,4 +27,4 @@
 	{#if cde.datatype}<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30">{cde.datatype}</span>{:else}<span class="text-muted">—</span>{/if}
 {/snippet}
 
-<DataTable rows={hits} {columns} caption="caDSR CDE repository results" regionLabel="caDSR CDE repository results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} stickyHeader={true} />
+<DataTable rows={hits} {columns} caption="caDSR CDE repository results" regionLabel="caDSR CDE repository results" getRowId={(cde) => `${cde.public_id}\u0000${cde.version}`} {operations} {emptyMessage} stickyHeader={true} />

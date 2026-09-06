@@ -30,7 +30,7 @@
 		hierarchy, typed roles, neighborhood graph, mapped caDSR CDEs, and embedding-based similar
 		concepts.
 	{/snippet}
-	{#snippet results(hits: SearchHit[], operations: DataTableOperations)}
-		<SearchResultsTable {hits} {operations} />
+	{#snippet results(hits: SearchHit[], operations: DataTableOperations, emptyMessage: string)}
+		<SearchResultsTable {hits} {operations} {emptyMessage} />
 	{/snippet}
 </RepoBrowsePage>

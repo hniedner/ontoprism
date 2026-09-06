@@ -20,7 +20,6 @@
 	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
-	const isEmpty = $derived((result?.articles.length ?? 0) === 0);
 
 	// eslint-disable-next-line svelte/no-navigation-without-resolve -- repositoryGridHref receives the resolved route before appending owned URL state
 	function navigate(update: (params: URLSearchParams) => void): void { goto(repositoryGridHref(resolve('/repositories/pubmed'), page.url, update)); }
@@ -76,13 +75,7 @@
 		{loading}
 		error={null}
 	>
-		{#if isEmpty}
-			<p class="px-4 py-6 text-center text-sm text-muted">
-				No articles matched “{data.query}”.
-			</p>
-		{:else}
-			<PubMedResultsTable articles={result?.articles ?? []} {operations} />
-			<Pagination offset={data.offset} limit={data.size} total={result?.total ?? 0} navigationTotal={Math.min(result?.total ?? 0, 10000)} onPage={(offset) => navigate((params) => { if (offset) params.set('offset', String(offset)); else params.delete('offset'); })} onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
-		{/if}
+		<PubMedResultsTable articles={result?.articles ?? []} {operations} emptyMessage={`No articles matched “${data.query}”.`} />
+		<Pagination offset={data.offset} limit={data.size} total={result?.total ?? 0} navigationTotal={Math.min(result?.total ?? 0, 10000)} onPage={(offset) => navigate((params) => { if (offset) params.set('offset', String(offset)); else params.delete('offset'); })} onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
 	</RepoResultsCard>
 </RemoteSearchSurface>

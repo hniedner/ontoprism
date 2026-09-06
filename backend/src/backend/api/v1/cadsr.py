@@ -72,7 +72,7 @@ def list_cdes(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: CdeRepositorySort = "source",
 ) -> CdeSearchPage:
-    """List CDEs in natural order — powers no-search browse of the repository."""
+    """List CDEs in the requested deterministic browse order."""
     try:
         return repo.list_cdes(limit=limit, offset=offset, sort=sort)
     except sqlite3.OperationalError as exc:

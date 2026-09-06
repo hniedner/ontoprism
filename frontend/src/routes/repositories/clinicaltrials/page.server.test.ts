@@ -7,7 +7,7 @@ import { load } from './+page.server';
 
 const study = { nct_id: 'NCT00000001', title: 'Trial' };
 function ready(overrides: Record<string, unknown> = {}) {
-	return { condition: 'cancer', intervention: null, term: null, total: 2, page_size: 25, page_token: null, next_page_token: 'next', studies: [study], ...overrides };
+	return { condition: 'cancer', intervention: null, term: null, status: [], phase: [], total: 2, page_size: 25, page_token: null, next_page_token: 'next', studies: [study], ...overrides };
 }
 
 describe('ClinicalTrials.gov page server cursor contract', () => {
@@ -27,6 +27,8 @@ describe('ClinicalTrials.gov page server cursor contract', () => {
 	it.each([
 		['page size', { page_size: 50 }],
 		['page token', { page_token: 'wrong' }],
+		['status filters', { status: ['COMPLETED'] }],
+		['phase filters', { phase: ['PHASE3'] }],
 		['total', { total: 0, studies: [study] }]
 	])('fails closed on %s response metadata drift', async (_label, overrides) => {
 		searchClinicalTrials.mockResolvedValue(ready({ page_token: 'current', ...overrides }));

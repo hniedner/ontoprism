@@ -52,4 +52,27 @@ describe('Uberon repository page table ownership', () => {
 
 		expect(screen.getByRole('region', { name: 'Uberon and Cell Ontology repository results' })).toHaveAttribute('aria-busy', 'true');
 	});
+
+	it('keeps the server table and selected filter controls mounted for an empty page', () => {
+		render(Page, {
+			data: {
+				initial: {
+					...data.initial,
+					result: { ...data.initial.result, total: 0, offset: 0, hits: [] },
+					query: '',
+					offset: 0,
+					filters: { source: ['uberon'] }
+				}
+			} as never,
+			params: {},
+			form: null
+		});
+
+		expect(screen.getByRole('region', { name: 'Uberon and Cell Ontology repository results' })).toBeInTheDocument();
+		expect(screen.getByRole('columnheader', { name: 'Source' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'Uberon' })).toBeChecked();
+		expect(screen.getByRole('button', { name: 'Clear source filter' })).toHaveTextContent('source: uberon');
+		expect(screen.getByRole('button', { name: 'Reset table' })).toBeInTheDocument();
+		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
+	});
 });

@@ -1,9 +1,8 @@
 """Async client for the NCBI PubMed E-utilities (ESearch / ESummary / EFetch / ELink).
 
 Transport + orchestration only; JSON/XML → model mapping lives in :mod:`parser`. The
-public NCBI endpoints allow ~3 requests/second without an API key, so requests are
-throttled to a configurable rate. Direct search only — fairdata's LLM query-building
-and reranking are intentionally not ported.
+Requests are throttled to a configurable rate and searches are sent directly without
+local query generation or reranking.
 """
 
 from __future__ import annotations
@@ -18,11 +17,11 @@ import httpx
 from pydantic import ValidationError
 
 from ontolib.common.error_handling import retry_with_backoff
+from ontolib.common.grid import PRODUCT_PAGE_SIZES, ProductPageSize
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
     PubMedArticleSummary,
-    PubMedPageSize,
     PubMedSearchResult,
     PubMedSort,
     RelatedArticlesResult,
@@ -38,7 +37,7 @@ logger = get_logger(__name__)
 
 DEFAULT_EUTILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 _MAX_RESULT_WINDOW = 10_000
-# ELink linkname per related-article kind (fairdata parity).
+# ELink linkname for each supported related-article kind.
 _LINK_NAMES = {
     "similar": "pubmed_pubmed",
     "cited_by": "pubmed_pubmed_citedin",
@@ -142,7 +141,7 @@ class PubMedClient:
         self,
         query: str,
         *,
-        retmax: PubMedPageSize = 25,
+        retmax: ProductPageSize = 25,
         retstart: int = 0,
         sort: PubMedSort = "relevance",
     ) -> PubMedSearchResult:
@@ -154,7 +153,7 @@ class PubMedClient:
         """
         if sort not in ("relevance", "pub_date"):
             raise ValueError(f"Invalid PubMed sort: {sort!r}")
-        if retmax not in (10, 25, 50, 100):
+        if retmax not in PRODUCT_PAGE_SIZES:
             raise ValueError(f"Invalid PubMed page size: {retmax!r}")
         effective_limit = retmax
         if (

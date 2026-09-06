@@ -1,4 +1,4 @@
-<script lang="ts" generics="P extends { total: number; hits: H[] }, H">
+<script lang="ts" generics="P extends { total: number; hits: H[] }, H, Sort extends string">
 	import type { Snippet } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
@@ -24,11 +24,11 @@
 		suggestionsLabel?: string;
 		browseTitle: string;
 		countLabel: (total: number, mode: 'browse' | 'search') => string;
-		results: Snippet<[H[], DataTableOperations]>;
+		results: Snippet<[H[], DataTableOperations, string]>;
 		filters?: Snippet;
-		initial: { result: P; query: string; offset: number; size: PageSize; sort: string; filters: Record<string, string[]> };
-		defaultSort: string;
-		sortKeys: Readonly<Record<string, { asc: string; desc: string }>>;
+		initial: { result: P; query: string; offset: number; size: PageSize; sort: Sort; filters: Record<string, string[]> };
+		defaultSort: Sort;
+		sortKeys: Readonly<Record<string, { asc: Sort; desc: Sort }>>;
 	}
 
 	let {
@@ -67,14 +67,14 @@
 		if (query !== initial.query) params.delete('sort');
 		if (nextOffset) params.set('offset', String(nextOffset)); else params.delete('offset');
 	}); }
-	function sortState(value: string): DataTableSortState | null {
+	function sortState(value: Sort): DataTableSortState | null {
 		for (const [key, sorts] of Object.entries(sortKeys)) {
 			if (value === sorts.asc) return { key, direction: 'asc' };
 			if (value === sorts.desc) return { key, direction: 'desc' };
 		}
 		return null;
 	}
-	function sortLabel(value: string): string {
+	function sortLabel(value: Sort): string {
 		if (value === 'source') return 'Source order';
 		if (value === 'relevance') return 'Relevance';
 		const [key, direction] = value.split(':');
@@ -84,7 +84,8 @@
 	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, busy: loading, onintent: handleIntent });
 	function applySort(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'sort' }>): void {
 		const value = sortKeys[intent.sort.key]?.[intent.sort.direction];
-		if (value && value !== defaultSort) params.set('sort', value); else params.delete('sort');
+		if (value === undefined) throw new Error(`No server sort mapping for ${intent.sort.key}:${intent.sort.direction}`);
+		if (value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
 	function applyFilter(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
 		params.delete(intent.columnId);
@@ -101,18 +102,15 @@
 		else if (intent.kind === 'clear-filters') clearFilters(params);
 		else { params.delete('sort'); params.delete('size'); clearFilters(params); }
 	}); }
-	function recover(): void { void navigate((params) => {
-		params.delete('q');
-		params.delete('offset');
-		params.delete('sort');
-		params.delete('size');
-		clearFilters(params);
-	}); }
-
 	const resultTitle = $derived(
 		mode === 'search' ? `Results for “${initial.query}”` : browseTitle
 	);
 	const label = $derived(countLabel(initial.result.total, mode));
+	const emptyMessage = $derived(
+		mode === 'browse' && !hasActiveFilters
+			? 'This repository contains no records.'
+			: 'No records matched the current query and filters.'
+	);
 </script>
 
 <svelte:head>
@@ -144,16 +142,7 @@
 {/if}
 
 <RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
-		{#if initial.result.hits.length === 0 && mode === 'browse' && !hasActiveFilters}
-			<p class="px-4 py-6 text-center text-sm text-muted">This repository contains no records.</p>
-		{:else if initial.result.hits.length === 0}
-			<div class="space-y-2 px-4 py-6 text-center text-sm text-muted">
-				<p>No records matched the current query and filters.</p>
-				<button type="button" class="underline" onclick={recover}>Clear search and filters</button>
-			</div>
-		{:else}
-			{@render results(initial.result.hits, operations)}
-		{/if}
+		{@render results(initial.result.hits, operations, emptyMessage)}
 		<Pagination
 			offset={initial.offset}
 			limit={initial.size}

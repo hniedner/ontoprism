@@ -35,7 +35,7 @@
 		Search publisher codes, preferred terms, synonyms, and related terms in this certified
 		edition/axis dataset.
 	{/snippet}
-	{#snippet results(hits: IcdoRecord[], operations: DataTableOperations)}
-		<IcdoResultsTable {dataset} {hits} {operations} />
+	{#snippet results(hits: IcdoRecord[], operations: DataTableOperations, emptyMessage: string)}
+		<IcdoResultsTable {dataset} {hits} {operations} {emptyMessage} />
 	{/snippet}
 </RepoBrowsePage>

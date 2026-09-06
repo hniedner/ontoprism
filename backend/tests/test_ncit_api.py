@@ -11,9 +11,12 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from backend.api.v1.ncit import router as ncit_router
 from backend.config import get_settings
 from backend.dependencies import (
     get_embedding_store,
@@ -29,6 +32,7 @@ from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailabl
 from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     ConceptDetail,
     GraphEdge,
     GraphNode,
@@ -70,9 +74,9 @@ class _FakeStore:
         offset: int,
         representation_status: str | None = None,
         sort: str = "source",
-    ) -> SearchPage:
+    ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
-        return SearchPage(
+        return BrowsePage(
             query="",
             total=2,
             limit=limit,
@@ -309,6 +313,26 @@ def test_list_rejects_search_only_relevance_sort() -> None:
     response = next(_client()).get("/api/v1/ncit/list", params={"sort": "relevance"})
 
     assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_list_response_model_rejects_search_only_relevance_sort() -> None:
+    route = next(
+        route
+        for route in ncit_router.routes
+        if isinstance(route, APIRoute) and route.path == "/api/v1/ncit/list"
+    )
+    with pytest.raises(ValidationError):
+        route.response_model.model_validate(
+            {
+                "query": "",
+                "total": 0,
+                "limit": 25,
+                "offset": 0,
+                "sort": "relevance",
+                "hits": [],
+            }
+        )
 
 
 @pytest.mark.api

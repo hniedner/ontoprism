@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonBrowseSort,
     UberonConceptDetail,
     UberonConceptRef,
@@ -15,7 +16,6 @@ from ontolib.terminologies.uberon.models import (
     UberonNeighborhood,
     UberonRelationship,
     UberonSearchHit,
-    UberonSearchPage,
     UberonSource,
 )
 
@@ -203,7 +203,7 @@ class UberonGraphStore:
         limit: int = 25,
         offset: int = 0,
         sort: UberonBrowseSort = "source",
-    ) -> UberonSearchPage:
+    ) -> UberonBrowsePage:
         order = {
             "source": "?concept ?label",
             "code:asc": "?concept ?label",
@@ -228,7 +228,7 @@ class UberonGraphStore:
             if len(count_rows) != 1:
                 raise StorageError("Uberon/CL list count was not a single row")
             self._totals[source] = int(_required(count_rows[0], "count")[0])
-        return UberonSearchPage(
+        return UberonBrowsePage(
             query="",
             total=self._totals[source],
             limit=limit,

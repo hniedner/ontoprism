@@ -6,7 +6,7 @@
 	import type { IcdoDataset } from '$lib/icdo-routes';
 	import type { IcdoRecord } from '$lib/types';
 
-	let { dataset, hits, operations = { kind: 'none' } }: { dataset: IcdoDataset; hits: readonly IcdoRecord[]; operations?: DataTableOperations } = $props();
+	let { dataset, hits, operations = { kind: 'none' }, emptyMessage = 'No records.' }: { dataset: IcdoDataset; hits: readonly IcdoRecord[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<IcdoRecord>[] => [
 		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
@@ -25,4 +25,4 @@
 {#snippet behaviourCell(hit: IcdoRecord)}{hit.behaviour ?? '—'}{/snippet}
 {#snippet specificityCell(hit: IcdoRecord)}{hit.specificity ?? '—'}{/snippet}
 
-<DataTable rows={hits} {columns} caption={`ICD-O ${dataset.edition} ${dataset.axis} repository records`} regionLabel="ICD-O repository results" getRowId={(hit) => hit.code} {operations} stickyHeader={true} />
+<DataTable rows={hits} {columns} caption={`ICD-O ${dataset.edition} ${dataset.axis} repository records`} regionLabel="ICD-O repository results" getRowId={(hit) => hit.code} {operations} {emptyMessage} stickyHeader={true} />

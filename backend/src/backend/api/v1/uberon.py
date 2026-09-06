@@ -26,6 +26,7 @@ from ontolib.repositories.xref.models import (
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonBrowseSort,
     UberonConceptDetail,
     UberonNeighborhood,
@@ -101,7 +102,7 @@ async def search(
         ) from exc
 
 
-@router.get("/list", response_model=UberonSearchPage)
+@router.get("/list", response_model=UberonBrowsePage)
 async def list_concepts(
     store: UberonStore,
     metadata: RepositoryMetadataReads,
@@ -109,7 +110,7 @@ async def list_concepts(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonBrowseSort = "source",
-) -> UberonSearchPage:
+) -> UberonBrowsePage:
     await _ready(metadata)
     try:
         return await store.list_concepts(

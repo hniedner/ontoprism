@@ -1,8 +1,7 @@
 """PubMed repository endpoints: article search, article detail, related articles.
 
-A thin pass-through to the async :class:`PubMedClient` (NCBI E-utilities). Direct
-search only — the natural-language / LLM query-building layer from fairdata is not
-ported.
+A thin pass-through to the async :class:`PubMedClient` (NCBI E-utilities) for direct
+searches.
 """
 
 from typing import Annotated, Literal
@@ -13,11 +12,11 @@ from pydantic import Field, model_validator
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import PubMed
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ProductPageSize
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
-    PubMedPageSize,
     PubMedSearchResult,
     PubMedSort,
     RelatedArticlesResult,
@@ -36,7 +35,7 @@ class PubMedSearchRequest(StrictBoundaryModel):
     """Search parameters for PubMed."""
 
     query: Annotated[str, Field(min_length=1, max_length=2000)]
-    retmax: PubMedPageSize = 25
+    retmax: ProductPageSize = 25
     retstart: Annotated[int, Field(ge=0, lt=10_000)] = 0
     sort: PubMedSort = "relevance"
 

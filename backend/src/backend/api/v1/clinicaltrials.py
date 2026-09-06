@@ -1,8 +1,7 @@
 """ClinicalTrials.gov repository endpoints: trial search + trial detail.
 
-A thin pass-through to the async :class:`ClinicalTrialsClient`. Direct-search only
-(condition / intervention / free term + optional status & phase filters); the
-natural-language / LLM term-extraction layer from fairdata is not ported.
+A thin pass-through to the async :class:`ClinicalTrialsClient` for condition,
+intervention, and free-term search with optional status and phase filters.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -11,10 +10,10 @@ from pydantic import Field, field_validator
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import ClinicalTrials
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ProductPageSize
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
-    CTPageSize,
     CTPhase,
     CTStatus,
     CTStudyDetail,
@@ -35,7 +34,7 @@ class CTSearchRequest(StrictBoundaryModel):
     term: str | None = Field(default=None, max_length=500)
     status: list[CTStatus] = Field(default_factory=list)
     phase: list[CTPhase] = Field(default_factory=list)
-    limit: CTPageSize = 25
+    limit: ProductPageSize = 25
     page_token: str | None = Field(default=None, min_length=1, max_length=1000)
 
     @field_validator("status", "phase")

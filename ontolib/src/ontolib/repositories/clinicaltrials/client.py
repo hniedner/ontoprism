@@ -2,8 +2,8 @@
 
 Transport + query-shaping only: builds the ``/studies`` query, applies the public
 API's status/phase filters, and delegates JSON→model mapping to :mod:`parser`.
-CT.gov v2 is public (no API key). Direct-search only — natural-language term
-extraction and reranking (fairdata's LLM layer) are intentionally not ported.
+CT.gov v2 is public (no API key). This client performs direct searches without
+term extraction or local reranking.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ from typing import Any, Self, TypeIs, get_args
 import httpx
 
 from ontolib.common.error_handling import retry_with_backoff
+from ontolib.common.grid import PRODUCT_PAGE_SIZES, ProductPageSize
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
-    CTPageSize,
     CTPhase,
     CTStatus,
     CTStudyDetail,
@@ -198,7 +198,7 @@ class ClinicalTrialsClient:
         term: str | None,
         status: tuple[CTStatus, ...],
         phase: tuple[CTPhase, ...],
-        page_size: CTPageSize,
+        page_size: ProductPageSize,
         page_token: str | None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -240,7 +240,7 @@ class ClinicalTrialsClient:
         term: str | None = None,
         status: tuple[CTStatus, ...] = (),
         phase: tuple[CTPhase, ...] = (),
-        page_size: CTPageSize = 25,
+        page_size: ProductPageSize = 25,
         page_token: str | None = None,
     ) -> CTStudySearchPage:
         """Search trials by condition / intervention / free term (+ optional filters).
@@ -249,14 +249,16 @@ class ClinicalTrialsClient:
             ValueError: if filters, page size, or a supplied page token are invalid.
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
-        if page_size not in (10, 25, 50, 100):
+        if page_size not in PRODUCT_PAGE_SIZES:
             raise ValueError(f"Invalid ClinicalTrials.gov page size: {page_size!r}")
+        canonical_status = tuple(dict.fromkeys(status))
+        canonical_phase = tuple(dict.fromkeys(phase))
         params = self._build_search_params(
             condition=condition,
             intervention=intervention,
             term=term,
-            status=status,
-            phase=phase,
+            status=canonical_status,
+            phase=canonical_phase,
             page_size=page_size,
             page_token=page_token,
         )
@@ -267,6 +269,8 @@ class ClinicalTrialsClient:
                 condition=condition,
                 intervention=intervention,
                 term=term,
+                status=list(canonical_status),
+                phase=list(canonical_phase),
                 total=total,
                 page_size=page_size,
                 page_token=page_token,

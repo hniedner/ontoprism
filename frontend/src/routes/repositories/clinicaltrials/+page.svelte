@@ -21,7 +21,6 @@
 	const result = $derived(data.result.state === 'ready' ? data.result.data : null);
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} trials` : '');
-	const isEmpty = $derived((result?.studies.length ?? 0) === 0);
 
 	// eslint-disable-next-line svelte/no-navigation-without-resolve -- repositoryGridHref receives the resolved route before appending owned URL state
 	function navigate(update: (params: URLSearchParams) => void): void { goto(repositoryGridHref(resolve('/repositories/clinicaltrials'), page.url, update)); }
@@ -80,13 +79,7 @@
 		{loading}
 		error={null}
 	>
-		{#if isEmpty}
-			<p class="px-4 py-6 text-center text-sm text-muted">
-				No trials matched “{data.query}”.
-			</p>
-		{:else}
-			<CtResultsTable studies={result?.studies ?? []} {operations} />
-			<CursorPagination count={result?.studies.length ?? 0} total={result?.total ?? 0} hasPrevious={data.cursors.length > 0} hasNext={Boolean(result?.next_page_token)} size={data.size} onPrevious={() => navigate((params) => { const trail = params.getAll('cursor'); params.delete('cursor'); for (const cursor of trail.slice(0, -1)) params.append('cursor', cursor); })} onNext={() => { if (result?.next_page_token) navigate((params) => params.append('cursor', result.next_page_token!)); }} onSize={(size) => navigate((params) => { params.delete('cursor'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
-		{/if}
+		<CtResultsTable studies={result?.studies ?? []} {operations} emptyMessage={`No trials matched “${data.query}”.`} />
+		<CursorPagination count={result?.studies.length ?? 0} total={result?.total ?? 0} hasPrevious={data.cursors.length > 0} hasNext={Boolean(result?.next_page_token)} size={data.size} onPrevious={() => navigate((params) => { const trail = params.getAll('cursor'); params.delete('cursor'); for (const cursor of trail.slice(0, -1)) params.append('cursor', cursor); })} onNext={() => { if (result?.next_page_token) navigate((params) => params.append('cursor', result.next_page_token!)); }} onSize={(size) => navigate((params) => { params.delete('cursor'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
 	</RepoResultsCard>
 </RemoteSearchSurface>

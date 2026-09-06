@@ -14,6 +14,11 @@ import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.clinicaltrials.models import (
+    CTPhase,
+    CTStatus,
+    CTStudySearchPage,
+)
 from ontolib.repositories.upstream import (
     UpstreamRateLimitedError,
     UpstreamTimeoutError,
@@ -70,6 +75,8 @@ _STUDY_ONE = {
     }
 }
 _NEXT_PAGE_MARKER = "next-token"
+_MULTI_STATUSES: tuple[CTStatus, ...] = ("RECRUITING", "COMPLETED")
+_MULTI_PHASES: tuple[CTPhase, ...] = ("PHASE2", "PHASE3")
 _STUDY_TWO = {
     "protocolSection": {
         "identificationModule": {"nctId": "NCT07654321", "briefTitle": "Trial Two"},
@@ -78,6 +85,23 @@ _STUDY_TWO = {
         "conditionsModule": {"conditions": ["Melanoma"]},
     }
 }
+
+
+def _assert_multi_filter_domain(page: CTStudySearchPage) -> None:
+    requested_statuses = set(_MULTI_STATUSES)
+    requested_phases = set(_MULTI_PHASES)
+    returned_statuses = {study.status for study in page.studies}
+    returned_phase_sets = [
+        set(study.phase.split(", ")) if study.phase is not None else set()
+        for study in page.studies
+    ]
+
+    assert page.status == list(_MULTI_STATUSES)
+    assert page.phase == list(_MULTI_PHASES)
+    assert page.studies
+    assert returned_statuses == requested_statuses
+    assert all(phases & requested_phases for phases in returned_phase_sets)
+    assert requested_phases <= set().union(*returned_phase_sets)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -183,6 +207,20 @@ async def test_live_clinicaltrials_cursor_walk_is_disjoint() -> None:
     assert {row.nct_id for row in first.studies}.isdisjoint(
         row.nct_id for row in second.studies
     )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_clinicaltrials_multi_filter_domain_and_union() -> None:
+    async with ClinicalTrialsClient() as client:
+        page = await client.search_studies(
+            condition="cancer",
+            status=_MULTI_STATUSES,
+            phase=_MULTI_PHASES,
+            page_size=100,
+        )
+
+    _assert_multi_filter_domain(page)
 
 
 @pytest.mark.unit
@@ -329,13 +367,16 @@ async def test_search_combines_status_and_phase_filters_with_upstream_or_syntax(
     ct_base_url: str,
 ) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
-        await client.search_studies(
+        page = await client.search_studies(
             condition="melanoma",
-            status=("RECRUITING", "COMPLETED"),
-            phase=("PHASE1", "PHASE2"),
+            status=("RECRUITING", "RECRUITING", "COMPLETED"),
+            phase=("PHASE2", "PHASE3", "PHASE2"),
         )
     assert _Handler.last_query["filter.overallStatus"] == ["RECRUITING|COMPLETED"]
-    assert _Handler.last_query["aggFilters"] == ["phase:1 2"]
+    assert _Handler.last_query["aggFilters"] == ["phase:2 3"]
+    assert page.status == ["RECRUITING", "COMPLETED"]
+    assert page.phase == ["PHASE2", "PHASE3"]
+    _assert_multi_filter_domain(page)
 
 
 @pytest.mark.unit

@@ -1,8 +1,7 @@
 """Read models for the ClinicalTrials.gov API v2 (pydantic, serialized by the API).
 
-Ported from fairdata's dataclass models to ontoprism's pydantic convention. These
-mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` module tree that
-the client parses — enough to browse trials and open a trial detail.
+These models mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` tree
+that the client parses — enough to browse trials and open a trial detail.
 """
 
 from typing import Literal
@@ -10,8 +9,8 @@ from typing import Literal
 from pydantic import Field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ProductPageSize
 
-CTPageSize = Literal[10, 25, 50, 100]
 CTStatus = Literal[
     "ACTIVE_NOT_RECRUITING",
     "APPROVED_FOR_MARKETING",
@@ -116,8 +115,10 @@ class CTStudySearchPage(StrictBoundaryModel):
     condition: str | None = None
     intervention: str | None = None
     term: str | None = None
+    status: list[CTStatus] = Field(default_factory=list)
+    phase: list[CTPhase] = Field(default_factory=list)
     total: int
-    page_size: CTPageSize
+    page_size: ProductPageSize
     page_token: str | None = None
     next_page_token: str | None = None
     studies: list[CTStudySummary] = Field(default_factory=list)

@@ -3,7 +3,7 @@ import { loadRepositoryPage, parseCursorGridUrl, parseOffsetGridUrl } from './re
 
 describe('loadRepositoryPage canonical offset state', () => {
 	it('threads typed size, aligned offset, sort, and repeated filters through the server query', async () => {
-		const search = vi.fn().mockResolvedValue({ total: 80, limit: 50, offset: 50, hits: [] });
+		const search = vi.fn().mockResolvedValue({ total: 80, limit: 50, offset: 50, sort: 'name:desc', hits: [] });
 		const result = await loadRepositoryPage(
 			new URL('http://example.test/repository?q=tumor&size=50&offset=50&sort=name%3Adesc&status=a&status=b'),
 			search,
@@ -27,7 +27,7 @@ describe('loadRepositoryPage canonical offset state', () => {
 	});
 
 	it('canonicalizes an over-range offset to the final aligned page before rendering', async () => {
-		const list = vi.fn().mockResolvedValue({ total: 51, limit: 25, offset: 100, hits: [] });
+		const list = vi.fn().mockResolvedValue({ total: 51, limit: 25, offset: 100, sort: 'source', hits: [] });
 		await expect(loadRepositoryPage(
 			new URL('http://example.test/repository?offset=100'), vi.fn(), list,
 			{ defaultSort: 'source', sorts: ['source'], filters: {} }

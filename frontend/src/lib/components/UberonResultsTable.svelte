@@ -4,7 +4,7 @@
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 	import type { UberonSearchHit } from '$lib/types';
 
-	let { hits, operations = { kind: 'none' } }: { hits: readonly UberonSearchHit[]; operations?: DataTableOperations } = $props();
+	let { hits, operations = { kind: 'none' }, emptyMessage = 'No records.' }: { hits: readonly UberonSearchHit[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const sourceLabel = (hit: UberonSearchHit) => hit.source === 'cl' ? 'Cell Ontology' : 'Uberon';
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<UberonSearchHit>[] => [
@@ -18,4 +18,4 @@
 {#snippet labelCell(hit: UberonSearchHit)}<a href={resolve('/repositories/uberon/[curie]', { curie: hit.code })}>{hit.label ?? '—'}</a>{/snippet}
 {#snippet sourceCell(hit: UberonSearchHit)}{sourceLabel(hit)}{/snippet}
 
-<DataTable rows={hits} {columns} caption="Uberon and Cell Ontology repository results" regionLabel="Uberon and Cell Ontology repository results" getRowId={(hit) => hit.code} {operations} stickyHeader={true} />
+<DataTable rows={hits} {columns} caption="Uberon and Cell Ontology repository results" regionLabel="Uberon and Cell Ontology repository results" getRowId={(hit) => hit.code} {operations} {emptyMessage} stickyHeader={true} />

@@ -4,7 +4,7 @@
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
-	let { articles, operations = { kind: 'none' } }: { articles: readonly PubMedArticleSummary[]; operations?: DataTableOperations } = $props();
+	let { articles, operations = { kind: 'none' }, emptyMessage = 'No articles.' }: { articles: readonly PubMedArticleSummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<PubMedArticleSummary>[] => [
 		{ id: 'pmid', label: 'PMID', cell: pmidCell, sticky: { side: 'left', offset: 0 } },
@@ -24,4 +24,4 @@
 {#snippet journalCell(article: PubMedArticleSummary)}<span class="text-muted">{article.journal ?? '—'}</span>{/snippet}
 {#snippet dateCell(article: PubMedArticleSummary)}<span class="text-muted">{article.pub_date ?? '—'}</span>{/snippet}
 
-<DataTable rows={articles} {columns} caption="PubMed repository results" regionLabel="PubMed repository results" getRowId={(article) => article.pmid} {operations} stickyHeader={true} />
+<DataTable rows={articles} {columns} caption="PubMed repository results" regionLabel="PubMed repository results" getRowId={(article) => article.pmid} {operations} {emptyMessage} stickyHeader={true} />

@@ -13,7 +13,6 @@ RepositoryBrowseSort = Literal[
 RepositorySearchSort = Literal[
     "relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"
 ]
-RepositorySort = RepositoryBrowseSort | RepositorySearchSort
 
 
 class ConceptRef(StrictBoundaryModel):
@@ -82,7 +81,18 @@ class SearchPage(StrictBoundaryModel):
     total: int
     limit: int
     offset: int
-    sort: RepositorySort = "source"
+    sort: RepositorySearchSort = "relevance"
+    hits: list[SearchHit] = Field(default_factory=list)
+
+
+class BrowsePage(StrictBoundaryModel):
+    """A page in deterministic source browsing order."""
+
+    query: Literal[""] = ""
+    total: int
+    limit: int
+    offset: int
+    sort: RepositoryBrowseSort = "source"
     hits: list[SearchHit] = Field(default_factory=list)
 
 

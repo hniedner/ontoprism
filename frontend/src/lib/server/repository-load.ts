@@ -127,7 +127,7 @@ export async function loadRepositoryPage<T extends PageResult>(
 ): Promise<RepositoryPageData<T, T['sort']>> {
 	const { query, state } = parseOffsetGridUrl(url, spec);
 	const result = await (query ? search(query, state) : list(state));
-	if (result.limit !== state.size || result.offset !== state.offset) error(502, 'Repository page metadata did not match the request.');
+	if (result.limit !== state.size || result.offset !== state.offset || result.sort !== state.sort) error(502, 'Repository page metadata did not match the request.');
 	const finalOffset = result.total === 0 ? 0 : Math.floor((result.total - 1) / state.size) * state.size;
 	if (state.offset > finalOffset) {
 		const corrected = { ...state, offset: finalOffset };

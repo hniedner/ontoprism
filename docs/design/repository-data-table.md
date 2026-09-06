@@ -16,9 +16,9 @@ options, filtered rows, or sorted rows in the browser.
 - Query, sort, filter, and size changes remove the current offset or cursor trail.
 - Malformed browser state redirects once to its canonical representation. Backend
   request models independently reject malformed API input with a 4xx response.
-- An offset response must echo the requested `limit` and `offset`. Remote responses
-  additionally echo their supported sort or cursor metadata. A mismatch is a
-  remote/server contract failure, not an empty result.
+- An offset response must echo the requested `limit`, `offset`, and sort. ClinicalTrials.gov
+  responses additionally echo the canonical deduplicated status and phase selections plus
+  cursor metadata. A mismatch is a remote/server contract failure, not an empty result.
 
 ## Source capabilities
 
@@ -42,6 +42,11 @@ order ends in the repository's immutable identifier. Certified NCIt and Uberon s
 indexes are authoritative for search: an absent, stale, or unavailable index fails
 closed instead of changing page semantics through a QLever fallback.
 
+NCIt and Uberon browse responses have browse-only sort types, distinct from their
+search response types. caDSR FTS pagination obtains an exact total independently of
+the requested result window, so an offset beyond the final hit still carries the
+authoritative nonzero total.
+
 ## Presentation and failures
 
 The table exposes semantic headers, `aria-sort`, labelled filter controls, an active
@@ -53,6 +58,8 @@ marks that table busy, and adds a delayed loading announcement.
 
 Routes distinguish an initial search instruction, an empty repository, no matches,
 revalidation, rate limiting, timeout, unavailability, and malformed source data.
+Successful empty pages retain the same table, columns, sort/filter controls, active
+chips, reset actions, and meaningful previous-page or cursor recovery as populated pages.
 Navigation state is URL-persisted so SvelteKit can discard superseded navigation
 results rather than allowing stale responses to replace newer state.
 
@@ -63,3 +70,9 @@ Focused deterministic contracts use `pdm run agent-test <node> -v` and
 contracts use `pdm run agent-test --safe-integration <node> -v`. Configured corpus
 contracts use `pdm run agent-test --full-store <node> -v`. The complete acceptance gate
 is `pdm run verify`.
+
+On 2026-09-06, the successful-empty table and recovery contracts passed
+(`pdm run agent-test --frontend frontend/src/lib/components/RepoBrowsePage.svelte.test.ts frontend/src/routes/repositories/uberon/page.svelte.test.ts frontend/src/routes/repositories/pubmed/page.svelte.test.ts frontend/src/routes/repositories/clinicaltrials/page.svelte.test.ts`, exit 0), the caDSR past-end exact-total contract passed
+(`pdm run agent-test ontolib/tests/repositories/test_cadsr_fts.py -v`, 7 passed), and the
+live two-status/two-phase ClinicalTrials.gov contract passed
+(`pdm run agent-test --full-store ontolib/tests/repositories/test_clinicaltrials_client.py::test_live_clinicaltrials_multi_filter_domain_and_union -v`, 1 passed).

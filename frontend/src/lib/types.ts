@@ -1,7 +1,12 @@
 // Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
 export type RepresentationStatus = 'legacy-precoordinated';
-export type RepositorySort = 'relevance' | 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type NcitSearchSort = 'relevance' | NcitBrowseSort;
+export type NcitRepositorySort = NcitSearchSort;
+export type UberonBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type UberonSearchSort = 'relevance' | UberonBrowseSort;
+export type UberonRepositorySort = UberonSearchSort;
 export type CdeRepositorySort = 'source' | 'public_id:asc' | 'public_id:desc' | 'name:asc' | 'name:desc';
 export type IcdoRepositorySort = 'source' | 'code:asc' | 'code:desc' | 'preferred:asc' | 'preferred:desc';
 
@@ -39,14 +44,24 @@ export interface SearchHit {
 	representation_status: RepresentationStatus | null;
 }
 
-export interface SearchPage {
+interface NcitPageBase {
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
-	sort: RepositorySort;
 	hits: SearchHit[];
 }
+
+export interface NcitSearchPage extends NcitPageBase {
+	sort: NcitSearchSort;
+}
+
+export interface NcitBrowsePage extends NcitPageBase {
+	query: '';
+	sort: NcitBrowseSort;
+}
+
+export type NcitRepositoryPage = NcitSearchPage | NcitBrowsePage;
 
 export interface GraphNode {
 	code: string;
@@ -141,14 +156,24 @@ export interface UberonSearchHit {
 	matched_synonym: string | null;
 }
 
-export interface UberonSearchPage {
+interface UberonPageBase {
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
-	sort: RepositorySort;
 	hits: UberonSearchHit[];
 }
+
+export interface UberonSearchPage extends UberonPageBase {
+	sort: UberonSearchSort;
+}
+
+export interface UberonBrowsePage extends UberonPageBase {
+	query: '';
+	sort: UberonBrowseSort;
+}
+
+export type UberonRepositoryPage = UberonSearchPage | UberonBrowsePage;
 
 export interface UberonNeighborhood {
 	center: string;
@@ -611,6 +636,8 @@ export interface CTStudySearchPage {
 	condition: string | null;
 	intervention: string | null;
 	term: string | null;
+	status: CTStatus[];
+	phase: CTPhase[];
 	total: number;
 	page_size: CTPageSize;
 	page_token: string | null;

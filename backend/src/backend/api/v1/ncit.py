@@ -55,6 +55,7 @@ from ontolib.repositories.xref.vocab import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     ConceptDetail,
     Neighborhood,
     RepositoryBrowseSort,
@@ -259,7 +260,7 @@ async def search(
         ) from exc
 
 
-@router.get("/list", response_model=SearchPage)
+@router.get("/list", response_model=BrowsePage)
 async def list_concepts(
     store: NcitStore,
     limit: PageSize = 25,
@@ -269,7 +270,7 @@ async def list_concepts(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositoryBrowseSort = "source",
-) -> SearchPage:
+) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
     return await store.list_concepts(
         limit=limit,

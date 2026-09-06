@@ -28,7 +28,7 @@
 		Search labels and exact synonyms. Each result identifies whether the class is in Uberon or Cell
 		Ontology within the certified combined index.
 	{/snippet}
-	{#snippet results(hits: UberonSearchHit[], operations: DataTableOperations)}
-		<UberonResultsTable {hits} {operations} />
+	{#snippet results(hits: UberonSearchHit[], operations: DataTableOperations, emptyMessage: string)}
+		<UberonResultsTable {hits} {operations} {emptyMessage} />
 	{/snippet}
 </RepoBrowsePage>
