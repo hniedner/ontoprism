@@ -197,6 +197,17 @@ def _validate_records_for_dataset(
         raise ValueError("morphology record shape does not match dataset edition")
 
 
+def _validate_filter_echo(
+    axis: IcdoAxis,
+    behaviour: tuple[IcdoBehaviour, ...],
+    level: tuple[IcdoRecordLevel, ...],
+) -> None:
+    if axis == "topography" and (behaviour or "morphology" in level):
+        raise ValueError("ICD-O filters do not apply to the dataset axis")
+    if axis == "morphology" and any(value != "morphology" for value in level):
+        raise ValueError("ICD-O filters do not apply to the dataset axis")
+
+
 class IcdoSearchPage(_StrictModel):
     """Strict immutable repository boundary for one generation-bound ICD-O read."""
 
@@ -207,12 +218,15 @@ class IcdoSearchPage(_StrictModel):
     limit: int
     offset: int
     sort: IcdoRepositorySort = "source"
+    behaviour: tuple[IcdoBehaviour, ...]
+    level: tuple[IcdoRecordLevel, ...]
     hits: tuple[IcdoRecord, ...]
 
     @model_validator(mode="after")
     def validate_dataset(self) -> IcdoSearchPage:
         if (self.edition, self.axis) == ("3.2", "topography"):
             raise ValueError("ICD-O-3.2 topography is not served")
+        _validate_filter_echo(self.axis, self.behaviour, self.level)
         _validate_records_for_dataset(self.edition, self.axis, self.hits)
         return self
 

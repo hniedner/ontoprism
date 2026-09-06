@@ -57,6 +57,8 @@ describe('ICD-O repository page BFF boundary', () => {
 				limit: 25,
 				offset: 0,
 				sort: 'source',
+				behaviour: [],
+				level: [],
 				hits: [{ code: axis === 'topography' ? 'C00' : '8503/0', level: axis === 'topography' ? 'category' : 'morphology' }]
 			});
 		});

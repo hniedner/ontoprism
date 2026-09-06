@@ -332,6 +332,8 @@ async def list_icdo(
         "edition": edition,
         "axis": axis,
         "query": "",
+        "behaviour": behaviour or [],
+        "level": level or [],
         "total": 51 if hits and not (behaviour or level) else len(hits),
         "limit": limit,
         "offset": offset,

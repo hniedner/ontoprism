@@ -28,7 +28,7 @@ options, filtered rows, or sorted rows in the browser.
 | --- | --- | --- | --- |
 | NCIt | offset, exact total | relevance for search; source order for browse; code and label | representation status |
 | caDSR | offset, exact total | source/public ID and name | none |
-| ICD-O | offset, exact total | source/code and preferred term | level; behaviour for morphology only |
+| ICD-O | offset, exact total | source/code and preferred term | level closed per axis (morphology → morphology; topography → category/leaf); behaviour for morphology only |
 | Uberon/CL | offset, exact total | relevance for search; source order for browse; code and label | ontology source |
 | PubMed | `retstart`, navigable through NCBI's 10,000-result window | relevance; publication date descending | none |
 | ClinicalTrials.gov | opaque cursor trail | remote-service relevance order only | overall status and phase |

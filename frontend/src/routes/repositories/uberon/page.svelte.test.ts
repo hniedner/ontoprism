@@ -73,7 +73,7 @@ describe('Uberon repository page table ownership', () => {
 		expect(screen.getByRole('columnheader', { name: /Source/ })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Filter Source, 1 selected: Uberon' }));
 		expect(screen.getByRole('checkbox', { name: 'Uberon' })).toBeChecked();
-		expect(screen.getByRole('button', { name: 'Clear source filter' })).toHaveTextContent('source: uberon');
+		expect(screen.getByRole('button', { name: 'Clear Source filter' })).toHaveTextContent('Source: Uberon');
 		expect(screen.getByRole('button', { name: 'Reset table' })).toBeInTheDocument();
 		expect(screen.getByText('No records matched the current query and filters.')).toBeInTheDocument();
 	});

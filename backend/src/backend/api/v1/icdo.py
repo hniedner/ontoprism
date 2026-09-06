@@ -147,6 +147,8 @@ class _IcdoPage(StrictBoundaryModel):
     limit: int
     offset: int
     sort: IcdoRepositorySort
+    behaviour: list[IcdoBehaviour]
+    level: list[IcdoRecordLevel]
 
 
 class Morphology32Page(_IcdoPage):
@@ -262,6 +264,8 @@ def _page_response(
             "limit": result.limit,
             "offset": result.offset,
             "sort": result.sort,
+            "behaviour": list(result.behaviour),
+            "level": list(result.level),
             "hits": [record.model_dump() for record in result.hits],
         }
     )

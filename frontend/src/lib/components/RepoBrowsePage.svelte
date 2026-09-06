@@ -7,7 +7,7 @@
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
-	import type { DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
+	import type { DataTableFilterKeyMap, DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
 	import type { PageSize } from '$lib/grid-state';
 
 	// Full browse/search page for a paginated local repository: header, search
@@ -29,6 +29,7 @@
 		initial: { result: P; query: string; offset: number; size: PageSize; sort: Sort; filters: Record<string, string[]> };
 		defaultSort: Sort;
 		sortKeys: Readonly<Record<string, { asc: Sort; desc: Sort }>>;
+		filterKeys: DataTableFilterKeyMap;
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		filters,
 		initial,
 		defaultSort,
-		sortKeys
+		sortKeys,
+		filterKeys
 	}: Props = $props();
 
 	let queryValue = $derived(initial.query);
@@ -80,28 +82,58 @@
 		const [key, direction] = value.split(':');
 		return `${key.replaceAll('_', ' ')} ${direction === 'desc' ? 'descending' : 'ascending'}`;
 	}
-	const tableFilters = $derived(Object.fromEntries(Object.entries(initial.filters).map(([key, selected]) => [key, { kind: 'categorical', selected } satisfies DataTableFilterState])));
+	const tableFilters = $derived.by(() => {
+		const mappedKeys = Object.values(filterKeys);
+		const sourceKeys = Object.keys(initial.filters);
+		if (new Set(mappedKeys).size !== mappedKeys.length || mappedKeys.some((key) => !Object.hasOwn(initial.filters, key)) || sourceKeys.some((key) => !mappedKeys.includes(key))) {
+			throw new Error('Repository filter mappings do not match loaded filter state.');
+		}
+		return Object.fromEntries(Object.entries(filterKeys).map(([columnId, key]) => [columnId, { kind: 'categorical', selected: initial.filters[key] } satisfies DataTableFilterState]));
+	});
 	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, busy: loading, onintent: handleIntent });
+	let intentError = $state<string | null>(null);
+	function mappedFilterKey(columnId: string): string | null {
+		const key = filterKeys[columnId];
+		if (key !== undefined && Object.hasOwn(initial.filters, key)) return key;
+		intentError = `No server filter mapping for ${columnId}`;
+		return null;
+	}
 	function applySort(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'sort' }>): void {
 		const value = sortKeys[intent.sort.key]?.[intent.sort.direction];
 		if (value === undefined) throw new Error(`No server sort mapping for ${intent.sort.key}:${intent.sort.direction}`);
 		if (value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
-	function applyFilter(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
-		params.delete(intent.columnId);
-		for (const value of intent.filter.selected) params.append(intent.columnId, value);
+	function applyFilter(params: SvelteURLSearchParams, key: string, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
+		params.delete(key);
+		for (const value of intent.filter.selected) params.append(key, value);
 	}
 	function clearFilters(params: SvelteURLSearchParams): void {
 		for (const key of Object.keys(initial.filters)) params.delete(key);
 	}
-	function handleIntent(intent: DataTableIntent): void { void navigate((params) => {
-		params.delete('offset');
-		if (intent.kind === 'sort') applySort(params, intent);
-		else if (intent.kind === 'filter') applyFilter(params, intent);
-		else if (intent.kind === 'clear-filter') params.delete(intent.columnId);
-		else if (intent.kind === 'clear-filters') clearFilters(params);
-		else { params.delete('sort'); params.delete('size'); clearFilters(params); }
-	}); }
+	function navigateTable(update: (params: SvelteURLSearchParams) => void): void {
+		intentError = null;
+		void navigate((params) => {
+			params.delete('offset');
+			update(params);
+		});
+	}
+	function handleIntent(intent: DataTableIntent): void {
+		if (intent.kind === 'filter') {
+			const key = mappedFilterKey(intent.columnId);
+			if (key !== null) navigateTable((params) => applyFilter(params, key, intent));
+			return;
+		}
+		if (intent.kind === 'clear-filter') {
+			const key = mappedFilterKey(intent.columnId);
+			if (key !== null) navigateTable((params) => params.delete(key));
+			return;
+		}
+		navigateTable((params) => {
+			if (intent.kind === 'sort') applySort(params, intent);
+			else if (intent.kind === 'clear-filters') clearFilters(params);
+			else { params.delete('sort'); params.delete('size'); clearFilters(params); }
+		});
+	}
 	const resultTitle = $derived(
 		mode === 'search' ? `Results for “${initial.query}”` : browseTitle
 	);
@@ -142,6 +174,7 @@
 {/if}
 
 <RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
+		{#if intentError}<p role="alert" class="mb-2 text-sm text-danger">{intentError}</p>{/if}
 		{@render results(initial.result.hits, operations, emptyMessage)}
 		<Pagination
 			offset={initial.offset}

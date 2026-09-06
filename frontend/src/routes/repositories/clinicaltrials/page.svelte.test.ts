@@ -37,7 +37,7 @@ describe('ClinicalTrials.gov repository empty cursor page', () => {
 		}
 		await fireEvent.click(screen.getByRole('button', { name: 'Filter Status, 1 selected: RECRUITING' }));
 		expect(screen.getByRole('checkbox', { name: 'RECRUITING' })).toBeChecked();
-		expect(screen.getByRole('button', { name: 'Clear status filter' })).toHaveTextContent('status: RECRUITING');
+		expect(screen.getByRole('button', { name: 'Clear Status filter' })).toHaveTextContent('Status: RECRUITING');
 		expect(screen.getByText('No trials matched “melanoma”.')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
 

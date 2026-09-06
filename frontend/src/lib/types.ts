@@ -267,6 +267,8 @@ interface IcdoPageBase {
 	limit: number;
 	offset: number;
 	sort: IcdoRepositorySort;
+	behaviour: IcdoBehaviour[];
+	level: IcdoRecordLevel[];
 }
 
 export type IcdoPage =

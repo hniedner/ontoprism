@@ -455,6 +455,8 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert listed.total == 3
         assert listed.limit == 1
         assert listed.offset == 1
+        assert listed.behaviour == ()
+        assert listed.level == ()
         assert isinstance(listed.hits, tuple)
         assert listed.hits == (
             IcdoRecord(
@@ -500,6 +502,8 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert code_hits.total == 1
         assert [row.code for row in code_hits.hits] == ["8001A/3"]
         assert filtered.total == 2
+        assert filtered.behaviour == ("3",)
+        assert filtered.level == ("morphology",)
         assert [row.code for row in filtered.hits] == [
             "8001A/3",
             "8010B/3",

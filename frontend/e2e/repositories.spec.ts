@@ -148,7 +148,7 @@ test('ICD-O: table and detail text meet readable dark-mode contrast', async ({ p
 	);
 });
 
-test('local repository main regions inherit the exact neutral-100 dark foreground token', async ({ page }) => {
+test('local repository main regions apply Tailwind dark:text-neutral-100 exactly', async ({ page }) => {
 	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
 	for (const path of [
 		'/repositories/ncit',

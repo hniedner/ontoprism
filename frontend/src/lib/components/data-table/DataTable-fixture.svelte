@@ -13,6 +13,11 @@
 		caption?: string;
 		regionLabel?: string;
 	} = $props();
+	const filterStates = $derived({
+		group: { kind: 'categorical', selected: [] } satisfies DataTableFilterState,
+		active: { kind: 'categorical', selected: [] } satisfies DataTableFilterState,
+		...filters
+	});
 	let columns = $derived.by((): readonly DataTableColumn<TestRow>[] => [
 		{ id: 'name', label: 'Name', cell: nameCell, sortable: ['asc', 'desc'], sticky: sticky ? { side: 'left', offset: 0 } : undefined },
 		{ id: 'group', label: 'Group', cell: groupCell, sortable: ['asc', 'desc'], filter: { kind: 'categorical', ariaLabel: 'Filter groups', options: [
@@ -31,5 +36,5 @@
 {#snippet activeCell(row: TestRow)}{row.active ? 'Yes' : 'No'}{/snippet}
 
 <DataTable {rows} {columns} {caption} {regionLabel} getRowId={(row) => row.id}
-	operations={{ kind: 'server', sort, defaultSort: { key: 'name', direction: 'asc' }, activeSortLabel: sort?.direction === 'desc' ? 'Name descending' : 'Name ascending', filters, busy: false, onintent }}
+	operations={{ kind: 'server', sort, defaultSort: { key: 'name', direction: 'asc' }, activeSortLabel: sort?.direction === 'desc' ? 'Name descending' : 'Name ascending', filters: filterStates, busy: false, onintent }}
 	{emptyMessage} stickyHeader={sticky} />

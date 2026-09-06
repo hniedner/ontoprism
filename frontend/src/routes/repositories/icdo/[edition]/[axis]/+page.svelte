@@ -30,6 +30,7 @@
 	{initial}
 	defaultSort="source"
 	sortKeys={{ code: { asc: 'code:asc', desc: 'code:desc' }, preferred: { asc: 'preferred:asc', desc: 'preferred:desc' } }}
+	filterKeys={dataset.axis === 'morphology' ? { level: 'level', behaviour: 'behaviour' } : { level: 'level' }}
 	countLabel={(count, mode) => `${count.toLocaleString()} ${mode === 'search' ? 'matches' : 'records'}`}
 >
 	{#snippet filters()}

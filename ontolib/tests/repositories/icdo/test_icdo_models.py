@@ -185,8 +185,27 @@ def test_search_page_rejects_cross_dataset_records(
             total=0 if record is None else 1,
             limit=25,
             offset=0,
+            behaviour=(),
+            level=(),
             hits=() if record is None else (record,),
         )
+
+
+def test_search_page_preserves_canonical_applied_filter_echoes() -> None:
+    page = IcdoSearchPage(
+        edition="4.0",
+        axis="topography",
+        query="lip",
+        total=0,
+        limit=25,
+        offset=0,
+        behaviour=(),
+        level=("category", "leaf"),
+        hits=(),
+    )
+
+    assert page.behaviour == ()
+    assert page.level == ("category", "leaf")
 
 
 def test_topography_refuses_morphology_only_fields() -> None:

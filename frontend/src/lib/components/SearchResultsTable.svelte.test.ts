@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/svelte';
 import SearchResultsTable from './SearchResultsTable.svelte';
 import type { SearchHit } from '$lib/types';
@@ -40,6 +40,21 @@ describe('SearchResultsTable', () => {
 		render(SearchResultsTable, { hits });
 		expect(screen.getByText('Legacy pre-coordinated')).toBeInTheDocument();
 		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
+	});
+
+	it('labels the active NCIt filter chip with published human-readable names', () => {
+		render(SearchResultsTable, {
+			hits: [],
+			operations: {
+				kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Source order',
+				filters: { representation_status: { kind: 'categorical', selected: ['legacy-precoordinated'] } },
+				busy: false, onintent: vi.fn()
+			}
+		});
+
+		const chip = screen.getByRole('button', { name: 'Clear Status filter' });
+		expect(chip).toHaveTextContent('Status: Legacy pre-coordinated');
+		expect(chip).not.toHaveTextContent(/representation_status|legacy-precoordinated/);
 	});
 
 	it('preserves authoritative server order', () => {

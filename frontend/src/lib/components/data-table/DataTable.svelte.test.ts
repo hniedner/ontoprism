@@ -90,6 +90,21 @@ describe('DataTable server-owned operations', () => {
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filters' });
 	});
 
+	it('renders active chips with human column and option labels without dropping selections', () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, {
+			rows: [],
+			onintent,
+			filters: {
+				active: { kind: 'categorical', selected: ['true', 'false'] }
+			}
+		});
+
+		const chip = screen.getByRole('button', { name: 'Clear Active filter' });
+		expect(chip).toHaveTextContent('Active: Active, Inactive');
+		expect(chip).not.toHaveTextContent(/true|false/);
+	});
+
 	it('keeps one popover open and restores trigger focus after Escape and outside activation', async () => {
 		render(DataTableTestHost, { rows });
 		const groupTrigger = screen.getByRole('button', { name: 'Filter Group' });
@@ -215,6 +230,7 @@ describe('DataTable fail-closed validation', () => {
 		['empty active sort label', { operations: server({ activeSortLabel: '' }) }, 'DataTable active sort label must not be empty'],
 		['unknown sort column', { operations: server({ sort: { key: 'missing', direction: 'asc' } }) }, 'DataTable sort key "missing" does not support asc'],
 		['unconfigured filter', { operations: server({ filters: { missing: { kind: 'categorical', selected: ['x'] } } }) }, 'DataTable filter "missing" is not configured'],
+		['missing filter state', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }] } })], operations: server() }, 'DataTable column "name" is missing filter state'],
 		['invalid selected option', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }] } })], operations: server({ filters: { name: { kind: 'categorical', selected: ['b'] } } }) }, 'DataTable filter "name" selected an invalid option'],
 		['disabled sortable column', { columns: [column({ sortable: ['asc', 'desc'] })] }, 'DataTable operations "none" cannot configure sorting or filtering'],
 		['blank row ID', { getRowId: (): string => ' ' }, 'DataTable row IDs must not be empty'],

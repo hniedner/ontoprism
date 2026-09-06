@@ -1,4 +1,6 @@
-"""Validate built-browser page DTOs, input rejection, metadata echo, and mappings."""
+"""Validate the frontend FastAPI double against production page DTOs, input rejection,
+metadata echoes, the refresh report, and mappings.
+"""
 
 import pytest
 from fastapi import HTTPException
@@ -177,7 +179,7 @@ def test_double_and_production_reject_unserved_detail_dataset_consistently() -> 
     assert production_error.value.status_code == doubled.status_code == 422
 
 
-def test_double_echoes_valid_icdo_sort_and_applies_repeated_filters() -> None:
+def test_double_echoes_sort_and_filter_metadata_and_filters_matching_rows() -> None:
     with TestClient(app) as client:
         response = client.get(
             "/api/v1/icdo/4.0/topography/list",
@@ -196,8 +198,12 @@ def test_double_echoes_valid_icdo_sort_and_applies_repeated_filters() -> None:
 
     assert response.status_code == 200
     assert response.json()["sort"] == "preferred:desc"
+    assert response.json()["behaviour"] == []
+    assert response.json()["level"] == ["category", "leaf"]
     assert response.json()["hits"][0]["level"] == "leaf"
     assert empty.status_code == 200
+    assert empty.json()["behaviour"] == ["9"]
+    assert empty.json()["level"] == []
     assert empty.json()["total"] == 0
     assert empty.json()["hits"] == []
 

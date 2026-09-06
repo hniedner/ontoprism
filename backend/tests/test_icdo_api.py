@@ -92,8 +92,12 @@ class _Store:
         )
         limit = kwargs["limit"]
         offset = kwargs["offset"]
+        behaviour = kwargs["behaviour"]
+        level = kwargs["level"]
         assert isinstance(limit, int)
         assert isinstance(offset, int)
+        assert isinstance(behaviour, tuple)
+        assert isinstance(level, tuple)
         return IcdoSearchPage(
             edition=edition,
             axis=axis,
@@ -101,6 +105,8 @@ class _Store:
             total=1,
             limit=limit,
             offset=offset,
+            behaviour=behaviour,
+            level=level,
             hits=(record,),
         )
 
@@ -325,6 +331,10 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         metadata.status_code,
         detail.status_code,
     ] == [200] * 4
+    assert listed.json()["behaviour"] == []
+    assert listed.json()["level"] == []
+    assert searched.json()["behaviour"] == ["0"]
+    assert searched.json()["level"] == []
     assert detail.json()["record"]["code"] == "8503/0"
     for payload in (listed.json(), searched.json(), detail.json()):
         assert payload["activation_identity"] == "a" * 64
@@ -350,6 +360,8 @@ def test_search_preserves_repeated_filters_for_or_semantics(
     )
     assert response.status_code == 200, response.text
     assert store.search_args["level"] == ("category", "leaf")
+    assert response.json()["behaviour"] == []
+    assert response.json()["level"] == ["category", "leaf"]
 
 
 @pytest.mark.api
@@ -464,6 +476,8 @@ def test_list_refuses_a_typed_page_for_another_dataset(
                 total=0,
                 limit=25,
                 offset=0,
+                behaviour=(),
+                level=(),
                 hits=(),
             )
 

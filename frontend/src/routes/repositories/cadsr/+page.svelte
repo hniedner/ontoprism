@@ -22,6 +22,7 @@
 	initial={data.initial}
 	defaultSort="source"
 	sortKeys={{ public_id: { asc: 'public_id:asc', desc: 'public_id:desc' }, name: { asc: 'name:asc', desc: 'name:desc' } }}
+	filterKeys={{}}
 	countLabel={(n: number) => `${n.toLocaleString()} CDEs`}
 >
 	{#snippet helpText()}

@@ -22,6 +22,7 @@
 	initial={data.initial}
 	defaultSort={data.initial.query ? 'relevance' : 'source'}
 	sortKeys={{ code: { asc: 'code:asc', desc: 'code:desc' }, label: { asc: 'label:asc', desc: 'label:desc' } }}
+	filterKeys={{ source: 'source' }}
 	countLabel={(count, mode) => `${count.toLocaleString()} ${mode === 'search' ? 'matches' : 'concepts'}`}
 >
 	{#snippet helpText()}

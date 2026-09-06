@@ -3,6 +3,7 @@ import { createRawSnippet } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CursorPagination from './CursorPagination.svelte';
 import RepoBrowsePage from './RepoBrowsePage.svelte';
+import RepoBrowsePageIntentFixture from './RepoBrowsePage-intent-fixture.svelte';
 
 const goto = vi.fn().mockResolvedValue(undefined);
 vi.mock('$app/navigation', () => ({ goto: (target: string) => goto(target) }));
@@ -33,7 +34,8 @@ function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit',
 		results: results as never,
 		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters },
 		defaultSort: 'source',
-		sortKeys: {}
+		sortKeys: {},
+		filterKeys: Object.fromEntries(Object.keys(filters).map((key) => [key, key]))
 	});
 }
 
@@ -98,6 +100,29 @@ describe('RepoBrowsePage', () => {
 		setup('', 0, 0, '/repositories/ncit', { representation_status: ['legacy-precoordinated'] });
 
 		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: No records matched the current query and filters.');
+	});
+
+	it('maps table column filter intents to declared URL filter keys', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: { statusColumn: 'representation_status' },
+			initialFilters: { representation_status: [] },
+			intent: { kind: 'filter', columnId: 'statusColumn', filter: { kind: 'categorical', selected: ['legacy-precoordinated'] } }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit?representation_status=legacy-precoordinated');
+	});
+
+	it('fails visibly instead of navigating for an unmapped table filter intent', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: { status: 'representation_status' },
+			initialFilters: { representation_status: [] },
+			intent: { kind: 'clear-filter', columnId: 'unknown' }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(screen.getByRole('alert')).toHaveTextContent('No server filter mapping for unknown');
+		expect(goto).not.toHaveBeenCalled();
 	});
 });
 

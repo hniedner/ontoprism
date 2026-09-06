@@ -295,6 +295,8 @@ class IcdoRepository:
                 limit=limit,
                 offset=offset,
                 sort=sort,
+                behaviour=behaviour,
+                level=level,
                 hits=tuple(decode_icdo_record(row) for row in rows),
             )
         except ValueError as exc:

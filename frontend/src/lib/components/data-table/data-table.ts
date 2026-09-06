@@ -25,20 +25,33 @@ function validateColumn<Row>(column: DataTableColumn<Row>, ids: Set<string>): vo
 	if (column.sticky && (!Number.isFinite(column.sticky.offset) || column.sticky.offset < 0)) invalid(`DataTable column "${column.id}" has an invalid sticky offset`);
 }
 
-function validateServerOperations<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {
-	text('active sort label', operations.activeSortLabel);
+function validateSortStates<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {
 	for (const state of [operations.sort, operations.defaultSort]) {
 		const column = state && columns.find((candidate) => candidate.id === state.key);
 		if (state && (!column?.sortable || !column.sortable.includes(state.direction))) invalid(`DataTable sort key "${state.key}" does not support ${state.direction}`);
 	}
-	for (const [id, state] of Object.entries(operations.filters)) {
-		const filter = columns.find((column) => column.id === id)?.filter;
-		if (!filter || filter.kind !== state.kind) invalid(`DataTable filter "${id}" is not configured`);
-		if (filter?.kind === 'categorical') {
-			const available = new Set(filter.options.map((option) => option.value));
-			if (state.selected.some((value) => !available.has(value))) invalid(`DataTable filter "${id}" selected an invalid option`);
-		}
+}
+
+function validateFilterState<Row>(columns: readonly DataTableColumn<Row>[], id: string, state: Extract<DataTableOperations, { kind: 'server' }>['filters'][string]): void {
+	const filter = columns.find((column) => column.id === id)?.filter;
+	if (!filter || filter.kind !== state.kind) invalid(`DataTable filter "${id}" is not configured`);
+	const available = new Set(filter.options.map((option) => option.value));
+	if (state.selected.some((value) => !available.has(value))) invalid(`DataTable filter "${id}" selected an invalid option`);
+}
+
+function validateFilterStates<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {
+	for (const column of columns) {
+		if (column.filter && !Object.hasOwn(operations.filters, column.id)) invalid(`DataTable column "${column.id}" is missing filter state`);
 	}
+	for (const [id, state] of Object.entries(operations.filters)) {
+		validateFilterState(columns, id, state);
+	}
+}
+
+function validateServerOperations<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {
+	text('active sort label', operations.activeSortLabel);
+	validateSortStates(columns, operations);
+	validateFilterStates(columns, operations);
 }
 
 function validateOperations<Row>(columns: readonly DataTableColumn<Row>[], operations: DataTableOperations): void {

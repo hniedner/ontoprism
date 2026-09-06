@@ -54,7 +54,7 @@ describe('CtResultsTable', () => {
 	});
 
 	it('offers only the canonical filterable phases and never returned-only NA', async () => {
-		const operations: DataTableOperations = { kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Relevance', filters: {}, busy: false, onintent: () => {} };
+		const operations: DataTableOperations = { kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Relevance', filters: { status: { kind: 'categorical', selected: [] }, phase: { kind: 'categorical', selected: [] } }, busy: false, onintent: () => {} };
 		render(CtResultsTable, { studies, operations });
 		await fireEvent.click(screen.getByRole('button', { name: 'Filter Phase' }));
 		const phaseGroup = screen.getByRole('group', { name: 'Filter trial phases' });

@@ -16,6 +16,8 @@ export type DataTableFilter = { kind: 'categorical'; ariaLabel: string; options:
 
 export type DataTableFilterState = { kind: 'categorical'; selected: readonly string[] };
 
+export type DataTableFilterKeyMap = Readonly<Record<string, string>>;
+
 export interface DataTableSortState {
 	key: string;
 	direction: DataTableSortDirection;
