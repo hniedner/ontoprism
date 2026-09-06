@@ -5,14 +5,21 @@ from __future__ import annotations
 import json
 import threading
 import time
+from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, get_args
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.clinicaltrials.models import (
+    CTFilterPhase,
+    CTStatus,
+    CTStudyPhase,
+    CTStudySearchPage,
+)
 from ontolib.repositories.upstream import (
     UpstreamRateLimitedError,
     UpstreamTimeoutError,
@@ -68,6 +75,9 @@ _STUDY_ONE = {
         },
     }
 }
+_NEXT_PAGE_MARKER = "next-token"
+_MULTI_STATUSES: tuple[CTStatus, ...] = ("RECRUITING", "COMPLETED")
+_MULTI_PHASES: tuple[CTFilterPhase, ...] = ("PHASE2", "PHASE3")
 _STUDY_TWO = {
     "protocolSection": {
         "identificationModule": {"nctId": "NCT07654321", "briefTitle": "Trial Two"},
@@ -78,6 +88,20 @@ _STUDY_TWO = {
 }
 
 
+def _assert_multi_filter_domain(page: CTStudySearchPage) -> None:
+    requested_statuses = set(_MULTI_STATUSES)
+    requested_phases = set(_MULTI_PHASES)
+    returned_statuses = {study.status for study in page.studies}
+    returned_phase_sets = [set(study.phase) for study in page.studies]
+
+    assert page.status == list(_MULTI_STATUSES)
+    assert page.phase == list(_MULTI_PHASES)
+    assert page.studies
+    assert returned_statuses == requested_statuses
+    assert all(phases & requested_phases for phases in returned_phase_sets)
+    assert requested_phases <= set().union(*returned_phase_sets)
+
+
 class _Handler(BaseHTTPRequestHandler):
     last_query: ClassVar[dict[str, list[str]]] = {}
 
@@ -85,7 +109,13 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         _Handler.last_query = parse_qs(parsed.query)
         if parsed.path == "/studies":
-            self._json({"studies": [_STUDY_ONE, _STUDY_TWO], "totalCount": 42})
+            self._json(
+                {
+                    "studies": [_STUDY_ONE, _STUDY_TWO],
+                    "totalCount": 42,
+                    "nextPageToken": _NEXT_PAGE_MARKER,
+                }
+            )
         elif parsed.path == "/studies/NCT01234567":
             self._json(_STUDY_ONE)
         elif parsed.path == "/studies/NCT00000000":
@@ -95,7 +125,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.end_headers()
 
-    def _json(self, payload: dict[str, Any]) -> None:
+    def _json(self, payload: object) -> None:
         body = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -123,24 +153,260 @@ def ct_base_url() -> Iterator[str]:
 async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         page = await client.search_studies(
-            condition="melanoma", intervention="widgetinib", term="oral", page_size=20
+            condition="melanoma", intervention="widgetinib", term="oral", page_size=25
         )
     assert _Handler.last_query["query.cond"] == ["melanoma"]
     assert _Handler.last_query["query.intr"] == ["widgetinib"]
     assert _Handler.last_query["query.term"] == ["oral"]
     assert _Handler.last_query["countTotal"] == ["true"]
-    assert _Handler.last_query["pageSize"] == ["20"]
+    assert _Handler.last_query["pageSize"] == ["25"]
     assert page.total == 42
     assert [s.nct_id for s in page.studies] == ["NCT01234567", "NCT07654321"]
     first = page.studies[0]
     assert first.title == "A Study of Widgetinib in Solid Tumors"
     assert first.status == "RECRUITING"
-    assert first.phase == "PHASE2"
+    assert first.phase == ["PHASE2"]
     assert first.conditions == ["Solid Tumor", "Melanoma"]
     assert first.interventions == ["Widgetinib"]
     assert first.enrollment == 120
     # Relevance is synthesized from position: first > second.
     assert page.studies[0].relevance_score > page.studies[1].relevance_score
+
+
+@pytest.mark.unit
+async def test_search_accepts_na_and_multiple_returned_study_phases() -> None:
+    class _NaPhase(_Handler):
+        def do_GET(self) -> None:
+            study = deepcopy(_STUDY_ONE)
+            study["protocolSection"]["designModule"]["phases"] = ["NA", "PHASE2"]
+            self._json({"studies": [study], "totalCount": 1})
+
+    srv, base = _serve(_NaPhase)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            page = await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert page.studies[0].phase == ["NA", "PHASE2"]
+
+
+@pytest.mark.unit
+async def test_search_uses_opaque_page_token_and_echoes_cursor_metadata(
+    ct_base_url: str,
+) -> None:
+    async with ClinicalTrialsClient(ct_base_url) as client:
+        opaque_page = "opaque-token"
+        page = await client.search_studies(
+            condition="melanoma", page_size=25, page_token=opaque_page
+        )
+    assert _Handler.last_query["pageToken"] == [opaque_page]
+    assert page.page_size == 25
+    assert page.page_token == opaque_page
+    assert page.next_page_token == _NEXT_PAGE_MARKER
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_clinicaltrials_cursor_walk_is_disjoint() -> None:
+    async with ClinicalTrialsClient() as client:
+        first = await client.search_studies(condition="melanoma", page_size=10)
+        assert first.next_page_token is not None
+        second = await client.search_studies(
+            condition="melanoma",
+            page_size=10,
+            page_token=first.next_page_token,
+        )
+    assert first.page_size == second.page_size == 10
+    assert second.page_token == first.next_page_token
+    assert first.total == second.total
+    assert {row.nct_id for row in first.studies}.isdisjoint(
+        row.nct_id for row in second.studies
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_clinicaltrials_multi_filter_domain_and_union() -> None:
+    async with ClinicalTrialsClient() as client:
+        page = await client.search_studies(
+            condition="cancer",
+            status=_MULTI_STATUSES,
+            phase=_MULTI_PHASES,
+            page_size=100,
+        )
+
+    _assert_multi_filter_domain(page)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_clinicaltrials_na_phase_is_in_the_closed_study_domain() -> None:
+    async with ClinicalTrialsClient() as client:
+        page = await client.search_studies(term="AREA[Phase]NA", page_size=10)
+
+    allowed_phases = set(get_args(CTStudyPhase))
+    observed_phases = {phase for study in page.studies for phase in study.phase}
+    assert page.studies
+    assert "NA" in observed_phases
+    assert observed_phases <= allowed_phases
+
+
+@pytest.mark.unit
+async def test_cursor_page_recovers_truthful_total_with_bounded_count_request() -> None:
+    class _CursorPage(_Handler):
+        queries: ClassVar[list[dict[str, list[str]]]] = []
+
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            self.queries.append(query)
+            payload: dict[str, Any] = {"studies": [_STUDY_ONE]}
+            if "pageToken" not in query:
+                payload["totalCount"] = 42
+            self._json(payload)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _CursorPage)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        request_page = "opaque-page"
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            page = await client.search_studies(
+                condition="melanoma", page_token=request_page
+            )
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert page.total == 42
+    assert len(_CursorPage.queries) == 2
+    assert "pageToken" in _CursorPage.queries[0]
+    assert "pageToken" not in _CursorPage.queries[1]
+
+
+@pytest.mark.unit
+async def test_cursor_page_rejects_a_malformed_total_lookup_response() -> None:
+    class _MalformedCount(_Handler):
+        def do_GET(self) -> None:
+            query = parse_qs(urlparse(self.path).query)
+            self._json({"studies": [_STUDY_ONE]} if "pageToken" in query else [])
+
+    srv, base = _serve(_MalformedCount)
+    try:
+        cursor = "next"
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="melanoma", page_token=cursor)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_cursor_page_rejects_a_non_object_search_response() -> None:
+    class _MalformedPage(_Handler):
+        def do_GET(self) -> None:
+            self._json([])
+
+    srv, base = _serve(_MalformedPage)
+    try:
+        cursor = "next"
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="melanoma", page_token=cursor)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_blank_cursor_is_rejected_before_an_upstream_request() -> None:
+    blank_cursor = " "
+    async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
+        with pytest.raises(ValueError, match="page token must not be blank"):
+            await client.search_studies(condition="melanoma", page_token=blank_cursor)
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_structurally_invalid_study_row() -> None:
+    class _MalformedStudy(_Handler):
+        def do_GET(self) -> None:
+            study = deepcopy(_STUDY_ONE)
+            study["protocolSection"]["identificationModule"]["briefTitle"] = []
+            self._json({"studies": [study], "totalCount": 1})
+
+    srv, base = _serve(_MalformedStudy)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_study_without_an_identification_module() -> None:
+    class _MissingIdentity(_Handler):
+        def do_GET(self) -> None:
+            self._json(
+                {
+                    "studies": [{"protocolSection": {"identificationModule": None}}],
+                    "totalCount": 1,
+                }
+            )
+
+    srv, base = _serve(_MissingIdentity)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("next_page_token", [42, " "])
+async def test_search_rejects_a_malformed_next_page_token(
+    next_page_token: object,
+) -> None:
+    class _MalformedNextToken(_Handler):
+        def do_GET(self) -> None:
+            self._json(
+                {
+                    "studies": [_STUDY_ONE],
+                    "totalCount": 1,
+                    "nextPageToken": next_page_token,
+                }
+            )
+
+    srv, base = _serve(_MalformedNextToken)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_combines_status_and_phase_filters_with_upstream_or_syntax(
+    ct_base_url: str,
+) -> None:
+    async with ClinicalTrialsClient(ct_base_url) as client:
+        page = await client.search_studies(
+            condition="melanoma",
+            status=("RECRUITING", "RECRUITING", "COMPLETED"),
+            phase=("PHASE2", "PHASE3", "PHASE2"),
+        )
+    assert _Handler.last_query["filter.overallStatus"] == ["RECRUITING|COMPLETED"]
+    assert _Handler.last_query["aggFilters"] == ["phase:2 3"]
+    assert page.status == ["RECRUITING", "COMPLETED"]
+    assert page.phase == ["PHASE2", "PHASE3"]
+    _assert_multi_filter_domain(page)
 
 
 @pytest.mark.unit
@@ -188,7 +454,7 @@ async def test_search_rejects_a_study_without_a_valid_nct_id() -> None:
 async def test_status_and_phase_filters_are_sent(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         await client.search_studies(
-            condition="melanoma", status="RECRUITING", phase="PHASE2"
+            condition="melanoma", status=("RECRUITING",), phase=("PHASE2",)
         )
     assert _Handler.last_query["filter.overallStatus"] == ["RECRUITING"]
     # CT.gov v2 aggFilters phase buckets are numeric ids: PHASE2 -> "2" (sending the
@@ -197,22 +463,33 @@ async def test_status_and_phase_filters_are_sent(ct_base_url: str) -> None:
 
 
 @pytest.mark.unit
-async def test_page_size_is_clamped_to_api_maximum(ct_base_url: str) -> None:
+async def test_search_accepts_largest_product_page_size(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
-        await client.search_studies(condition="melanoma", page_size=1000)
+        await client.search_studies(condition="melanoma", page_size=100)
     assert _Handler.last_query["pageSize"] == ["100"]
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_non_product_page_size_before_request() -> None:
+    async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
+        with pytest.raises(ValueError, match="page size"):
+            await client.search_studies(condition="melanoma", page_size=20)
 
 
 @pytest.mark.unit
 async def test_invalid_status_or_phase_rejected(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         with pytest.raises(ValueError, match="status"):
-            await client.search_studies(condition="x", status="BOGUS")
+            await client.search_studies(condition="x", status=("BOGUS",))
         with pytest.raises(ValueError, match="phase"):
-            await client.search_studies(condition="x", phase="PHASE9")
-        # "NA" has no aggFilters phase bucket and must be rejected, not sent.
+            await client.search_studies(condition="x", phase=("PHASE9",))
+
+
+@pytest.mark.unit
+async def test_na_phase_filter_is_rejected_before_an_upstream_request() -> None:
+    async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
         with pytest.raises(ValueError, match="phase"):
-            await client.search_studies(condition="x", phase="NA")
+            await client.search_studies(condition="x", phase=("NA",))
 
 
 @pytest.mark.unit

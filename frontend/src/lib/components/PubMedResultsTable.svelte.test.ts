@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import PubMedResultsTable from './PubMedResultsTable.svelte';
+import type { DataTableOperations } from '$lib/components/data-table/types';
 import type { PubMedArticleSummary } from '$lib/types';
 
 const articles: PubMedArticleSummary[] = [
@@ -29,6 +30,10 @@ describe('PubMedResultsTable', () => {
 			'href',
 			'/repositories/pubmed/111'
 		);
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('shows at most the first three authors', () => {
@@ -41,5 +46,38 @@ describe('PubMedResultsTable', () => {
 		render(PubMedResultsTable, { articles });
 		expect(screen.getByText('J Onc')).toBeInTheDocument();
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('preserves upstream order', () => {
+		render(PubMedResultsTable, { articles });
+		expect(Array.from(document.querySelectorAll('tbody tr a')).at(0)).toHaveTextContent('111');
+	});
+
+	it('exposes publication date as a truthful descending-only sort', async () => {
+		const onintent = vi.fn();
+		const operations: DataTableOperations = {
+			kind: 'server',
+			sort: { key: 'date', direction: 'desc' },
+			defaultSort: null,
+			activeSortLabel: 'Publication date descending',
+			filters: {},
+			busy: false,
+			onintent
+		};
+		render(PubMedResultsTable, { articles, operations });
+
+		const header = screen.getByRole('columnheader', { name: /Date/ });
+		expect(header).toHaveAttribute('aria-sort', 'descending');
+		await fireEvent.click(within(header).getByRole('button', { name: 'Sort by Date' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'reset' });
+	});
+
+	it('escapes every source-controlled PubMed summary field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(PubMedResultsTable, {
+			articles: [{ pmid: payload, title: payload, journal: payload, pub_date: payload, authors: [payload], doi: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(4);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

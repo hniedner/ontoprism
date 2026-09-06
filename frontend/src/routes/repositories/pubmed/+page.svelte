@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { navigating, page } from '$app/state';
+	import { navigateRepositoryGrid } from '$lib/repository-navigation';
 	import { repositorySearchHref } from '$lib/repository-search';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
@@ -9,18 +11,20 @@
 	import type { PageProps } from './$types';
 	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
 	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
+	import type { DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
 
+	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
 	let { data }: PageProps = $props();
 	let queryValue = $derived(data.query);
 	const result = $derived(data.result.state === 'ready' ? data.result.data : null);
-	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
-	const isEmpty = $derived((result?.articles.length ?? 0) === 0);
 
-	function search(term = queryValue): void {
-		goto(repositorySearchHref('pubmed', page.url, term));
-	}
+	function navigate(update: (params: URLSearchParams) => void): void { navigateRepositoryGrid(resolve('/repositories/pubmed'), page.url, update, goto); }
+	function search(term = queryValue): void { const target = repositorySearchHref('pubmed', page.url, term); goto(target); }
+	function intent(value: DataTableIntent): void { if (value.kind !== 'sort' && value.kind !== 'reset') return; navigate((params) => { params.delete('offset'); if (value.kind === 'reset') params.delete('size'); if (value.kind === 'sort' && value.sort.key === 'date') params.set('sort', 'pub_date'); else params.delete('sort'); }); }
+	const operations = $derived<DataTableOperations>({ kind: 'server', sort: data.sort === 'pub_date' ? { key: 'date', direction: 'desc' } : null, defaultSort: null, activeSortLabel: data.sort === 'pub_date' ? 'Publication date descending' : 'Relevance', filters: {}, busy: loading, onintent: intent });
 </script>
 
 <svelte:head>
@@ -70,12 +74,7 @@
 		{loading}
 		error={null}
 	>
-		{#if isEmpty}
-			<p class="px-4 py-6 text-center text-sm text-muted">
-				No articles matched “{data.query}”.
-			</p>
-		{:else}
-			<PubMedResultsTable articles={result?.articles ?? []} />
-		{/if}
+		<PubMedResultsTable articles={result?.articles ?? []} {operations} emptyMessage={`No articles matched “${data.query}”.`} />
+		<Pagination offset={data.offset} limit={data.size} total={result?.total ?? 0} navigationTotal={Math.min(result?.total ?? 0, 10000)} onPage={(offset) => navigate((params) => { if (offset) params.set('offset', String(offset)); else params.delete('offset'); })} onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
 	</RepoResultsCard>
 </RemoteSearchSurface>

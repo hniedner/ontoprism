@@ -1,6 +1,18 @@
 // Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
+import type { PageSize } from './grid-state';
+
 export type RepresentationStatus = 'legacy-precoordinated';
+export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type NcitSearchSort = 'relevance' | NcitBrowseSort;
+export type NcitRepositorySort = NcitSearchSort;
+export type UberonBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type UberonSearchSort = 'relevance' | UberonBrowseSort;
+export type UberonRepositorySort = UberonSearchSort;
+export type CdeRepositorySort = 'source' | 'public_id:asc' | 'public_id:desc' | 'name:asc' | 'name:desc';
+export type IcdoRepositorySort = 'source' | 'code:asc' | 'code:desc' | 'preferred:asc' | 'preferred:desc';
+export type IcdoRecordLevel = 'morphology' | 'category' | 'leaf';
+export type IcdoBehaviour = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
 export interface ConceptRef {
 	code: string;
@@ -36,13 +48,25 @@ export interface SearchHit {
 	representation_status: RepresentationStatus | null;
 }
 
-export interface SearchPage {
+interface NcitPageBase {
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
+	representation_status: RepresentationStatus | null;
 	hits: SearchHit[];
 }
+
+export interface NcitSearchPage extends NcitPageBase {
+	sort: NcitSearchSort;
+}
+
+export interface NcitBrowsePage extends NcitPageBase {
+	query: '';
+	sort: NcitBrowseSort;
+}
+
+export type NcitRepositoryPage = NcitSearchPage | NcitBrowsePage;
 
 export interface GraphNode {
 	code: string;
@@ -137,13 +161,25 @@ export interface UberonSearchHit {
 	matched_synonym: string | null;
 }
 
-export interface UberonSearchPage {
+interface UberonPageBase {
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
+	source: UberonSource | null;
 	hits: UberonSearchHit[];
 }
+
+export interface UberonSearchPage extends UberonPageBase {
+	sort: UberonSearchSort;
+}
+
+export interface UberonBrowsePage extends UberonPageBase {
+	query: '';
+	sort: UberonBrowseSort;
+}
+
+export type UberonRepositoryPage = UberonSearchPage | UberonBrowsePage;
 
 export interface UberonNeighborhood {
 	center: string;
@@ -181,7 +217,7 @@ export interface IcdoMorphology32Record extends IcdoRecordBase {
 	parent_code: null;
 	base_morphology: string;
 	specificity: null;
-	behaviour: string;
+	behaviour: IcdoBehaviour;
 }
 
 export interface IcdoMorphology40Record extends IcdoRecordBase {
@@ -189,7 +225,7 @@ export interface IcdoMorphology40Record extends IcdoRecordBase {
 	parent_code: null;
 	base_morphology: string;
 	specificity: string;
-	behaviour: string;
+	behaviour: IcdoBehaviour;
 }
 
 export interface IcdoTopographyCategoryRecord extends IcdoRecordBase {
@@ -232,6 +268,9 @@ interface IcdoPageBase {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: IcdoRepositorySort;
+	behaviour: IcdoBehaviour[];
+	level: IcdoRecordLevel[];
 }
 
 export type IcdoPage =
@@ -292,6 +331,7 @@ export interface CdeSearchPage {
 	total: number;
 	limit: number;
 	offset: number;
+	sort: CdeRepositorySort;
 	hits: CdeSummary[];
 }
 
@@ -508,6 +548,13 @@ export interface RefreshReport {
 
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
+export type CTPageSize = PageSize;
+export const CT_STATUSES = ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'] as const;
+export type CTStatus = (typeof CT_STATUSES)[number];
+export const CT_PHASES = ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'] as const;
+export type CTFilterPhase = (typeof CT_PHASES)[number];
+export type CTStudyPhase = 'NA' | CTFilterPhase;
+
 export interface CTInterventionDetail {
 	type: string | null;
 	name: string;
@@ -543,7 +590,7 @@ export interface CTStudySummary {
 	nct_id: string;
 	title: string;
 	status: string | null;
-	phase: string | null;
+	phase: CTStudyPhase[];
 	conditions: string[];
 	interventions: string[];
 	start_date: string | null;
@@ -556,7 +603,7 @@ export interface CTStudyDetail {
 	title: string;
 	official_title: string | null;
 	status: string | null;
-	phase: string | null;
+	phase: CTStudyPhase[];
 	study_type: string | null;
 	primary_purpose: string | null;
 	conditions: string[];
@@ -576,16 +623,22 @@ export interface CTSearchRequest {
 	condition?: string | null;
 	intervention?: string | null;
 	term?: string | null;
-	status?: string | null;
-	phase?: string | null;
-	limit?: number;
+	status?: readonly CTStatus[];
+	phase?: readonly CTFilterPhase[];
+	limit?: CTPageSize;
+	page_token?: string | null;
 }
 
 export interface CTStudySearchPage {
 	condition: string | null;
 	intervention: string | null;
 	term: string | null;
+	status: CTStatus[];
+	phase: CTFilterPhase[];
 	total: number;
+	page_size: CTPageSize;
+	page_token: string | null;
+	next_page_token: string | null;
 	studies: CTStudySummary[];
 }
 
@@ -629,6 +682,9 @@ export interface PubMedArticleDetail {
 export interface PubMedSearchResult {
 	query: string;
 	total: number;
+	limit: number;
+	offset: number;
+	sort: 'relevance' | 'pub_date';
 	articles: PubMedArticleSummary[];
 }
 

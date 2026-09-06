@@ -98,11 +98,34 @@ def pm_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
 @pytest.mark.api
 def test_search_returns_summaries(pm_app: TestClient) -> None:
-    resp = pm_app.post("/api/v1/pubmed/search", json={"query": "melanoma"})
+    resp = pm_app.post(
+        "/api/v1/pubmed/search",
+        json={"query": "melanoma", "retmax": 25, "retstart": 0},
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
     assert body["articles"][0]["pmid"] == "111"
+    assert body["limit"] == 25
+    assert body["offset"] == 0
+
+
+@pytest.mark.api
+def test_search_rejects_nonaligned_or_out_of_window_offset(pm_app: TestClient) -> None:
+    assert (
+        pm_app.post(
+            "/api/v1/pubmed/search",
+            json={"query": "melanoma", "retmax": 25, "retstart": 1},
+        ).status_code
+        == 422
+    )
+    assert (
+        pm_app.post(
+            "/api/v1/pubmed/search",
+            json={"query": "melanoma", "retmax": 100, "retstart": 10000},
+        ).status_code
+        == 422
+    )
 
 
 @pytest.mark.api

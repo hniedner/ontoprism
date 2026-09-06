@@ -43,6 +43,7 @@ from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import (
     observation_without_graphs,
     observe_ncit_candidate,
@@ -60,11 +61,11 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 )
 
 
-def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
+def _make_label_lookup(index: NcitSearchIndex):  # type: ignore[no-untyped-def]
     """Resolve an NLP surface form to an existing concept via an exact label match."""
 
     async def lookup(term: str) -> str | None:
-        page = await store.search(term, limit=5)
+        page = await index.search(term, limit=5)
         normalized = term.strip().lower()
         for hit in page.hits:
             if hit.label and hit.label.strip().lower() == normalized:
@@ -189,7 +190,7 @@ async def _run(
                                 settings.ncit_sparql_url,
                             ),
                             get_labels=store.labels_for,
-                            label_lookup=_make_label_lookup(store),
+                            label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
                             progress=_print_progress,
                             residual_progress=_print_residual_progress,

@@ -12,6 +12,9 @@ export function repositorySearchHref(
 	const query = term.trim();
 	if (query) target.searchParams.set('q', query);
 	else target.searchParams.delete('q');
+	target.searchParams.delete('offset');
+	target.searchParams.delete('cursor');
+	target.searchParams.delete('sort');
 	const queryString = target.search as '' | `?${string}`;
 	return repository === 'clinicaltrials'
 		? resolve(`/repositories/clinicaltrials${queryString}`)

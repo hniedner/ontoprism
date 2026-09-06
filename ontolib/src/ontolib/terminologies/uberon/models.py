@@ -8,6 +8,10 @@ from pydantic import Field, model_validator
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 UberonSource = Literal["uberon", "cl"]
+UberonBrowseSort = Literal["source", "code:asc", "code:desc", "label:asc", "label:desc"]
+UberonSearchSort = Literal[
+    "relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"
+]
 UberonEdgeKind = Literal["subClassOf", "part_of", "other-restriction"]
 _CURIE = re.compile(r"(UBERON|CL):[0-9]+")
 _CANONICAL_EDGE_KINDS: dict[str, UberonEdgeKind] = {
@@ -95,6 +99,18 @@ class UberonSearchPage(_ReadModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
+    sort: UberonSearchSort = "relevance"
+    source: UberonSource | None
+    hits: list[UberonSearchHit] = Field(default_factory=list)
+
+
+class UberonBrowsePage(_ReadModel):
+    query: Literal[""] = ""
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+    sort: UberonBrowseSort = "source"
+    source: UberonSource | None
     hits: list[UberonSearchHit] = Field(default_factory=list)
 
 

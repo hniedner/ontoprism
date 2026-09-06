@@ -11,8 +11,37 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from backend.api.v1 import clinicaltrials, pubmed
+from backend.api.v1.grid import PageSize
+from backend.api.v1.icdo import (
+    IcdoDetail,
+    IcdoPage,
+    require_served_icdo_dataset,
+    validate_icdo_grid_filters,
+)
+from ontolib.repositories.cadsr.models import CdeRepositorySort, CdeSearchPage
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.icdo.models import (
+    IcdoAxis,
+    IcdoBehaviour,
+    IcdoEdition,
+    IcdoRecordLevel,
+    IcdoRepositorySort,
+)
 from ontolib.repositories.pubmed.client import PubMedClient
+from ontolib.terminologies.ncit.models import (
+    BrowsePage,
+    RepositoryBrowseSort,
+    RepositorySearchSort,
+    RepresentationStatus,
+    SearchPage,
+)
+from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
+    UberonBrowseSort,
+    UberonSearchPage,
+    UberonSearchSort,
+    UberonSource,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -155,17 +184,20 @@ async def refresh_repositories() -> dict[str, object]:
     }
 
 
-@app.get("/api/v1/ncit/list")
+@app.get("/api/v1/ncit/list", response_model=BrowsePage)
 async def list_ncit(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    representation_status: str | None = None,
+    sort: RepositoryBrowseSort = "source",
+    representation_status: RepresentationStatus | None = None,
 ) -> dict[str, object]:
     return {
         "query": "",
         "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
+        "representation_status": representation_status,
         "hits": [
             {
                 "code": "C3262",
@@ -178,12 +210,13 @@ async def list_ncit(
     }
 
 
-@app.get("/api/v1/ncit/search")
+@app.get("/api/v1/ncit/search", response_model=SearchPage)
 async def search_ncit(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    representation_status: str | None = None,
+    sort: RepositorySearchSort = "relevance",
+    representation_status: RepresentationStatus | None = None,
 ) -> dict[str, object]:
     code = "CSLOW" if q == "slow" else "C3262" if q == "neoplasm" else "C4005"
     return {
@@ -191,6 +224,8 @@ async def search_ncit(
         "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
+        "representation_status": representation_status,
         "hits": [
             {
                 "code": code,
@@ -205,37 +240,49 @@ async def search_ncit(
     }
 
 
-@app.get("/api/v1/uberon/list")
+@app.get("/api/v1/uberon/list", response_model=UberonBrowsePage)
 async def list_uberon(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    source: str | None = None,
+    sort: UberonBrowseSort = "source",
+    source: UberonSource | None = None,
 ) -> dict[str, object]:
+    selected_source = source or "uberon"
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
+        "source": source,
         "hits": [
             {
-                "code": "UBERON:0002048",
-                "source": source or "uberon",
-                "label": "SSR lung",
+                "code": "CL:0000000" if selected_source == "cl" else "UBERON:0002048",
+                "source": selected_source,
+                "label": "SSR cell" if selected_source == "cl" else "SSR lung",
                 "matched_synonym": None,
             }
         ],
     }
 
 
-@app.get("/api/v1/uberon/search")
+@app.get("/api/v1/uberon/search", response_model=UberonSearchPage)
 async def search_uberon(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    source: str | None = None,
+    sort: UberonSearchSort = "relevance",
+    source: UberonSource | None = None,
 ) -> dict[str, object]:
-    result = await list_uberon(limit, offset, source)
+    browse_sort: UberonBrowseSort = "source" if sort == "relevance" else sort
+    result = await list_uberon(
+        limit=limit,
+        offset=offset,
+        sort=browse_sort,
+        source=source,
+    )
     result["query"] = q
+    result["sort"] = sort
     return result
 
 
@@ -252,15 +299,20 @@ async def icdo_access(
     return {"status": "ready-and-entitled"}
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/list")
+@app.get("/api/v1/icdo/{edition}/{axis}/list", response_model=IcdoPage)
 async def list_icdo(
-    edition: str,
-    axis: str,
-    limit: int = 25,
-    offset: int = 0,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    limit: PageSize = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
+    require_served_icdo_dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
     if edition == "4.0" and axis == "topography":
         record = {
             "code": "C34.9",
@@ -269,24 +321,32 @@ async def list_icdo(
             "preferred": "Protected bronchus or lung",
         }
     else:
-        code = "8503/0" if edition == "3.2" else "8240/3"
+        code = "8503/0" if edition == "3.2" else "8240A/3"
         record = {
             "code": code,
             "level": "morphology",
             "preferred": f"Protected ICD-O-{edition} morphology",
             "behaviour": code[-1],
-            "base_morphology": code.split("/", maxsplit=1)[0],
-            **({"specificity": "specific"} if edition == "4.0" else {}),
+            "base_morphology": code[:4],
+            **({"specificity": code[4]} if edition == "4.0" else {}),
         }
+    hits = [record]
+    if behaviour and record.get("behaviour") not in behaviour:
+        hits = []
+    if level and record["level"] not in level:
+        hits = []
     return {
         "activation_identity": "d" * 64,
         "serving_identity": "e" * 64,
         "edition": edition,
         "axis": axis,
         "query": "",
-        "total": 51,
+        "behaviour": behaviour or [],
+        "level": level or [],
+        "total": 51 if hits and not (behaviour or level) else len(hits),
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 **record,
@@ -294,42 +354,56 @@ async def list_icdo(
                 "base_morphology": record.get("base_morphology"),
                 "specificity": record.get("specificity"),
                 "behaviour": record.get("behaviour"),
-                "synonyms": [],
-                "related": [],
-                "notes": [],
-                "code_references": [],
-                "see_also": [],
-                "see_notes": [],
-                "includes": [],
-                "excludes": [],
-                "other_text": [],
+                "synonyms": (),
+                "related": (),
+                "notes": (),
+                "code_references": (),
+                "see_also": (),
+                "see_notes": (),
+                "includes": (),
+                "excludes": (),
+                "other_text": (),
             }
+            for record in hits
         ],
     }
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/search")
+@app.get("/api/v1/icdo/{edition}/{axis}/search", response_model=IcdoPage)
 async def search_icdo(
-    edition: str,
-    axis: str,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     q: str,
-    limit: int = 25,
-    offset: int = 0,
+    limit: PageSize = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
-    result = await list_icdo(edition, axis, limit, offset, x_icdo_entitlement)
+    result = await list_icdo(
+        edition=edition,
+        axis=axis,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        behaviour=behaviour,
+        level=level,
+        x_icdo_entitlement=x_icdo_entitlement,
+    )
     result["query"] = q
     return result
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
+@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}", response_model=IcdoDetail)
 async def icdo_detail(
-    edition: str,
-    axis: str,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
+    require_served_icdo_dataset(edition, axis)
     records = {
         ("3.2", "morphology", "ODUwMy8w"): {
             "code": "8503/0",
@@ -338,12 +412,12 @@ async def icdo_detail(
             "base_morphology": "8503",
             "behaviour": "0",
         },
-        ("4.0", "morphology", "ODI0MC8z"): {
-            "code": "8240/3",
+        ("4.0", "morphology", "ODI0MEEvMw"): {
+            "code": "8240A/3",
             "level": "morphology",
             "preferred": "Protected carcinoid tumour",
             "base_morphology": "8240",
-            "specificity": "specific",
+            "specificity": "A",
             "behaviour": "3",
         },
         ("4.0", "topography", "QzM0Ljk"): {
@@ -363,15 +437,19 @@ async def icdo_detail(
         "serving_identity": "e" * 64,
         "record": {
             **record,
-            "synonyms": ["Protected papilloma synonym"],
-            "related": [],
-            "notes": ["Publisher note"],
-            "code_references": ["Code reference"],
-            "see_also": ["See also term"],
-            "see_notes": ["See note"],
-            "includes": ["Included term"],
-            "excludes": ["Excluded term"],
-            "other_text": ["Other publisher text"],
+            "parent_code": record.get("parent_code"),
+            "base_morphology": record.get("base_morphology"),
+            "specificity": record.get("specificity"),
+            "behaviour": record.get("behaviour"),
+            "synonyms": ("Protected papilloma synonym",),
+            "related": (),
+            "notes": ("Publisher note",),
+            "code_references": ("Code reference",),
+            "see_also": ("See also term",),
+            "see_notes": ("See note",),
+            "includes": ("Included term",),
+            "excludes": ("Excluded term",),
+            "other_text": ("Other publisher text",),
         },
         "ncit_alignments": [
             {
@@ -613,16 +691,18 @@ async def get_ncit_decomposition(
     }
 
 
-@app.get("/api/v1/cadsr/list")
+@app.get("/api/v1/cadsr/list", response_model=CdeSearchPage)
 async def list_cadsr(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> dict[str, object]:
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 "public_id": "2001",
@@ -636,13 +716,14 @@ async def list_cadsr(
     }
 
 
-@app.get("/api/v1/cadsr/search")
+@app.get("/api/v1/cadsr/search", response_model=CdeSearchPage)
 async def search_cadsr(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> dict[str, object]:
-    result = await list_cadsr(limit, offset)
+    result = await list_cadsr(limit=limit, offset=offset, sort=sort)
     result["query"] = q
     return result
 

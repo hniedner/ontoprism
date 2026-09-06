@@ -1,89 +1,103 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadRepositoryPage } from './repository-load';
+import { loadRepositoryPage, parseCursorGridUrl, parseOffsetGridUrl } from './repository-load';
 
-describe('loadRepositoryPage', () => {
-	it('uses the search loader for trimmed URL query and strict offset', async () => {
-		const search = vi.fn().mockResolvedValue({ total: 1 });
-		const list = vi.fn();
+describe('loadRepositoryPage canonical offset state', () => {
+	it('threads typed size, aligned offset, sort, and repeated filters through the server query', async () => {
+		const search = vi.fn().mockResolvedValue({ total: 80, limit: 50, offset: 50, sort: 'name:desc', hits: [] });
 		const result = await loadRepositoryPage(
-			new URL('http://example.test/repository?q=%20tumor%20&offset=25'),
-			search,
-			list
-		);
-
-		expect(search).toHaveBeenCalledWith('tumor', 25);
-		expect(list).not.toHaveBeenCalled();
-		expect(result.initial).toEqual({ result: { total: 1 }, query: 'tumor', offset: 25 });
-	});
-
-	it('uses the list loader and normalizes malformed offsets', async () => {
-		const search = vi.fn();
-		const list = vi.fn().mockResolvedValue({ total: 2 });
-		const result = await loadRepositoryPage(
-			new URL('http://example.test/repository?offset=1junk'),
-			search,
-			list
-		);
-
-		expect(list).toHaveBeenCalledWith(0);
-		expect(search).not.toHaveBeenCalled();
-		expect(result.initial.query).toBe('');
-	});
-
-	it('threads repository-specific URL facets through loaders and initial state', async () => {
-		const list = vi.fn().mockResolvedValue({ total: 1 });
-		const readUrlState = vi.fn().mockReturnValue({
-			representationStatus: 'legacy-precoordinated' as const
-		});
-
-		const result = await loadRepositoryPage(
-			new URL(
-				'http://example.test/repository?representation_status=legacy-precoordinated'
-			),
-			vi.fn(),
-			list,
-			readUrlState
-		);
-
-		expect(readUrlState).toHaveBeenCalledWith(
-			expect.any(URLSearchParams)
-		);
-		expect(list).toHaveBeenCalledWith(0, {
-			representationStatus: 'legacy-precoordinated'
-		});
-		expect(result.initial).toEqual({
-			result: { total: 1 },
-			query: '',
-			offset: 0,
-			representationStatus: 'legacy-precoordinated'
-		});
-	});
-
-	it('threads URL facets into the search loader when a query is present', async () => {
-		const search = vi.fn().mockResolvedValue({ total: 3 });
-		const readUrlState = vi.fn().mockReturnValue({
-			representationStatus: 'legacy-precoordinated' as const
-		});
-
-		const result = await loadRepositoryPage(
-			new URL(
-				'http://example.test/repository?q=tumor&representation_status=legacy-precoordinated'
-			),
+			new URL('http://example.test/repository?q=tumor&size=50&offset=50&sort=name%3Adesc&status=a&status=b'),
 			search,
 			vi.fn(),
-			readUrlState
+			{ defaultSort: 'source', sorts: ['source', 'name:asc', 'name:desc'], filters: { status: ['a', 'b'] } }
 		);
+		expect(search).toHaveBeenCalledWith('tumor', { size: 50, offset: 50, sort: 'name:desc', filters: { status: ['a', 'b'] } });
+		expect(result.initial.size).toBe(50);
+		expect(result.initial.offset).toBe(50);
+	});
 
-		// A regression that calls search(query, offset) would silently drop the
-		// active representation-status filter on the search path.
-		expect(search).toHaveBeenCalledWith('tumor', 0, {
-			representationStatus: 'legacy-precoordinated'
+	it.each([
+		['size=24', 'invalid size'], ['size=25&offset=1', 'nonaligned offset'],
+		['size=25&sort=bogus', 'invalid sort'], ['size=25&status=bogus', 'invalid filter']
+	])('canonicalizes malformed owned browser state once: %s', async (query) => {
+		await expect(loadRepositoryPage(
+			new URL(`http://example.test/repository?${query}`), vi.fn(),
+			vi.fn().mockResolvedValue({ total: 0, limit: 25, offset: 0, hits: [] }),
+			{ defaultSort: 'source', sorts: ['source'], filters: { status: ['a'] } }
+		)).rejects.toMatchObject({ status: 307, location: '/repository' });
+	});
+
+	it('canonicalizes an over-range offset to the final aligned page before rendering', async () => {
+		const list = vi.fn().mockResolvedValue({ total: 51, limit: 25, offset: 100, sort: 'source', hits: [] });
+		await expect(loadRepositoryPage(
+			new URL('http://example.test/repository?offset=100'), vi.fn(), list,
+			{ defaultSort: 'source', sorts: ['source'], filters: {} }
+		)).rejects.toMatchObject({ status: 307, location: '/repository?offset=50' });
+	});
+
+	it('fails closed when API metadata does not echo the requested page', async () => {
+		await expect(loadRepositoryPage(
+			new URL('http://example.test/repository?size=50'), vi.fn(),
+			vi.fn().mockResolvedValue({ total: 1, limit: 25, offset: 0, hits: [] }),
+			{ defaultSort: 'source', sorts: ['source'], filters: {} }
+		)).rejects.toMatchObject({ status: 502 });
+	});
+
+	it('canonicalizes PubMed offsets to the final valid source-window boundary once', () => {
+		const spec = { defaultSort: 'relevance', sorts: ['relevance', 'pub_date'] as const, filters: {}, resultWindow: 10_000 };
+		let location = '';
+		try {
+			parseOffsetGridUrl(new URL('http://example.test/repositories/pubmed?q=cancer&offset=10000'), spec);
+		} catch (caught) {
+			location = (caught as { location: string }).location;
+		}
+
+		expect(location).toBe('/repositories/pubmed?q=cancer&offset=9975');
+		expect(() => parseOffsetGridUrl(new URL(`http://example.test${location}`), spec)).not.toThrow();
+	});
+});
+
+describe('parseCursorGridUrl', () => {
+	it('preserves an opaque cursor trail and repeated categorical filters', () => {
+		const parsed = parseCursorGridUrl(
+			new URL('http://example.test/repository?q=tumor&cursor=first&cursor=second&phase=PHASE1&phase=PHASE2&status=RECRUITING&status=COMPLETED'),
+			{
+				filters: {
+					status: ['RECRUITING', 'COMPLETED'],
+					phase: ['PHASE1', 'PHASE2']
+				}
+			}
+		);
+		expect(parsed.cursors).toEqual(['first', 'second']);
+		expect(parsed.filters).toEqual({
+			status: ['RECRUITING', 'COMPLETED'],
+			phase: ['PHASE1', 'PHASE2']
 		});
-		expect(result.initial).toEqual({
-			result: { total: 3 },
-			query: 'tumor',
-			offset: 0,
-			representationStatus: 'legacy-precoordinated'
-		});
+	});
+
+	it.each([
+		['cursor=', '/repository?q=tumor'],
+		[`cursor=${'x'.repeat(1001)}`, '/repository?q=tumor'],
+		[new URLSearchParams(Array.from({ length: 51 }, (_, index) => ['cursor', `c${index}`])).toString(), '/repository?q=tumor'],
+		['size=24&status=BOGUS', '/repository?q=tumor'],
+		['q=%20tumor%20&phase=PHASE2&status=COMPLETED&status=RECRUITING', '/repository?q=tumor&phase=PHASE2&status=RECRUITING&status=COMPLETED']
+	])('canonicalizes malformed or unordered cursor state once: %s', (suffix, expected) => {
+		const separator = suffix.startsWith('q=') ? '' : 'q=tumor&';
+		const url = new URL(`http://example.test/repository?${separator}${suffix}`);
+		const spec = {
+			filters: {
+				status: ['RECRUITING', 'COMPLETED'],
+				phase: ['PHASE1', 'PHASE2']
+			}
+		};
+		let location = '';
+		try {
+			parseCursorGridUrl(url, spec);
+		} catch (caught) {
+			location = (caught as { location: string }).location;
+		}
+
+		expect(location).toBe(expected);
+		expect(location).not.toBe(`${url.pathname}${url.search}`);
+		expect(() => parseCursorGridUrl(new URL(`http://example.test${location}`), spec)).not.toThrow();
 	});
 });

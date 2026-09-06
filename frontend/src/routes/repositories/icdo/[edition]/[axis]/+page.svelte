@@ -2,12 +2,19 @@
 	import { resolve } from '$app/paths';
 	import IcdoResultsTable from '$lib/components/IcdoResultsTable.svelte';
 	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
-	import type { IcdoDataset } from '$lib/icdo-routes';
-	import type { IcdoRecord } from '$lib/types';
+	import { parseIcdoDataset } from '$lib/icdo-routes';
+	import type { RepositoryPageData } from '$lib/server/repository-load';
+	import type { IcdoPage, IcdoRecord, IcdoRepositorySort } from '$lib/types';
 	import type { PageProps } from './$types';
+	import type { DataTableOperations } from '$lib/components/data-table/types';
 
 	let { data }: PageProps = $props();
-	const dataset = $derived({ edition: data.edition, axis: data.axis } as IcdoDataset);
+	const dataset = $derived.by(() => {
+		const parsed = parseIcdoDataset(data.edition, data.axis);
+		if (!parsed) throw new Error('Server returned an unserved ICD-O dataset.');
+		return parsed;
+	});
+	const initial: RepositoryPageData<IcdoPage, IcdoRepositorySort>['initial'] = $derived(data.initial);
 	const label = $derived(`ICD-O-${data.edition} ${data.axis}`);
 	const route = $derived(resolve('/repositories/icdo/[edition]/[axis]', dataset));
 </script>
@@ -20,7 +27,10 @@
 	ariaLabel={`Search ${label}`}
 	suggestions={[]}
 	browseTitle={`Browsing ${label} records`}
-	initial={{ result: data.result, query: data.query, offset: data.result.offset }}
+	{initial}
+	defaultSort="source"
+	sortKeys={{ code: { asc: 'code:asc', desc: 'code:desc' }, preferred: { asc: 'preferred:asc', desc: 'preferred:desc' } }}
+	filterKeys={dataset.axis === 'morphology' ? { level: 'level', behaviour: 'behaviour' } : { level: 'level' }}
 	countLabel={(count, mode) => `${count.toLocaleString()} ${mode === 'search' ? 'matches' : 'records'}`}
 >
 	{#snippet filters()}
@@ -32,7 +42,7 @@
 		Search publisher codes, preferred terms, synonyms, and related terms in this certified
 		edition/axis dataset.
 	{/snippet}
-	{#snippet results(hits: IcdoRecord[])}
-		<IcdoResultsTable {dataset} {hits} />
+	{#snippet results(hits: IcdoRecord[], operations: DataTableOperations, emptyMessage: string)}
+		<IcdoResultsTable {dataset} {hits} {operations} {emptyMessage} />
 	{/snippet}
 </RepoBrowsePage>

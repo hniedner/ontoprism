@@ -13,9 +13,9 @@
 			>{trial.nct_id}</span
 		>
 		{#if trial.status}<span class="text-xs text-muted">{trial.status}</span>{/if}
-		{#if trial.phase}
+		{#if trial.phase.length}
 			<span class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30"
-				>{trial.phase}</span
+				>{trial.phase.join(', ')}</span
 			>
 		{/if}
 	</div>

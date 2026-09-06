@@ -26,6 +26,7 @@
 		"playwright.config.ts",
 		// Shared test fixtures (imported only by ignored *.test.ts files).
 		"**/*-fixture.ts",
+		"**/*-fixture.svelte",
 		// Example scaffolding shipped by the SvelteKit template (greet.ts + its spec).
 		"src/lib/vitest-examples/**"
 	],

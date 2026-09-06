@@ -2,11 +2,15 @@
 
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from backend.api.v1.uberon import router as uberon_router
 from backend.dependencies import (
     get_repository_metadata,
     get_uberon_search_index,
@@ -28,12 +32,26 @@ from ontolib.repositories.xref.vocab import (
 )
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonConceptDetail,
     UberonGraphNode,
     UberonNeighborhood,
     UberonSearchHit,
     UberonSearchPage,
+    UberonSource,
 )
+
+
+def _int_arg(kwargs: dict[str, object], key: str) -> int:
+    value = kwargs[key]
+    assert isinstance(value, int)
+    return value
+
+
+def _source_arg(kwargs: dict[str, object]) -> UberonSource | None:
+    value = kwargs.get("source")
+    assert value is None or value in ("uberon", "cl")
+    return cast("UberonSource | None", value)
 
 
 class _Store:
@@ -41,20 +59,35 @@ class _Store:
         self.search_calls: list[tuple[str, str | None]] = []
 
     async def search(self, query: str, **kwargs: object) -> UberonSearchPage:
-        source = kwargs.get("source")
-        self.search_calls.append((query, source if isinstance(source, str) else None))
+        source = _source_arg(kwargs)
+        self.search_calls.append((query, source))
         return UberonSearchPage(
             query=query,
             total=1,
-            limit=int(kwargs["limit"]),
-            offset=int(kwargs["offset"]),
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
+            source=source,
             hits=[
                 UberonSearchHit(code="UBERON:0002048", source="uberon", label="lung")
             ],
         )
 
-    async def list_concepts(self, **kwargs: object) -> UberonSearchPage:
-        return await self.search("", **kwargs)
+    async def list_concepts(self, **kwargs: object) -> UberonBrowsePage:
+        source = _source_arg(kwargs)
+        selected_source = source or "uberon"
+        return UberonBrowsePage(
+            total=1,
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
+            source=source,
+            hits=[
+                UberonSearchHit(
+                    code="CL:0000000" if selected_source == "cl" else "UBERON:0002048",
+                    source=selected_source,
+                    label="cell" if selected_source == "cl" else "lung",
+                )
+            ],
+        )
 
     async def get_concept_detail(self, code: str) -> UberonConceptDetail | None:
         if code == "bad":
@@ -74,6 +107,7 @@ class _Index:
     def __init__(self, populated: bool, *, fail: bool = False) -> None:
         self.populated = populated
         self.fail = fail
+        self.search_calls: list[dict[str, object]] = []
 
     async def is_populated(self, source_identity: str, source_hash: str) -> bool:
         assert source_identity == "a" * 64
@@ -83,11 +117,13 @@ class _Index:
         return self.populated
 
     async def search(self, query: str, **kwargs: object) -> UberonSearchPage:
+        self.search_calls.append({"query": query, **kwargs})
         return UberonSearchPage(
             query=query,
             total=1,
-            limit=int(kwargs["limit"]),
-            offset=int(kwargs["offset"]),
+            limit=_int_arg(kwargs, "limit"),
+            offset=_int_arg(kwargs, "offset"),
+            source=_source_arg(kwargs),
             hits=[UberonSearchHit(code="CL:0000000", source="cl", label="cached cell")],
         )
 
@@ -152,6 +188,7 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
     )
 
     assert response.status_code == 200
+    assert response.json()["source"] == "cl"
     assert response.json()["hits"][0] == {
         "code": "CL:0000000",
         "source": "cl",
@@ -161,15 +198,31 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
 
 
 @pytest.mark.api
-def test_search_identity_mismatch_falls_back_to_certified_store() -> None:
+def test_search_defaults_to_and_echoes_relevance_sort() -> None:
+    index = _Index(True)
+
+    response = next(_client(_Store(), index)).get(
+        "/api/v1/uberon/search", params={"q": "cell"}
+    )
+
+    assert response.status_code == 200
+    assert index.search_calls == [
+        {"query": "cell", "source": None, "limit": 25, "offset": 0, "sort": "relevance"}
+    ]
+    assert response.json()["sort"] == "relevance"
+    assert response.json()["source"] is None
+
+
+@pytest.mark.api
+def test_search_identity_mismatch_fails_closed() -> None:
     store = _Store()
 
     response = next(_client(store, _Index(False))).get(
         "/api/v1/uberon/search", params={"q": "lung", "source": "uberon"}
     )
 
-    assert response.status_code == 200
-    assert store.search_calls == [("lung", "uberon")]
+    assert response.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api
@@ -243,10 +296,40 @@ def test_list_preserves_source_facet_and_detail_refuses_unknown_or_invalid() -> 
     invalid = client.get("/api/v1/uberon/concepts/bad")
 
     assert listed.status_code == 200
-    assert listed.json()["hits"][0]["source"] == "uberon"
+    assert listed.json()["source"] == "cl"
+    assert listed.json()["hits"][0]["source"] == "cl"
     assert unknown.status_code == 404
     assert "Concept not found" in unknown.json()["detail"]
     assert invalid.status_code == 422
+
+
+@pytest.mark.api
+def test_list_rejects_search_only_relevance_sort() -> None:
+    response = next(_client(_Store(), _Index(False))).get(
+        "/api/v1/uberon/list", params={"sort": "relevance"}
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_list_response_model_rejects_search_only_relevance_sort() -> None:
+    route = next(
+        route
+        for route in uberon_router.routes
+        if isinstance(route, APIRoute) and route.path == "/api/v1/uberon/list"
+    )
+    with pytest.raises(ValidationError):
+        route.response_model.model_validate(
+            {
+                "query": "",
+                "total": 0,
+                "limit": 25,
+                "offset": 0,
+                "sort": "relevance",
+                "hits": [],
+            }
+        )
 
 
 @pytest.mark.api

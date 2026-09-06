@@ -455,6 +455,8 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert listed.total == 3
         assert listed.limit == 1
         assert listed.offset == 1
+        assert listed.behaviour == ()
+        assert listed.level == ()
         assert isinstance(listed.hits, tuple)
         assert listed.hits == (
             IcdoRecord(
@@ -477,8 +479,17 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
             "4.0",
             "morphology",
             query="",
-            behaviour="3",
-            level="morphology",
+            behaviour=("3",),
+            level=("morphology",),
+            limit=10,
+            offset=0,
+        )
+        preferred_order = await repository.search(
+            "4.0",
+            "morphology",
+            query="",
+            behaviour=("3",),
+            sort="preferred:asc",
             limit=10,
             offset=0,
         )
@@ -491,9 +502,15 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert code_hits.total == 1
         assert [row.code for row in code_hits.hits] == ["8001A/3"]
         assert filtered.total == 2
+        assert filtered.behaviour == ("3",)
+        assert filtered.level == ("morphology",)
         assert [row.code for row in filtered.hits] == [
             "8001A/3",
             "8010B/3",
+        ]
+        assert [row.code for row in preferred_order.hits] == [
+            "8010B/3",
+            "8001A/3",
         ]
         assert inactive_hits.total == 0
         assert inactive_hits.hits == ()

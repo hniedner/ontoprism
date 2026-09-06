@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import CursorPagination from './CursorPagination.svelte';
 import RepoBrowsePage from './RepoBrowsePage.svelte';
+import RepoBrowsePageIntentFixture from './RepoBrowsePage-intent-fixture.svelte';
 
 const goto = vi.fn().mockResolvedValue(undefined);
 vi.mock('$app/navigation', () => ({ goto: (target: string) => goto(target) }));
@@ -14,11 +16,11 @@ interface Hit {
 const helpText = createRawSnippet(() => ({
 	render: () => `<span data-testid="help">help copy</span>`
 }));
-const results = createRawSnippet<[Hit[]]>((getHits) => ({
-	render: () => `<div data-testid="results">${getHits().length} rows</div>`
+const results = createRawSnippet<[Hit[], unknown, string]>((getHits, _getOperations, getEmptyMessage) => ({
+	render: () => `<div data-testid="results">${getHits().length} rows${getHits().length ? '' : `: ${getEmptyMessage()}`}</div>`
 }));
 
-function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit') {
+function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit', filters: Record<string, string[]> = {}) {
 	return render(RepoBrowsePage, {
 		title: 'NCIt Browser',
 		description: 'Browse concepts',
@@ -30,7 +32,10 @@ function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit')
 		browseTitle: 'All concepts',
 		countLabel: (count: number, mode: string) => `${count} (${mode})`,
 		results: results as never,
-		initial: { result: { total, hits: [{ id: 'a' }] }, query, offset }
+		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters },
+		defaultSort: 'source',
+		sortKeys: {},
+		filterKeys: Object.fromEntries(Object.keys(filters).map((key) => [key, key]))
 	});
 }
 
@@ -56,6 +61,7 @@ describe('RepoBrowsePage', () => {
 		expect(screen.getByText('Results for “melanoma”')).toBeInTheDocument();
 		expect(screen.getByText('100 (search)')).toBeInTheDocument();
 		expect(screen.getByText('Page 2 of 4')).toBeInTheDocument();
+		expect(screen.getAllByRole('navigation', { name: 'Pagination' })).toHaveLength(1);
 	});
 
 	it('enhances search and pagination as URL navigation', async () => {
@@ -79,5 +85,78 @@ describe('RepoBrowsePage', () => {
 		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'lung' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 		expect(goto).toHaveBeenCalledWith('/repositories/uberon?q=lung');
+	});
+
+	it('distinguishes source-empty browse state from no matches while retaining results', () => {
+		const browse = setup('', 0, 0);
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: This repository contains no records.');
+		browse.unmount();
+
+		setup('missing', 0, 0);
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: No records matched the current query and filters.');
+	});
+
+	it('keeps populated categorical filters recoverable when they match no rows', async () => {
+		setup('', 0, 0, '/repositories/ncit', { representation_status: ['legacy-precoordinated'] });
+
+		expect(screen.getByTestId('results')).toHaveTextContent('0 rows: No records matched the current query and filters.');
+	});
+
+	it('maps table column filter intents to declared URL filter keys', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: { statusColumn: 'representation_status' },
+			initialFilters: { representation_status: [] },
+			intent: { kind: 'filter', columnId: 'statusColumn', filter: { kind: 'categorical', selected: ['legacy-precoordinated'] } }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit?representation_status=legacy-precoordinated');
+	});
+
+	it('fails visibly instead of navigating for an unmapped table filter intent', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: { status: 'representation_status' },
+			initialFilters: { representation_status: [] },
+			intent: { kind: 'clear-filter', columnId: 'unknown' }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(screen.getByRole('alert')).toHaveTextContent('No server filter mapping for unknown');
+		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it('fails visibly instead of rejecting navigation for an unmapped sort intent', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: {},
+			initialFilters: {},
+			sortKeys: { name: { asc: 'name:asc', desc: 'name:desc' } },
+			intent: { kind: 'sort', sort: { key: 'unknown', direction: 'asc' } }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(screen.getByRole('alert')).toHaveTextContent('No server sort mapping for unknown:asc');
+		expect(goto).not.toHaveBeenCalled();
+	});
+});
+
+describe('CursorPagination', () => {
+	it('offers truthful previous and next cursor navigation without page numbers', async () => {
+		const onPrevious = vi.fn();
+		const onNext = vi.fn();
+		render(CursorPagination, {
+			count: 25,
+			total: 80,
+			hasPrevious: true,
+			hasNext: true,
+			size: 25,
+			onPrevious,
+			onNext,
+			onSize: vi.fn()
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+		expect(onPrevious).toHaveBeenCalledOnce();
+		expect(onNext).toHaveBeenCalledOnce();
+		expect(screen.queryByText(/Page \d/)).not.toBeInTheDocument();
 	});
 });

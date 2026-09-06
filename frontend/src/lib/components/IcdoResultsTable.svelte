@@ -1,35 +1,28 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { icdoCodeSegment } from '$lib/api';
+	import DataTable from '$lib/components/data-table/DataTable.svelte';
+	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 	import type { IcdoDataset } from '$lib/icdo-routes';
 	import type { IcdoRecord } from '$lib/types';
 
-	let { dataset, hits }: { dataset: IcdoDataset; hits: IcdoRecord[] } = $props();
+	let { dataset, hits, operations = { kind: 'none' }, emptyMessage = 'No records.' }: { dataset: IcdoDataset; hits: readonly IcdoRecord[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
+	const interactive = $derived(operations.kind === 'server');
+	let columns = $derived.by((): readonly DataTableColumn<IcdoRecord>[] => [
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
+		{ id: 'preferred', label: 'Preferred/category term', cell: preferredCell, sortable: interactive ? ['asc', 'desc'] : undefined },
+		{ id: 'level', label: 'Level', cell: levelCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter ICD-O levels', options: (dataset.axis === 'morphology' ? ['morphology'] : ['category', 'leaf']).map((value) => ({ value, label: value })) } : undefined },
+		{ id: 'behaviour', label: 'Behaviour', cell: behaviourCell, filter: interactive && dataset.axis === 'morphology' ? { kind: 'categorical', ariaLabel: 'Filter ICD-O behaviours', options: Array.from({ length: 10 }, (_, value) => ({ value: String(value), label: String(value) })) } : undefined },
+		{ id: 'specificity', label: 'Specificity', cell: specificityCell }
+	]);
 </script>
 
-<div class="overflow-x-auto">
-	<table class="w-full border-collapse text-sm text-default">
-		<thead>
-			<tr class="border-b border-default">
-				<th class="px-4 py-2 text-left">Code</th>
-				<th class="px-4 py-2 text-left">Preferred/category term</th>
-				<th class="px-4 py-2 text-left">Level</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each hits as hit (hit.code)}
-				<tr class="border-b border-default/60">
-					<td class="px-4 py-2 font-mono text-xs">
-						<a href={resolve('/repositories/icdo/[edition]/[axis]/[code]', {
-							edition: dataset.edition,
-							axis: dataset.axis,
-							code: icdoCodeSegment(hit.code)
-						})}>{hit.code}</a>
-					</td>
-					<td class="px-4 py-2">{hit.preferred ?? 'No preferred term supplied'}</td>
-					<td class="px-4 py-2">{hit.level}</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
-</div>
+{#snippet codeCell(hit: IcdoRecord)}
+	<a class="font-mono text-xs" href={resolve('/repositories/icdo/[edition]/[axis]/[code]', { edition: dataset.edition, axis: dataset.axis, code: icdoCodeSegment(hit.code) })}>{hit.code}</a>
+{/snippet}
+{#snippet preferredCell(hit: IcdoRecord)}{hit.preferred ?? 'No preferred term supplied'}{/snippet}
+{#snippet levelCell(hit: IcdoRecord)}{hit.level}{/snippet}
+{#snippet behaviourCell(hit: IcdoRecord)}{hit.behaviour ?? '—'}{/snippet}
+{#snippet specificityCell(hit: IcdoRecord)}{hit.specificity ?? '—'}{/snippet}
+
+<DataTable rows={hits} {columns} caption={`ICD-O ${dataset.edition} ${dataset.axis} repository records`} regionLabel="ICD-O repository results" getRowId={(hit) => hit.code} {operations} {emptyMessage} stickyHeader={true} />

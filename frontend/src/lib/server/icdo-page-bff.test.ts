@@ -56,6 +56,9 @@ describe('ICD-O repository page BFF boundary', () => {
 				total: 1,
 				limit: 25,
 				offset: 0,
+				sort: 'source',
+				behaviour: [],
+				level: [],
 				hits: [{ code: axis === 'topography' ? 'C00' : '8503/0', level: axis === 'topography' ? 'category' : 'morphology' }]
 			});
 		});
@@ -67,7 +70,11 @@ describe('ICD-O repository page BFF boundary', () => {
 			url: new URL(`http://node.test/repositories/icdo/${edition}/${axis}`)
 		} as never);
 
-		expect(loaded).toMatchObject({ edition, axis, result: { total: 1 } });
+		expect(loaded).toMatchObject({ edition, axis, initial: { result: { total: 1 } } });
+		if (!loaded) throw new Error('repository load returned no data');
+		expect(Object.keys(loaded.initial.filters)).toEqual(
+			axis === 'morphology' ? ['level', 'behaviour'] : ['level']
+		);
 		expect(upstreamHeaders.get('x-icdo-entitlement')).toBe('server-only-entitlement');
 		expect(JSON.stringify(loaded)).not.toContain('server-only-entitlement');
 	});

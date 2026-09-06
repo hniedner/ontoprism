@@ -6,12 +6,14 @@ import type { PubMedArticleDetail, PubMedSearchResult, RelatedArticlesResult } f
 /** Search PubMed and return resolved article summaries. */
 export function searchPubmed(
 	query: string,
-	retmax = 20,
+	retmax = 25,
+	retstart = 0,
+	sort: 'relevance' | 'pub_date' = 'relevance',
 	fetchImpl?: typeof fetch
 ): Promise<PubMedSearchResult> {
 	return postJsonBody<PubMedSearchResult>(
 		apiUrl('/api/v1/pubmed/search'),
-		{ query, retmax },
+		{ query, retmax, retstart, sort },
 		fetchImpl
 	);
 }

@@ -1,8 +1,14 @@
 """Read models for the caDSR CDE repository (pydantic, serialized by the API)."""
 
+from typing import Literal
+
 from pydantic import Field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+
+CdeRepositorySort = Literal[
+    "source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"
+]
 
 
 class ConceptLink(StrictBoundaryModel):
@@ -57,4 +63,5 @@ class CdeSearchPage(StrictBoundaryModel):
     total: int
     limit: int
     offset: int
+    sort: CdeRepositorySort = "source"
     hits: list[CdeSummary] = Field(default_factory=list)

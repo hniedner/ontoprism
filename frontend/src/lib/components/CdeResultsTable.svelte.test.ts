@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import CdeResultsTable from './CdeResultsTable.svelte';
 import type { CdeSummary } from '$lib/types';
 
@@ -29,6 +29,10 @@ describe('CdeResultsTable', () => {
 			'href',
 			'/repositories/cadsr/100'
 		);
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('shows the version and short name alongside the CDE', () => {
@@ -39,14 +43,22 @@ describe('CdeResultsTable', () => {
 
 	it('renders the datatype chip, or a dash when absent', () => {
 		render(CdeResultsTable, { hits });
-		expect(screen.getByText('CHARACTER')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('CHARACTER')).toBeInTheDocument();
 		// The context-less / datatype-less second row falls back to em dashes.
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
 	});
 
 	it('renders one body row per hit', () => {
 		render(CdeResultsTable, { hits });
-		expect(screen.getAllByRole('row').slice(1)).toHaveLength(2);
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+	});
+
+	it('renders distinct versions sharing a public ID without a duplicate-row alert', () => {
+		render(CdeResultsTable, { hits: [hits[0], { ...hits[0], version: '3.0', long_name: 'New version' }] });
+		expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		expect(screen.getByText('v2.0')).toBeInTheDocument();
+		expect(screen.getByText('v3.0')).toBeInTheDocument();
 	});
 
 	it('omits the short-name annotation when the CDE has none', () => {
@@ -62,5 +74,14 @@ describe('CdeResultsTable', () => {
 		});
 		// In Svelte 5, {undefined} in text interpolations renders as empty string.
 		expect(screen.getByText(/^v$/)).toBeInTheDocument();
+	});
+
+	it('escapes every source-controlled CDE field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(CdeResultsTable, {
+			hits: [{ public_id: payload, version: payload, short_name: payload, long_name: payload, context: payload, datatype: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(5);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

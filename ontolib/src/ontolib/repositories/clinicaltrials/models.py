@@ -1,13 +1,34 @@
 """Read models for the ClinicalTrials.gov API v2 (pydantic, serialized by the API).
 
-Ported from fairdata's dataclass models to ontoprism's pydantic convention. These
-mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` module tree that
-the client parses — enough to browse trials and open a trial detail.
+These models mirror the subset of the ClinicalTrials.gov v2 ``protocolSection`` tree
+that the client parses — enough to browse trials and open a trial detail.
 """
+
+from typing import Literal
 
 from pydantic import Field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ProductPageSize
+
+CTStatus = Literal[
+    "ACTIVE_NOT_RECRUITING",
+    "APPROVED_FOR_MARKETING",
+    "AVAILABLE",
+    "COMPLETED",
+    "ENROLLING_BY_INVITATION",
+    "NOT_YET_RECRUITING",
+    "NO_LONGER_AVAILABLE",
+    "RECRUITING",
+    "SUSPENDED",
+    "TEMPORARILY_NOT_AVAILABLE",
+    "TERMINATED",
+    "UNKNOWN",
+    "WITHDRAWN",
+    "WITHHELD",
+]
+CTFilterPhase = Literal["EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
+CTStudyPhase = Literal["NA", "EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
 
 
 class CTInterventionDetail(StrictBoundaryModel):
@@ -57,7 +78,7 @@ class CTStudySummary(StrictBoundaryModel):
     nct_id: str
     title: str
     status: str | None = None
-    phase: str | None = None
+    phase: list[CTStudyPhase] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
     interventions: list[str] = Field(default_factory=list)
     start_date: str | None = None
@@ -73,7 +94,7 @@ class CTStudyDetail(StrictBoundaryModel):
     title: str
     official_title: str | None = None
     status: str | None = None
-    phase: str | None = None
+    phase: list[CTStudyPhase] = Field(default_factory=list)
     study_type: str | None = None
     primary_purpose: str | None = None
     conditions: list[str] = Field(default_factory=list)
@@ -95,5 +116,10 @@ class CTStudySearchPage(StrictBoundaryModel):
     condition: str | None = None
     intervention: str | None = None
     term: str | None = None
+    status: list[CTStatus] = Field(default_factory=list)
+    phase: list[CTFilterPhase] = Field(default_factory=list)
     total: int
+    page_size: ProductPageSize
+    page_token: str | None = None
+    next_page_token: str | None = None
     studies: list[CTStudySummary] = Field(default_factory=list)

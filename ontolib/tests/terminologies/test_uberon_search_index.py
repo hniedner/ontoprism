@@ -103,12 +103,15 @@ async def test_search_filters_source_before_pagination() -> None:
     )
 
     page = await UberonSearchIndex(factory).search(  # type: ignore[arg-type]
-        "cell", source="cl", limit=10, offset=20
+        "cell", source="cl", limit=10, offset=20, sort="label:desc"
     )
 
     assert page.hits[0].source == "cl"
+    assert page.source == "cl"
     sql, params = factory.executed[1]
     assert sql.index("source = CAST(:source AS text)") < sql.index("LIMIT :limit")
+    assert "ORDER BY label DESC NULLS LAST, code" in sql
+    assert "COUNT(*) OVER" not in sql
     assert params == {"q": "cell", "source": "cl", "limit": 10, "offset": 20}
 
 
@@ -123,6 +126,7 @@ async def test_search_preserves_total_when_offset_page_is_empty() -> None:
     )
 
     assert page.total == 2
+    assert page.source is None
     assert page.hits == []
 
 

@@ -6,11 +6,11 @@ import { trialDetail } from './trial-fixture';
 describe('TrialOverview', () => {
 	it('renders the NCT id, title and external link', () => {
 		render(TrialOverview, {
-			trial: trialDetail({ title: 'Widgetinib Study', phase: 'Phase 2', status: 'Recruiting' })
+			trial: trialDetail({ title: 'Widgetinib Study', phase: ['PHASE1', 'PHASE2'], status: 'Recruiting' })
 		});
 		expect(screen.getByText('NCT01')).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Widgetinib Study' })).toBeInTheDocument();
-		expect(screen.getByText('Phase 2')).toBeInTheDocument();
+		expect(screen.getByText('PHASE1, PHASE2')).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: /View on ClinicalTrials.gov/ })).toHaveAttribute(
 			'href',
 			'https://clinicaltrials.gov/study/NCT01'

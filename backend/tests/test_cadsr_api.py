@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 @pytest.mark.api
 def test_cde_detail_renders_concepts_and_pvs(cadsr_client: TestClient) -> None:
     resp = cadsr_client.get("/api/v1/cadsr/cdes/100")
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["short_name"] == "NEOPLASM_HIST"
     assert body["permissible_values"][0]["value"] == "Carcinoma"
@@ -28,13 +28,25 @@ def test_search_returns_hits(cadsr_client: TestClient) -> None:
 
 @pytest.mark.api
 def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
-    # The no-search browse endpoint: returns CDEs in natural order, no `q` needed.
+    # The no-search browse endpoint defaults to deterministic source order;
+    # no `q` is needed.
     resp = cadsr_client.get("/api/v1/cadsr/list", params={"limit": 10})
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["query"] == ""
     assert body["total"] >= 1
     assert body["hits"][0]["public_id"] == "100"
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["list", "search?q=neoplasm"])
+def test_cadsr_rejects_removed_relevance_sort(
+    cadsr_client: TestClient, path: str
+) -> None:
+    separator = "&" if "?" in path else "?"
+    response = cadsr_client.get(f"/api/v1/cadsr/{path}{separator}sort=relevance")
+
+    assert response.status_code == 422
 
 
 @pytest.mark.api

@@ -1,9 +1,8 @@
 """Async client for the NCBI PubMed E-utilities (ESearch / ESummary / EFetch / ELink).
 
-Transport + orchestration only; JSON/XML → model mapping lives in :mod:`parser`. The
-public NCBI endpoints allow ~3 requests/second without an API key, so requests are
-throttled to a configurable rate. Direct search only — fairdata's LLM query-building
-and reranking are intentionally not ported.
+Transport + orchestration only; JSON/XML → model mapping lives in :mod:`parser`.
+Requests are throttled to a configurable rate and searches are sent directly without
+local query generation or reranking.
 """
 
 from __future__ import annotations
@@ -11,18 +10,20 @@ from __future__ import annotations
 import asyncio
 import time
 from http import HTTPStatus
-from typing import Any, Self
+from typing import Any, Self, get_args
 from xml.etree.ElementTree import ParseError
 
 import httpx
 from pydantic import ValidationError
 
 from ontolib.common.error_handling import retry_with_backoff
+from ontolib.common.grid import PRODUCT_PAGE_SIZES, ProductPageSize
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
     PubMedArticleSummary,
     PubMedSearchResult,
+    PubMedSort,
     RelatedArticlesResult,
 )
 from ontolib.repositories.pubmed.parser import parse_efetch_xml, parse_esummary
@@ -35,8 +36,9 @@ from ontolib.repositories.upstream import (
 logger = get_logger(__name__)
 
 DEFAULT_EUTILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-_MAX_RETMAX = 100
-# ELink linkname per related-article kind (fairdata parity).
+_MAX_RESULT_WINDOW = 10_000
+_VALID_SORTS = frozenset(get_args(PubMedSort))
+# ELink linkname for each supported related-article kind.
 _LINK_NAMES = {
     "similar": "pubmed_pubmed",
     "cited_by": "pubmed_pubmed_citedin",
@@ -137,32 +139,64 @@ class PubMedClient:
             ) from exc
 
     async def search_articles(
-        self, query: str, *, retmax: int = 20, sort: str = "relevance"
+        self,
+        query: str,
+        *,
+        retmax: ProductPageSize = 25,
+        retstart: int = 0,
+        sort: PubMedSort = "relevance",
     ) -> PubMedSearchResult:
         """Search PubMed for *query*; resolve the id list to article summaries.
 
         Raises:
+            ValueError: if pagination is invalid or *sort* is unsupported.
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
+        if sort not in _VALID_SORTS:
+            raise ValueError(f"Invalid PubMed sort: {sort!r}")
+        if retmax not in PRODUCT_PAGE_SIZES:
+            raise ValueError(f"Invalid PubMed page size: {retmax!r}")
+        effective_limit = retmax
+        if (
+            retstart < 0
+            or retstart % effective_limit
+            or retstart + effective_limit > _MAX_RESULT_WINDOW
+        ):
+            raise ValueError(
+                "PubMed offset must be aligned and within its 10,000-result window"
+            )
         esearch = await self._json(
             "/esearch.fcgi",
             {
                 "db": "pubmed",
                 "term": query,
-                "retmax": max(1, min(retmax, _MAX_RETMAX)),
+                "retmax": effective_limit,
+                "retstart": retstart,
                 "sort": sort,
                 "retmode": "json",
             },
         )
-        pmids, total = _parse_esearch(esearch)
+        pmids, total = _parse_esearch(esearch, retstart=retstart)
         if not pmids:
-            return PubMedSearchResult(query=query, total=total, articles=[])
+            return PubMedSearchResult(
+                query=query,
+                total=total,
+                limit=effective_limit,
+                offset=retstart,
+                sort=sort,
+                articles=[],
+            )
         summary = await self._json(
             "/esummary.fcgi",
             {"db": "pubmed", "id": ",".join(pmids), "retmode": "json"},
         )
         return PubMedSearchResult(
-            query=query, total=total, articles=_parse_esummary_docs(summary, pmids)
+            query=query,
+            total=total,
+            limit=effective_limit,
+            offset=retstart,
+            sort=sort,
+            articles=_parse_esummary_docs(summary, pmids),
         )
 
     async def get_article(self, pmid: str) -> PubMedArticleDetail | None:
@@ -219,14 +253,16 @@ class PubMedClient:
         )
 
 
-def _validate_esearch_identities(pmids: list[str], total: int) -> None:
+def _validate_esearch_identities(
+    pmids: list[str], total: int, *, retstart: int
+) -> None:
     if not _valid_pmids(pmids) or len(pmids) != len(set(pmids)):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
-    if len(pmids) > total or (total > 0 and not pmids):
+    if len(pmids) > total or (total > retstart and not pmids):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
 
 
-def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
+def _parse_esearch(esearch: Any, *, retstart: int = 0) -> tuple[list[str], int]:
     """Return (pmids, total) from an ESearch JSON document."""
     if not isinstance(esearch, dict):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
@@ -238,7 +274,7 @@ def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     if not isinstance(count, str) or not count.isdigit():
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     total = int(count)
-    _validate_esearch_identities(pmids, total)
+    _validate_esearch_identities(pmids, total, retstart=retstart)
     return pmids, total
 
 

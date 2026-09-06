@@ -20,7 +20,7 @@ describe('RepoResultsCard', () => {
 		expect(screen.queryByTestId('table')).not.toBeInTheDocument();
 	});
 
-	it('uses the shared delayed loading state instead of flashing or exposing stale rows', async () => {
+	it('keeps current rows available while announcing delayed revalidation', async () => {
 		vi.useFakeTimers();
 		render(RepoResultsCard, {
 			title: 'Results',
@@ -29,7 +29,7 @@ describe('RepoResultsCard', () => {
 			error: null,
 			children
 		});
-		expect(screen.queryByTestId('table')).not.toBeInTheDocument();
+		expect(screen.getByTestId('table')).toBeInTheDocument();
 		expect(screen.queryByRole('status')).not.toBeInTheDocument();
 		await vi.advanceTimersByTimeAsync(150);
 		expect(screen.getByRole('status')).toHaveTextContent('Loading results');

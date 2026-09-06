@@ -740,7 +740,13 @@ def test_obsolete_reasoner_routing_marker_is_removed() -> None:
         for marker in project["tool"]["pytest"]["ini_options"]["markers"]
     )
     for path in sorted(_ROOT.glob("**/tests/**/test_*.py")):
-        assert obsolete not in path.read_text()
+        try:
+            source = path.read_text()
+        except FileNotFoundError:
+            # Another xdist worker may remove its temporary collection-hook probe
+            # after globbing but before this read.
+            continue
+        assert obsolete not in source
 
 
 def test_coverage_verify_downloads_and_combines_exactly_four_partition_layers() -> None:

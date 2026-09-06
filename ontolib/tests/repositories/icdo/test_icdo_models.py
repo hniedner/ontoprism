@@ -1,11 +1,13 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
     IcdoAxis,
+    IcdoBehaviour,
     IcdoEdition,
     IcdoRecord,
+    IcdoRecordLevel,
     IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
@@ -65,6 +67,15 @@ def test_record_refuses_cross_axis_fields_but_accepts_publisher_85032_0() -> Non
         behaviour="0",
     )
     assert record.code == "85032/0"
+
+
+def test_record_schema_exposes_closed_level_and_behaviour_domains() -> None:
+    assert TypeAdapter(IcdoRecordLevel).json_schema()["enum"] == [
+        "morphology",
+        "category",
+        "leaf",
+    ]
+    assert TypeAdapter(IcdoBehaviour).json_schema()["enum"] == list("0123456789")
 
 
 pytestmark = pytest.mark.unit
@@ -174,8 +185,27 @@ def test_search_page_rejects_cross_dataset_records(
             total=0 if record is None else 1,
             limit=25,
             offset=0,
+            behaviour=(),
+            level=(),
             hits=() if record is None else (record,),
         )
+
+
+def test_search_page_preserves_canonical_applied_filter_echoes() -> None:
+    page = IcdoSearchPage(
+        edition="4.0",
+        axis="topography",
+        query="lip",
+        total=0,
+        limit=25,
+        offset=0,
+        behaviour=(),
+        level=("category", "leaf"),
+        hits=(),
+    )
+
+    assert page.behaviour == ()
+    assert page.level == ("category", "leaf")
 
 
 def test_topography_refuses_morphology_only_fields() -> None:

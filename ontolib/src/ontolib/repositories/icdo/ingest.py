@@ -7,7 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import xlrd
 from openpyxl import load_workbook
@@ -23,6 +23,7 @@ from ontolib.repositories.icdo.models import (
     CanonicalDataset,
     Icdo4Datasets,
     IcdoRecord,
+    IcdoRecordLevel,
     MorphologyCode32,
     MorphologyCode40,
     SourceShape,
@@ -79,7 +80,7 @@ def _append(target: dict[str, list[str]], key: str, value: object) -> None:
         target[key].append(text)
 
 
-def _parse_code(code: str, *, edition: str, axis: str) -> str | None:
+def _parse_code(code: str, *, edition: str, axis: str) -> IcdoRecordLevel | None:
     try:
         if axis == "morphology":
             if edition == "3.2":
@@ -110,6 +111,14 @@ def _valid_row(code: str | None, level: str | None, *, axis: str) -> bool:
     if axis == "topography":
         record_levels.add("3")
     return code is not None and level in record_levels
+
+
+def _required_row_identity(
+    code: str | None, level: str | None, row_number: int
+) -> tuple[str, str]:
+    if code is None or level is None:
+        raise SourceFormatError(f"row {row_number}: required code or level is empty")
+    return code, level
 
 
 def _term_key(level: str) -> str:
@@ -147,7 +156,7 @@ def _morphology_fields(code: str, edition: str) -> dict[str, str | None]:
 
 
 def _structural_fields(
-    code: str, *, edition: str, axis: str, level: str
+    code: str, *, edition: str, axis: str, level: IcdoRecordLevel
 ) -> dict[str, str | None]:
     if axis == "morphology":
         return _morphology_fields(code, edition)
@@ -192,13 +201,9 @@ def _collect_rows(
         code = _topography_category_code(code, level, term, axis=axis)
         if not _valid_row(code, level, axis=axis):
             continue
-        code = cast("str", code)
-        level = cast("str", level)
+        code, level = _required_row_identity(code, level, row_number)
         term = _required_term(term, row_number)
-        record_level = cast(
-            "Literal['morphology', 'category', 'leaf'] | None",
-            _parse_code(code, edition=edition, axis=axis),
-        )
+        record_level = _parse_code(code, edition=edition, axis=axis)
         if record_level is None:
             raise SourceFormatError(
                 f"row {row_number}: invalid ICD-O-{edition} {axis} code: {code}"
@@ -229,20 +234,22 @@ def _build_records(
             code, edition=edition, axis=axis, level=levels[code]
         )
         output.append(
-            IcdoRecord(
-                code=code,
-                level=levels[code],
-                preferred=preferred[0] if preferred else None,
-                synonyms=tuple(data["synonyms"]),
-                related=tuple(data["related"]),
-                notes=tuple(data["notes"]),
-                code_references=tuple(data["code_references"]),
-                see_also=tuple(data["see_also"]),
-                see_notes=tuple(data["see_notes"]),
-                includes=tuple(data["includes"]),
-                excludes=tuple(data["excludes"]),
-                other_text=tuple(data["other_text"]),
-                **kwargs,
+            IcdoRecord.model_validate(
+                {
+                    "code": code,
+                    "level": levels[code],
+                    "preferred": preferred[0] if preferred else None,
+                    "synonyms": tuple(data["synonyms"]),
+                    "related": tuple(data["related"]),
+                    "notes": tuple(data["notes"]),
+                    "code_references": tuple(data["code_references"]),
+                    "see_also": tuple(data["see_also"]),
+                    "see_notes": tuple(data["see_notes"]),
+                    "includes": tuple(data["includes"]),
+                    "excludes": tuple(data["excludes"]),
+                    "other_text": tuple(data["other_text"]),
+                    **kwargs,
+                }
             )
         )
     return tuple(output)

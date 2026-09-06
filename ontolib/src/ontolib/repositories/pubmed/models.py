@@ -1,13 +1,16 @@
 """Read models for the NCBI PubMed E-utilities client (pydantic, serialized by the API).
 
-Ported from fairdata's dataclass models to ontoprism's pydantic convention. Covers the
-subset of the ESummary/EFetch payloads needed to search PubMed, show an article, and
-list related articles — direct search only (no LLM query building / reranking).
+Covers the subset of the ESummary/EFetch payloads needed to search PubMed, show an
+article, and list related articles.
 """
+
+from typing import Literal
 
 from pydantic import Field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+
+PubMedSort = Literal["relevance", "pub_date"]
 
 
 class PubMedAuthor(StrictBoundaryModel):
@@ -58,6 +61,9 @@ class PubMedSearchResult(StrictBoundaryModel):
 
     query: str
     total: int
+    limit: int
+    offset: int
+    sort: PubMedSort
     articles: list[PubMedArticleSummary] = Field(default_factory=list)
 
 

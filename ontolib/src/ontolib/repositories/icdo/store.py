@@ -13,7 +13,10 @@ from ontolib.repositories.icdo.ingest import canonical_bytes
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
     IcdoAxis,
+    IcdoBehaviour,
     IcdoEdition,
+    IcdoRecordLevel,
+    IcdoRepositorySort,
     IcdoSearchPage,
     SourceShape,
     decode_icdo_record,
@@ -224,8 +227,9 @@ class IcdoRepository:
         query: str,
         limit: int,
         offset: int,
-        behaviour: str | None = None,
-        level: str | None = None,
+        behaviour: tuple[IcdoBehaviour, ...] = (),
+        level: tuple[IcdoRecordLevel, ...] = (),
+        sort: IcdoRepositorySort = "source",
         generation_id: str | None = None,
     ) -> IcdoSearchPage:
         pattern = f"%{query.lower()}%"
@@ -236,10 +240,17 @@ class IcdoRepository:
             "limit": limit,
             "offset": offset,
             "has_query": bool(query),
-            "behaviour": behaviour,
-            "level": level,
+            "behaviours": list(behaviour),
+            "levels": list(level),
             "generation": generation_id,
         }
+        order = {
+            "source": "r.code",
+            "code:asc": "r.code",
+            "code:desc": "r.code DESC",
+            "preferred:asc": "r.payload->>'preferred' NULLS LAST, r.code",
+            "preferred:desc": "r.payload->>'preferred' DESC NULLS LAST, r.code",
+        }[sort]
         joins = " FROM icdo_record r "
         where = (
             "WHERE r.edition=:edition AND r.axis=:axis "
@@ -248,9 +259,10 @@ class IcdoRepository:
             "AND (NOT :has_query OR lower(r.payload->>'code') LIKE :pattern OR "
             "lower(concat_ws(' ', r.payload->>'preferred', r.payload->'synonyms', "
             "r.payload->'related')) LIKE :pattern) "
-            "AND (CAST(:behaviour AS text) IS NULL OR "
-            "r.payload->>'behaviour'=:behaviour) "
-            "AND (CAST(:level AS text) IS NULL OR r.payload->>'level'=:level)"
+            "AND (cardinality(CAST(:behaviours AS text[])) = 0 OR "
+            "r.payload->>'behaviour'=ANY(CAST(:behaviours AS text[]))) "
+            "AND (cardinality(CAST(:levels AS text[])) = 0 OR "
+            "r.payload->>'level'=ANY(CAST(:levels AS text[])))"
         )
         async with self._sessions() as session:
             total = (
@@ -266,7 +278,7 @@ class IcdoRepository:
                             "SELECT r.payload"
                             + joins
                             + where
-                            + " ORDER BY r.code LIMIT :limit OFFSET :offset"
+                            + f" ORDER BY {order} LIMIT :limit OFFSET :offset"
                         ),
                         params,
                     )
@@ -282,6 +294,9 @@ class IcdoRepository:
                 total=total,
                 limit=limit,
                 offset=offset,
+                sort=sort,
+                behaviour=behaviour,
+                level=level,
                 hits=tuple(decode_icdo_record(row) for row in rows),
             )
         except ValueError as exc:

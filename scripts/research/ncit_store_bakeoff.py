@@ -82,11 +82,6 @@ async def _detail_summary(store: NcitGraphStore) -> dict[str, object] | None:
     }
 
 
-async def _search_summary(store: NcitGraphStore) -> dict[str, object]:
-    page = await store.search("neoplasm", limit=25)
-    return {"codes": [hit.code for hit in page.hits], "total": page.total}
-
-
 async def _neighborhood_summary(store: NcitGraphStore) -> dict[str, int]:
     neighborhood = await store.get_neighborhood("C3262", depth=2)
     return {"edges": len(neighborhood.edges), "nodes": len(neighborhood.nodes)}
@@ -187,7 +182,6 @@ async def run(
         )
         await _timed("scope-C3262", lambda: _scope_summary(client))
         await _timed("detail-C3262", lambda: _detail_summary(store))
-        await _timed("search-neoplasm", lambda: _search_summary(store))
         await _timed("neighborhood-C3262-depth-2", lambda: _neighborhood_summary(store))
 
 

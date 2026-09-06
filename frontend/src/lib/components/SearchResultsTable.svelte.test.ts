@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
-import { tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, within } from '@testing-library/svelte';
 import SearchResultsTable from './SearchResultsTable.svelte';
 import type { SearchHit } from '$lib/types';
 
@@ -22,9 +21,7 @@ const hits: SearchHit[] = [
 ];
 
 function rowCodes(): string[] {
-	return screen
-		.getAllByRole('row')
-		.slice(1) // drop the header row
+	return Array.from(document.querySelectorAll('tbody tr'))
 		.map((r) => r.querySelector('a')?.textContent?.trim() ?? ''); // first col = code link
 }
 
@@ -33,6 +30,10 @@ describe('SearchResultsTable', () => {
 		render(SearchResultsTable, { hits });
 		const link = screen.getByRole('link', { name: 'Melanoma' });
 		expect(link).toHaveAttribute('href', '/repositories/ncit/C3');
+		expect(document.querySelector('thead')).toHaveClass('sticky', 'top-0', 'bg-card');
+		expect(document.querySelector('thead th:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveClass('sticky', 'bg-card');
+		expect(document.querySelector('tbody td:first-child')).toHaveStyle({ left: '0px' });
 	});
 
 	it('shows an accessible legacy badge only for the published marker', () => {
@@ -41,47 +42,23 @@ describe('SearchResultsTable', () => {
 		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
 	});
 
-	it('sorts by label ascending by default (Adenoma/C1 before Melanoma/C3)', () => {
-		render(SearchResultsTable, { hits });
-		expect(rowCodes()).toEqual(['C1', 'C3']);
-	});
-
-	it('reverses the order when the sorted column header is clicked', async () => {
-		render(SearchResultsTable, { hits });
-		screen.getByRole('button', { name: /Name/i }).click();
-		await tick();
-		expect(rowCodes()).toEqual(['C3', 'C1']);
-	});
-
-	it('switches the sort column (ascending) when a different header is clicked', async () => {
-		render(SearchResultsTable, { hits });
-		// Sort by Code ascending: C1 before C3.
-		screen.getByRole('button', { name: /Code/i }).click();
-		await tick();
-		expect(rowCodes()).toEqual(['C1', 'C3']);
-	});
-
-	it('sorts by semantic type when that header is clicked', async () => {
-		const mixed: SearchHit[] = [
-			{
-				code: 'C3',
-				label: 'Zeta',
-				semantic_type: 'Anatomic Structure',
-				matched_synonym: null,
-				representation_status: null
-			},
-			{
-				code: 'C1',
-				label: 'Alpha',
-				semantic_type: 'Neoplastic Process',
-				matched_synonym: null,
-				representation_status: null
+	it('labels the active NCIt filter chip with published human-readable names', () => {
+		render(SearchResultsTable, {
+			hits: [],
+			operations: {
+				kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Source order',
+				filters: { representation_status: { kind: 'categorical', selected: ['legacy-precoordinated'] } },
+				busy: false, onintent: vi.fn()
 			}
-		];
-		render(SearchResultsTable, { hits: mixed });
-		screen.getByRole('button', { name: /Semantic type/i }).click();
-		await tick();
-		// "Anatomic Structure" (C3) sorts before "Neoplastic Process" (C1).
+		});
+
+		const chip = screen.getByRole('button', { name: 'Clear Status filter' });
+		expect(chip).toHaveTextContent('Status: Legacy pre-coordinated');
+		expect(chip).not.toHaveTextContent(/representation_status|legacy-precoordinated/);
+	});
+
+	it('preserves authoritative server order', () => {
+		render(SearchResultsTable, { hits });
 		expect(rowCodes()).toEqual(['C3', 'C1']);
 	});
 
@@ -104,5 +81,14 @@ describe('SearchResultsTable', () => {
 	it('shows a no-results message for an empty hit list', () => {
 		render(SearchResultsTable, { hits: [] });
 		expect(screen.getByText('No results.')).toBeInTheDocument();
+	});
+
+	it('escapes every source-controlled NCIt field', () => {
+		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
+		const { container } = render(SearchResultsTable, {
+			hits: [{ ...hits[0], code: payload, label: payload, semantic_type: payload }]
+		});
+		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(3);
+		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});
 });

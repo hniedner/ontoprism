@@ -1,9 +1,4 @@
-"""caDSR CDE read model over the SQLite repository DB (read-only).
-
-The DB is the one built by fairdata's caDSR pipeline: a ``cdes`` table (with the full
-``cde_json``) and a ``cde_concepts`` table linking each CDE to NCIt concept codes —
-the shared identity that joins caDSR to the NCIt graph.
-"""
+"""caDSR CDE read model over the generated SQLite repository DB (read-only)."""
 
 from __future__ import annotations
 
@@ -19,12 +14,33 @@ if TYPE_CHECKING:
 from ontolib.repositories.cadsr.archive import CadsrSource
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
+    CdeRepositorySort,
     CdeSearchPage,
     CdeSummary,
     ConceptLink,
     PermissibleValue,
 )
 from ontolib.repositories.embeddings.generate import cadsr_source_fingerprint
+
+
+def _cde_order(sort: CdeRepositorySort, *, table: str = "") -> str:
+    prefix = f"{table}." if table else ""
+    return {
+        "source": f"CAST({prefix}public_id AS INTEGER), {prefix}version",
+        "public_id:asc": f"CAST({prefix}public_id AS INTEGER), {prefix}version",
+        "public_id:desc": (
+            f"CAST({prefix}public_id AS INTEGER) DESC, {prefix}version DESC"
+        ),
+        "name:asc": (
+            f"{prefix}long_name IS NULL, {prefix}long_name COLLATE NOCASE, "
+            f"CAST({prefix}public_id AS INTEGER), {prefix}version"
+        ),
+        "name:desc": (
+            f"{prefix}long_name IS NULL, {prefix}long_name COLLATE NOCASE DESC, "
+            f"CAST({prefix}public_id AS INTEGER), {prefix}version"
+        ),
+    }[sort]
+
 
 _SUMMARY_COLS = "public_id, version, short_name, long_name, context, datatype"
 # Same columns qualified with the table name, for the FTS join (both cdes and cdes_fts
@@ -43,7 +59,7 @@ def _fts_match_query(query: str) -> str:
 
 
 def _has_cdes_fts(conn: sqlite3.Connection) -> bool:
-    """True if the DB has the ``cdes_fts`` FTS5 index (fairdata-built DBs do)."""
+    """Return whether the DB exposes the ``cdes_fts`` FTS5 index."""
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cdes_fts'"
     ).fetchone()
@@ -89,45 +105,72 @@ class CdeRepository:
             concepts = self._concepts_for(conn, public_id, data["version"])
         return _to_detail(data, concepts)
 
-    def search(self, query: str, *, limit: int = 25, offset: int = 0) -> CdeSearchPage:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        sort: CdeRepositorySort = "source",
+    ) -> CdeSearchPage:
         """Search CDE short/long name and definition.
 
-        Uses the ``cdes_fts`` FTS5 index (single windowed query, no leading-wildcard
-        scan) when present; falls back to a ``LIKE`` scan for DBs without the index
-        (e.g. minimal test fixtures).
+        Uses the ``cdes_fts`` FTS5 index when present and otherwise uses the table's
+        bounded ``LIKE`` search path.
         """
         with self._connect() as conn:
             if _has_cdes_fts(conn):
-                return self._search_fts(conn, query, limit=limit, offset=offset)
-            return self._search_like(conn, query, limit=limit, offset=offset)
+                return self._search_fts(
+                    conn, query, limit=limit, offset=offset, sort=sort
+                )
+            return self._search_like(conn, query, limit=limit, offset=offset, sort=sort)
 
     def _search_fts(
-        self, conn: sqlite3.Connection, query: str, *, limit: int, offset: int
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        *,
+        limit: int,
+        offset: int,
+        sort: CdeRepositorySort,
     ) -> CdeSearchPage:
         match = _fts_match_query(query)
         if not match:  # query was all punctuation/empty → no matches
-            return CdeSearchPage(query=query, total=0, limit=limit, offset=offset)
-        # COUNT(*) OVER () yields the full match total in every row — one query, and the
-        # match uses the FTS index rather than a full table scan.
-        # Order by name (deterministic): bm25() relevance ranking can't be combined
-        # with the COUNT(*) OVER () window in one statement.
+            return CdeSearchPage(
+                query=query, total=0, limit=limit, offset=offset, sort=sort
+            )
+        # Count separately so pages beyond the final hit retain the authoritative total.
+        # Both bounded statements use the FTS index; the result order is deterministic.
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM cdes_fts WHERE cdes_fts MATCH ?",
+            (match,),
+        ).fetchone()["n"]
+        # S608: `_cde_order` selects a fixed SQL fragment from the closed
+        # CdeRepositorySort domain; the source query and page values remain bound.
         rows = conn.execute(
-            f"SELECT {_SUMMARY_COLS_Q}, COUNT(*) OVER () AS _total "  # noqa: S608
+            f"SELECT {_SUMMARY_COLS_Q} "  # noqa: S608
             "FROM cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid "
-            "WHERE cdes_fts MATCH ? ORDER BY cdes.long_name LIMIT ? OFFSET ?",
+            f"WHERE cdes_fts MATCH ? ORDER BY {_cde_order(sort, table='cdes')} "
+            "LIMIT ? OFFSET ?",
             (match, limit, offset),
         ).fetchall()
-        total = rows[0]["_total"] if rows else 0
         return CdeSearchPage(
             query=query,
             total=total,
             limit=limit,
             offset=offset,
+            sort=sort,
             hits=[_to_summary(r) for r in rows],
         )
 
     def _search_like(
-        self, conn: sqlite3.Connection, query: str, *, limit: int, offset: int
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        *,
+        limit: int,
+        offset: int,
+        sort: CdeRepositorySort,
     ) -> CdeSearchPage:
         like = f"%{query}%"
         where = "long_name LIKE ? OR short_name LIKE ? OR definition LIKE ?"
@@ -138,9 +181,11 @@ class CdeRepository:
             f"SELECT COUNT(*) AS n FROM cdes WHERE {where}",  # noqa: S608
             params,
         ).fetchone()["n"]
+        # S608: `_cde_order` selects a fixed SQL fragment from the closed
+        # CdeRepositorySort domain; the source query and page values remain bound.
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS} FROM cdes WHERE {where} "  # noqa: S608
-            "ORDER BY long_name LIMIT ? OFFSET ?",
+            f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
         return CdeSearchPage(
@@ -148,6 +193,7 @@ class CdeRepository:
             total=total,
             limit=limit,
             offset=offset,
+            sort=sort,
             hits=[_to_summary(r) for r in rows],
         )
 
@@ -207,13 +253,17 @@ class CdeRepository:
         item_count, fingerprint = cadsr_source_fingerprint(str(self._path))
         return source, item_count, fingerprint
 
-    def list_cdes(self, *, limit: int = 25, offset: int = 0) -> CdeSearchPage:
-        """List all CDEs in natural (public_id) order — the no-search browse mode."""
+    def list_cdes(
+        self, *, limit: int = 25, offset: int = 0, sort: CdeRepositorySort = "source"
+    ) -> CdeSearchPage:
+        """List all CDEs in the requested deterministic browse order."""
         with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+            # S608: `_cde_order` selects a fixed SQL fragment from the closed
+            # CdeRepositorySort domain; page values remain bound parameters.
             rows = conn.execute(
                 f"SELECT {_SUMMARY_COLS} FROM cdes "  # noqa: S608 — module constant
-                "ORDER BY CAST(public_id AS INTEGER), version LIMIT ? OFFSET ?",
+                f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",
                 (limit, offset),
             ).fetchall()
         return CdeSearchPage(
@@ -221,6 +271,7 @@ class CdeRepository:
             total=total,
             limit=limit,
             offset=offset,
+            sort=sort,
             hits=[_to_summary(r) for r in rows],
         )
 

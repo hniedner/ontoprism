@@ -10,6 +10,7 @@ from sqlalchemy import text
 from ontolib.terminologies.uberon.models import (
     UberonSearchHit,
     UberonSearchPage,
+    UberonSearchSort,
     UberonSource,
 )
 
@@ -31,9 +32,6 @@ SELECT code, source, label
 FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
   AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
-ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
-         ts_rank(tsv, q) DESC, length(label), label, code
-LIMIT :limit OFFSET :offset
 """
 _SEARCH_COUNT_SQL = """
 SELECT COUNT(*)
@@ -41,6 +39,19 @@ FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
   AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
 """
+# Relevance prioritizes an exact normalized label, then weighted term rank, then
+# shorter labels, and finally label/code as a deterministic identity tie-break.
+_SEARCH_ORDERS: dict[UberonSearchSort, str] = {
+    "relevance": (
+        r"""(lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC, """
+        "ts_rank(tsv, q) DESC, length(label), label, code"
+    ),
+    "source": "code",
+    "code:asc": "code",
+    "code:desc": "code DESC",
+    "label:asc": "label NULLS LAST, code",
+    "label:desc": "label DESC NULLS LAST, code",
+}
 _READY_SQL = """
 SELECT EXISTS(
   SELECT 1 FROM uberon_search_manifest manifest
@@ -129,14 +140,19 @@ class UberonSearchIndex:
         source: UberonSource | None = None,
         limit: int = 25,
         offset: int = 0,
+        sort: UberonSearchSort = "relevance",
     ) -> UberonSearchPage:
         async with self._sf() as session:
             params = {"q": query, "source": source, "limit": limit, "offset": offset}
             count_result = await session.execute(
                 text(_SEARCH_COUNT_SQL), {"q": query, "source": source}
             )
+            sql = (
+                f"{_SEARCH_SQL}\nORDER BY {_SEARCH_ORDERS[sort]} "
+                "LIMIT :limit OFFSET :offset"
+            )
             result = await session.execute(
-                text(_SEARCH_SQL),
+                text(sql),
                 params,
             )
             rows = result.all()
@@ -145,6 +161,8 @@ class UberonSearchIndex:
             total=int(count_result.scalar_one()),
             limit=limit,
             offset=offset,
+            sort=sort,
+            source=source,
             hits=[
                 UberonSearchHit(code=row.code, source=row.source, label=row.label)
                 for row in rows

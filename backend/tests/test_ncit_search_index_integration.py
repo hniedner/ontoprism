@@ -30,27 +30,23 @@ def test_populate_search_index_then_search_from_cache(
 
 
 @pytest.mark.integration
-def test_filtered_search_cache_matches_sparql_fallback(
+def test_filtered_search_uses_certified_cache(
     isolated_api_client: TestClient,
 ) -> None:
     params = {
         "q": "neoplasm",
-        "limit": 5,
+        "limit": 10,
         "offset": 0,
         "representation_status": "legacy-precoordinated",
     }
-
-    fallback = isolated_api_client.get("/api/v1/ncit/search", params=params)
-    assert fallback.status_code == HTTPStatus.OK, fallback.text
-    assert fallback.json()["hits"]
-    assert all(
-        hit["representation_status"] == "legacy-precoordinated"
-        for hit in fallback.json()["hits"]
-    )
 
     built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
     assert built.status_code == HTTPStatus.OK, built.text
     cached = isolated_api_client.get("/api/v1/ncit/search", params=params)
 
     assert cached.status_code == HTTPStatus.OK, cached.text
-    assert cached.json() == fallback.json()
+    assert cached.json()["hits"]
+    assert all(
+        hit["representation_status"] == "legacy-precoordinated"
+        for hit in cached.json()["hits"]
+    )

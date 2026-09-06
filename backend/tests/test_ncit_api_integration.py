@@ -31,7 +31,14 @@ def test_unknown_concept_is_404(isolated_api_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_search_returns_hits(isolated_api_client: TestClient) -> None:
+@pytest.mark.mutating_integration
+def test_search_returns_hits(
+    isolated_api_client: TestClient,
+    isolated_postgres_settings: None,
+    isolated_qlever_settings: None,
+) -> None:
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == 200, built.text
     resp = isolated_api_client.get(
         "/api/v1/ncit/search", params={"q": "neoplasm", "limit": 10}
     )
@@ -65,22 +72,22 @@ def test_neighborhood_has_center_and_role_edge(
 @pytest.mark.full_store
 def test_list_browses_concepts_without_a_query(live_api_client: TestClient) -> None:
     # No search term: the browse endpoint pages through all concepts in code order.
-    resp = live_api_client.get("/api/v1/ncit/list", params={"limit": 5})
+    resp = live_api_client.get("/api/v1/ncit/list", params={"limit": 10})
     assert resp.status_code == 200
     body = resp.json()
     assert body["query"] == ""
     assert body["total"] > 100_000  # the full NCIt concept universe
-    assert len(body["hits"]) == 5
+    assert len(body["hits"]) == 10
     assert all(h["code"].startswith("C") for h in body["hits"])
 
 
 @pytest.mark.integration
 def test_list_paginates_disjointly(isolated_api_client: TestClient) -> None:
     first = isolated_api_client.get(
-        "/api/v1/ncit/list", params={"limit": 5, "offset": 0}
+        "/api/v1/ncit/list", params={"limit": 10, "offset": 0}
     ).json()
     second = isolated_api_client.get(
-        "/api/v1/ncit/list", params={"limit": 5, "offset": 5}
+        "/api/v1/ncit/list", params={"limit": 10, "offset": 10}
     ).json()
     first_codes = {h["code"] for h in first["hits"]}
     second_codes = {h["code"] for h in second["hits"]}
@@ -93,7 +100,7 @@ def _assert_representation_status_matches_published_graph(
     status = "legacy-precoordinated"
     first = client.get(
         "/api/v1/ncit/list",
-        params={"limit": 1, "representation_status": status},
+        params={"limit": 10, "representation_status": status},
     )
     assert first.status_code == 200, first.text
     first_page = first.json()
@@ -101,7 +108,7 @@ def _assert_representation_status_matches_published_graph(
         assert first_page["total"] > 0
     if first_page["total"] == 0:
         assert first_page["hits"] == []
-        unfiltered = client.get("/api/v1/ncit/list", params={"limit": 1})
+        unfiltered = client.get("/api/v1/ncit/list", params={"limit": 10})
         assert unfiltered.status_code == 200, unfiltered.text
         hit = unfiltered.json()["hits"][0]
         assert hit["representation_status"] is None
@@ -131,13 +138,13 @@ def _assert_representation_status_matches_published_graph(
     last = client.get(
         "/api/v1/ncit/list",
         params={
-            "limit": 1,
-            "offset": first_page["total"] - 1,
+            "limit": 10,
+            "offset": ((first_page["total"] - 1) // 10) * 10,
             "representation_status": status,
         },
     )
     assert last.status_code == 200, last.text
-    assert last.json()["hits"][0]["representation_status"] == status
+    assert all(row["representation_status"] == status for row in last.json()["hits"])
 
     hit = first_page["hits"][0]
     detail = client.get(f"/api/v1/ncit/concepts/{hit['code']}")
@@ -161,9 +168,14 @@ def _assert_representation_status_matches_published_graph(
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
 def test_disposable_published_representation_marker_surfaces_across_ncit_reads(
     isolated_api_client: TestClient,
+    isolated_postgres_settings: None,
+    isolated_qlever_settings: None,
 ) -> None:
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == 200, built.text
     _assert_representation_status_matches_published_graph(
         isolated_api_client, allow_empty=_REQUIRE_POPULATED_GRAPH
     )

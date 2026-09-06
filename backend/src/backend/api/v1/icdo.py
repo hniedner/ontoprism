@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from backend.api.v1.alignment import mapping_relative_to
+from backend.api.v1.grid import PageSize
 from backend.dependencies import (
     IcdoReads,
     RepositoryMetadataReads,
@@ -22,6 +23,11 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
+    IcdoAxis,
+    IcdoBehaviour,
+    IcdoEdition,
+    IcdoRecordLevel,
+    IcdoRepositorySort,
     IcdoSearchPage,
     MorphologyCode32,
     MorphologyCode40,
@@ -41,8 +47,6 @@ from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 router = APIRouter(
     prefix="/api/v1/icdo", tags=["icdo"], dependencies=[RequireIcdoEntitlement]
 )
-Edition = Literal["3.2", "4.0"]
-Axis = Literal["morphology", "topography"]
 
 
 class NcitAlignment(StrictBoundaryModel):
@@ -78,7 +82,7 @@ class Morphology32Record(_RecordBase):
     parent_code: Literal[None] = None
     base_morphology: str
     specificity: Literal[None] = None
-    behaviour: str
+    behaviour: IcdoBehaviour
 
 
 class Morphology40Record(_RecordBase):
@@ -86,7 +90,7 @@ class Morphology40Record(_RecordBase):
     parent_code: Literal[None] = None
     base_morphology: str
     specificity: str
-    behaviour: str
+    behaviour: IcdoBehaviour
 
 
 class TopographyCategoryRecord(_RecordBase):
@@ -142,6 +146,9 @@ class _IcdoPage(StrictBoundaryModel):
     total: int
     limit: int
     offset: int
+    sort: IcdoRepositorySort
+    behaviour: list[IcdoBehaviour]
+    level: list[IcdoRecordLevel]
 
 
 class Morphology32Page(_IcdoPage):
@@ -197,13 +204,34 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
+def require_served_icdo_dataset(
+    edition: IcdoEdition, axis: IcdoAxis
+) -> ServedIcdoDataset:
+    """Return the requested served dataset or reject the unsupported pair."""
     dataset = ServedIcdoDataset.parse(edition, axis)
     if dataset is None:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "ICD-O-3.2 topography is not served."
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "ICD-O-3.2 topography is not served.",
         )
     return dataset
+
+
+def validate_icdo_grid_filters(
+    axis: IcdoAxis,
+    behaviour: list[IcdoBehaviour] | None,
+    level: list[IcdoRecordLevel] | None,
+) -> None:
+    """Reject filter values that do not apply to the requested ICD-O axis."""
+    if axis == "topography":
+        invalid = bool(behaviour) or "morphology" in (level or ())
+    else:
+        invalid = any(value != "morphology" for value in level or ())
+    if invalid:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "ICD-O filters do not apply to the requested axis.",
+        )
 
 
 async def _ready(
@@ -235,6 +263,9 @@ def _page_response(
             "total": result.total,
             "limit": result.limit,
             "offset": result.offset,
+            "sort": result.sort,
+            "behaviour": list(result.behaviour),
+            "level": list(result.level),
             "hits": [record.model_dump() for record in result.hits],
         }
     )
@@ -261,7 +292,7 @@ async def access_status(
     return IcdoAccessReport()
 
 
-def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
+def _decode_code(segment: str, edition: IcdoEdition, axis: IcdoAxis) -> str:
     try:
         code = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)).decode(
             "ascii"
@@ -279,9 +310,9 @@ def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
 
 @router.get("/{edition}/{axis}/metadata")
 async def metadata(
-    repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
+    repository_metadata: RepositoryMetadataReads, edition: IcdoEdition, axis: IcdoAxis
 ) -> object:
-    dataset = _dataset(edition, axis)
+    dataset = require_served_icdo_dataset(edition, axis)
     result = await _ready(repository_metadata, dataset)
     return result.model_dump(mode="json")
 
@@ -343,25 +374,28 @@ async def _uberon_congruence_records(
 async def list_records(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
-    behaviour: str | None = None,
-    level: Literal["category", "leaf"] | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    dataset = _dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
             dataset.edition,
             dataset.axis,
             query="",
-            behaviour=behaviour,
-            level=level,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
             limit=limit,
             offset=offset,
             generation_id=ready.activation_identity,
+            sort=sort,
         )
         return _page_response(result, dataset, ready)
     except IcdoRepositoryDataError as exc:
@@ -378,26 +412,29 @@ async def list_records(
 async def search(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     q: Annotated[str, Query(min_length=1)],
-    behaviour: str | None = None,
-    level: Literal["category", "leaf"] | None = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    dataset = _dataset(edition, axis)
+    validate_icdo_grid_filters(axis, behaviour, level)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
             dataset.edition,
             dataset.axis,
             query=q,
-            behaviour=behaviour,
-            level=level,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
             limit=limit,
             offset=offset,
             generation_id=ready.activation_identity,
+            sort=sort,
         )
         return _page_response(result, dataset, ready)
     except IcdoRepositoryDataError as exc:
@@ -415,11 +452,11 @@ async def detail(
     repository: IcdoReads,
     xref_store: XrefReads,
     repository_metadata: RepositoryMetadataReads,
-    edition: Edition,
-    axis: Axis,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
-    dataset = _dataset(edition, axis)
+    dataset = require_served_icdo_dataset(edition, axis)
     ready = await _ready(repository_metadata, dataset)
     canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:

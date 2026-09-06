@@ -21,15 +21,16 @@ from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     ConceptDetail,
     ConceptRef,
     GraphEdge,
     GraphNode,
     Neighborhood,
     Relationship,
+    RepositoryBrowseSort,
     RepresentationStatus,
     SearchHit,
-    SearchPage,
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
@@ -65,11 +66,6 @@ def _representation_status_pattern(
 def _code_of(uri: str) -> str:
     """Return the trailing NCIt code of an IRI (``…#C3262`` -> ``C3262``)."""
     return uri.rsplit("#", 1)[-1] if "#" in uri else uri.rsplit("/", 1)[-1]
-
-
-def _escape_literal(text: str) -> str:
-    """Escape a user string for safe embedding in a SPARQL double-quoted literal."""
-    return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _canonical_embedding_records(
@@ -314,66 +310,6 @@ class NcitGraphStore:
         )
         return [rel for rel in rels if rel is not None]
 
-    # ------------------------------------------------------------------ search
-
-    async def search(
-        self,
-        query_text: str,
-        *,
-        limit: int = 25,
-        offset: int = 0,
-        representation_status: RepresentationStatus | None = None,
-    ) -> SearchPage:
-        """Case-insensitive search over preferred label and synonyms."""
-        term = _escape_literal(query_text)
-        where = f"""
-            ?concept a owl:Class ; rdfs:label ?label .
-            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
-            OPTIONAL {{
-                ?concept ncit:{pc.FULL_SYNONYM} ?synValue .
-                FILTER(CONTAINS(LCASE(?synValue), LCASE("{term}")))
-            }}
-            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?synValue))
-        """
-        page_status = _representation_status_pattern(
-            "?concept", representation_status, include_unfiltered=True
-        )
-        count_status = _representation_status_pattern("?concept", representation_status)
-        # GROUP BY concept so a concept with several matching synonyms / semantic
-        # types yields exactly one result row (not one row per synonym).
-        rows = await self._client.select(
-            f"""{_PREFIXES}
-            SELECT ?concept ?label
-                   (SAMPLE(?semtypeValue) AS ?semtype)
-                   (SAMPLE(?synValue) AS ?syn)
-                   (SAMPLE(?representationStatusValue) AS ?representationStatus)
-            WHERE {{{where}{page_status}}}
-            GROUP BY ?concept ?label
-            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
-            """
-        )
-        count_rows = await self._client.select(
-            f"{_PREFIXES}\n"
-            f"SELECT (COUNT(DISTINCT ?concept) AS ?count) "
-            f"WHERE {{{where}{count_status}}}"
-        )
-        count_val = count_rows[0].get("count") if count_rows else None
-        total = int(count_val) if count_val is not None else 0
-        hits = [
-            SearchHit(
-                code=_code_of(concept),
-                label=r.get("label"),
-                semantic_type=r.get("semtype"),
-                matched_synonym=r.get("syn"),
-                representation_status=r.get("representationStatus"),  # type: ignore[arg-type]
-            )
-            for r in rows
-            if (concept := r.get("concept")) is not None
-        ]
-        return SearchPage(
-            query=query_text, total=total, limit=limit, offset=offset, hits=hits
-        )
-
     async def labels_for(self, codes: list[str]) -> dict[str, str]:
         """Return a ``{code: label}`` map for the given codes (one query)."""
         if not codes:
@@ -400,12 +336,20 @@ class NcitGraphStore:
         limit: int = 25,
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
-    ) -> SearchPage:
-        """List all named concepts in natural (code) order — the no-search browse mode.
+        sort: RepositoryBrowseSort = "source",
+    ) -> BrowsePage:
+        """List all named concepts in the requested deterministic browse order.
 
         The total class count is expensive to compute over the full store, so it is
         memoized after the first call (the concept universe is static between reloads).
         """
+        order = {
+            "source": "?concept",
+            "code:asc": "?concept",
+            "code:desc": "DESC(?concept)",
+            "label:asc": "?label ?concept",
+            "label:desc": "DESC(?label) ?concept",
+        }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
@@ -420,7 +364,7 @@ class NcitGraphStore:
                 {page_status}
             }}
             GROUP BY ?concept ?label
-            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
         if representation_status not in self._total_concepts:
@@ -451,11 +395,13 @@ class NcitGraphStore:
             for r in rows
             if (concept := r.get("concept")) is not None
         ]
-        return SearchPage(
+        return BrowsePage(
             query="",
             total=self._total_concepts[representation_status],
             limit=limit,
             offset=offset,
+            sort=sort,
+            representation_status=representation_status,
             hits=hits,
         )
 

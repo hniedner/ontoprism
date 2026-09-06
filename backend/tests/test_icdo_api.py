@@ -49,6 +49,7 @@ from ontolib.repositories.xref.vocab import (
 class _Store:
     def __init__(self) -> None:
         self.calls = 0
+        self.search_args: dict[str, object] = {}
 
     async def metadata(self, edition: str, axis: str) -> object:
         self.calls += 1
@@ -68,6 +69,7 @@ class _Store:
         self, edition: IcdoEdition, axis: IcdoAxis, **kwargs: object
     ) -> IcdoSearchPage:
         self.calls += 1
+        self.search_args = kwargs
         record = (
             IcdoRecord(
                 code="8503/0",
@@ -90,8 +92,12 @@ class _Store:
         )
         limit = kwargs["limit"]
         offset = kwargs["offset"]
+        behaviour = kwargs["behaviour"]
+        level = kwargs["level"]
         assert isinstance(limit, int)
         assert isinstance(offset, int)
+        assert isinstance(behaviour, tuple)
+        assert isinstance(level, tuple)
         return IcdoSearchPage(
             edition=edition,
             axis=axis,
@@ -99,6 +105,8 @@ class _Store:
             total=1,
             limit=limit,
             offset=offset,
+            behaviour=behaviour,
+            level=level,
             hits=(record,),
         )
 
@@ -323,6 +331,10 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         metadata.status_code,
         detail.status_code,
     ] == [200] * 4
+    assert listed.json()["behaviour"] == []
+    assert listed.json()["level"] == []
+    assert searched.json()["behaviour"] == ["0"]
+    assert searched.json()["level"] == []
     assert detail.json()["record"]["code"] == "8503/0"
     for payload in (listed.json(), searched.json(), detail.json()):
         assert payload["activation_identity"] == "a" * 64
@@ -333,6 +345,48 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         "C3",
     ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
+
+
+@pytest.mark.api
+def test_search_preserves_repeated_filters_for_or_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _Store()
+    client = next(_client(store, monkeypatch))
+    response = client.get(
+        "/api/v1/icdo/4.0/topography/search",
+        params=[("q", "lip"), ("level", "category"), ("level", "leaf")],
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+    assert response.status_code == 200, response.text
+    assert store.search_args["level"] == ("category", "leaf")
+    assert response.json()["behaviour"] == []
+    assert response.json()["level"] == ["category", "leaf"]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [
+        ("4.0/topography/list", {"behaviour": "3"}),
+        ("4.0/morphology/list", {"level": "category"}),
+        ("3.2/topography/list", {}),
+    ],
+)
+def test_list_rejects_impossible_dataset_filter_combinations_before_store(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    store = _Store()
+    response = next(_client(store, monkeypatch)).get(
+        f"/api/v1/icdo/{path}",
+        params=params,
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 422
+    assert store.calls == 0
 
 
 @pytest.mark.api
@@ -422,6 +476,8 @@ def test_list_refuses_a_typed_page_for_another_dataset(
                 total=0,
                 limit=25,
                 offset=0,
+                behaviour=(),
+                level=(),
                 hits=(),
             )
 
@@ -521,7 +577,7 @@ def test_invalid_dataset_combination_and_code_are_input_errors(
     headers = {"X-ICDO-Entitlement": "licensed"}
     assert (
         client.get("/api/v1/icdo/3.2/topography/list", headers=headers).status_code
-        == 404
+        == 422
     )
     assert (
         client.get(

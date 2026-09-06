@@ -1,9 +1,9 @@
 """Hermetic behavioral tests for the NCIt read API (fake store / index / embeddings).
 
-These pin the endpoint contracts without a live QLever: the FTS-cache-vs-SPARQL
-fallback, 404 mapping for unknown/malformed codes, the similar-concepts label join,
-and the 503 mapping when the embedding backend is unavailable. The live-store
-variants live in ``test_ncit_api_integration.py``.
+These pin the endpoint contracts without a live QLever: certified FTS readiness and
+fail-closed branches, 404 mapping for unknown/malformed codes, the similar-concepts
+label join, and the 503 mapping when the embedding backend is unavailable. The
+live-store variants live in ``test_ncit_api_integration.py``.
 """
 
 from collections.abc import Iterator
@@ -11,9 +11,12 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from backend.api.v1.ncit import router as ncit_router
 from backend.config import get_settings
 from backend.dependencies import (
     get_embedding_store,
@@ -29,10 +32,12 @@ from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailabl
 from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     ConceptDetail,
     GraphEdge,
     GraphNode,
     Neighborhood,
+    RepresentationStatus,
     SearchHit,
     SearchPage,
 )
@@ -51,7 +56,8 @@ class _FakeStore:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
+        representation_status: RepresentationStatus | None = None,
+        sort: str = "source",
     ) -> SearchPage:
         self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
@@ -59,6 +65,7 @@ class _FakeStore:
             total=1,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm", matched_synonym="tumor")],
         )
 
@@ -67,14 +74,16 @@ class _FakeStore:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
-    ) -> SearchPage:
+        representation_status: RepresentationStatus | None = None,
+        sort: str = "source",
+    ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
-        return SearchPage(
+        return BrowsePage(
             query="",
             total=2,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm")],
         )
 
@@ -102,7 +111,7 @@ class _FakeStore:
 
 
 class _FakeIndex:
-    """FTS cache double; ``populated`` and ``fail`` control the fallback branches."""
+    """FTS index double controlling certified-readiness and failure branches."""
 
     def __init__(self, *, populated: bool = True, fail: bool = False) -> None:
         self._populated = populated
@@ -123,7 +132,8 @@ class _FakeIndex:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
+        representation_status: RepresentationStatus | None = None,
+        sort: str = "relevance",
     ) -> SearchPage:
         self.searched = True
         self.search_calls.append((q, limit, offset, representation_status))
@@ -132,6 +142,7 @@ class _FakeIndex:
             total=1,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm (from cache)")],
         )
 
@@ -238,36 +249,34 @@ def ncit_client() -> Iterator[TestClient]:
 @pytest.mark.api
 def test_search_served_from_populated_cache(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["representation_status"] is None
     # A populated cache answers directly (label carries the cache marker).
     assert resp.json()["hits"][0]["label"] == "Neoplasm (from cache)"
 
 
 @pytest.mark.api
-def test_search_falls_back_to_store_when_cache_empty() -> None:
+def test_search_fails_closed_when_certified_cache_is_empty() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(populated=False))
     client = next(gen)
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
-    # Empty cache -> the store (source of truth) answered.
-    assert store.search_calls == [("neoplasm", 25, 0, None)]
-    assert resp.json()["hits"][0]["label"] == "Neoplasm"
+    assert resp.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api
-def test_search_falls_back_to_store_when_cache_errors() -> None:
+def test_search_fails_closed_when_certified_cache_errors() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(fail=True))
     client = next(gen)
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
-    assert resp.status_code == 200
-    # A cache failure degrades gracefully to the store rather than 500-ing.
-    assert store.search_calls == [("neoplasm", 25, 0, None)]
+    assert resp.status_code == 503
+    assert store.search_calls == []
 
 
 @pytest.mark.api
-def test_search_status_filter_flows_through_cache_and_fallback() -> None:
+def test_search_status_filter_flows_through_authoritative_cache() -> None:
     index = _FakeIndex()
     cached = next(_client(index=index))
     params = {
@@ -275,13 +284,10 @@ def test_search_status_filter_flows_through_cache_and_fallback() -> None:
         "representation_status": "legacy-precoordinated",
     }
 
-    assert cached.get("/api/v1/ncit/search", params=params).status_code == 200
+    response = cached.get("/api/v1/ncit/search", params=params)
+    assert response.status_code == 200
+    assert response.json()["representation_status"] == "legacy-precoordinated"
     assert index.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
-
-    store = _FakeStore()
-    fallback = next(_client(store=store, index=_FakeIndex(populated=False)))
-    assert fallback.get("/api/v1/ncit/search", params=params).status_code == 200
-    assert store.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
 
 
 @pytest.mark.api
@@ -295,6 +301,7 @@ def test_list_status_filter_flows_to_store() -> None:
     )
 
     assert response.status_code == 200
+    assert response.json()["representation_status"] == "legacy-precoordinated"
     assert store.list_calls == [(25, 0, "legacy-precoordinated")]
 
 
@@ -307,6 +314,33 @@ def test_status_filter_rejects_unknown_values(path: str) -> None:
     response = client.get(f"{path}{separator}representation_status=atomic")
 
     assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_list_rejects_search_only_relevance_sort() -> None:
+    response = next(_client()).get("/api/v1/ncit/list", params={"sort": "relevance"})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_list_response_model_rejects_search_only_relevance_sort() -> None:
+    route = next(
+        route
+        for route in ncit_router.routes
+        if isinstance(route, APIRoute) and route.path == "/api/v1/ncit/list"
+    )
+    with pytest.raises(ValidationError):
+        route.response_model.model_validate(
+            {
+                "query": "",
+                "total": 0,
+                "limit": 25,
+                "offset": 0,
+                "sort": "relevance",
+                "hits": [],
+            }
+        )
 
 
 @pytest.mark.api
@@ -344,8 +378,8 @@ def test_search_requires_nonempty_query(ncit_client: TestClient) -> None:
 
 @pytest.mark.api
 def test_list_browses_without_query(ncit_client: TestClient) -> None:
-    resp = ncit_client.get("/api/v1/ncit/list", params={"limit": 5})
-    assert resp.status_code == 200
+    resp = ncit_client.get("/api/v1/ncit/list", params={"limit": 10})
+    assert resp.status_code == 200, resp.text
     assert resp.json()["query"] == ""
 
 

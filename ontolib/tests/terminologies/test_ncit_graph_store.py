@@ -8,7 +8,12 @@ from ontolib.terminologies.ncit.graph_store import (
     NcitGraphStore,
     _rel,
 )
-from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
+from ontolib.terminologies.ncit.models import (
+    BrowsePage,
+    ConceptDetail,
+    ConceptRef,
+    Relationship,
+)
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -152,26 +157,6 @@ async def test_detail_reads_published_representation_status_or_none() -> None:
 
 
 @pytest.mark.unit
-async def test_search_filters_status_before_pagination_and_returns_filtered_total() -> (
-    None
-):
-    client = _StatusClient(status="legacy-precoordinated")
-
-    page = await NcitGraphStore(client).search(  # type: ignore[arg-type]
-        "legacy", limit=10, offset=20, representation_status="legacy-precoordinated"
-    )
-
-    assert page.total == 1
-    assert [hit.representation_status for hit in page.hits] == ["legacy-precoordinated"]
-    page_query = next(query for query in client.queries if "SAMPLE(?synValue)" in query)
-    count_query = next(query for query in client.queries if "COUNT(DISTINCT" in query)
-    assert page_query.index("representationStatus") < page_query.index("LIMIT 10")
-    assert '"legacy-precoordinated"' in page_query
-    assert '"legacy-precoordinated"' in count_query
-    assert "ORDER BY ?concept LIMIT 10 OFFSET 20" in page_query
-
-
-@pytest.mark.unit
 async def test_list_filters_status_before_pagination_with_distinct_total_cache() -> (
     None
 ):
@@ -185,6 +170,8 @@ async def test_list_filters_status_before_pagination_with_distinct_total_cache()
 
     assert unfiltered.total == 1
     assert flagged.total == 1
+    assert unfiltered.representation_status is None
+    assert flagged.representation_status == "legacy-precoordinated"
     assert flagged.hits[0].representation_status == "legacy-precoordinated"
     page_query = next(query for query in client.queries if "LIMIT 5 OFFSET 25" in query)
     assert page_query.index("representationStatus") < page_query.index("LIMIT 5")
@@ -192,6 +179,12 @@ async def test_list_filters_status_before_pagination_with_distinct_total_cache()
     assert len(count_queries) == 2
     assert "representationStatus" not in count_queries[0]
     assert "representationStatus" in count_queries[1]
+
+
+@pytest.mark.unit
+def test_browse_page_requires_an_explicit_applied_status_echo() -> None:
+    with pytest.raises(ValidationError, match="representation_status"):
+        BrowsePage(total=0, limit=25, offset=0)  # type: ignore[call-arg]
 
 
 @pytest.mark.unit
@@ -292,43 +285,24 @@ async def test_defined_class_hierarchy_combines_stated_subclass_and_genus_edges(
 
 
 @pytest.mark.unit
-async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
-    async with SparqlHttpClient(ncit_stub_url) as client:
-        page = await NcitGraphStore(client).search("neoplasm", limit=10)
-
-    assert page.total == 2
-    assert [h.code for h in page.hits] == ["C3262", "C9305"]
-    assert page.hits[0].semantic_type == "Neoplastic Process"
-
-
-@pytest.mark.unit
 async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> None:
     client = _RecordingClient()
     store = NcitGraphStore(client)  # type: ignore[arg-type]
 
-    await store.search("neoplasm")
     await store.list_concepts()
     await store.search_records(limit=25, offset=0)
 
     compact_queries = [" ".join(query.split()) for query in client.queries]
     aggregate_queries = [query for query in compact_queries if "SAMPLE(" in query]
-    assert len(aggregate_queries) == 3
+    assert len(aggregate_queries) == 2
     assert all(
         "SAMPLE(?semtypeValue) AS ?semtype" in query
         and "SAMPLE(?semtype) AS ?semtype" not in query
         for query in aggregate_queries
     )
-    search_query = next(
-        query
-        for query in compact_queries
-        if "SAMPLE(?syn" in query and "GROUP_CONCAT" not in query
-    )
     records_query = next(
         query for query in compact_queries if "GROUP_CONCAT(DISTINCT ?syn" in query
     )
-    assert "SAMPLE(?synValue) AS ?syn" in search_query
-    assert "SAMPLE(?syn) AS ?syn" not in search_query
-    assert "ORDER BY ?concept" in search_query
     assert "GROUP_CONCAT(DISTINCT ?synValue" in records_query
 
 

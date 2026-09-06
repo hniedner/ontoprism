@@ -2,21 +2,24 @@
 
 Transport + query-shaping only: builds the ``/studies`` query, applies the public
 API's status/phase filters, and delegates JSON→model mapping to :mod:`parser`.
-CT.gov v2 is public (no API key). Direct-search only — natural-language term
-extraction and reranking (fairdata's LLM layer) are intentionally not ported.
+CT.gov v2 is public (no API key). This client performs direct searches without
+term extraction or local reranking.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, Self, TypeIs
+from typing import Any, Self, TypeIs, get_args
 
 import httpx
 
 from ontolib.common.error_handling import retry_with_backoff
+from ontolib.common.grid import PRODUCT_PAGE_SIZES, ProductPageSize
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
+    CTFilterPhase,
+    CTStatus,
     CTStudyDetail,
     CTStudySearchPage,
 )
@@ -34,43 +37,25 @@ logger = get_logger(__name__)
 
 DEFAULT_CT_API_URL = "https://clinicaltrials.gov/api/v2"
 _NCT_ID_LEN = 11  # "NCT" + 8 digits
-_PAGE_SIZE_MAX = 100
 # Retryable transport failures (a returned HTTP error status is deterministic, not
 # retried here — 5xx is surfaced as StorageError).
 _RETRYABLE = (httpx.TransportError, httpx.TimeoutException)
 
 # The v2 filter enums we accept — an out-of-range value is rejected before the call
 # so a typo becomes a clear ValueError rather than a silently-empty result set.
-VALID_STATUSES = frozenset(
-    {
-        "ACTIVE_NOT_RECRUITING",
-        "COMPLETED",
-        "ENROLLING_BY_INVITATION",
-        "NOT_YET_RECRUITING",
-        "RECRUITING",
-        "SUSPENDED",
-        "TERMINATED",
-        "WITHDRAWN",
-        "AVAILABLE",
-        "NO_LONGER_AVAILABLE",
-        "TEMPORARILY_NOT_AVAILABLE",
-        "APPROVED_FOR_MARKETING",
-        "WITHHELD",
-        "UNKNOWN",
-    }
-)
+VALID_STATUSES = frozenset(get_args(CTStatus))
 # CT.gov v2 `aggFilters` phase buckets are NUMERIC ids, not the study-JSON enum names:
 # sending `phase:PHASE2` returns HTTP 200 with zero results (a silent miss), whereas
 # `phase:2` filters correctly. Map the caller-facing enum to the aggFilters id. "NA"
 # (not-applicable) has no aggFilters phase bucket, so it is intentionally not accepted.
-_PHASE_AGG = {
+_PHASE_AGG: dict[CTFilterPhase, str] = {
     "EARLY_PHASE1": "0",
     "PHASE1": "1",
     "PHASE2": "2",
     "PHASE3": "3",
     "PHASE4": "4",
 }
-VALID_PHASES = frozenset(_PHASE_AGG)
+VALID_FILTER_PHASES = frozenset(_PHASE_AGG)
 
 
 def is_valid_nct_id(nct_id: str) -> bool:
@@ -120,7 +105,9 @@ def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[
     )
 
 
-def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
+def _validate_search_response(
+    data: object,
+) -> tuple[list[dict[str, Any]], int, str | None]:
     if not isinstance(data, Mapping):
         raise _invalid_search_response()
     raw = data.get("studies")
@@ -129,10 +116,17 @@ def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
         raise _invalid_search_response()
     if not _valid_search_total(total, raw):
         raise _invalid_search_response()
-    return raw, total
+    next_token = data.get("nextPageToken")
+    if next_token is not None and (
+        not isinstance(next_token, str) or not next_token.strip()
+    ):
+        raise _invalid_search_response()
+    return raw, total, next_token
 
 
-def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
+def _filter_params(
+    status: tuple[CTStatus, ...], phase: tuple[CTFilterPhase, ...]
+) -> dict[str, str]:
     """Validate and shape the optional status/phase filter params.
 
     Raises:
@@ -140,14 +134,17 @@ def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
     """
     params: dict[str, str] = {}
     if status:
-        if status not in VALID_STATUSES:
-            raise ValueError(f"Invalid trial status filter: {status!r}")
-        params["filter.overallStatus"] = status
+        invalid_statuses = set(status) - VALID_STATUSES
+        if invalid_statuses:
+            raise ValueError(
+                f"Invalid trial status filter: {sorted(invalid_statuses)!r}"
+            )
+        params["filter.overallStatus"] = "|".join(status)
     if phase:
-        agg = _PHASE_AGG.get(phase)
-        if agg is None:
-            raise ValueError(f"Invalid trial phase filter: {phase!r}")
-        params["aggFilters"] = f"phase:{agg}"
+        invalid_phases = set(phase) - VALID_FILTER_PHASES
+        if invalid_phases:
+            raise ValueError(f"Invalid trial phase filter: {sorted(invalid_phases)!r}")
+        params["aggFilters"] = "phase:" + " ".join(_PHASE_AGG[value] for value in phase)
     return params
 
 
@@ -199,12 +196,13 @@ class ClinicalTrialsClient:
         condition: str | None,
         intervention: str | None,
         term: str | None,
-        status: str | None,
-        phase: str | None,
-        page_size: int,
+        status: tuple[CTStatus, ...],
+        phase: tuple[CTFilterPhase, ...],
+        page_size: ProductPageSize,
+        page_token: str | None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
-            "pageSize": max(1, min(page_size, _PAGE_SIZE_MAX)),
+            "pageSize": page_size,
             "countTotal": "true",
         }
         for key, value in (
@@ -215,7 +213,24 @@ class ClinicalTrialsClient:
             if value:
                 params[key] = value
         params.update(_filter_params(status, phase))
+        if page_token is not None:
+            if not page_token.strip():
+                raise ValueError("ClinicalTrials.gov page token must not be blank")
+            params["pageToken"] = page_token
         return params
+
+    async def _search_data_with_total(
+        self, params: dict[str, Any], page_token: str | None
+    ) -> Any:
+        data = await self._request_json("/studies", params)
+        if page_token is None or not isinstance(data, Mapping) or "totalCount" in data:
+            return data
+        count_params = {**params, "pageSize": 1}
+        count_params.pop("pageToken")
+        count_data = await self._request_json("/studies", count_params)
+        if not isinstance(count_data, Mapping):
+            raise _invalid_search_response()
+        return {**data, "totalCount": count_data.get("totalCount")}
 
     async def search_studies(
         self,
@@ -223,32 +238,43 @@ class ClinicalTrialsClient:
         condition: str | None = None,
         intervention: str | None = None,
         term: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
-        page_size: int = 20,
+        status: tuple[CTStatus, ...] = (),
+        phase: tuple[CTFilterPhase, ...] = (),
+        page_size: ProductPageSize = 25,
+        page_token: str | None = None,
     ) -> CTStudySearchPage:
         """Search trials by condition / intervention / free term (+ optional filters).
 
         Raises:
-            ValueError: if *status*/*phase* is not a valid CT.gov v2 enum value.
+            ValueError: if filters, page size, or a supplied page token are invalid.
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
+        if page_size not in PRODUCT_PAGE_SIZES:
+            raise ValueError(f"Invalid ClinicalTrials.gov page size: {page_size!r}")
+        canonical_status = tuple(dict.fromkeys(status))
+        canonical_phase = tuple(dict.fromkeys(phase))
         params = self._build_search_params(
             condition=condition,
             intervention=intervention,
             term=term,
-            status=status,
-            phase=phase,
+            status=canonical_status,
+            phase=canonical_phase,
             page_size=page_size,
+            page_token=page_token,
         )
-        data = await self._request_json("/studies", params)
-        studies, total = _validate_search_response(data)
+        data = await self._search_data_with_total(params, page_token)
+        studies, total, next_page_token = _validate_search_response(data)
         try:
             return CTStudySearchPage(
                 condition=condition,
                 intervention=intervention,
                 term=term,
+                status=list(canonical_status),
+                phase=list(canonical_phase),
                 total=total,
+                page_size=page_size,
+                page_token=page_token,
+                next_page_token=next_page_token,
                 studies=[
                     parse_study_summary(s, index=i, total=max(len(studies), 1))
                     for i, s in enumerate(studies)

@@ -1,21 +1,21 @@
 """ClinicalTrials.gov repository endpoints: trial search + trial detail.
 
-A thin pass-through to the async :class:`ClinicalTrialsClient`. Direct-search only
-(condition / intervention / free term + optional status & phase filters); the
-natural-language / LLM term-extraction layer from fairdata is not ported.
+A thin pass-through to the async :class:`ClinicalTrialsClient` for condition,
+intervention, and free-term search with optional status and phase filters.
 """
 
-from typing import Annotated
-
 from fastapi import APIRouter, HTTPException, status
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import ClinicalTrials
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ProductPageSize
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
+    CTFilterPhase,
+    CTStatus,
     CTStudyDetail,
     CTStudySearchPage,
 )
@@ -32,9 +32,15 @@ class CTSearchRequest(StrictBoundaryModel):
     condition: str | None = Field(default=None, max_length=500)
     intervention: str | None = Field(default=None, max_length=500)
     term: str | None = Field(default=None, max_length=500)
-    status: str | None = None
-    phase: str | None = None
-    limit: Annotated[int, Field(ge=1, le=100)] = 20
+    status: list[CTStatus] = Field(default_factory=list)
+    phase: list[CTFilterPhase] = Field(default_factory=list)
+    limit: ProductPageSize = 25
+    page_token: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @field_validator("status", "phase")
+    @classmethod
+    def deduplicate_filters(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
 
 @router.post("/search", response_model=CTStudySearchPage)
@@ -50,12 +56,14 @@ async def search(client: ClinicalTrials, body: CTSearchRequest) -> CTStudySearch
             condition=body.condition,
             intervention=body.intervention,
             term=body.term,
-            status=body.status,
-            phase=body.phase,
+            status=tuple(body.status),
+            phase=tuple(body.phase),
             page_size=body.limit,
+            page_token=body.page_token,
         )
     except ValueError as exc:
-        # Invalid status/phase enum — a client error, not an upstream failure.
+        # Request-shaped values rejected by the client, such as a blank page token,
+        # remain client errors rather than upstream failures.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except UpstreamFailureError as exc:
         logger.warning("ClinicalTrials.gov search failed: %s", exc.state)
