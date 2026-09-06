@@ -401,6 +401,7 @@ class NcitGraphStore:
             limit=limit,
             offset=offset,
             sort=sort,
+            representation_status=representation_status,
             hits=hits,
         )
 

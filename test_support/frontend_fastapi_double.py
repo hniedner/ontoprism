@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from backend.api.v1 import clinicaltrials, pubmed
 from backend.api.v1.grid import PageSize
 from backend.api.v1.icdo import (
+    IcdoDetail,
+    IcdoPage,
     require_served_icdo_dataset,
     validate_icdo_grid_filters,
 )
@@ -27,12 +29,16 @@ from ontolib.repositories.icdo.models import (
 )
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.terminologies.ncit.models import (
+    BrowsePage,
     RepositoryBrowseSort,
     RepositorySearchSort,
     RepresentationStatus,
+    SearchPage,
 )
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonBrowseSort,
+    UberonSearchPage,
     UberonSearchSort,
     UberonSource,
 )
@@ -178,7 +184,7 @@ async def refresh_repositories() -> dict[str, object]:
     }
 
 
-@app.get("/api/v1/ncit/list")
+@app.get("/api/v1/ncit/list", response_model=BrowsePage)
 async def list_ncit(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -191,6 +197,7 @@ async def list_ncit(
         "limit": limit,
         "offset": offset,
         "sort": sort,
+        "representation_status": representation_status,
         "hits": [
             {
                 "code": "C3262",
@@ -203,7 +210,7 @@ async def list_ncit(
     }
 
 
-@app.get("/api/v1/ncit/search")
+@app.get("/api/v1/ncit/search", response_model=SearchPage)
 async def search_ncit(
     q: str,
     limit: PageSize = 25,
@@ -218,6 +225,7 @@ async def search_ncit(
         "limit": limit,
         "offset": offset,
         "sort": sort,
+        "representation_status": representation_status,
         "hits": [
             {
                 "code": code,
@@ -232,7 +240,7 @@ async def search_ncit(
     }
 
 
-@app.get("/api/v1/uberon/list")
+@app.get("/api/v1/uberon/list", response_model=UberonBrowsePage)
 async def list_uberon(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -246,6 +254,7 @@ async def list_uberon(
         "limit": limit,
         "offset": offset,
         "sort": sort,
+        "source": source,
         "hits": [
             {
                 "code": "CL:0000000" if selected_source == "cl" else "UBERON:0002048",
@@ -257,7 +266,7 @@ async def list_uberon(
     }
 
 
-@app.get("/api/v1/uberon/search")
+@app.get("/api/v1/uberon/search", response_model=UberonSearchPage)
 async def search_uberon(
     q: str,
     limit: PageSize = 25,
@@ -290,7 +299,7 @@ async def icdo_access(
     return {"status": "ready-and-entitled"}
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/list")
+@app.get("/api/v1/icdo/{edition}/{axis}/list", response_model=IcdoPage)
 async def list_icdo(
     edition: IcdoEdition,
     axis: IcdoAxis,
@@ -345,22 +354,22 @@ async def list_icdo(
                 "base_morphology": record.get("base_morphology"),
                 "specificity": record.get("specificity"),
                 "behaviour": record.get("behaviour"),
-                "synonyms": [],
-                "related": [],
-                "notes": [],
-                "code_references": [],
-                "see_also": [],
-                "see_notes": [],
-                "includes": [],
-                "excludes": [],
-                "other_text": [],
+                "synonyms": (),
+                "related": (),
+                "notes": (),
+                "code_references": (),
+                "see_also": (),
+                "see_notes": (),
+                "includes": (),
+                "excludes": (),
+                "other_text": (),
             }
             for record in hits
         ],
     }
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/search")
+@app.get("/api/v1/icdo/{edition}/{axis}/search", response_model=IcdoPage)
 async def search_icdo(
     edition: IcdoEdition,
     axis: IcdoAxis,
@@ -386,7 +395,7 @@ async def search_icdo(
     return result
 
 
-@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
+@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}", response_model=IcdoDetail)
 async def icdo_detail(
     edition: IcdoEdition,
     axis: IcdoAxis,
@@ -428,15 +437,19 @@ async def icdo_detail(
         "serving_identity": "e" * 64,
         "record": {
             **record,
-            "synonyms": ["Protected papilloma synonym"],
-            "related": [],
-            "notes": ["Publisher note"],
-            "code_references": ["Code reference"],
-            "see_also": ["See also term"],
-            "see_notes": ["See note"],
-            "includes": ["Included term"],
-            "excludes": ["Excluded term"],
-            "other_text": ["Other publisher text"],
+            "parent_code": record.get("parent_code"),
+            "base_morphology": record.get("base_morphology"),
+            "specificity": record.get("specificity"),
+            "behaviour": record.get("behaviour"),
+            "synonyms": ("Protected papilloma synonym",),
+            "related": (),
+            "notes": ("Publisher note",),
+            "code_references": ("Code reference",),
+            "see_also": ("See also term",),
+            "see_notes": ("See note",),
+            "includes": ("Included term",),
+            "excludes": ("Excluded term",),
+            "other_text": ("Other publisher text",),
         },
         "ncit_alignments": [
             {

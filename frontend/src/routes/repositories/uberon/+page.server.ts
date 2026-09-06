@@ -13,7 +13,10 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 		if (sort === 'relevance') error(500, 'Uberon browse state contained a search-only sort.');
 		return sort;
 	};
-	return loadRepositoryPage<UberonRepositoryPage>(url,
+	const loaded = await loadRepositoryPage<UberonRepositoryPage>(url,
 		(query, state) => critical(searchUberon(query, { limit: state.size, offset: state.offset, sort: state.sort, source: source(state.filters.source), fetch })),
 		(state) => critical(listUberon({ limit: state.size, offset: state.offset, sort: browseSort(state.sort), source: source(state.filters.source), fetch })), spec);
+	const expected = source(loaded.initial.filters.source) ?? null;
+	if (!Object.hasOwn(loaded.initial.result, 'source') || loaded.initial.result.source !== expected) error(502, 'Uberon page filters did not match the request.');
+	return loaded;
 };

@@ -53,6 +53,7 @@ interface NcitPageBase {
 	total: number;
 	limit: number;
 	offset: number;
+	representation_status: RepresentationStatus | null;
 	hits: SearchHit[];
 }
 
@@ -165,6 +166,7 @@ interface UberonPageBase {
 	total: number;
 	limit: number;
 	offset: number;
+	source: UberonSource | null;
 	hits: UberonSearchHit[];
 }
 

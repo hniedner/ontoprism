@@ -180,7 +180,13 @@ class NcitSearchIndex:
             for row in rows
         ]
         return SearchPage(
-            query=query, total=total, limit=limit, offset=offset, sort=sort, hits=hits
+            query=query,
+            total=total,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            representation_status=representation_status,
+            hits=hits,
         )
 
     async def rebuild(

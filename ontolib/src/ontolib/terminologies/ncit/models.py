@@ -82,6 +82,7 @@ class SearchPage(StrictBoundaryModel):
     limit: int
     offset: int
     sort: RepositorySearchSort = "relevance"
+    representation_status: RepresentationStatus | None
     hits: list[SearchHit] = Field(default_factory=list)
 
 
@@ -93,6 +94,7 @@ class BrowsePage(StrictBoundaryModel):
     limit: int
     offset: int
     sort: RepositoryBrowseSort = "source"
+    representation_status: RepresentationStatus | None
     hits: list[SearchHit] = Field(default_factory=list)
 
 

@@ -234,6 +234,7 @@ class UberonGraphStore:
             limit=limit,
             offset=offset,
             sort=sort,
+            source=source,
             hits=self._hits(rows),
         )
 

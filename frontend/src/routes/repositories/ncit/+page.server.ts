@@ -12,7 +12,10 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 		if (sort === 'relevance') error(500, 'NCIt browse state contained a search-only sort.');
 		return sort;
 	};
-	return loadRepositoryPage<NcitRepositoryPage>(url,
+	const loaded = await loadRepositoryPage<NcitRepositoryPage>(url,
 		(query, state) => critical(searchNcit(query, { limit: state.size, offset: state.offset, sort: state.sort, representationStatus: state.filters.representation_status?.[0] as RepresentationStatus | undefined, fetch })),
 		(state) => critical(listNcit({ limit: state.size, offset: state.offset, sort: browseSort(state.sort), representationStatus: state.filters.representation_status?.[0] as RepresentationStatus | undefined, fetch })), spec);
+	const expected = loaded.initial.filters.representation_status[0] ?? null;
+	if (!Object.hasOwn(loaded.initial.result, 'representation_status') || loaded.initial.result.representation_status !== expected) error(502, 'NCIt page filters did not match the request.');
+	return loaded;
 };

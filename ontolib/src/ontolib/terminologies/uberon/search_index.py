@@ -162,6 +162,7 @@ class UberonSearchIndex:
             limit=limit,
             offset=offset,
             sort=sort,
+            source=source,
             hits=[
                 UberonSearchHit(code=row.code, source=row.source, label=row.label)
                 for row in rows

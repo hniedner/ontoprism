@@ -5,11 +5,13 @@
 	let {
 		filterKeys,
 		initialFilters,
-		intent
+		intent,
+		sortKeys = {}
 	}: {
 		filterKeys: Readonly<Record<string, string>>;
 		initialFilters: Record<string, string[]>;
 		intent: DataTableIntent;
+		sortKeys?: Readonly<Record<string, { asc: string; desc: string }>>;
 	} = $props();
 </script>
 
@@ -32,6 +34,6 @@
 	{results}
 	initial={{ result: { total: 0, hits: [] }, query: '', offset: 0, size: 25, sort: 'source', filters: initialFilters }}
 	defaultSort="source"
-	sortKeys={{}}
+	{sortKeys}
 	{filterKeys}
 />

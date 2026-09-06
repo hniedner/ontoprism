@@ -125,6 +125,7 @@ async def test_search_maps_rows_and_binds_params() -> None:
     )
 
     assert page.total == 2
+    assert page.representation_status == "legacy-precoordinated"
     assert [h.code for h in page.hits] == ["C3262", "C9305"]
     assert [h.representation_status for h in page.hits] == [
         "legacy-precoordinated",
@@ -154,6 +155,7 @@ async def test_search_empty_result_is_zero_total() -> None:
     )
     page = await NcitSearchIndex(sf).search("nothing")  # type: ignore[arg-type]
     assert page.total == 0
+    assert page.representation_status is None
     assert page.hits == []
 
 

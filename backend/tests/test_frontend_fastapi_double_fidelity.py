@@ -4,6 +4,7 @@ metadata echoes, the refresh report, and mappings.
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
 from test_support.frontend_fastapi_double import app
@@ -36,13 +37,25 @@ pytestmark = pytest.mark.unit
             "/api/v1/ncit/list?limit=50&offset=50&sort=code:desc"
             "&representation_status=legacy-precoordinated",
             BrowsePage,
-            {"query": "", "limit": 50, "offset": 50, "sort": "code:desc"},
+            {
+                "query": "",
+                "limit": 50,
+                "offset": 50,
+                "sort": "code:desc",
+                "representation_status": "legacy-precoordinated",
+            },
         ),
         (
             "/api/v1/ncit/search?q=neoplasm&limit=10&offset=20&sort=label:asc"
             "&representation_status=legacy-precoordinated",
             SearchPage,
-            {"query": "neoplasm", "limit": 10, "offset": 20, "sort": "label:asc"},
+            {
+                "query": "neoplasm",
+                "limit": 10,
+                "offset": 20,
+                "sort": "label:asc",
+                "representation_status": "legacy-precoordinated",
+            },
         ),
         (
             "/api/v1/cadsr/list?limit=50&offset=100&sort=public_id:desc",
@@ -57,12 +70,24 @@ pytestmark = pytest.mark.unit
         (
             "/api/v1/uberon/list?limit=50&offset=100&sort=label:desc&source=cl",
             UberonBrowsePage,
-            {"query": "", "limit": 50, "offset": 100, "sort": "label:desc"},
+            {
+                "query": "",
+                "limit": 50,
+                "offset": 100,
+                "sort": "label:desc",
+                "source": "cl",
+            },
         ),
         (
             "/api/v1/uberon/search?q=cell&limit=10&offset=20&sort=code:asc&source=cl",
             UberonSearchPage,
-            {"query": "cell", "limit": 10, "offset": 20, "sort": "code:asc"},
+            {
+                "query": "cell",
+                "limit": 10,
+                "offset": 20,
+                "sort": "code:asc",
+                "source": "cl",
+            },
         ),
     ],
 )
@@ -99,6 +124,13 @@ def test_double_icdo_page_union_arms_validate_record_invariants(
 
     assert response.status_code == 200
     TypeAdapter(IcdoPage).validate_json(response.content)
+    required_nullable_fields = {
+        "parent_code",
+        "base_morphology",
+        "specificity",
+        "behaviour",
+    }
+    assert required_nullable_fields <= response.json()["hits"][0].keys()
     record = decode_icdo_record(response.json()["hits"][0])
     assert (
         record.code,
@@ -125,7 +157,38 @@ def test_double_icdo_detail_union_arms_validate_record_invariants(
 
     assert response.status_code == 200
     TypeAdapter(IcdoDetail).validate_json(response.content)
+    required_nullable_fields = {
+        "parent_code",
+        "base_morphology",
+        "specificity",
+        "behaviour",
+    }
+    assert required_nullable_fields <= response.json()["record"].keys()
     assert decode_icdo_record(response.json()["record"]).code == code
+
+
+@pytest.mark.parametrize(
+    ("path", "response_model"),
+    [
+        ("/api/v1/ncit/list", BrowsePage),
+        ("/api/v1/ncit/search", SearchPage),
+        ("/api/v1/uberon/list", UberonBrowsePage),
+        ("/api/v1/uberon/search", UberonSearchPage),
+        ("/api/v1/icdo/{edition}/{axis}/list", IcdoPage),
+        ("/api/v1/icdo/{edition}/{axis}/search", IcdoPage),
+        ("/api/v1/icdo/{edition}/{axis}/concepts/{code}", IcdoDetail),
+    ],
+)
+def test_double_repository_routes_apply_production_response_models(
+    path: str, response_model: object
+) -> None:
+    route = next(
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path == path
+    )
+
+    assert route.response_model == response_model
 
 
 @pytest.mark.parametrize(

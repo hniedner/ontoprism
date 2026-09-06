@@ -37,6 +37,7 @@ from ontolib.terminologies.ncit.models import (
     GraphEdge,
     GraphNode,
     Neighborhood,
+    RepresentationStatus,
     SearchHit,
     SearchPage,
 )
@@ -55,7 +56,7 @@ class _FakeStore:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
+        representation_status: RepresentationStatus | None = None,
         sort: str = "source",
     ) -> SearchPage:
         self.search_calls.append((q, limit, offset, representation_status))
@@ -64,6 +65,7 @@ class _FakeStore:
             total=1,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm", matched_synonym="tumor")],
         )
 
@@ -72,7 +74,7 @@ class _FakeStore:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
+        representation_status: RepresentationStatus | None = None,
         sort: str = "source",
     ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
@@ -81,6 +83,7 @@ class _FakeStore:
             total=2,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm")],
         )
 
@@ -129,7 +132,7 @@ class _FakeIndex:
         *,
         limit: int,
         offset: int,
-        representation_status: str | None = None,
+        representation_status: RepresentationStatus | None = None,
         sort: str = "relevance",
     ) -> SearchPage:
         self.searched = True
@@ -139,6 +142,7 @@ class _FakeIndex:
             total=1,
             limit=limit,
             offset=offset,
+            representation_status=representation_status,
             hits=[SearchHit(code="C3262", label="Neoplasm (from cache)")],
         )
 
@@ -246,6 +250,7 @@ def ncit_client() -> Iterator[TestClient]:
 def test_search_served_from_populated_cache(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == 200, resp.text
+    assert resp.json()["representation_status"] is None
     # A populated cache answers directly (label carries the cache marker).
     assert resp.json()["hits"][0]["label"] == "Neoplasm (from cache)"
 
@@ -279,7 +284,9 @@ def test_search_status_filter_flows_through_authoritative_cache() -> None:
         "representation_status": "legacy-precoordinated",
     }
 
-    assert cached.get("/api/v1/ncit/search", params=params).status_code == 200
+    response = cached.get("/api/v1/ncit/search", params=params)
+    assert response.status_code == 200
+    assert response.json()["representation_status"] == "legacy-precoordinated"
     assert index.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
 
 
@@ -294,6 +301,7 @@ def test_list_status_filter_flows_to_store() -> None:
     )
 
     assert response.status_code == 200
+    assert response.json()["representation_status"] == "legacy-precoordinated"
     assert store.list_calls == [(25, 0, "legacy-precoordinated")]
 
 

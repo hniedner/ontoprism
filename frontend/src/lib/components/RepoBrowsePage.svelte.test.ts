@@ -124,6 +124,19 @@ describe('RepoBrowsePage', () => {
 		expect(screen.getByRole('alert')).toHaveTextContent('No server filter mapping for unknown');
 		expect(goto).not.toHaveBeenCalled();
 	});
+
+	it('fails visibly instead of rejecting navigation for an unmapped sort intent', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: {},
+			initialFilters: {},
+			sortKeys: { name: { asc: 'name:asc', desc: 'name:desc' } },
+			intent: { kind: 'sort', sort: { key: 'unknown', direction: 'asc' } }
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(screen.getByRole('alert')).toHaveTextContent('No server sort mapping for unknown:asc');
+		expect(goto).not.toHaveBeenCalled();
+	});
 });
 
 describe('CursorPagination', () => {

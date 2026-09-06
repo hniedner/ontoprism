@@ -98,9 +98,13 @@
 		intentError = `No server filter mapping for ${columnId}`;
 		return null;
 	}
-	function applySort(params: SvelteURLSearchParams, intent: Extract<DataTableIntent, { kind: 'sort' }>): void {
+	function mappedSort(intent: Extract<DataTableIntent, { kind: 'sort' }>): Sort | null {
 		const value = sortKeys[intent.sort.key]?.[intent.sort.direction];
-		if (value === undefined) throw new Error(`No server sort mapping for ${intent.sort.key}:${intent.sort.direction}`);
+		if (value !== undefined) return value;
+		intentError = `No server sort mapping for ${intent.sort.key}:${intent.sort.direction}`;
+		return null;
+	}
+	function applySort(params: SvelteURLSearchParams, value: Sort): void {
 		if (value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
 	function applyFilter(params: SvelteURLSearchParams, key: string, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
@@ -118,6 +122,11 @@
 		});
 	}
 	function handleIntent(intent: DataTableIntent): void {
+		if (intent.kind === 'sort') {
+			const value = mappedSort(intent);
+			if (value !== null) navigateTable((params) => applySort(params, value));
+			return;
+		}
 		if (intent.kind === 'filter') {
 			const key = mappedFilterKey(intent.columnId);
 			if (key !== null) navigateTable((params) => applyFilter(params, key, intent));
@@ -129,8 +138,7 @@
 			return;
 		}
 		navigateTable((params) => {
-			if (intent.kind === 'sort') applySort(params, intent);
-			else if (intent.kind === 'clear-filters') clearFilters(params);
+			if (intent.kind === 'clear-filters') clearFilters(params);
 			else { params.delete('sort'); params.delete('size'); clearFilters(params); }
 		});
 	}

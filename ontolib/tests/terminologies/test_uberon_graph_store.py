@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.models import (
+    UberonBrowsePage,
     UberonConceptRef,
     UberonGraphEdge,
     UberonGraphNode,
@@ -112,10 +113,16 @@ async def test_list_filters_source_before_page_and_memoizes_total() -> None:
     second = await store.list_concepts(source="cl", limit=25, offset=25)
 
     assert first.total == second.total == 1
+    assert first.source == second.source == "cl"
     assert first.hits[0].source == "cl"
     page_query = next(query for query in client.queries if "LIMIT 25 OFFSET 0" in query)
     assert page_query.index("CL_") < page_query.index("LIMIT 25")
     assert len([q for q in client.queries if "COUNT(DISTINCT ?concept)" in q]) == 1
+
+
+def test_browse_page_requires_an_explicit_applied_source_echo() -> None:
+    with pytest.raises(ValidationError, match="source"):
+        UberonBrowsePage(total=0, limit=25, offset=0)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio
@@ -271,7 +278,7 @@ def test_models_enforce_curie_source_edge_and_pagination_invariants() -> None:
             target=UberonConceptRef(code="CL:0000000", source="cl"),
         )
     with pytest.raises(ValidationError):
-        UberonSearchPage(query="x", total=-1, limit=0, offset=-1)
+        UberonSearchPage(query="x", total=-1, limit=0, offset=-1, source=None)
 
 
 @pytest.mark.unit

@@ -8,7 +8,12 @@ from ontolib.terminologies.ncit.graph_store import (
     NcitGraphStore,
     _rel,
 )
-from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
+from ontolib.terminologies.ncit.models import (
+    BrowsePage,
+    ConceptDetail,
+    ConceptRef,
+    Relationship,
+)
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -165,6 +170,8 @@ async def test_list_filters_status_before_pagination_with_distinct_total_cache()
 
     assert unfiltered.total == 1
     assert flagged.total == 1
+    assert unfiltered.representation_status is None
+    assert flagged.representation_status == "legacy-precoordinated"
     assert flagged.hits[0].representation_status == "legacy-precoordinated"
     page_query = next(query for query in client.queries if "LIMIT 5 OFFSET 25" in query)
     assert page_query.index("representationStatus") < page_query.index("LIMIT 5")
@@ -172,6 +179,12 @@ async def test_list_filters_status_before_pagination_with_distinct_total_cache()
     assert len(count_queries) == 2
     assert "representationStatus" not in count_queries[0]
     assert "representationStatus" in count_queries[1]
+
+
+@pytest.mark.unit
+def test_browse_page_requires_an_explicit_applied_status_echo() -> None:
+    with pytest.raises(ValidationError, match="representation_status"):
+        BrowsePage(total=0, limit=25, offset=0)  # type: ignore[call-arg]
 
 
 @pytest.mark.unit
