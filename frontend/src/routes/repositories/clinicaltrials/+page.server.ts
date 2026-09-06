@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { searchClinicalTrials } from '$lib/api.clinicaltrials';
 import { loadRemoteSearch } from '$lib/server/remote-search-load';
 import { parseCursorGridUrl } from '$lib/server/repository-load';
-import type { CTStudySearchPage } from '$lib/types';
+import { CT_PHASES, CT_STATUSES, type CTStudySearchPage } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 function sameValues(left: readonly string[], right: readonly string[] | undefined): boolean {
@@ -12,9 +12,9 @@ function sameValues(left: readonly string[], right: readonly string[] | undefine
 export const load: PageServerLoad = async ({ fetch, url }) => {
 	const state = parseCursorGridUrl(url, {
 		filters: {
-			status: ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'],
-			phase: ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4']
-		} as const
+			status: CT_STATUSES,
+			phase: CT_PHASES
+		}
 	});
 	const cursor = state.cursors.at(-1) ?? null;
 	const result = await loadRemoteSearch<CTStudySearchPage>(state.query, () => searchClinicalTrials({ condition: state.query, limit: state.size, page_token: cursor, status: state.filters.status, phase: state.filters.phase }, fetch));

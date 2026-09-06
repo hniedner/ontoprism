@@ -27,7 +27,8 @@ CTStatus = Literal[
     "WITHDRAWN",
     "WITHHELD",
 ]
-CTPhase = Literal["EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
+CTFilterPhase = Literal["EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
+CTStudyPhase = Literal["NA", "EARLY_PHASE1", "PHASE1", "PHASE2", "PHASE3", "PHASE4"]
 
 
 class CTInterventionDetail(StrictBoundaryModel):
@@ -77,7 +78,7 @@ class CTStudySummary(StrictBoundaryModel):
     nct_id: str
     title: str
     status: str | None = None
-    phase: list[CTPhase] = Field(default_factory=list)
+    phase: list[CTStudyPhase] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
     interventions: list[str] = Field(default_factory=list)
     start_date: str | None = None
@@ -93,7 +94,7 @@ class CTStudyDetail(StrictBoundaryModel):
     title: str
     official_title: str | None = None
     status: str | None = None
-    phase: list[CTPhase] = Field(default_factory=list)
+    phase: list[CTStudyPhase] = Field(default_factory=list)
     study_type: str | None = None
     primary_purpose: str | None = None
     conditions: list[str] = Field(default_factory=list)
@@ -116,7 +117,7 @@ class CTStudySearchPage(StrictBoundaryModel):
     intervention: str | None = None
     term: str | None = None
     status: list[CTStatus] = Field(default_factory=list)
-    phase: list[CTPhase] = Field(default_factory=list)
+    phase: list[CTFilterPhase] = Field(default_factory=list)
     total: int
     page_size: ProductPageSize
     page_token: str | None = None

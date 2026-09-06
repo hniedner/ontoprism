@@ -18,7 +18,7 @@ options, filtered rows, or sorted rows in the browser.
   request models independently reject malformed API input with a 4xx response.
 - An offset response must echo the requested `limit`, `offset`, and sort. ClinicalTrials.gov
   responses additionally echo the canonical deduplicated status and phase selections plus
-  cursor metadata. Each study preserves its phases as a closed `CTPhase` collection; only
+  cursor metadata. Each study preserves its phases as a closed `CTStudyPhase` collection; only
   presentation joins multiple values into readable text. A mismatch is a remote/server contract
   failure, not an empty result.
 

@@ -14,7 +14,7 @@ from ontolib.common.grid import ProductPageSize
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
-    CTPhase,
+    CTFilterPhase,
     CTStatus,
     CTStudyDetail,
     CTStudySearchPage,
@@ -33,7 +33,7 @@ class CTSearchRequest(StrictBoundaryModel):
     intervention: str | None = Field(default=None, max_length=500)
     term: str | None = Field(default=None, max_length=500)
     status: list[CTStatus] = Field(default_factory=list)
-    phase: list[CTPhase] = Field(default_factory=list)
+    phase: list[CTFilterPhase] = Field(default_factory=list)
     limit: ProductPageSize = 25
     page_token: str | None = Field(default=None, min_length=1, max_length=1000)
 

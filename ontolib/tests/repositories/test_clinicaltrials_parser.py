@@ -44,6 +44,17 @@ def test_summary_preserves_multiple_phases_as_typed_values() -> None:
 
 
 @pytest.mark.unit
+def test_summary_and_detail_preserve_na_with_a_filterable_phase() -> None:
+    study = _study(
+        identificationModule={"nctId": "NCT00000010", "briefTitle": "Not applicable"},
+        designModule={"phases": ["NA", "PHASE2"]},
+    )
+
+    assert parse_study_summary(study).phase == ["NA", "PHASE2"]
+    assert parse_study_detail(study).phase == ["NA", "PHASE2"]
+
+
+@pytest.mark.unit
 def test_summary_enrollment_non_int_is_none() -> None:
     study = _study(
         identificationModule={"nctId": "NCT00000003", "briefTitle": "x"},

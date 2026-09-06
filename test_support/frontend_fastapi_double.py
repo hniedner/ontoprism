@@ -11,7 +11,16 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from backend.api.v1 import clinicaltrials, pubmed
+from backend.api.v1.grid import PageSize
+from backend.icdo_datasets import ServedIcdoDataset
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.icdo.models import (
+    IcdoAxis,
+    IcdoBehaviour,
+    IcdoEdition,
+    IcdoRecordLevel,
+    IcdoRepositorySort,
+)
 from ontolib.repositories.pubmed.client import PubMedClient
 
 if TYPE_CHECKING:
@@ -244,6 +253,22 @@ def _require_icdo(value: str | None) -> None:
         raise HTTPException(403, "ICD-O entitlement required.")
 
 
+def _validate_icdo_grid(
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    behaviour: list[IcdoBehaviour] | None,
+    level: list[IcdoRecordLevel] | None,
+) -> None:
+    if ServedIcdoDataset.parse(edition, axis) is None:
+        raise HTTPException(422, "ICD-O-3.2 topography is not served.")
+    if axis == "topography":
+        invalid = bool(behaviour) or "morphology" in (level or ())
+    else:
+        invalid = any(value != "morphology" for value in level or ())
+    if invalid:
+        raise HTTPException(422, "ICD-O filters do not apply to the requested axis.")
+
+
 @app.get("/api/v1/icdo/access")
 async def icdo_access(
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
@@ -254,14 +279,17 @@ async def icdo_access(
 
 @app.get("/api/v1/icdo/{edition}/{axis}/list")
 async def list_icdo(
-    edition: str,
-    axis: str,
-    limit: int = 25,
-    offset: int = 0,
-    sort: str = "source",
+    edition: IcdoEdition,
+    axis: IcdoAxis,
+    limit: PageSize = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
+    _validate_icdo_grid(edition, axis, behaviour, level)
     if edition == "4.0" and axis == "topography":
         record = {
             "code": "C34.9",
@@ -270,22 +298,27 @@ async def list_icdo(
             "preferred": "Protected bronchus or lung",
         }
     else:
-        code = "8503/0" if edition == "3.2" else "8240/3"
+        code = "8503/0" if edition == "3.2" else "8240A/3"
         record = {
             "code": code,
             "level": "morphology",
             "preferred": f"Protected ICD-O-{edition} morphology",
             "behaviour": code[-1],
-            "base_morphology": code.split("/", maxsplit=1)[0],
-            **({"specificity": "specific"} if edition == "4.0" else {}),
+            "base_morphology": code[:4],
+            **({"specificity": code[4]} if edition == "4.0" else {}),
         }
+    hits = [record]
+    if behaviour and record.get("behaviour") not in behaviour:
+        hits = []
+    if level and record["level"] not in level:
+        hits = []
     return {
         "activation_identity": "d" * 64,
         "serving_identity": "e" * 64,
         "edition": edition,
         "axis": axis,
         "query": "",
-        "total": 51,
+        "total": 51 if hits and not (behaviour or level) else len(hits),
         "limit": limit,
         "offset": offset,
         "sort": sort,
@@ -306,27 +339,32 @@ async def list_icdo(
                 "excludes": [],
                 "other_text": [],
             }
+            for record in hits
         ],
     }
 
 
 @app.get("/api/v1/icdo/{edition}/{axis}/search")
 async def search_icdo(
-    edition: str,
-    axis: str,
+    edition: IcdoEdition,
+    axis: IcdoAxis,
     q: str,
-    limit: int = 25,
-    offset: int = 0,
-    sort: str = "source",
+    limit: PageSize = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    sort: IcdoRepositorySort = "source",
+    behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
+    level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     result = await list_icdo(
-        edition,
-        axis,
-        limit,
-        offset,
-        sort,
-        x_icdo_entitlement,
+        edition=edition,
+        axis=axis,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        behaviour=behaviour,
+        level=level,
+        x_icdo_entitlement=x_icdo_entitlement,
     )
     result["query"] = q
     return result

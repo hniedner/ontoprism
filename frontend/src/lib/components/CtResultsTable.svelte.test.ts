@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
-import type { CTStudySummary } from '$lib/types';
+import { CT_PHASES, type CTStudySummary } from '$lib/types';
+import type { DataTableOperations } from './data-table/types';
 
 const studies: CTStudySummary[] = [
 	{
 		nct_id: 'NCT01',
 		title: 'Widgetinib in Melanoma',
 		status: 'Recruiting',
-		phase: ['PHASE1', 'PHASE2'],
+		phase: ['NA', 'PHASE2'],
 		conditions: ['Melanoma', 'Skin Cancer'],
 		interventions: ['Widgetinib'],
 		start_date: '2024-01',
@@ -48,8 +49,16 @@ describe('CtResultsTable', () => {
 
 	it('shows the phase chip, or a dash when the study has no phase', () => {
 		render(CtResultsTable, { studies });
-		expect(within(document.querySelector('tbody') as HTMLElement).getByText('PHASE1, PHASE2')).toBeInTheDocument();
+		expect(within(document.querySelector('tbody') as HTMLElement).getByText('NA, PHASE2')).toBeInTheDocument();
 		expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('offers only the canonical filterable phases and never returned-only NA', () => {
+		const operations: DataTableOperations = { kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Relevance', filters: {}, busy: false, onintent: () => {} };
+		render(CtResultsTable, { studies, operations });
+
+		for (const phase of CT_PHASES) expect(screen.getByRole('checkbox', { name: phase.replace('_', ' ') })).toBeInTheDocument();
+		expect(screen.queryByRole('checkbox', { name: 'NA' })).not.toBeInTheDocument();
 	});
 
 	it('preserves upstream order', () => {

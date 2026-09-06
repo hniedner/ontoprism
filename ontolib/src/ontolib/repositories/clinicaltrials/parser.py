@@ -14,10 +14,10 @@ from ontolib.repositories.clinicaltrials.models import (
     CTInterventionDetail,
     CTLocation,
     CTOutcome,
-    CTPhase,
     CTReference,
     CTSponsor,
     CTStudyDetail,
+    CTStudyPhase,
     CTStudySummary,
 )
 
@@ -45,10 +45,10 @@ def _section(study: dict[str, Any], module: str) -> dict[str, Any]:
     return _dict(_dict(study, "protocolSection"), module)
 
 
-_PHASES = TypeAdapter(list[CTPhase])
+_PHASES = TypeAdapter(list[CTStudyPhase])
 
 
-def _phase(design: dict[str, Any]) -> list[CTPhase]:
+def _phase(design: dict[str, Any]) -> list[CTStudyPhase]:
     return _PHASES.validate_python(_list(design, "phases"), strict=True)
 
 

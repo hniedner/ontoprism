@@ -1,6 +1,6 @@
 """Async client for the NCBI PubMed E-utilities (ESearch / ESummary / EFetch / ELink).
 
-Transport + orchestration only; JSON/XML → model mapping lives in :mod:`parser`. The
+Transport + orchestration only; JSON/XML → model mapping lives in :mod:`parser`.
 Requests are throttled to a configurable rate and searches are sent directly without
 local query generation or reranking.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from http import HTTPStatus
-from typing import Any, Self
+from typing import Any, Self, get_args
 from xml.etree.ElementTree import ParseError
 
 import httpx
@@ -37,6 +37,7 @@ logger = get_logger(__name__)
 
 DEFAULT_EUTILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 _MAX_RESULT_WINDOW = 10_000
+_VALID_SORTS = frozenset(get_args(PubMedSort))
 # ELink linkname for each supported related-article kind.
 _LINK_NAMES = {
     "similar": "pubmed_pubmed",
@@ -151,7 +152,7 @@ class PubMedClient:
             ValueError: if pagination is invalid or *sort* is unsupported.
             StorageError: on transport, HTTP, or invalid upstream response data.
         """
-        if sort not in ("relevance", "pub_date"):
+        if sort not in _VALID_SORTS:
             raise ValueError(f"Invalid PubMed sort: {sort!r}")
         if retmax not in PRODUCT_PAGE_SIZES:
             raise ValueError(f"Invalid PubMed page size: {retmax!r}")

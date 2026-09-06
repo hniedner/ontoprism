@@ -23,6 +23,49 @@ def test_double_icdo_page_validates_against_production_dto() -> None:
     TypeAdapter(IcdoPage).validate_json(response.content)
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/icdo/4.0/topography/list?sort=relevance",
+        "/api/v1/icdo/4.0/topography/list?behaviour=3",
+        "/api/v1/icdo/4.0/morphology/list?level=leaf",
+        "/api/v1/icdo/3.2/topography/list",
+    ],
+)
+def test_double_rejects_the_same_invalid_icdo_grid_inputs_as_production(
+    path: str,
+) -> None:
+    with TestClient(app) as client:
+        response = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
+
+    assert response.status_code == 422
+
+
+def test_double_applies_and_echoes_valid_icdo_sort_and_repeated_filters() -> None:
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/icdo/4.0/topography/list",
+            params=[
+                ("sort", "preferred:desc"),
+                ("level", "category"),
+                ("level", "leaf"),
+            ],
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+        empty = client.get(
+            "/api/v1/icdo/3.2/morphology/list",
+            params={"behaviour": "9"},
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sort"] == "preferred:desc"
+    assert response.json()["hits"][0]["level"] == "leaf"
+    assert empty.status_code == 200
+    assert empty.json()["total"] == 0
+    assert empty.json()["hits"] == []
+
+
 def test_double_refresh_report_validates_against_production_dto() -> None:
     with TestClient(app) as client:
         response = client.post("/api/v1/refresh")

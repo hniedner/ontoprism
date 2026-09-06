@@ -250,9 +250,7 @@ class IcdoRepository:
             "code:desc": "r.code DESC",
             "preferred:asc": "r.payload->>'preferred' NULLS LAST, r.code",
             "preferred:desc": "r.payload->>'preferred' DESC NULLS LAST, r.code",
-        }.get(sort)
-        if order is None:
-            raise ValueError("invalid ICD-O sort")
+        }[sort]
         joins = " FROM icdo_record r "
         where = (
             "WHERE r.edition=:edition AND r.axis=:axis "

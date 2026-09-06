@@ -545,22 +545,11 @@ export interface RefreshReport {
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
 export type CTPageSize = PageSize;
-export type CTStatus =
-	| 'ACTIVE_NOT_RECRUITING'
-	| 'APPROVED_FOR_MARKETING'
-	| 'AVAILABLE'
-	| 'COMPLETED'
-	| 'ENROLLING_BY_INVITATION'
-	| 'NOT_YET_RECRUITING'
-	| 'NO_LONGER_AVAILABLE'
-	| 'RECRUITING'
-	| 'SUSPENDED'
-	| 'TEMPORARILY_NOT_AVAILABLE'
-	| 'TERMINATED'
-	| 'UNKNOWN'
-	| 'WITHDRAWN'
-	| 'WITHHELD';
-export type CTPhase = 'EARLY_PHASE1' | 'PHASE1' | 'PHASE2' | 'PHASE3' | 'PHASE4';
+export const CT_STATUSES = ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'] as const;
+export type CTStatus = (typeof CT_STATUSES)[number];
+export const CT_PHASES = ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'] as const;
+export type CTFilterPhase = (typeof CT_PHASES)[number];
+export type CTStudyPhase = 'NA' | CTFilterPhase;
 
 export interface CTInterventionDetail {
 	type: string | null;
@@ -597,7 +586,7 @@ export interface CTStudySummary {
 	nct_id: string;
 	title: string;
 	status: string | null;
-	phase: CTPhase[];
+	phase: CTStudyPhase[];
 	conditions: string[];
 	interventions: string[];
 	start_date: string | null;
@@ -610,7 +599,7 @@ export interface CTStudyDetail {
 	title: string;
 	official_title: string | null;
 	status: string | null;
-	phase: CTPhase[];
+	phase: CTStudyPhase[];
 	study_type: string | null;
 	primary_purpose: string | null;
 	conditions: string[];
@@ -631,7 +620,7 @@ export interface CTSearchRequest {
 	intervention?: string | null;
 	term?: string | null;
 	status?: readonly CTStatus[];
-	phase?: readonly CTPhase[];
+	phase?: readonly CTFilterPhase[];
 	limit?: CTPageSize;
 	page_token?: string | null;
 }
@@ -641,7 +630,7 @@ export interface CTStudySearchPage {
 	intervention: string | null;
 	term: string | null;
 	status: CTStatus[];
-	phase: CTPhase[];
+	phase: CTFilterPhase[];
 	total: number;
 	page_size: CTPageSize;
 	page_token: string | null;

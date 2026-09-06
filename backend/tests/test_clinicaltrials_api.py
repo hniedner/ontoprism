@@ -18,7 +18,7 @@ _STUDY = {
         "identificationModule": {"nctId": "NCT01234567", "briefTitle": "Trial One"},
         "statusModule": {"overallStatus": "RECRUITING"},
         "designModule": {
-            "phases": ["PHASE1", "PHASE2"],
+            "phases": ["NA", "PHASE2"],
             "enrollmentInfo": {"count": 50},
         },
         "conditionsModule": {"conditions": ["Melanoma"]},
@@ -98,7 +98,7 @@ def test_search_returns_parsed_trials(ct_app: TestClient) -> None:
     assert body["total"] == 1
     assert body["studies"][0]["nct_id"] == "NCT01234567"
     assert body["studies"][0]["interventions"] == ["Widgetinib"]
-    assert body["studies"][0]["phase"] == ["PHASE1", "PHASE2"]
+    assert body["studies"][0]["phase"] == ["NA", "PHASE2"]
     assert body["page_size"] == 25
     assert body["page_token"] == request_marker
 
@@ -119,10 +119,13 @@ def test_search_invalid_status_is_422(ct_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_search_invalid_phase_is_422(ct_app: TestClient) -> None:
+@pytest.mark.parametrize("phase", ["PHASE9", "NA"])
+def test_search_invalid_or_unsupported_filter_phase_is_422(
+    ct_app: TestClient, phase: str
+) -> None:
     resp = ct_app.post(
         "/api/v1/clinicaltrials/search",
-        json={"condition": "melanoma", "phase": ["PHASE9"]},
+        json={"condition": "melanoma", "phase": [phase]},
     )
     assert resp.status_code == 422
 
@@ -199,6 +202,7 @@ def test_trial_detail_returns_study(ct_app: TestClient) -> None:
     resp = ct_app.get("/api/v1/clinicaltrials/NCT01234567")
     assert resp.status_code == 200
     assert resp.json()["nct_id"] == "NCT01234567"
+    assert resp.json()["phase"] == ["NA", "PHASE2"]
 
 
 @pytest.mark.api

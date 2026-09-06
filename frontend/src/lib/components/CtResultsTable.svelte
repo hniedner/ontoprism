@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { CTStudySummary } from '$lib/types';
+	import { CT_PHASES, CT_STATUSES, type CTStudySummary } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
 
@@ -9,8 +9,8 @@
 	let columns = $derived.by((): readonly DataTableColumn<CTStudySummary>[] => [
 		{ id: 'nct_id', label: 'NCT ID', cell: idCell, sticky: { side: 'left', offset: 0 } },
 		{ id: 'title', label: 'Title', cell: titleCell },
-		{ id: 'status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial statuses', options: ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'].map((value) => ({ value, label: value.replaceAll('_', ' ') })) } : undefined },
-		{ id: 'phase', label: 'Phase', cell: phaseCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial phases', options: ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'].map((value) => ({ value, label: value.replace('_', ' ') })) } : undefined }
+		{ id: 'status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial statuses', options: CT_STATUSES.map((value) => ({ value, label: value.replaceAll('_', ' ') })) } : undefined },
+		{ id: 'phase', label: 'Phase', cell: phaseCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial phases', options: CT_PHASES.map((value) => ({ value, label: value.replace('_', ' ') })) } : undefined }
 	]);
 </script>
 

@@ -18,7 +18,7 @@ from ontolib.common.error_handling import retry_with_backoff
 from ontolib.common.grid import PRODUCT_PAGE_SIZES, ProductPageSize
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
-    CTPhase,
+    CTFilterPhase,
     CTStatus,
     CTStudyDetail,
     CTStudySearchPage,
@@ -48,14 +48,14 @@ VALID_STATUSES = frozenset(get_args(CTStatus))
 # sending `phase:PHASE2` returns HTTP 200 with zero results (a silent miss), whereas
 # `phase:2` filters correctly. Map the caller-facing enum to the aggFilters id. "NA"
 # (not-applicable) has no aggFilters phase bucket, so it is intentionally not accepted.
-_PHASE_AGG = {
+_PHASE_AGG: dict[CTFilterPhase, str] = {
     "EARLY_PHASE1": "0",
     "PHASE1": "1",
     "PHASE2": "2",
     "PHASE3": "3",
     "PHASE4": "4",
 }
-VALID_PHASES = frozenset(get_args(CTPhase))
+VALID_FILTER_PHASES = frozenset(_PHASE_AGG)
 
 
 def is_valid_nct_id(nct_id: str) -> bool:
@@ -125,7 +125,7 @@ def _validate_search_response(
 
 
 def _filter_params(
-    status: tuple[CTStatus, ...], phase: tuple[CTPhase, ...]
+    status: tuple[CTStatus, ...], phase: tuple[CTFilterPhase, ...]
 ) -> dict[str, str]:
     """Validate and shape the optional status/phase filter params.
 
@@ -141,7 +141,7 @@ def _filter_params(
             )
         params["filter.overallStatus"] = "|".join(status)
     if phase:
-        invalid_phases = set(phase) - VALID_PHASES
+        invalid_phases = set(phase) - VALID_FILTER_PHASES
         if invalid_phases:
             raise ValueError(f"Invalid trial phase filter: {sorted(invalid_phases)!r}")
         params["aggFilters"] = "phase:" + " ".join(_PHASE_AGG[value] for value in phase)
@@ -197,7 +197,7 @@ class ClinicalTrialsClient:
         intervention: str | None,
         term: str | None,
         status: tuple[CTStatus, ...],
-        phase: tuple[CTPhase, ...],
+        phase: tuple[CTFilterPhase, ...],
         page_size: ProductPageSize,
         page_token: str | None,
     ) -> dict[str, Any]:
@@ -239,7 +239,7 @@ class ClinicalTrialsClient:
         intervention: str | None = None,
         term: str | None = None,
         status: tuple[CTStatus, ...] = (),
-        phase: tuple[CTPhase, ...] = (),
+        phase: tuple[CTFilterPhase, ...] = (),
         page_size: ProductPageSize = 25,
         page_token: str | None = None,
     ) -> CTStudySearchPage:

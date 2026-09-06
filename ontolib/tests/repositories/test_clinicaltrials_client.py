@@ -15,7 +15,7 @@ import pytest
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.clinicaltrials.models import (
-    CTPhase,
+    CTFilterPhase,
     CTStatus,
     CTStudySearchPage,
 )
@@ -76,7 +76,7 @@ _STUDY_ONE = {
 }
 _NEXT_PAGE_MARKER = "next-token"
 _MULTI_STATUSES: tuple[CTStatus, ...] = ("RECRUITING", "COMPLETED")
-_MULTI_PHASES: tuple[CTPhase, ...] = ("PHASE2", "PHASE3")
+_MULTI_PHASES: tuple[CTFilterPhase, ...] = ("PHASE2", "PHASE3")
 _STUDY_TWO = {
     "protocolSection": {
         "identificationModule": {"nctId": "NCT07654321", "briefTitle": "Trial Two"},
@@ -170,6 +170,25 @@ async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -
     assert first.enrollment == 120
     # Relevance is synthesized from position: first > second.
     assert page.studies[0].relevance_score > page.studies[1].relevance_score
+
+
+@pytest.mark.unit
+async def test_search_accepts_na_and_multiple_returned_study_phases() -> None:
+    class _NaPhase(_Handler):
+        def do_GET(self) -> None:
+            study = deepcopy(_STUDY_ONE)
+            study["protocolSection"]["designModule"]["phases"] = ["NA", "PHASE2"]
+            self._json({"studies": [study], "totalCount": 1})
+
+    srv, base = _serve(_NaPhase)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            page = await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert page.studies[0].phase == ["NA", "PHASE2"]
 
 
 @pytest.mark.unit
@@ -450,7 +469,11 @@ async def test_invalid_status_or_phase_rejected(ct_base_url: str) -> None:
             await client.search_studies(condition="x", status=("BOGUS",))
         with pytest.raises(ValueError, match="phase"):
             await client.search_studies(condition="x", phase=("PHASE9",))
-        # "NA" has no aggFilters phase bucket and must be rejected, not sent.
+
+
+@pytest.mark.unit
+async def test_na_phase_filter_is_rejected_before_an_upstream_request() -> None:
+    async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
         with pytest.raises(ValueError, match="phase"):
             await client.search_studies(condition="x", phase=("NA",))
 
