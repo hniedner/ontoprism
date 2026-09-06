@@ -62,7 +62,8 @@ async def search(client: ClinicalTrials, body: CTSearchRequest) -> CTStudySearch
             page_token=body.page_token,
         )
     except ValueError as exc:
-        # Invalid status/phase enum — a client error, not an upstream failure.
+        # Request-shaped values rejected by the client, such as a blank page token,
+        # remain client errors rather than upstream failures.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except UpstreamFailureError as exc:
         logger.warning("ClinicalTrials.gov search failed: %s", exc.state)

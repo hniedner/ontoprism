@@ -127,7 +127,7 @@ class NcitSearchIndex:
         self._sf = session_factory
 
     async def count(self) -> int:
-        """Number of cached concepts (0 ⇒ not populated ⇒ callers use SPARQL)."""
+        """Return the number of concepts in the materialized FTS index."""
         async with self._sf() as session:
             result = await session.execute(text("SELECT COUNT(*) FROM ncit_search"))
             return int(result.scalar_one())
@@ -194,8 +194,9 @@ class NcitSearchIndex:
 
         DELETE + all inserts run in ONE transaction: concurrent readers keep seeing the
         previous complete snapshot (MVCC) until commit, and a mid-rebuild failure rolls
-        back to it — preserving the invariant the fallback relies on (a non-empty cache
-        is always a complete cache). DELETE (not TRUNCATE) so readers aren't blocked.
+        back to it. This preserves the certified-readiness invariant: a published,
+        source-bound index is complete, and reads fail closed when it is not ready.
+        DELETE (not TRUNCATE) so readers aren't blocked.
         """
         _require_source_digest("source_identity", source_identity)
         _require_source_digest("source_hash", source_hash)

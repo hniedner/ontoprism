@@ -7,7 +7,7 @@ import threading
 import time
 from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, get_args
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -17,6 +17,7 @@ from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.clinicaltrials.models import (
     CTFilterPhase,
     CTStatus,
+    CTStudyPhase,
     CTStudySearchPage,
 )
 from ontolib.repositories.upstream import (
@@ -237,6 +238,19 @@ async def test_live_clinicaltrials_multi_filter_domain_and_union() -> None:
         )
 
     _assert_multi_filter_domain(page)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_live_clinicaltrials_na_phase_is_in_the_closed_study_domain() -> None:
+    async with ClinicalTrialsClient() as client:
+        page = await client.search_studies(term="AREA[Phase]NA", page_size=10)
+
+    allowed_phases = set(get_args(CTStudyPhase))
+    observed_phases = {phase for study in page.studies for phase in study.phase}
+    assert page.studies
+    assert "NA" in observed_phases
+    assert observed_phases <= allowed_phases
 
 
 @pytest.mark.unit
