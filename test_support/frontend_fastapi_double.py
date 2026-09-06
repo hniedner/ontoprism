@@ -18,7 +18,7 @@ from backend.api.v1.icdo import (
     require_served_icdo_dataset,
     validate_icdo_grid_filters,
 )
-from ontolib.repositories.cadsr.models import CdeRepositorySort
+from ontolib.repositories.cadsr.models import CdeRepositorySort, CdeSearchPage
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.icdo.models import (
     IcdoAxis,
@@ -691,7 +691,7 @@ async def get_ncit_decomposition(
     }
 
 
-@app.get("/api/v1/cadsr/list")
+@app.get("/api/v1/cadsr/list", response_model=CdeSearchPage)
 async def list_cadsr(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -716,7 +716,7 @@ async def list_cadsr(
     }
 
 
-@app.get("/api/v1/cadsr/search")
+@app.get("/api/v1/cadsr/search", response_model=CdeSearchPage)
 async def search_cadsr(
     q: str,
     limit: PageSize = 25,

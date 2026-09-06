@@ -2,6 +2,9 @@
 metadata echoes, the refresh report, and mappings.
 """
 
+from collections.abc import Awaitable, Callable
+from typing import cast
+
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
@@ -189,6 +192,44 @@ def test_double_repository_routes_apply_production_response_models(
     )
 
     assert route.response_model == response_model
+
+
+@pytest.mark.parametrize(
+    ("route_path", "request_path"),
+    [
+        ("/api/v1/cadsr/list", "/api/v1/cadsr/list"),
+        ("/api/v1/cadsr/search", "/api/v1/cadsr/search?q=tumor"),
+    ],
+)
+def test_double_cadsr_pages_use_strict_production_response_model(
+    route_path: str,
+    request_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    route = next(
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path == route_path
+    )
+    assert route.response_model == CdeSearchPage
+
+    with TestClient(app) as client:
+        response = client.get(request_path)
+    assert response.status_code == 200
+    CdeSearchPage.model_validate_json(response.content)
+
+    original_call = cast(
+        "Callable[..., Awaitable[dict[str, object]]]", route.dependant.call
+    )
+
+    async def return_drifted_body(**kwargs: object) -> dict[str, object]:
+        return {**await original_call(**kwargs), "unexpected": "strict drift"}
+
+    monkeypatch.setattr(route.dependant, "call", return_drifted_body)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        drifted = client.get(request_path)
+
+    assert drifted.status_code == 500
 
 
 @pytest.mark.parametrize(
