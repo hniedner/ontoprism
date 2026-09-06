@@ -19,6 +19,68 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.23.0 (2026-09-06)
+
+### Bug Fixes
+
+- **frontend**: Close repository grid type domains
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **frontend**: Remove unused data table placeholder
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **frontend**: Stabilize repository E2E contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **frontend**: Tighten reusable data table contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Close remaining grid contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Complete server grid contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Enforce filter metadata contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Enforce response echo contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Separate study and filter phase domains
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Tighten server-owned grid contracts
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **test-support**: Validate caDSR page responses
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+### Documentation
+
+- Update README code line-count table
+  ([`a7d445f`](https://github.com/hniedner/ontoprism/commit/a7d445f813945421320f1bf28c9a694f50b0ef8a))
+
+### Features
+
+- **frontend**: Add accessible filter popovers
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **frontend**: Add categorical table filters
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **frontend**: Adopt reusable repository data table
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+- **repositories**: Add server-owned data grids
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+### Testing
+
+- **repositories**: Certify live study phase domain
+  ([`1b16ccd`](https://github.com/hniedner/ontoprism/commit/1b16ccd525488c2770205bd1fc7f6f95927d650a))
+
+
 ## v0.22.5 (2026-09-05)
 
 ### Bug Fixes
