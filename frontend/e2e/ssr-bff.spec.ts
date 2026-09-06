@@ -107,7 +107,7 @@ test('protected congruence report is present in entitled initial HTML only', asy
 test('all ICD-O datasets support search, pagination, detail, and explicit access status', async ({ page, request }) => {
 	for (const [edition, axis, code] of [
 		['3.2', 'morphology', '8503/0'],
-		['4.0', 'morphology', '8240/3'],
+		['4.0', 'morphology', '8240A/3'],
 		['4.0', 'topography', 'C34.9']
 	] as const) {
 		await page.goto(`/repositories/icdo/${edition}/${axis}?q=protected`);
@@ -134,8 +134,7 @@ test('browser-side decomposition receives entitled ICD-O mappings through the BF
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({
 	page
 }) => {
-	const offset = 1_000 + Math.floor(Math.random() * 1_000_000);
-	const response = await page.goto(`/repositories/ncit?offset=${offset}`);
+	const response = await page.goto('/repositories/ncit?size=10');
 
 	expect(response?.status()).toBe(200);
 	expect(await response?.text()).toContain('SSR Neoplasm');
@@ -144,7 +143,7 @@ test('built adapter-node SSR includes NCIt browse data and hydration does not fe
 	const countsResponse = await page.request.get('/api/v1/__test__/counts');
 	expect(countsResponse.status()).toBe(200);
 	const counts = (await countsResponse.json()) as Record<string, number>;
-	expect(counts[`GET /api/v1/ncit/list?limit=25&offset=${offset}`]).toBe(1);
+	expect(counts['GET /api/v1/ncit/list?limit=10&offset=0&sort=source']).toBe(1);
 });
 
 test('NCIt search and pagination are URL state rerun through the server load', async ({ page }) => {

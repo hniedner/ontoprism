@@ -123,8 +123,23 @@ test('ICD-O: repository text remains readable in dark mode', async ({ page }) =>
 		['/repositories/icdo/3.2/morphology/ODUwMy8w', 'main']
 	] as const) {
 		await page.goto(path);
-		const color = await page.locator(selector).first().evaluate((element) => getComputedStyle(element).color);
-		expect(color, path).toBe('rgb(245, 245, 245)');
+		const contrast = await page.locator(selector).first().evaluate((element) => {
+			const rgb = (value: string): number[] => value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) ?? [];
+			const luminance = (channels: number[]): number => channels
+				.map((value) => value / 255)
+				.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+				.reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+			let background = 'rgba(0, 0, 0, 0)';
+			for (let current: Element | null = element; current; current = current.parentElement) {
+				background = getComputedStyle(current).backgroundColor;
+				if (background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent') break;
+			}
+			const foregroundLuminance = luminance(rgb(getComputedStyle(element).color));
+			const backgroundLuminance = luminance(rgb(background));
+			return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+				(Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+		});
+		expect(contrast, path).toBeGreaterThanOrEqual(4.5);
 	}
 	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	await expect(page.getByText('Protected intraductal papilloma')).toHaveCSS(
@@ -190,16 +205,19 @@ test('NCIt: published representation status survives browse, search, detail, and
 	page
 }) => {
 	await page.goto('/repositories/ncit');
-	await page.getByLabel('Representation status').selectOption('legacy-precoordinated');
+	const statusFilter = page.getByRole('group', { name: 'Filter NCIt representation status' });
+	const legacyStatus = statusFilter.getByRole('checkbox', { name: 'Legacy pre-coordinated' });
+	await legacyStatus.check();
 	await expect(page).toHaveURL(
 		'/repositories/ncit?representation_status=legacy-precoordinated'
 	);
-	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toBeVisible();
+	await expect(legacyStatus).toBeChecked();
+	await expect(page.locator('tbody').getByText('Legacy pre-coordinated', { exact: true })).toBeVisible();
 
 	await page.getByRole('searchbox', { name: 'Search NCIt' }).fill('neoplasm');
 	await page.getByRole('button', { name: 'Search' }).click();
 	await expect(page).toHaveURL(
-		'/repositories/ncit?representation_status=legacy-precoordinated&q=neoplasm'
+		'/repositories/ncit?q=neoplasm&representation_status=legacy-precoordinated'
 	);
 	await page.getByRole('link', { name: 'SSR result for neoplasm' }).click();
 	await expect(page.getByText('Legacy pre-coordinated', { exact: true }).first()).toBeVisible();

@@ -8,8 +8,60 @@ from test_support.frontend_fastapi_double import app
 from backend.api.v1.icdo import IcdoPage
 from backend.api.v1.ncit import ConceptMappings
 from backend.api.v1.refresh import RefreshReport
+from ontolib.repositories.cadsr.models import CdeSearchPage
+from ontolib.terminologies.ncit.models import BrowsePage, SearchPage
+from ontolib.terminologies.uberon.models import UberonBrowsePage, UberonSearchPage
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize(
+    ("path", "page_type", "metadata"),
+    [
+        (
+            "/api/v1/ncit/list?limit=50&offset=50&sort=code:desc"
+            "&representation_status=legacy-precoordinated",
+            BrowsePage,
+            {"query": "", "limit": 50, "offset": 50, "sort": "code:desc"},
+        ),
+        (
+            "/api/v1/ncit/search?q=neoplasm&limit=10&offset=20&sort=label:asc"
+            "&representation_status=legacy-precoordinated",
+            SearchPage,
+            {"query": "neoplasm", "limit": 10, "offset": 20, "sort": "label:asc"},
+        ),
+        (
+            "/api/v1/cadsr/list?limit=50&offset=100&sort=public_id:desc",
+            CdeSearchPage,
+            {"query": "", "limit": 50, "offset": 100, "sort": "public_id:desc"},
+        ),
+        (
+            "/api/v1/cadsr/search?q=tumor&limit=10&offset=20&sort=name:asc",
+            CdeSearchPage,
+            {"query": "tumor", "limit": 10, "offset": 20, "sort": "name:asc"},
+        ),
+        (
+            "/api/v1/uberon/list?limit=50&offset=100&sort=label:desc&source=cl",
+            UberonBrowsePage,
+            {"query": "", "limit": 50, "offset": 100, "sort": "label:desc"},
+        ),
+        (
+            "/api/v1/uberon/search?q=cell&limit=10&offset=20&sort=code:asc&source=cl",
+            UberonSearchPage,
+            {"query": "cell", "limit": 10, "offset": 20, "sort": "code:asc"},
+        ),
+    ],
+)
+def test_double_local_repository_page_metadata_matches_production_contract(
+    path: str, page_type: type[object], metadata: dict[str, object]
+) -> None:
+    with TestClient(app) as client:
+        response = client.get(path)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {key: body[key] for key in metadata} == metadata
+    TypeAdapter(page_type).validate_python(body)
 
 
 def test_double_icdo_page_validates_against_production_dto() -> None:

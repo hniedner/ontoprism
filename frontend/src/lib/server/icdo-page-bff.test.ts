@@ -69,6 +69,10 @@ describe('ICD-O repository page BFF boundary', () => {
 		} as never);
 
 		expect(loaded).toMatchObject({ edition, axis, initial: { result: { total: 1 } } });
+		if (!loaded) throw new Error('repository load returned no data');
+		expect(Object.keys(loaded.initial.filters)).toEqual(
+			axis === 'morphology' ? ['level', 'behaviour'] : ['level']
+		);
 		expect(upstreamHeaders.get('x-icdo-entitlement')).toBe('server-only-entitlement');
 		expect(JSON.stringify(loaded)).not.toContain('server-only-entitlement');
 	});

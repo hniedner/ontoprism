@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from backend.api.v1 import clinicaltrials, pubmed
 from backend.api.v1.grid import PageSize
 from backend.icdo_datasets import ServedIcdoDataset
+from ontolib.repositories.cadsr.models import CdeRepositorySort
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.icdo.models import (
     IcdoAxis,
@@ -22,6 +23,16 @@ from ontolib.repositories.icdo.models import (
     IcdoRepositorySort,
 )
 from ontolib.repositories.pubmed.client import PubMedClient
+from ontolib.terminologies.ncit.models import (
+    RepositoryBrowseSort,
+    RepositorySearchSort,
+    RepresentationStatus,
+)
+from ontolib.terminologies.uberon.models import (
+    UberonBrowseSort,
+    UberonSearchSort,
+    UberonSource,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -166,15 +177,17 @@ async def refresh_repositories() -> dict[str, object]:
 
 @app.get("/api/v1/ncit/list")
 async def list_ncit(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    representation_status: str | None = None,
+    sort: RepositoryBrowseSort = "source",
+    representation_status: RepresentationStatus | None = None,
 ) -> dict[str, object]:
     return {
         "query": "",
         "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 "code": "C3262",
@@ -190,9 +203,10 @@ async def list_ncit(
 @app.get("/api/v1/ncit/search")
 async def search_ncit(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    representation_status: str | None = None,
+    sort: RepositorySearchSort = "relevance",
+    representation_status: RepresentationStatus | None = None,
 ) -> dict[str, object]:
     code = "CSLOW" if q == "slow" else "C3262" if q == "neoplasm" else "C4005"
     return {
@@ -200,6 +214,7 @@ async def search_ncit(
         "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 "code": code,
@@ -216,20 +231,23 @@ async def search_ncit(
 
 @app.get("/api/v1/uberon/list")
 async def list_uberon(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    source: str | None = None,
+    sort: UberonBrowseSort = "source",
+    source: UberonSource | None = None,
 ) -> dict[str, object]:
+    selected_source = source or "uberon"
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
-                "code": "UBERON:0002048",
-                "source": source or "uberon",
-                "label": "SSR lung",
+                "code": "CL:0000000" if selected_source == "cl" else "UBERON:0002048",
+                "source": selected_source,
+                "label": "SSR cell" if selected_source == "cl" else "SSR lung",
                 "matched_synonym": None,
             }
         ],
@@ -239,12 +257,20 @@ async def list_uberon(
 @app.get("/api/v1/uberon/search")
 async def search_uberon(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    source: str | None = None,
+    sort: UberonSearchSort = "relevance",
+    source: UberonSource | None = None,
 ) -> dict[str, object]:
-    result = await list_uberon(limit, offset, source)
+    browse_sort: UberonBrowseSort = "source" if sort == "relevance" else sort
+    result = await list_uberon(
+        limit=limit,
+        offset=offset,
+        sort=browse_sort,
+        source=source,
+    )
     result["query"] = q
+    result["sort"] = sort
     return result
 
 
@@ -386,12 +412,12 @@ async def icdo_detail(
             "base_morphology": "8503",
             "behaviour": "0",
         },
-        ("4.0", "morphology", "ODI0MC8z"): {
-            "code": "8240/3",
+        ("4.0", "morphology", "ODI0MEEvMw"): {
+            "code": "8240A/3",
             "level": "morphology",
             "preferred": "Protected carcinoid tumour",
             "base_morphology": "8240",
-            "specificity": "specific",
+            "specificity": "A",
             "behaviour": "3",
         },
         ("4.0", "topography", "QzM0Ljk"): {
@@ -663,14 +689,16 @@ async def get_ncit_decomposition(
 
 @app.get("/api/v1/cadsr/list")
 async def list_cadsr(
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> dict[str, object]:
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
+        "sort": sort,
         "hits": [
             {
                 "public_id": "2001",
@@ -687,10 +715,11 @@ async def list_cadsr(
 @app.get("/api/v1/cadsr/search")
 async def search_cadsr(
     q: str,
-    limit: Annotated[int, Query(ge=1)] = 25,
+    limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: CdeRepositorySort = "source",
 ) -> dict[str, object]:
-    result = await list_cadsr(limit, offset)
+    result = await list_cadsr(limit=limit, offset=offset, sort=sort)
     result["query"] = q
     return result
 

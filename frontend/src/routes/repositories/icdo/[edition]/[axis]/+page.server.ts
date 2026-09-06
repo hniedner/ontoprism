@@ -9,11 +9,18 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ fetch, params, url }) => {
 	const dataset = parseIcdoDataset(params.edition, params.axis);
 	if (!dataset) error(404, 'ICD-O dataset not found.');
-	const levels: readonly IcdoRecordLevel[] = dataset.axis === 'morphology' ? ['morphology'] : ['category', 'leaf'];
-	const behaviours: readonly IcdoBehaviour[] = dataset.axis === 'morphology' ? ['0','1','2','3','4','5','6','7','8','9'] : [];
-	const spec = { defaultSort: 'source', sorts: ['source', 'code:asc', 'code:desc', 'preferred:asc', 'preferred:desc'], filters: { level: levels, behaviour: behaviours } } satisfies OffsetGridSpec<IcdoRepositorySort, { level: readonly IcdoRecordLevel[]; behaviour: readonly IcdoBehaviour[] }>;
-	const loaded = await loadRepositoryPage<IcdoPage, typeof spec.filters>(url,
-		(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })),
-		(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })), spec);
+	if (dataset.axis === 'morphology') {
+		const filters = { level: ['morphology'] as const, behaviour: ['0','1','2','3','4','5','6','7','8','9'] as const } satisfies { level: readonly IcdoRecordLevel[]; behaviour: readonly IcdoBehaviour[] };
+		const spec = { defaultSort: 'source', sorts: ['source', 'code:asc', 'code:desc', 'preferred:asc', 'preferred:desc'], filters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof filters>;
+		const loaded = await loadRepositoryPage<IcdoPage, typeof filters>(url,
+			(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })),
+			(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })), spec);
+		return { ...dataset, ...loaded };
+	}
+	const filters = { level: ['category', 'leaf'] as const } satisfies { level: readonly IcdoRecordLevel[] };
+	const spec = { defaultSort: 'source', sorts: ['source', 'code:asc', 'code:desc', 'preferred:asc', 'preferred:desc'], filters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof filters>;
+	const loaded = await loadRepositoryPage<IcdoPage, typeof filters>(url,
+		(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, fetch })),
+		(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, fetch })), spec);
 	return { ...dataset, ...loaded };
 };
