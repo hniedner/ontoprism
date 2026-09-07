@@ -1415,6 +1415,9 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     require_current_verify_evidence(gate.git_head, expected_git_head)
+    migration_history = {
+        binding.kind: binding for binding in migration.historical_artifacts
+    }
     checks = (
         (manifest.source_identity == evidence.source_identity, "sample source"),
         (manifest.source_identity == baseline.source_identity, "corpus source"),
@@ -1493,6 +1496,10 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             == r103_revision.artifact_identity
             and r103_authority_artifact.historical_rev2_file_sha256
             == hashlib.sha256(r103_review_state.read_bytes()).hexdigest()
+            and r103_authority_artifact.historical_rev1_file_sha256
+            == migration_history["r103-review-state"].file_sha256
+            and r103_authority_artifact.historical_rev2_file_sha256
+            == migration_history["r103-review-revision"].file_sha256
             and r103_authority_artifact.migration_envelope_identity
             == migration.envelope_identity,
             "R103 authority history",
@@ -1519,6 +1526,13 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r103_corroboration_artifact.authority_artifact_identity
             == r103_authority_artifact.artifact_identity,
             "R103 corroboration authority",
+        ),
+        (
+            r103_corroboration_artifact.historical_artifact_sha256
+            == migration_history["r103-corroboration"].file_sha256
+            and r103_corroboration_artifact.historical_corroboration_identity
+            == migration_history["r103-corroboration"].artifact_identity,
+            "R103 corroboration history",
         ),
     )
     for accepted, name in checks:

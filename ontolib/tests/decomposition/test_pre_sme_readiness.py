@@ -1191,6 +1191,69 @@ def test_readiness_rejects_self_consistent_r103_application_for_another_registry
 
 
 @pytest.mark.unit
+def test_readiness_rejects_self_consistent_authority_with_another_rev1_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    authority = json.loads(
+        Path(arguments["r103_authority"]).read_text(encoding="utf-8")
+    )
+    authority["historical_rev1_file_sha256"] = "0" * 64
+    authority["artifact_identity"] = _identity(
+        {key: value for key, value in authority.items() if key != "artifact_identity"}
+    )
+    changed_authority = tmp_path / "changed-r103-authority.json"
+    changed_authority.write_text(json.dumps(authority), encoding="utf-8")
+    arguments["r103_authority"] = changed_authority
+
+    for argument in ("r103_corroboration", "r103_applied_policy"):
+        payload = json.loads(Path(arguments[argument]).read_text(encoding="utf-8"))
+        payload["authority_artifact_identity"] = authority["artifact_identity"]
+        payload["artifact_identity"] = _identity(
+            {key: value for key, value in payload.items() if key != "artifact_identity"}
+        )
+        changed = tmp_path / f"changed-{argument}.json"
+        changed.write_text(json.dumps(payload), encoding="utf-8")
+        arguments[argument] = changed
+
+    with pytest.raises(PreSmeValidationError, match="R103 authority history"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_readiness_rejects_self_consistent_corroboration_from_another_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    corroboration = json.loads(
+        Path(arguments["r103_corroboration"]).read_text(encoding="utf-8")
+    )
+    corroboration["historical_artifact_sha256"] = "0" * 64
+    corroboration["historical_corroboration_identity"] = "1" * 64
+    corroboration["artifact_identity"] = _identity(
+        {
+            key: value
+            for key, value in corroboration.items()
+            if key != "artifact_identity"
+        }
+    )
+    changed = tmp_path / "changed-r103-corroboration.json"
+    changed.write_text(json.dumps(corroboration), encoding="utf-8")
+    arguments["r103_corroboration"] = changed
+
+    with pytest.raises(PreSmeValidationError, match="R103 corroboration history"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
 def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
