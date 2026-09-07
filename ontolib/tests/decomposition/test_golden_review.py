@@ -33,6 +33,8 @@ from scripts.research.golden_review import (
 
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.proposal_registry import (
+    CertifiedNcitRelease,
+    ConceptAdoptionEvidence,
     ConceptProposal,
     CrossOntologyMapping,
     DuplicateCheck,
@@ -540,8 +542,23 @@ def _accepted_concept_registry() -> ProposalRegistry:
             ),
         ),
         submission_target="NCIt",
-        status="accepted",
+        status="accepted-in-ncit",
         replacement_ncit_code="C999999",
+        adoption_evidence=ConceptAdoptionEvidence(
+            kind="concept",
+            official_release=CertifiedNcitRelease(
+                release="26.08a",
+                source_identity="1" * 64,
+                source_artifact_sha256="2" * 64,
+                source_manifest_sha256="3" * 64,
+                certification_profile="ontoprism-ncit-official-release-v1",
+                certification_evidence_identity="4" * 64,
+            ),
+            adopted_ncit_code="C999999",
+            adopted_concept_fingerprint="5" * 64,
+            adoption_evidence_identity="6" * 64,
+            provenance_url="https://example.test/synthetic-adoption-evidence",
+        ),
     )
     return ProposalRegistry(
         source_identity=_DIGEST_A,
@@ -587,6 +604,34 @@ def test_accepted_proposal_expectation_must_cite_the_replacement_code(
     with pytest.raises(
         GoldenSetValidationError, match="proposal filler does not match"
     ):
+        load_adjudication(path, registry)
+
+
+@pytest.mark.unit
+def test_augmented_provenance_uses_direct_status_and_rejects_invalid_value(
+    tmp_path: Path,
+) -> None:
+    registry = _proposal_registry(status="submitted")
+    proposal = registry.proposals[0]
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(
+                "op:AssociatedPriorDisease",
+                "C27262",
+                provenance_status="submitted",
+                proposal_id=proposal.id,
+            )
+        ],
+    )
+    path = tmp_path / "adjudicated.json"
+    _write_json(path, _artifact(concepts, proposal_registry=registry))
+    assert load_adjudication(path, registry)
+
+    concepts[0]["expected"]["constituents"][0]["provenance_status"] = "accepted"
+    _write_json(path, _artifact(concepts, proposal_registry=registry))
+    with pytest.raises(GoldenSetValidationError, match=r"provenance_status|literal"):
         load_adjudication(path, registry)
 
 

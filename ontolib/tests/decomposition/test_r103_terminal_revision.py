@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from openpyxl import load_workbook
 from scripts.adjudication import _parser
 
 from ontolib.decomposition import r103_review_promotion
@@ -73,48 +72,10 @@ def _revision_api() -> tuple[Any, Any, Any, Any]:
     return prepare, transcribe, promote, loader
 
 
-def _build_revision(tmp_path: Path):
-    prepare, transcribe, promote, loader = _revision_api()
-    blank = tmp_path / "r103-revision-blank.xlsx"
-    reviewed = tmp_path / "r103-revision-transcribed.xlsx"
-    registry = tmp_path / "r103-revision-decisions.json"
-    dry_run = tmp_path / "r103-revision-dry-run.json"
-    output = tmp_path / "r103-review-state-26.07d-rev2.json"
-    prepare(predecessor_path=REV1, output_workbook_path=blank)
-    transcribe(
-        predecessor_path=REV1,
-        blank_workbook_path=blank,
-        output_workbook_path=reviewed,
-        assertion=ASSERTION,
-        outcome=OUTCOME,
-        rationale=RATIONALE,
-        reviewer=REVIEWER,
-        review_date=REVIEW_DATE,
-    )
-    revision = promote(
-        predecessor_path=REV1,
-        reviewed_workbook_path=reviewed,
-        oracle_path=GOLDEN / "neoplasm-adjudicated.json",
-        proposal_registry_path=GOLDEN / "proposal-registry.json",
-        qualification=QUALIFICATION,
-        output_registry_path=registry,
-        output_dry_run_path=dry_run,
-        output_path=output,
-    )
-    return revision, output, blank, reviewed, registry, dry_run, loader
-
-
 @pytest.mark.unit
-def test_governed_revision_transcribes_exact_human_decision_and_binds_predecessor(
-    tmp_path: Path,
-) -> None:
-    rev1_before = REV1.read_bytes()
-    revision, _output, blank, reviewed, _registry, _dry_run, _loader = _build_revision(
-        tmp_path
-    )
-
-    assert REV1.read_bytes() == rev1_before
-    assert blank.read_bytes() != reviewed.read_bytes()
+def test_historical_revision_preserves_exact_human_decision_and_predecessor() -> None:
+    _prepare, _transcribe, _promote, loader = _revision_api()
+    revision = loader(REV2)
     assert revision.predecessor_artifact_identity == (
         "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a"
     )
@@ -140,23 +101,13 @@ def test_governed_revision_transcribes_exact_human_decision_and_binds_predecesso
     )
     assert revision.packet == revision.predecessor.packet
 
-    book = load_workbook(reviewed, data_only=False, keep_links=False)
-    bindings = {
-        row[0].value: row[1].value
-        for row in book["Bindings"].iter_rows(min_row=2, max_col=2)
-    }
-    assert bindings["packet_identity"] == revision.packet.packet_identity
-    assert bindings["source_identity"] == revision.packet.source_identity
-
 
 @pytest.mark.unit
-def test_revision_is_exact_write_free_effective_decision_state(tmp_path: Path) -> None:
+def test_historical_revision_is_exact_write_free_effective_decision_state() -> None:
     oracle = GOLDEN / "neoplasm-adjudicated.json"
     proposals = GOLDEN / "proposal-registry.json"
     before = (oracle.read_bytes(), proposals.read_bytes())
-    revision, _output, _blank, _reviewed, _registry, _dry_run, _loader = (
-        _build_revision(tmp_path)
-    )
+    revision = r103_review_promotion.load_r103_promoted_review_revision(REV2)
 
     assert tuple(
         (row.subject_code, row.outcome) for row in revision.registry.decisions
@@ -212,10 +163,9 @@ def test_revision_is_exact_write_free_effective_decision_state(tmp_path: Path) -
 def test_revision_loader_rejects_tampering_even_with_recomputed_outer_identity(
     tmp_path: Path, mutation: str
 ) -> None:
-    _revision, output, _blank, _reviewed, _registry, _dry_run, loader = _build_revision(
-        tmp_path
-    )
-    payload = json.loads(output.read_text(encoding="ascii"))
+    _prepare, _transcribe, _promote, loader = _revision_api()
+    output = tmp_path / "revision.json"
+    payload = json.loads(REV2.read_text(encoding="ascii"))
     if mutation == "predecessor":
         payload["predecessor_artifact_identity"] = "0" * 64
     elif mutation == "qualification":
@@ -282,11 +232,13 @@ def test_revision_workflow_reject_branches_are_live(tmp_path: Path) -> None:
     }
     with pytest.raises(R103ReviewValidationError, match="qualification"):
         promote(**{**promotion, "qualification": "R103 is defining."})
-    first = promote(**promotion)
-    assert promote(**promotion) == first
-    Path(promotion["output_path"]).write_text("conflict\n", encoding="utf-8")
-    with pytest.raises(R103ReviewValidationError, match="output conflict"):
+    with pytest.raises(
+        R103ReviewValidationError, match="proposal registry semantic binding"
+    ):
         promote(**promotion)
+    assert not Path(promotion["output_path"]).exists()
+    assert not Path(promotion["output_registry_path"]).exists()
+    assert not Path(promotion["output_dry_run_path"]).exists()
 
 
 @pytest.mark.unit

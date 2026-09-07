@@ -31,6 +31,58 @@ replace or certify those runtime surfaces. The C27787 adjudication rationale con
 lifecycle prose whose identity-bound correction is deferred and blocked as recorded in D82; the
 strict registry, not that prose, is current authority.
 
+The active registry uses schema 2 and canonical registry identity
+`fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1`; it contains two
+`locally-approved` and five `proposed` records and no `accepted-in-ncit` record
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_tracked_proposal_registry_remains_valid -v`,
+2026-09-07). Schema 2 adds the closed typed `adoption_evidence` field and rejects schema 1 rather
+than interpreting it. The deterministic atomic current-schema writer can canonicalize an already
+valid registry in place without changing its bytes:
+
+```bash
+pdm run adjudication write-proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json
+```
+
+The writer's two-output and in-place determinism are exercised by
+`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_registry_writer_is_canonical_atomic_and_deterministic -v`
+(2026-09-07). The registry identity above was bound after the schema-2 writer generated the
+payload; the current evidence envelopes were then regenerated, while the historical human
+adjudication and R103 artifacts remained immutable and are checked through the separate migration
+binding
+(`pdm run agent-test ontolib/tests/decomposition/test_current_evidence.py ontolib/tests/decomposition/test_r103_review.py ontolib/tests/decomposition/test_r103_review_promotion.py ontolib/tests/decomposition/test_r103_terminal_revision.py -v`,
+2026-09-07).
+
+`proposal-registry-schema2-migration.json` is the append-only machine binding from the exact
+schema-1 registry identity and file digest referenced by the historical evidence to the active
+schema-2 registry. It records every proposal ID, kind, status, source reference, and subject
+semantics identity; binds the unchanged human-decision artifacts byte-for-byte; and states both
+that no proposal transitioned to `accepted-in-ncit` and that NCI adoption was not inferred. Generate
+it only after all five named inputs and the output parent exist (`ls
+ontolib/tests/decomposition/golden/neoplasm-adjudicated.json
+ontolib/tests/decomposition/golden/r103-review-state-26.07d.json
+ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json
+ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json
+ontolib/tests/decomposition/golden/proposal-registry.json tmp`, 2026-09-07):
+
+```bash
+pdm run adjudication bind-proposal-registry-migration \
+  --historical-oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json \
+  --historical-r103-review ontolib/tests/decomposition/golden/r103-review-state-26.07d.json \
+  --historical-r103-revision ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json \
+  --historical-r103-corroboration ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json \
+  --current-registry ontolib/tests/decomposition/golden/proposal-registry.json \
+  --output ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json
+```
+
+Two independent generations matched each other and the tracked bytes (`cmp
+tmp/proposal-registry-schema2-migration-first.json
+tmp/proposal-registry-schema2-migration-second.json` and `cmp
+tmp/proposal-registry-schema2-migration-first.json
+ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json`, 2026-09-07). The
+tracked envelope SHA-256 is `73b135ffcafa7efee6617a52d9037c51bf32ee9ba66f3f1bf7d1492a3ed5a6b3`
+(`shasum -a 256
+ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json`, 2026-09-07).
+
 The compressed review registry has schema 3/status `proposed`, identity
 `358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975`, and exactly
 3,291 atomic rows partitioned into 3,288 `approved-non-exclusive-coverage` and three

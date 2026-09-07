@@ -1,0 +1,135 @@
+{
+  "envelope_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
+  "historical_artifacts": [
+    {
+      "artifact_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
+      "file_sha256": "b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509",
+      "kind": "neoplasm-adjudication"
+    },
+    {
+      "artifact_identity": "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a",
+      "file_sha256": "3b17fee5ac354ca8d48637f2a7f8b0451e0b4afed6922d0f745e6d284ca9c899",
+      "kind": "r103-review-state"
+    },
+    {
+      "artifact_identity": "d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160",
+      "file_sha256": "03822dcbfc4190e09e9394cb310aae2a6cca2f9c8d728bf3997d9e11d1e4730f",
+      "kind": "r103-review-revision"
+    },
+    {
+      "artifact_identity": "f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c",
+      "file_sha256": "a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823",
+      "kind": "r103-corroboration"
+    }
+  ],
+  "migration_contract_identity": "0d94b9387ff4dda1dbabe17847ce0f9842212d7372bd9489f39d72d1b8968941",
+  "migration_kind": "proposal-registry-schema1-to-schema2-binding",
+  "migration_tool_identity": "29da17ce1361cd67b75450c10190434456d920b861b64773cfe6f5ddd16f9293",
+  "migration_tool_version": "ontoprism-proposal-registry-binding-v1",
+  "new_registry": {
+    "file_sha256": "c1c3b78f18da14255244989621a83969549d05c82e9e79ce42f5f5d5c0203120",
+    "registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
+    "schema_version": 2
+  },
+  "old_registry": {
+    "file_sha256": "784445fec19a54e1b8d73cfc15b6dbd1312027106d1c058d25f8e273eab20fde",
+    "registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+    "schema_version": 1
+  },
+  "proof": {
+    "historical_human_decision_proof_identity": "917638dcf54d37477e209fecc199cb5029b31a94d58c813fbb20629433013325",
+    "nci_adoption_inferred": false,
+    "no_proposal_transitioned_to_accepted_in_ncit": true,
+    "old_and_new_subject_semantics_identical": true,
+    "proposal_rows": [
+      {
+        "axis": "op:CellType",
+        "kind": "concept",
+        "proposal_id": "MINT-781c8c8c6096",
+        "source_references": [
+          "C27787",
+          "R105"
+        ],
+        "status": "locally-approved",
+        "subject_semantics_identity": "99943e1cddf3c576419a51838e55be69b9cb9fa2aad4b90ae9575a9199b339f7"
+      },
+      {
+        "axis": "op:AssociatedPriorDisease",
+        "kind": "relation",
+        "proposal_id": "RELPROP-8637e8500dff",
+        "source_references": [
+          "R126",
+          "C172130->C27262",
+          "C4037->C3247"
+        ],
+        "status": "locally-approved",
+        "subject_semantics_identity": "f60bca1142eda01c8d6e3c9367963a9707e2d47ede9c52403582262cbb4da4cd"
+      },
+      {
+        "axis": "op:ArisesInPrecursorDisease",
+        "kind": "relation",
+        "proposal_id": "RELPROP-b992dcb28605",
+        "source_references": [
+          "R126",
+          "C213378->C96479",
+          "C4235->C4234"
+        ],
+        "status": "proposed",
+        "subject_semantics_identity": "4982037eb78b6e2545880c9c9142b3b569838e48d56c56e98fcad278a509bfef"
+      },
+      {
+        "axis": "op:CausedByAssociatedDisease",
+        "kind": "relation",
+        "proposal_id": "RELPROP-2fa32d3fefe4",
+        "source_references": [
+          "R126",
+          "C162541->C27851",
+          "C27687->C3097"
+        ],
+        "status": "proposed",
+        "subject_semantics_identity": "23cf16758c85aa8c22b0a8385615acc552f9dd7fd7803d89b8ce62dfc2a2cf9a"
+      },
+      {
+        "axis": "op:PredisposedByDisease",
+        "kind": "relation",
+        "proposal_id": "RELPROP-ed72696ddb88",
+        "source_references": [
+          "R126",
+          "C213036->C3105",
+          "C213055->C3225"
+        ],
+        "status": "proposed",
+        "subject_semantics_identity": "6b0f9de1842489dfd02d573397d7997b82e5641b466209ac19070a7ce3971b95"
+      },
+      {
+        "axis": "op:HasDiseaseManifestation",
+        "kind": "relation",
+        "proposal_id": "RELPROP-d4df9fd1abc5",
+        "source_references": [
+          "R126",
+          "C3213->C3007",
+          "C3274->C3276"
+        ],
+        "status": "proposed",
+        "subject_semantics_identity": "07a6f952557b24d1facb8683586f9bc8e63ba76ceeb5aee972ea7ec4816945de"
+      },
+      {
+        "axis": "op:CoOccursWithDisease",
+        "kind": "relation",
+        "proposal_id": "RELPROP-df7beaf0db60",
+        "source_references": [
+          "R126",
+          "C186735->C3708",
+          "C157461->C95597"
+        ],
+        "status": "proposed",
+        "subject_semantics_identity": "4990014048f7a9f69a250a1fd0c0e1f9203e656c833fd8f4104c52b5b5aa66f4"
+      }
+    ],
+    "status_counts": {
+      "locally-approved": 2,
+      "proposed": 5
+    }
+  },
+  "schema_version": 1
+}

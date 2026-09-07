@@ -23,7 +23,7 @@ ProposalStatus = Literal[
     "proposed",
     "locally-approved",
     "submitted",
-    "accepted",
+    "accepted-in-ncit",
     "rejected",
 ]
 DuplicateResult = Literal["no-equivalent", "equivalent-found", "possible-match"]
@@ -75,13 +75,34 @@ def _require_matches(
         raise ValueError(f"{field} contains an invalid identifier")
 
 
-def _require_replacement_shape(
-    status: ProposalStatus, replacement_ncit_code: str | None
+def _require_concept_terminal_shape(
+    status: ProposalStatus,
+    replacement_ncit_code: str | None,
+    adoption_evidence: AdoptionEvidence | None,
 ) -> None:
-    if status == "accepted" and replacement_ncit_code is None:
-        raise ValueError("accepted concept requires replacement NCIt code")
-    if status != "accepted" and replacement_ncit_code is not None:
-        raise ValueError("only accepted concept may carry replacement NCIt code")
+    if status == "accepted-in-ncit":
+        _require_accepted_concept_shape(replacement_ncit_code, adoption_evidence)
+        return
+    if replacement_ncit_code is not None:
+        raise ValueError(
+            "only accepted-in-ncit concept may carry replacement NCIt code"
+        )
+    if adoption_evidence is not None:
+        raise ValueError("only accepted-in-ncit concept may carry adoption evidence")
+
+
+def _require_accepted_concept_shape(
+    replacement_ncit_code: str | None,
+    adoption_evidence: AdoptionEvidence | None,
+) -> None:
+    if replacement_ncit_code is None:
+        raise ValueError("accepted-in-ncit concept requires replacement NCIt code")
+    if adoption_evidence is None:
+        raise ValueError("accepted-in-ncit concept requires adoption evidence")
+    if not isinstance(adoption_evidence, ConceptAdoptionEvidence):
+        raise ValueError("concept proposal requires concept adoption evidence")
+    if replacement_ncit_code != adoption_evidence.adopted_ncit_code:
+        raise ValueError("replacement NCIt code must match adoption evidence")
 
 
 def _require_concept_id(axis: str, preferred_name: str, actual_id: str) -> None:
@@ -105,17 +126,44 @@ def _require_relation_id(preferred_name: str, actual_id: str) -> None:
         )
 
 
-def _require_relation_replacement_shape(
+def _require_relation_terminal_shape(
     status: ProposalStatus,
     replacement_iri: str | None,
     replacement_version: str | None,
+    adoption_evidence: AdoptionEvidence | None,
 ) -> None:
     replacements = (replacement_iri, replacement_version)
-    if status == "accepted":
-        if any(value is None for value in replacements):
-            raise ValueError("accepted relation requires replacement IRI and version")
-    elif any(value is not None for value in replacements):
-        raise ValueError("only accepted relation may carry a replacement identity")
+    if status == "accepted-in-ncit":
+        _require_accepted_relation_shape(
+            replacement_iri, replacement_version, adoption_evidence
+        )
+        return
+    if any(value is not None for value in replacements):
+        raise ValueError(
+            "only accepted-in-ncit relation may carry a replacement identity"
+        )
+    if adoption_evidence is not None:
+        raise ValueError("only accepted-in-ncit relation may carry adoption evidence")
+
+
+def _require_accepted_relation_shape(
+    replacement_iri: str | None,
+    replacement_version: str | None,
+    adoption_evidence: AdoptionEvidence | None,
+) -> None:
+    if replacement_iri is None or replacement_version is None:
+        raise ValueError(
+            "accepted-in-ncit relation requires replacement IRI and version"
+        )
+    if adoption_evidence is None:
+        raise ValueError("accepted-in-ncit relation requires adoption evidence")
+    if not isinstance(adoption_evidence, RelationAdoptionEvidence):
+        raise ValueError("relation proposal requires relation adoption evidence")
+    if (
+        replacement_iri != adoption_evidence.adopted_relation_iri
+        or replacement_version != adoption_evidence.adopted_relation_version
+    ):
+        raise ValueError("replacement relation identity must match adoption evidence")
 
 
 def _validate_relation_replacement(
@@ -129,6 +177,69 @@ def _validate_relation_replacement(
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class CertifiedNcitRelease(_StrictModel):
+    """Exact certified official NCIt release identity used as adoption evidence."""
+
+    release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_artifact_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    certification_profile: str
+    certification_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_release(self) -> Self:
+        _text(self.release, "official NCIt release")
+        _text(self.certification_profile, "NCIt certification profile")
+        return self
+
+
+class _AdoptionEvidence(_StrictModel):
+    official_release: CertifiedNcitRelease
+    adoption_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    provenance_url: str
+
+    @model_validator(mode="after")
+    def _validate_provenance(self) -> Self:
+        if _ABSOLUTE_IRI.fullmatch(self.provenance_url) is None:
+            raise ValueError("adoption provenance URL must be an absolute IRI")
+        return self
+
+
+class ConceptAdoptionEvidence(_AdoptionEvidence):
+    """Structural evidence binding an adopted official NCIt concept."""
+
+    kind: Literal["concept"] = "concept"
+    adopted_ncit_code: str = Field(pattern=r"^C[0-9]+$")
+    adopted_concept_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RelationAdoptionEvidence(_AdoptionEvidence):
+    """Structural evidence binding an adopted official NCIt role assertion."""
+
+    kind: Literal["relation"] = "relation"
+    adopted_relation_iri: str
+    adopted_relation_version: str
+    adopted_assertion_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_relation_identity(self) -> Self:
+        if _ABSOLUTE_IRI.fullmatch(self.adopted_relation_iri) is None:
+            raise ValueError("adopted relation IRI must be an absolute IRI")
+        _text(self.adopted_relation_version, "adopted relation version")
+        if self.adopted_relation_version != self.official_release.release:
+            raise ValueError(
+                "adopted relation version must match official NCIt release"
+            )
+        return self
+
+
+AdoptionEvidence = Annotated[
+    ConceptAdoptionEvidence | RelationAdoptionEvidence,
+    Field(discriminator="kind"),
+]
 
 
 class DuplicateCheck(_StrictModel):
@@ -211,6 +322,7 @@ class _Proposal(_StrictModel):
     duplicate_checks: tuple[DuplicateCheck, ...] = Field(min_length=1)
     submission_target: str
     status: ProposalStatus = "proposed"
+    adoption_evidence: AdoptionEvidence | None = None
 
     @model_validator(mode="after")
     def _validate_common(self) -> Self:
@@ -251,7 +363,11 @@ class ConceptProposal(_Proposal):
         _require_unique(list(self.synonyms), "synonyms")
         mapping_keys = [(item.system, item.concept_id) for item in self.mappings]
         _require_unique(mapping_keys, "cross-ontology mappings")
-        _require_replacement_shape(self.status, self.replacement_ncit_code)
+        _require_concept_terminal_shape(
+            self.status,
+            self.replacement_ncit_code,
+            self.adoption_evidence,
+        )
         _require_concept_id(self.axis, self.preferred_name, self.id)
         return self
 
@@ -276,10 +392,11 @@ class RelationProposal(_Proposal):
         _require_matches((self.range,), _NCIT_CODE, "range")
         _canonical(self.source_examples, "source_examples")
         _require_relation_id(self.preferred_name, self.id)
-        _require_relation_replacement_shape(
+        _require_relation_terminal_shape(
             self.status,
             self.replacement_relation_iri,
             self.replacement_relation_version,
+            self.adoption_evidence,
         )
         _validate_relation_replacement(
             self.replacement_relation_iri,
@@ -294,7 +411,7 @@ Proposal = Annotated[ConceptProposal | RelationProposal, Field(discriminator="ki
 class ProposalRegistry(_StrictModel):
     """One immutable proposal set bound to an identified NCIt source."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     ontology_version: str
     proposals: tuple[Proposal, ...]
@@ -416,7 +533,7 @@ def _augmented_ttl(registry: ProposalRegistry) -> str:
         if not isinstance(proposal, ConceptProposal) or proposal.status not in {
             "locally-approved",
             "submitted",
-            "accepted",
+            "accepted-in-ncit",
         }:
             continue
         subject = f"op:{proposal.id}"
@@ -449,7 +566,7 @@ def _csv_text(rows: tuple[dict[str, str], ...], fields: tuple[str, ...]) -> str:
 
 
 def _accepted_replacement(proposal: Proposal) -> tuple[str, object] | None:
-    if proposal.status != "accepted":
+    if proposal.status != "accepted-in-ncit":
         return None
     if isinstance(proposal, ConceptProposal):
         return proposal.id, proposal.replacement_ncit_code
@@ -592,6 +709,17 @@ def _normalize_registry_json(value: object) -> object:
     return normalized
 
 
+def _require_persisted_proposal_statuses(value: dict[str, object]) -> None:
+    proposals = value.get("proposals")
+    if not isinstance(proposals, list):
+        raise ValueError("proposal registry proposals must be a list")
+    for index, proposal in enumerate(proposals):
+        if not isinstance(proposal, dict):
+            raise ValueError(f"proposal registry proposal {index} must be an object")
+        if "status" not in proposal:
+            raise ValueError(f"proposal registry proposal {index} is missing status")
+
+
 def load_proposal_registry(path: str | Path) -> ProposalRegistry:
     """Load one strict registry while rejecting duplicate JSON object keys."""
     value = json.loads(
@@ -603,6 +731,7 @@ def load_proposal_registry(path: str | Path) -> ProposalRegistry:
     for field in ("schema_version", "registry_identity"):
         if field not in value:
             raise ValueError(f"proposal registry is missing {field}")
+    _require_persisted_proposal_statuses(value)
     registry_identity = value["registry_identity"]
     if (
         not isinstance(registry_identity, str)
@@ -612,3 +741,34 @@ def load_proposal_registry(path: str | Path) -> ProposalRegistry:
             "persisted proposal registry_identity must be a SHA-256 digest"
         )
     return ProposalRegistry.model_validate(_normalize_registry_json(value))
+
+
+def write_proposal_registry(registry: ProposalRegistry, path: str | Path) -> None:
+    """Atomically write the current canonical proposal-registry schema."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        json.dumps(
+            registry.model_dump(mode="json"),
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=True,
+        )
+        + "\n"
+    )
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=target.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+        os.replace(temporary_path, target)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)

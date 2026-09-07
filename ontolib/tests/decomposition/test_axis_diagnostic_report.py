@@ -25,7 +25,10 @@ from scripts.research.current_evidence import (
     CurrentComparison,
     CurrentEngineEvidence,
 )
-from scripts.research.golden_review import load_adjudication, load_row_decisions
+from scripts.research.golden_review import (
+    load_migrated_historical_adjudication,
+    load_row_decisions,
+)
 
 from ontolib.decomposition.axis_diagnostics import (
     AxisHierarchyEvidence,
@@ -40,6 +43,7 @@ _GOLDEN = Path(__file__).with_name("golden")
 _ORACLE = _GOLDEN / "neoplasm-adjudicated.json"
 _ROWS = _GOLDEN / "neoplasm-row-decisions.json"
 _REGISTRY = _GOLDEN / "proposal-registry.json"
+_MIGRATION = _GOLDEN / "proposal-registry-schema2-migration.json"
 _EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
 
@@ -62,7 +66,7 @@ def _occurrence() -> SerializedSourceOccurrence:
 def _inputs():  # type: ignore[no-untyped-def]
     registry = load_proposal_registry(_REGISTRY)
     return (
-        load_adjudication(_ORACLE, registry),
+        load_migrated_historical_adjudication(_ORACLE, _REGISTRY, _MIGRATION),
         load_row_decisions(_ROWS),
         registry,
         CurrentEngineEvidence.model_validate_json(_EVIDENCE.read_bytes()),
@@ -333,6 +337,7 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_MIGRATION,
         current_evidence_path=_EVIDENCE,
         current_comparison_path=_COMPARISON,
         residual_fillers=("C35501", "C12431", "MINT-781c8c8c6096"),
@@ -378,6 +383,7 @@ async def test_generator_refuses_missing_inputs(tmp_path: Path) -> None:
             oracle_path=_ORACLE,
             row_decisions_path=_ROWS,
             proposal_registry_path=_REGISTRY,
+            proposal_registry_migration_path=_MIGRATION,
             current_evidence_path=_EVIDENCE,
             current_comparison_path=_COMPARISON,
             residual_fillers=(),
@@ -400,6 +406,8 @@ def test_axis_diagnostic_cli_requires_all_inputs_and_residual_set() -> None:
             "rows.json",
             "--proposal-registry",
             "registry.json",
+            "--proposal-registry-migration",
+            "migration.json",
             "--current-evidence",
             "evidence.json",
             "--current-comparison",

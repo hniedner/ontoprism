@@ -37,7 +37,7 @@ from scripts.research.golden_review import (
     GoldenSetValidationError,
     KeptRow,
     evaluate_adjudication,
-    load_adjudication,
+    load_migrated_historical_adjudication,
     load_row_decisions,
 )
 
@@ -64,6 +64,7 @@ _GOLDEN = Path(__file__).parent / "golden"
 _ORACLE = _GOLDEN / "neoplasm-adjudicated.json"
 _ROWS = _GOLDEN / "neoplasm-row-decisions.json"
 _REGISTRY = _GOLDEN / "proposal-registry.json"
+_REGISTRY_MIGRATION = _GOLDEN / "proposal-registry-schema2-migration.json"
 _MANIFEST = Path("samples/ncit-26.07d-m1-current-replay.json")
 _TRACKED_CURRENT_EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _TRACKED_CURRENT_COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
@@ -392,6 +393,7 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=engine_output,
@@ -469,7 +471,9 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
     assert comparison.concepts[0].full_partition.primary_diagnosis is None
     with pytest.raises(GoldenSetValidationError):
         evaluate_adjudication(
-            load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY)),
+            load_migrated_historical_adjudication(
+                _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+            ),
             json.loads(engine_output.read_text()),
             {},
         )
@@ -478,7 +482,9 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
 @pytest.mark.unit
 def test_row_replay_classifies_every_status() -> None:
     rows = load_row_decisions(_ROWS)
-    adjudication = load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY))
+    adjudication = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     concepts = {
         concept.code: CurrentConceptEvidence(
             code=concept.code,
@@ -603,6 +609,7 @@ def test_typed_comparison_models_reject_untyped_metric_and_partition_payloads(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -758,6 +765,7 @@ def test_generate_current_evidence_preserves_repeated_source_occurrences(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -836,6 +844,7 @@ def test_generate_current_evidence_rejects_fingerprint_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -862,6 +871,7 @@ def test_generate_current_evidence_rejects_artifact_and_representation_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -881,6 +891,7 @@ def test_generate_current_evidence_rejects_artifact_and_representation_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine-2.json",
@@ -906,6 +917,7 @@ def test_generate_current_evidence_rejects_returned_run_id_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -929,6 +941,7 @@ def test_generate_current_evidence_rejects_an_output_that_aliases_an_input(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=artifact,
@@ -1049,6 +1062,7 @@ def test_current_comparator_rejects_each_identity_drift(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -1118,6 +1132,7 @@ def test_regenerate_current_comparison_uses_tracked_evidence_without_store(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=output,
     )
 
@@ -1144,6 +1159,7 @@ def test_pair_relations_are_exhaustive_unique_and_reach_all_six_variants(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=tmp_path / "comparison.json",
     )
     field_names = tuple(PairRelationSummary.model_fields)
@@ -1164,8 +1180,9 @@ def test_pair_relations_are_exhaustive_unique_and_reach_all_six_variants(
     evidence = CurrentEngineEvidence.model_validate_json(
         _TRACKED_CURRENT_EVIDENCE.read_bytes()
     )
-    registry = load_proposal_registry(_REGISTRY)
-    oracle = load_adjudication(_ORACLE, registry)
+    oracle = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     oracle_target = next(item for item in oracle.concepts if item.code == "C101539")
     evidence_target = next(item for item in evidence.concepts if item.code == "C101539")
     assert oracle_target.expected is not None
@@ -1204,6 +1221,7 @@ def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=tmp_path / "comparison.json",
     )
     by_code = {concept.code: concept.pair_relations for concept in comparison.concepts}
@@ -1236,8 +1254,9 @@ def test_scoreable_predicate_mutation_moves_pair_without_reinterpreting_it() -> 
     evidence = CurrentEngineEvidence.model_validate_json(
         _TRACKED_CURRENT_EVIDENCE.read_bytes()
     )
-    registry = load_proposal_registry(_REGISTRY)
-    oracle = load_adjudication(_ORACLE, registry)
+    oracle = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     baseline_metrics, baseline = _comparison_payload(oracle.concepts, evidence)
     target = next(
         concept
@@ -1314,6 +1333,7 @@ def test_generate_current_evidence_rolls_back_both_outputs_on_second_replace_fai
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=engine_output,

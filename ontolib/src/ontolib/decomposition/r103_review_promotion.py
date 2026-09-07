@@ -600,6 +600,9 @@ def promote_r103_review_revision(
     predecessor = load_r103_promoted_review_state(predecessor_path)
     if qualification != R103_REVISION_MACHINE_QUALIFICATION:
         raise R103ReviewValidationError("revision machine qualification differs")
+    proposal_registry = _load_bound_proposal_registry(
+        proposal_registry_path, predecessor.packet
+    )
     registry = import_r103_review_decisions(
         predecessor.packet,
         reviewed_workbook_path,
@@ -612,9 +615,6 @@ def promote_r103_review_revision(
         proposal_registry_path=proposal_registry_path,
     )
     write_r103_review_dry_run(output_dry_run_path, dry_run)
-    proposal_registry = _load_bound_proposal_registry(
-        proposal_registry_path, predecessor.packet
-    )
     payload: dict[str, object] = {
         "schema_version": 2,
         "predecessor": predecessor,

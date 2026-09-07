@@ -29,7 +29,7 @@ try:
         GoldenConstituent,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -48,7 +48,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         GoldenConstituent,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 
@@ -71,6 +71,9 @@ from ontolib.decomposition.models import (
     RestrictionDefinitionFact,
 )
 from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+)
 from ontolib.decomposition.run import _detect_concept
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
@@ -533,6 +536,9 @@ class AxisDiagnosticReport(_StrictModel):
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str | None = Field(
+        default=None, pattern=_SHA256, exclude_if=lambda value: value is None
+    )
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
     metrics: DiagnosticMetrics
@@ -748,6 +754,9 @@ def build_axis_diagnostic_report(
         "oracle_identity": oracle.identity,
         "row_decision_identity": rows.payload_identity,
         "proposal_registry_identity": registry.registry_identity,
+        "proposal_registry_migration_identity": (
+            evidence.proposal_registry_migration_identity
+        ),
         "current_evidence_identity": evidence.evidence_identity,
         "current_comparison_identity": comparison.comparison_identity,
         "metrics": DiagnosticMetrics(
@@ -888,6 +897,7 @@ async def generate_axis_diagnostic_report(
     oracle_path: Path,
     row_decisions_path: Path,
     proposal_registry_path: Path,
+    proposal_registry_migration_path: Path,
     current_evidence_path: Path,
     current_comparison_path: Path,
     residual_fillers: tuple[str, ...],
@@ -899,13 +909,19 @@ async def generate_axis_diagnostic_report(
         oracle_path,
         row_decisions_path,
         proposal_registry_path,
+        proposal_registry_migration_path,
         current_evidence_path,
         current_comparison_path,
     )
     _required_inputs(inputs, output)
     manifest = validate_ncit_sibling_manifest(source_manifest)
     registry = load_proposal_registry(proposal_registry_path)
-    oracle = load_adjudication(oracle_path, registry)
+    oracle = load_migrated_historical_adjudication(
+        oracle_path, proposal_registry_path, proposal_registry_migration_path
+    )
+    migration = load_proposal_registry_migration_envelope(
+        proposal_registry_migration_path
+    )
     rows = load_row_decisions(row_decisions_path)
     evidence = CurrentEngineEvidence.model_validate_json(
         current_evidence_path.read_bytes()
@@ -920,6 +936,8 @@ async def generate_axis_diagnostic_report(
         raise ValueError("source manifest does not match current evidence")
     if comparison.current_evidence_identity != evidence.evidence_identity:
         raise ValueError("current comparison does not match current evidence")
+    if evidence.proposal_registry_migration_identity != migration.envelope_identity:
+        raise ValueError("current evidence migration binding differs")
 
     async with ncit_sparql_client(endpoint, query_timeout=180.0) as client:
         source = await read_axis_diagnostic_source(client, manifest.source_identity)

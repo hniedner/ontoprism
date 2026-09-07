@@ -826,6 +826,9 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
             oracle=_CURRENT_GOLDEN / "neoplasm-adjudicated.json",
             row_decisions=_CURRENT_GOLDEN / "neoplasm-row-decisions.json",
             proposal_registry=_CURRENT_GOLDEN / "proposal-registry.json",
+            proposal_registry_migration=(
+                _CURRENT_GOLDEN / "proposal-registry-schema2-migration.json"
+            ),
             run_id=_CURRENT_EVIDENCE_RUN_ID,
             artifact=artifact,
             engine_output=tmp_path / "engine.json",

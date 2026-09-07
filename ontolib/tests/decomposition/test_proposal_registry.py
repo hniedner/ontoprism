@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections import Counter
 from pathlib import Path
+from typing import Any, cast, get_args
 
 import pytest
 import rdflib
@@ -14,20 +16,63 @@ from scripts.adjudication import main as adjudication_main
 from ontolib.decomposition import proposal_registry as proposal_registry_module
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.proposal_registry import (
+    CertifiedNcitRelease,
+    ConceptAdoptionEvidence,
     ConceptProposal,
     CrossOntologyMapping,
     DuplicateCheck,
     DuplicateResult,
     ProposalRegistry,
     ProposalStatus,
+    RelationAdoptionEvidence,
     RelationProposal,
     load_proposal_registry,
     relation_proposal_id,
     resolve_proposal_identifier,
+    write_proposal_registry,
     write_submission_exports,
 )
 
 _SOURCE_IDENTITY = "a" * 64
+
+
+def _release() -> CertifiedNcitRelease:
+    return CertifiedNcitRelease(
+        release="26.08a",
+        source_identity="b" * 64,
+        source_artifact_sha256="c" * 64,
+        source_manifest_sha256="d" * 64,
+        certification_profile="ontoprism-ncit-official-release-v1",
+        certification_evidence_identity="e" * 64,
+    )
+
+
+def _concept_adoption(code: str = "C999999") -> ConceptAdoptionEvidence:
+    """Synthetic structural fixture; it makes no real NCI-adoption claim."""
+    return ConceptAdoptionEvidence(
+        kind="concept",
+        official_release=_release(),
+        adopted_ncit_code=code,
+        adopted_concept_fingerprint="f" * 64,
+        adoption_evidence_identity="1" * 64,
+        provenance_url="https://example.test/synthetic-ncit-adoption-evidence",
+    )
+
+
+def _relation_adoption(
+    iri: str = "http://purl.obolibrary.org/obo/RO_1234567",
+    version: str = "26.08a",
+) -> RelationAdoptionEvidence:
+    """Synthetic structural fixture; it makes no real NCI-adoption claim."""
+    return RelationAdoptionEvidence(
+        kind="relation",
+        official_release=_release(),
+        adopted_relation_iri=iri,
+        adopted_relation_version=version,
+        adopted_assertion_fingerprint="2" * 64,
+        adoption_evidence_identity="3" * 64,
+        provenance_url="https://example.test/synthetic-ncit-role-adoption-evidence",
+    )
 
 
 def _duplicate_check(
@@ -99,7 +144,20 @@ def _relation() -> RelationProposal:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+def test_proposal_status_is_the_exact_closed_lifecycle() -> None:
+    assert set(get_args(ProposalStatus)) == {
+        "proposed",
+        "locally-approved",
+        "submitted",
+        "accepted-in-ncit",
+        "rejected",
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status", ["proposed", "locally-approved", "submitted", "rejected"]
+)
 def test_only_an_accepted_concept_may_carry_a_replacement_code(
     status: ProposalStatus,
 ) -> None:
@@ -110,7 +168,7 @@ def test_only_an_accepted_concept_may_carry_a_replacement_code(
     has not assigned.
     """
     with pytest.raises(
-        ValidationError, match="only accepted concept may carry replacement NCIt code"
+        ValidationError, match="only accepted-in-ncit concept may carry"
     ):
         _concept().model_copy(
             update={"status": status, "replacement_ncit_code": "C999999"}
@@ -129,12 +187,14 @@ def test_relation_proposal_must_use_its_deterministic_id() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+@pytest.mark.parametrize(
+    "status", ["proposed", "locally-approved", "submitted", "rejected"]
+)
 def test_only_an_accepted_relation_may_carry_a_replacement_identity(
     status: ProposalStatus,
 ) -> None:
     with pytest.raises(
-        ValidationError, match="only accepted relation may carry a replacement"
+        ValidationError, match="only accepted-in-ncit relation may carry"
     ):
         RelationProposal.model_validate(
             _relation().model_dump()
@@ -153,9 +213,10 @@ def test_replacement_relation_iri_must_be_absolute(iri: str) -> None:
         RelationProposal.model_validate(
             _relation().model_dump()
             | {
-                "status": "accepted",
+                "status": "accepted-in-ncit",
                 "replacement_relation_iri": iri,
-                "replacement_relation_version": "2026-08-05",
+                "replacement_relation_version": "26.08a",
+                "adoption_evidence": _relation_adoption(iri=iri).model_dump(),
             }
         )
 
@@ -305,19 +366,22 @@ def test_submission_exports_are_deterministic_and_proposed_only(
         proposals=(_relation(), rejected),
     )
 
-    write_submission_exports(registry, tmp_path)
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    write_submission_exports(registry, first)
+    write_submission_exports(registry, second)
 
-    assert (tmp_path / "ncit-concept-proposals.csv").read_text() == (
+    assert (first / "ncit-concept-proposals.csv").read_text() == (
         "proposal_id,preferred_name,definition,parent_concepts,semantic_types,"
         "synonyms,source_concepts,source_roles,rationale,status\n"
     )
-    relation_csv = (tmp_path / "relation-proposals.csv").read_text()
+    relation_csv = (first / "relation-proposals.csv").read_text()
     assert relation_csv.startswith(
         "proposal_id,axis,preferred_name,definition,domain,range,source_roles,"
         "source_examples,rationale,status,submission_target\n"
     )
     assert relation_proposal_id("associated prior disease") in relation_csv
-    manifest = json.loads((tmp_path / "submission-manifest.json").read_text())
+    manifest = json.loads((first / "submission-manifest.json").read_text())
     assert manifest == {
         "ontology_version": "26.07d",
         "registry_identity": registry.registry_identity,
@@ -326,7 +390,7 @@ def test_submission_exports_are_deterministic_and_proposed_only(
         "status": "proposed",
         "concept_proposals": 0,
         "files": {
-            name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+            name: hashlib.sha256((first / name).read_bytes()).hexdigest()
             for name in (
                 "accepted-replacements.json",
                 "augmented-ncit-proposals.ttl",
@@ -334,6 +398,9 @@ def test_submission_exports_are_deterministic_and_proposed_only(
                 "relation-proposals.csv",
             )
         },
+    }
+    assert {path.name: path.read_bytes() for path in first.iterdir()} == {
+        path.name: path.read_bytes() for path in second.iterdir()
     }
 
 
@@ -352,9 +419,10 @@ def test_submission_manifest_is_promoted_last_and_detects_partial_replacement(
 
     accepted_payload = _relation().model_dump()
     accepted_payload.update(
-        status="accepted",
+        status="accepted-in-ncit",
         replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
-        replacement_relation_version="2026-08-05",
+        replacement_relation_version="26.08a",
+        adoption_evidence=_relation_adoption().model_dump(),
     )
     replacement = ProposalRegistry(
         source_identity=_SOURCE_IDENTITY,
@@ -387,7 +455,7 @@ def test_submission_manifest_is_promoted_last_and_detects_partial_replacement(
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "status",
-    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+    ["proposed", "locally-approved", "submitted", "accepted-in-ncit", "rejected"],
 )
 def test_concept_export_matrix_is_governed_by_status(
     tmp_path: Path,
@@ -395,8 +463,9 @@ def test_concept_export_matrix_is_governed_by_status(
 ) -> None:
     payload = _concept().model_dump()
     payload["status"] = status
-    if status == "accepted":
+    if status == "accepted-in-ncit":
         payload["replacement_ncit_code"] = "C999999"
+        payload["adoption_evidence"] = _concept_adoption().model_dump()
     proposal = ConceptProposal.model_validate(payload)
     registry = ProposalRegistry(
         source_identity=_SOURCE_IDENTITY,
@@ -411,15 +480,21 @@ def test_concept_export_matrix_is_governed_by_status(
     replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
     assert (proposal.id in concept_csv) is (status == "proposed")
     assert (proposal.id in augmented) is (
-        status in {"locally-approved", "submitted", "accepted"}
+        status in {"locally-approved", "submitted", "accepted-in-ncit"}
     )
-    assert replacements == ({proposal.id: "C999999"} if status == "accepted" else {})
+    assert ('op:proposalStatus "accepted-in-ncit"' in augmented) is (
+        status == "accepted-in-ncit"
+    )
+    assert 'op:proposalStatus "accepted"' not in augmented
+    assert replacements == (
+        {proposal.id: "C999999"} if status == "accepted-in-ncit" else {}
+    )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "status",
-    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+    ["proposed", "locally-approved", "submitted", "accepted-in-ncit", "rejected"],
 )
 def test_relation_export_matrix_is_governed_by_status(
     tmp_path: Path,
@@ -427,10 +502,11 @@ def test_relation_export_matrix_is_governed_by_status(
 ) -> None:
     payload = _relation().model_dump()
     payload["status"] = status
-    if status == "accepted":
+    if status == "accepted-in-ncit":
         payload.update(
             replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
-            replacement_relation_version="2026-08-05",
+            replacement_relation_version="26.08a",
+            adoption_evidence=_relation_adoption().model_dump(),
         )
     proposal = RelationProposal.model_validate(payload)
     registry = ProposalRegistry(
@@ -448,10 +524,10 @@ def test_relation_export_matrix_is_governed_by_status(
         {
             proposal.id: {
                 "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
-                "version": "2026-08-05",
+                "version": "26.08a",
             }
         }
-        if status == "accepted"
+        if status == "accepted-in-ncit"
         else {}
     )
 
@@ -524,61 +600,197 @@ def test_proposal_rdf_terms_reject_turtle_injection() -> None:
 
 
 @pytest.mark.unit
-def test_accepted_concept_requires_and_resolves_to_ncit_replacement() -> None:
-    with pytest.raises(ValidationError, match="accepted concept requires replacement"):
+def test_terminal_concept_requires_matching_replacement_and_adoption_evidence() -> None:
+    with pytest.raises(ValidationError, match="accepted-in-ncit concept requires"):
         ConceptProposal.model_validate(
-            {**_concept().model_dump(), "status": "accepted"}
+            {**_concept().model_dump(), "status": "accepted-in-ncit"}
         )
 
-    accepted = ConceptProposal.model_validate(
+    terminal = ConceptProposal.model_validate(
         {
             **_concept().model_dump(),
-            "status": "accepted",
+            "status": "accepted-in-ncit",
             "replacement_ncit_code": "C999999",
+            "adoption_evidence": _concept_adoption().model_dump(),
         }
     )
     registry = ProposalRegistry(
         source_identity=_SOURCE_IDENTITY,
         ontology_version="26.07d",
-        proposals=(accepted,),
+        proposals=(terminal,),
     )
 
-    assert resolve_proposal_identifier(registry, accepted.id) == "C999999"
+    assert resolve_proposal_identifier(registry, terminal.id) == "C999999"
+
+    for mutation, message in (
+        ({"adoption_evidence": None}, "requires adoption evidence"),
+        (
+            {"adoption_evidence": _concept_adoption("C888888").model_dump()},
+            "must match adoption evidence",
+        ),
+        (
+            {"adoption_evidence": {"kind": "concept", "adopted_ncit_code": "C999999"}},
+            "official_release|Field required",
+        ),
+    ):
+        with pytest.raises(ValidationError, match=message):
+            ConceptProposal.model_validate(terminal.model_dump() | mutation)
 
 
 @pytest.mark.unit
-def test_accepted_relation_requires_and_exports_assigned_ontology_identity(
+def test_terminal_relation_requires_correlated_identity_version_and_evidence(
     tmp_path: Path,
 ) -> None:
-    payload = {**_relation().model_dump(), "status": "accepted"}
+    payload = {**_relation().model_dump(), "status": "accepted-in-ncit"}
 
-    with pytest.raises(ValidationError, match="accepted relation requires"):
+    with pytest.raises(ValidationError, match="accepted-in-ncit relation requires"):
         RelationProposal.model_validate(payload)
 
-    accepted = RelationProposal.model_validate(
+    terminal = RelationProposal.model_validate(
         payload
         | {
             "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_1234567",
-            "replacement_relation_version": "2026-08-05",
+            "replacement_relation_version": "26.08a",
+            "adoption_evidence": _relation_adoption().model_dump(),
         }
     )
     registry = ProposalRegistry(
         source_identity=_SOURCE_IDENTITY,
         ontology_version="26.07d",
-        proposals=(accepted,),
+        proposals=(terminal,),
     )
 
-    assert resolve_proposal_identifier(registry, accepted.id) == (
+    assert resolve_proposal_identifier(registry, terminal.id) == (
         "http://purl.obolibrary.org/obo/RO_1234567"
     )
     write_submission_exports(registry, tmp_path)
     replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
     assert replacements == {
-        accepted.id: {
+        terminal.id: {
             "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
-            "version": "2026-08-05",
+            "version": "26.08a",
         }
     }
+
+    for mutation in (
+        {"adoption_evidence": None},
+        {"replacement_relation_version": "26.09a"},
+        {"replacement_relation_iri": "https://example.test/different-role"},
+    ):
+        with pytest.raises(ValidationError, match="adoption evidence"):
+            RelationProposal.model_validate(terminal.model_dump() | mutation)
+
+
+@pytest.mark.unit
+def test_terminal_proposals_reject_missing_and_cross_kind_adoption_evidence() -> None:
+    concept = _concept().model_dump() | {
+        "status": "accepted-in-ncit",
+        "replacement_ncit_code": "C999999",
+    }
+    with pytest.raises(ValidationError, match="requires adoption evidence"):
+        ConceptProposal.model_validate(concept)
+    with pytest.raises(ValidationError, match="concept adoption evidence"):
+        ConceptProposal.model_validate(
+            concept | {"adoption_evidence": _relation_adoption().model_dump()}
+        )
+
+    relation = _relation().model_dump() | {
+        "status": "accepted-in-ncit",
+        "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_1234567",
+        "replacement_relation_version": "26.08a",
+    }
+    with pytest.raises(ValidationError, match="requires adoption evidence"):
+        RelationProposal.model_validate(relation)
+    with pytest.raises(ValidationError, match="relation adoption evidence"):
+        RelationProposal.model_validate(
+            relation | {"adoption_evidence": _concept_adoption().model_dump()}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {"replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_1234567"},
+        {"replacement_relation_version": "26.08a"},
+    ],
+)
+def test_terminal_relation_rejects_each_partial_replacement_identity(
+    replacement: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError, match="requires replacement IRI and version"):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {
+                "status": "accepted-in-ncit",
+                "adoption_evidence": _relation_adoption().model_dump(),
+                **replacement,
+            }
+        )
+
+
+@pytest.mark.unit
+def test_nonterminal_relation_forbids_adoption_without_replacement_identity() -> None:
+    with pytest.raises(ValidationError, match="may carry adoption evidence"):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {"adoption_evidence": _relation_adoption().model_dump()}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"provenance_url": "relative"}, "provenance URL"),
+        (
+            {"official_release": {**_release().model_dump(), "release": ""}},
+            "official NCIt release",
+        ),
+        (
+            {
+                "official_release": {
+                    **_release().model_dump(),
+                    "certification_profile": "",
+                }
+            },
+            "certification profile",
+        ),
+    ],
+)
+def test_adoption_evidence_requires_identified_certification_and_provenance(
+    mutation: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        ConceptAdoptionEvidence.model_validate(
+            _concept_adoption().model_dump() | mutation
+        )
+
+    relation = _relation_adoption().model_dump()
+    relation["adopted_relation_version"] = "different-release"
+    with pytest.raises(ValidationError, match="must match official NCIt release"):
+        RelationAdoptionEvidence.model_validate(relation)
+
+    relation = _relation_adoption().model_dump()
+    relation["adopted_relation_iri"] = "relative-role"
+    with pytest.raises(ValidationError, match="must be an absolute IRI"):
+        RelationAdoptionEvidence.model_validate(relation)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status", ["proposed", "locally-approved", "submitted", "rejected"]
+)
+def test_nonterminal_proposals_forbid_adoption_evidence(
+    status: ProposalStatus,
+) -> None:
+    with pytest.raises(
+        ValidationError, match=r"only accepted-in-ncit.*adoption evidence"
+    ):
+        ConceptProposal.model_validate(
+            _concept().model_dump()
+            | {"status": status, "adoption_evidence": _concept_adoption().model_dump()}
+        )
 
 
 @pytest.mark.unit
@@ -606,6 +818,55 @@ def test_concept_proposal_requires_versioned_external_mapping() -> None:
 
 
 @pytest.mark.unit
+def test_ncit_mapping_uses_the_official_concept_iri_and_rejects_non_codes(
+    tmp_path: Path,
+) -> None:
+    mapping = CrossOntologyMapping(
+        system="NCIt",
+        version="26.08a",
+        concept_id="C1234",
+        label="Synthetic NCIt mapping",
+        predicate="exactMatch",
+        evidence_url="https://example.test/synthetic-ncit-mapping",
+    )
+    proposal = ConceptProposal.model_validate(
+        _concept().model_dump() | {"mappings": (mapping.model_dump(),)}
+    )
+
+    write_submission_exports(
+        ProposalRegistry(
+            source_identity=_SOURCE_IDENTITY,
+            ontology_version="26.08a",
+            proposals=(proposal.model_copy(update={"status": "locally-approved"}),),
+        ),
+        tmp_path,
+    )
+
+    assert (
+        "skos:exactMatch "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1234>"
+        in (tmp_path / "augmented-ncit-proposals.ttl").read_text()
+    )
+    with pytest.raises(ValidationError, match="safe identifier"):
+        CrossOntologyMapping.model_validate(
+            mapping.model_dump() | {"concept_id": "not-an-ncit-code"}
+        )
+
+
+@pytest.mark.unit
+def test_resolution_preserves_unknown_and_unaccepted_proposal_identifiers() -> None:
+    proposal = _concept()
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(proposal,),
+    )
+
+    assert resolve_proposal_identifier(registry, proposal.id) == proposal.id
+    assert resolve_proposal_identifier(registry, "C-unknown") == "C-unknown"
+
+
+@pytest.mark.unit
 def test_registry_load_rejects_duplicate_json_keys_and_tampering(
     tmp_path: Path,
 ) -> None:
@@ -615,12 +876,12 @@ def test_registry_load_rejects_duplicate_json_keys_and_tampering(
         proposals=(_concept(),),
     )
     path = tmp_path / "registry.json"
-    path.write_text(registry.model_dump_json(by_alias=True), encoding="utf-8")
+    write_proposal_registry(registry, path)
 
     assert load_proposal_registry(path) == registry
 
     duplicate = tmp_path / "duplicate.json"
-    duplicate.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
+    duplicate.write_text('{"schema_version":2,"schema_version":2}', encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate JSON key"):
         load_proposal_registry(duplicate)
 
@@ -639,6 +900,153 @@ def test_registry_load_rejects_duplicate_json_keys_and_tampering(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "JSON object"),
+        (
+            {"schema_version": 2, "registry_identity": "0" * 64, "proposals": {}},
+            "proposals must be a list",
+        ),
+        (
+            {"schema_version": 2, "registry_identity": "0" * 64, "proposals": [1]},
+            "proposal 0 must be an object",
+        ),
+        (
+            {"schema_version": 2, "registry_identity": 1, "proposals": []},
+            "SHA-256 digest",
+        ),
+        (
+            {"schema_version": 2, "registry_identity": "bad", "proposals": []},
+            "SHA-256 digest",
+        ),
+    ],
+)
+def test_registry_loader_rejects_malformed_persisted_container_shapes(
+    tmp_path: Path, payload: object, message: str
+) -> None:
+    path = tmp_path / "malformed.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        load_proposal_registry(path)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [None, "accepted", "review-required", 1])
+def test_persisted_registry_rejects_missing_legacy_and_malformed_status(
+    tmp_path: Path, status: object
+) -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(),),
+    )
+    payload = registry.model_dump(mode="json", exclude={"registry_identity"})
+    proposal = payload["proposals"][0]
+    if status is None:
+        proposal.pop("status")
+    else:
+        proposal["status"] = status
+    payload["registry_identity"] = proposal_registry_module._identity(
+        {key: value for key, value in payload.items() if key != "registry_identity"}
+    )
+    path = tmp_path / "invalid-registry.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises((ValueError, ValidationError), match=r"status|literal"):
+        load_proposal_registry(path)
+
+
+@pytest.mark.unit
+def test_registry_writer_is_canonical_atomic_and_deterministic(tmp_path: Path) -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(), _relation()),
+    )
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+
+    write_proposal_registry(registry, first)
+    write_proposal_registry(registry, second)
+    initial = first.read_bytes()
+    adjudication_main(["write-proposal-registry", str(first)])
+
+    assert first.read_bytes() == second.read_bytes()
+    assert first.read_bytes() == initial
+    assert load_proposal_registry(first) == registry
+    assert json.loads(first.read_text())["schema_version"] == 2
+
+
+@pytest.mark.unit
+def test_registry_writer_cleans_staging_file_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(),),
+    )
+    target = tmp_path / "registry.json"
+    target.write_text("preserved\n", encoding="utf-8")
+    real_named_temporary_file = cast(
+        "Any", proposal_registry_module.tempfile.NamedTemporaryFile
+    )
+
+    class FailingTemporaryFile:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._temporary = real_named_temporary_file(*args, **kwargs)
+
+        @property
+        def name(self) -> str:
+            return self._temporary.name
+
+        def __enter__(self) -> FailingTemporaryFile:
+            self._temporary.__enter__()
+            return self
+
+        def __exit__(self, *args: object) -> object:
+            return self._temporary.__exit__(*args)
+
+        def write(self, _content: str) -> int:
+            raise OSError("injected write failure")
+
+    monkeypatch.setattr(
+        proposal_registry_module.tempfile,
+        "NamedTemporaryFile",
+        FailingTemporaryFile,
+    )
+
+    with pytest.raises(OSError, match="injected write failure"):
+        write_proposal_registry(registry, target)
+    assert target.read_text(encoding="utf-8") == "preserved\n"
+    assert tuple(tmp_path.glob(".registry.json.*.tmp")) == ()
+
+
+@pytest.mark.unit
+def test_malformed_registry_cli_writes_no_export(tmp_path: Path) -> None:
+    source = tmp_path / "invalid.json"
+    output = tmp_path / "exports"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "source_identity": _SOURCE_IDENTITY,
+                "ontology_version": "26.07d",
+                "proposals": [],
+                "registry_identity": "0" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="identity does not match"):
+        adjudication_main(["export-proposals", str(source), str(output)])
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_adjudication_cli_validates_and_exports_proposal_registry(
     tmp_path: Path,
 ) -> None:
@@ -649,7 +1057,7 @@ def test_adjudication_cli_validates_and_exports_proposal_registry(
     )
     path = tmp_path / "registry.json"
     output = tmp_path / "exports"
-    path.write_text(registry.model_dump_json(), encoding="utf-8")
+    write_proposal_registry(registry, path)
 
     adjudication_main(["export-proposals", str(path), str(output)])
 
@@ -673,3 +1081,12 @@ def test_tracked_proposal_registry_remains_valid() -> None:
         for proposal in registry.filter(kind="relation", status="locally-approved")
     ] == ["RELPROP-8637e8500dff"]
     assert len(registry.filter(kind="relation", status="proposed")) == 5
+    assert registry.schema_version == 2
+    assert registry.registry_identity == (
+        "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1"
+    )
+    assert Counter(proposal.status for proposal in registry.proposals) == {
+        "locally-approved": 2,
+        "proposed": 5,
+    }
+    assert all(proposal.status != "accepted" for proposal in registry.proposals)

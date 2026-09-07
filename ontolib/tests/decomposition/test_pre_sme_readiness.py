@@ -160,8 +160,8 @@ def _composed_readiness_inputs(
     monkeypatch.setattr(module, "load_r101_conservation_report", lambda _path: report)
     monkeypatch.setattr(
         module,
-        "load_proposal_registry",
-        lambda _path: SimpleNamespace(
+        "validate_migrated_proposal_registry",
+        lambda _migration, _path: SimpleNamespace(
             registry_identity=evidence.proposal_registry_identity
         ),
     )
@@ -191,6 +191,8 @@ def _composed_readiness_inputs(
         "r101_report": unused,
         "r101_validation": validation_path,
         "proposal_registry": unused,
+        "proposal_registry_migration": golden
+        / "proposal-registry-schema2-migration.json",
         "row_decisions": golden / "neoplasm-row-decisions.json",
         "primary_site_audit": audit_path,
         "group_packet": unused,
@@ -440,6 +442,7 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "r101_current_packet_identity": "5" * 64,
         "r101_validation_identity": "6" * 64,
         "proposal_registry_identity": "7" * 64,
+        "proposal_registry_migration_identity": "c" * 64,
         "row_decisions_identity": "d" * 64,
         "primary_site_audit_identity": "8" * 64,
         "primary_site_resolved_count": 1,
@@ -990,6 +993,7 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             r101_report=tmp_path / "absent-report.json.gz",
             r101_validation=tmp_path / "absent-r101-validation.json",
             proposal_registry=tmp_path / "absent-proposals.json",
+            proposal_registry_migration=tmp_path / "absent-migration.json",
             row_decisions=tmp_path / "absent-row-decisions.json",
             primary_site_audit=tmp_path / "absent-audit.json",
             group_packet=tmp_path / "absent-group.json",
@@ -1070,6 +1074,9 @@ def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
 
     assert readiness.identities.r103_packet_identity == (
         "17c2349cdc0442d9f68d5ad1e7e22a51b85682408662f8ec46ae04bc7b90a449"
+    )
+    assert readiness.identities.proposal_registry_migration_identity == (
+        "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705"
     )
     revision = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
     assert r103_requirement.status == "satisfied-by-terminal-review"
