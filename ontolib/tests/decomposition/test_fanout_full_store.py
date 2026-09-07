@@ -32,6 +32,7 @@ async def test_observed_highest_fanout_matches_source_and_fixed_budgets() -> Non
         expected_source_identity=manifest.source_identity,
         expected_release=manifest.ontology_version,
     )
+    assert (baseline.scope_root, baseline.scanned_concept_count) == ("C3262", 15_633)
     url = os.environ.get(
         "NCIT_STATED_SPARQL_URL",
         os.environ.get("NCIT_SPARQL_URL", "http://localhost:7888"),
@@ -43,10 +44,19 @@ async def test_observed_highest_fanout_matches_source_and_fixed_budgets() -> Non
             await rerun_fanout_concept(client, code) for code in baseline.concept_codes
         ]
 
-    assert all(
-        item.restriction_fact_count == baseline.restriction_fact_count
-        and item.restriction_occurrence_count == baseline.restriction_occurrence_count
-        and item.logical_select_count <= baseline.logical_select_count_budget
-        and item.select_once_r82_count <= baseline.select_once_r82_count_budget
+    assert observations, "tracked exhaustive C3262 scope maximum has no concepts"
+    failures = [
+        item
         for item in observations
+        if not (
+            item.restriction_fact_count == baseline.restriction_fact_count
+            and item.restriction_occurrence_count
+            == baseline.restriction_occurrence_count
+            and item.logical_select_count <= baseline.logical_select_count_budget
+            and item.select_once_r82_count <= baseline.select_once_r82_count_budget
+        )
+    ]
+    assert not failures, (
+        "C3262 neoplasm-scope highest-fanout rerun drifted from the tracked counts "
+        f"or query budgets: {failures!r}"
     )

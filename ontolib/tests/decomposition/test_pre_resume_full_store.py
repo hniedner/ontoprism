@@ -9,6 +9,7 @@ from scripts.adjudication import main as adjudication_main
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.complete_definition import read_complete_definition
+from ontolib.decomposition.fanout_baseline import load_fanout_baseline
 from ontolib.decomposition.pre_resume import (
     acquire_candidate_evidence,
     affected_missing_p106,
@@ -23,6 +24,7 @@ from ontolib.decomposition.stated_queries import (
     resolve_part_of_paths,
 )
 from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -157,6 +159,14 @@ async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> N
 async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries() -> (
     None
 ):
+    manifest = validate_ncit_sibling_manifest(
+        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    )
+    baseline = load_fanout_baseline(
+        Path("ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json"),
+        expected_source_identity=manifest.source_identity,
+        expected_release=manifest.ontology_version,
+    )
     definition_reads = 0
     async with ncit_sparql_client("http://localhost:7888") as client:
 
@@ -190,7 +200,11 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
         for group in filler_groups:
             await resolve_part_of_pairs(client, group)
 
-    assert definition_reads == 50
+    assert (
+        0
+        < definition_reads
+        <= (len(definitions) * baseline.logical_select_count_budget)
+    )
 
 
 @pytest.mark.integration

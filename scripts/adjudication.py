@@ -210,7 +210,7 @@ class _CurrentEvidenceArgs(Protocol):
     oracle: Path
     row_decisions: Path
     proposal_registry: Path
-    proposal_registry_migration: Path | None
+    proposal_registry_migration: Path
     run_id: str
     artifact: Path
     engine_output: Path
@@ -1065,7 +1065,9 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     current_parser.add_argument("--oracle", required=True, type=Path)
     current_parser.add_argument("--row-decisions", required=True, type=Path)
     current_parser.add_argument("--proposal-registry", required=True, type=Path)
-    current_parser.add_argument("--proposal-registry-migration", type=Path)
+    current_parser.add_argument(
+        "--proposal-registry-migration", required=True, type=Path
+    )
     current_parser.add_argument("--run-id", required=True)
     current_parser.add_argument("--artifact", required=True, type=Path)
     current_parser.add_argument("--engine-output", required=True, type=Path)

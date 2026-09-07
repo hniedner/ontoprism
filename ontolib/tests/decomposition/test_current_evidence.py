@@ -480,6 +480,65 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
 
 
 @pytest.mark.unit
+def test_current_models_require_the_proposal_registry_migration_identity() -> None:
+    for model, path, identity_field in (
+        (CurrentEngineEvidence, _TRACKED_CURRENT_EVIDENCE, "evidence_identity"),
+        (CurrentComparison, _TRACKED_CURRENT_COMPARISON, "comparison_identity"),
+    ):
+        payload = json.loads(path.read_text())
+        payload.pop("proposal_registry_migration_identity")
+        payload[identity_field] = _payload_identity(
+            {key: value for key, value in payload.items() if key != identity_field}
+        )
+
+        with pytest.raises(ValueError, match="proposal_registry_migration_identity"):
+            model.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("migration_kind", ["missing", "malformed", "drifted"])
+def test_invalid_migration_envelopes_fail_before_current_output_replacement(
+    tmp_path: Path,
+    migration_kind: str,
+) -> None:
+    artifact = tmp_path / "current.ttl"
+    migration = tmp_path / "migration.json"
+    engine_output = tmp_path / "engine.json"
+    comparison_output = tmp_path / "comparison.json"
+    _empty_artifact(artifact)
+    engine_output.write_bytes(b"original engine\n")
+    comparison_output.write_bytes(b"original comparison\n")
+    if migration_kind == "malformed":
+        migration.write_text("{")
+    elif migration_kind == "drifted":
+        payload = json.loads(_REGISTRY_MIGRATION.read_text())
+        payload["new_registry"]["registry_identity"] = "0" * 64
+        payload["envelope_identity"] = _payload_identity(
+            {key: value for key, value in payload.items() if key != "envelope_identity"}
+        )
+        migration.write_text(json.dumps(payload))
+
+    with pytest.raises(CurrentEvidenceValidationError):
+        asyncio.run(
+            generate_current_evidence(
+                sample_manifest=_MANIFEST,
+                oracle=_ORACLE,
+                row_decisions=_ROWS,
+                proposal_registry=_REGISTRY,
+                proposal_registry_migration=migration,
+                run_id="current-run",
+                artifact=artifact,
+                engine_output=engine_output,
+                comparison_output=comparison_output,
+                store=_Store(artifact),
+            )
+        )
+
+    assert engine_output.read_bytes() == b"original engine\n"
+    assert comparison_output.read_bytes() == b"original comparison\n"
+
+
+@pytest.mark.unit
 def test_row_replay_classifies_every_status() -> None:
     rows = load_row_decisions(_ROWS)
     adjudication = load_migrated_historical_adjudication(
@@ -1048,6 +1107,7 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         ("oracle_identity", "oracle"),
         ("row_decision_identity", "row decision"),
         ("proposal_registry_identity", "proposal registry"),
+        ("proposal_registry_migration_identity", "proposal registry migration"),
         ("current_evidence_identity", "evidence"),
     ],
 )

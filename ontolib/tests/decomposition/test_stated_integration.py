@@ -171,6 +171,68 @@ class _SingleAttemptClient:
         )
 
 
+class _RecordingRowsClient:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.calls: list[
+            tuple[str, str, tuple[str, ...], list[dict[str, str | None]]]
+        ] = []
+
+    async def select(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        rows = await self._client.select(query, required_variables=required_variables)
+        copied = [dict(row) for row in rows]
+        self.calls.append(("select", query, tuple(sorted(required_variables)), copied))
+        return copied
+
+    async def select_once(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        rows = await self._client.select_once(
+            query, required_variables=required_variables
+        )
+        copied = [dict(row) for row in rows]
+        self.calls.append(
+            ("select_once", query, tuple(sorted(required_variables)), copied)
+        )
+        return copied
+
+
+class _DeterministicRowsDouble:
+    def __init__(
+        self,
+        calls: list[tuple[str, str, tuple[str, ...], list[dict[str, str | None]]]],
+    ) -> None:
+        self._calls = iter(calls)
+        self.consumed = 0
+
+    async def _next(
+        self,
+        method: str,
+        query: str,
+        required_variables: Collection[str],
+    ) -> list[dict[str, str | None]]:
+        expected_method, expected_query, expected_required, rows = next(self._calls)
+        assert (method, query, tuple(sorted(required_variables))) == (
+            expected_method,
+            expected_query,
+            expected_required,
+        )
+        self.consumed += 1
+        return [dict(row) for row in rows]
+
+    async def select(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return await self._next("select", query, required_variables)
+
+    async def select_once(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return await self._next("select_once", query, required_variables)
+
+
 @pytest.mark.integration
 async def test_stated_query_builders_parse_against_disposable_store(
     isolated_qlever_url: str,
@@ -263,6 +325,139 @@ async def test_axis_range_double_matches_disposable_qlever(
     )
 
     assert real == doubled == ("valid", "invalid", "unknown")
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_occurrence_selection_double_matches_disposable_qlever_rows(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+
+        ncit:C99750 ncit:P106 "Neoplastic Process" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99751
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R101 ;
+                      owl:someValuesFrom ncit:C99752 ]
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R101 ;
+                      owl:someValuesFrom ncit:C99752 ]
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R105 ;
+                      owl:someValuesFrom ncit:C99753 ]
+                )
+            ] .
+        ncit:C99752 ncit:P106 "Anatomic Structure, System, or Substance" .
+        ncit:C99753 ncit:P106 "Cell" .
+    """
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        recording = _RecordingRowsClient(client)
+        real = await _decompose_one(
+            "C99750", recording, label=None, label_lookup=no_label_match
+        )
+
+    doubled_client = _DeterministicRowsDouble(recording.calls)
+    doubled = await _decompose_one(
+        "C99750", doubled_client, label=None, label_lookup=no_label_match
+    )
+
+    assert doubled_client.consumed == len(recording.calls) > 0
+    assert real == doubled
+    assert real.decomposition is not None
+    complete = real.decomposition.complete_definition
+    assert complete is not None
+    restrictions = tuple(
+        fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
+    )
+    assert len(restrictions) == 2
+    assert len(complete.groups) == 1
+    facts_by_pair = {(item.role_code, item.filler_code): item for item in restrictions}
+    assert [
+        (
+            item.occurrence_id,
+            item.anchor_code,
+            item.depth,
+            item.role_code,
+            item.filler_code,
+            item.structural_path,
+            item.member_position,
+            item.source_fact_id,
+            item.source_group_id,
+        )
+        for item in complete.occurrences
+    ] == [
+        (
+            item.occurrence_id,
+            "C99750",
+            0,
+            role,
+            filler,
+            (0, position),
+            position,
+            facts_by_pair[(role, filler)].fact_id,
+            complete.groups[0].group_id,
+        )
+        for position, (item, role, filler) in enumerate(
+            zip(
+                complete.occurrences,
+                ("R101", "R101", "R105"),
+                ("C99752", "C99752", "C99753"),
+                strict=True,
+            ),
+            start=1,
+        )
+    ]
+    selected = real.decomposition.constituents
+    assert [
+        (
+            item.axis,
+            item.filler_code,
+            item.source_definition_ids,
+            item.source_occurrence_ids,
+        )
+        for item in selected
+    ] == [
+        (
+            "op:CellType",
+            "C99753",
+            (facts_by_pair[("R105", "C99753")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R105"
+                )
+            ),
+        ),
+        (
+            "op:PrimarySite",
+            "C99752",
+            (facts_by_pair[("R101", "C99752")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R101"
+                )
+            ),
+        ),
+    ]
 
 
 @pytest.mark.integration
