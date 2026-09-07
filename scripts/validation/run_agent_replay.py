@@ -1233,6 +1233,113 @@ def _generate_r103_review(values: list[str], root: Path, runner: CommandRunner) 
     )
 
 
+def _generate_r103_evidence_application(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-r103-evidence-application accepts no arguments"
+        )
+    relatives = (
+        "data/ncit-owl/Thesaurus-stated.owl",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+    )
+    paths = tuple(Path(item) for item in _require_files(root, relatives))
+    generate = importlib.import_module(
+        "ontolib.decomposition.r103_evidence_application"
+    ).generate_r103_evidence_application
+    try:
+        artifacts = asyncio.run(
+            generate(
+                endpoint="http://localhost:7888",
+                owl_path=paths[0],
+                manifest_path=paths[1],
+                rev1_path=paths[2],
+                rev2_path=paths[3],
+                historical_corroboration_path=paths[4],
+                proposal_registry_path=paths[5],
+                migration_path=paths[6],
+                oracle_path=paths[7],
+                output_directory=root / "ontolib/tests/decomposition/golden",
+            )
+        )
+        generate_specificity = importlib.import_module(
+            "ontolib.decomposition.r103_specificity_review"
+        ).generate_specificity_review_artifacts
+        specificity_artifacts = generate_specificity(
+            inventory_path=root
+            / "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+            candidate_path=root
+            / "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+            authority_path=root
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "r103-authority-normalized-26.07d.json"
+            ),
+            revision_path=paths[3],
+            output_directory=root / "ontolib/tests/decomposition/golden",
+        )
+        artifacts = (*artifacts, *specificity_artifacts)
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    print(
+        " ".join(
+            f"artifact_{index}={item.artifact_identity}"
+            for index, item in enumerate(artifacts, 1)
+        ),
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _transcribe_r103_specificity_selection(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "transcribe-r103-specificity-selection accepts no arguments"
+        )
+    relatives = (
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-pending-26.07d.json",
+    )
+    paths = tuple(Path(item) for item in _require_files(root, relatives))
+    generate = importlib.import_module(
+        "ontolib.decomposition.r103_specificity_review"
+    ).generate_selected_specificity_review
+    try:
+        generate(
+            inventory_path=paths[0],
+            candidate_path=paths[1],
+            authority_path=paths[2],
+            application_path=paths[3],
+            revision_path=paths[4],
+            target_path=paths[5],
+            pending_path=paths[6],
+            output_path=root
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "r103-c2860-specificity-selected-26.07d.json"
+            ),
+        )
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
+
+
 def _validate_r101_current(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("validate-r101-current accepts no arguments")
@@ -1380,6 +1487,13 @@ def _generate_pre_sme_readiness(
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-selected-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     paths = tuple(Path(item) for item in _require_files(root, relatives))
@@ -1400,6 +1514,13 @@ def _generate_pre_sme_readiness(
         "primary_site_audit",
         "group_packet",
         "r103_review_state",
+        "r103_source_inventory",
+        "r103_candidates",
+        "r103_authority",
+        "r103_corroboration",
+        "r103_applied_policy",
+        "r103_specificity_target",
+        "r103_specificity_review",
         "verify_evidence",
     )
     output = root / "tmp/m1-6-machine-readiness.json"
@@ -2567,6 +2688,8 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-specialist-review-packets": _generate_specialist_review_packets,
     "validate-specialist-review-generation": _validate_specialist_review_generation,
     "generate-r103-review": _generate_r103_review,
+    "generate-r103-evidence-application": _generate_r103_evidence_application,
+    "transcribe-r103-specificity-selection": (_transcribe_r103_specificity_selection),
     "validate-r101-current": _validate_r101_current,
     "verify-enhanced-ncit-showcase": _verify_enhanced_ncit_showcase,
     "regenerate-r101-current-packet": _regenerate_r101_current_packet,

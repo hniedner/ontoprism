@@ -1,0 +1,18 @@
+{
+  "artifact_identity": "0b678e7f220cb89be4b9ffeb24833dfb5c3f2aadd706d70de5c02c33fa1f0197",
+  "authority_artifact_identity": "429bb9c8f7c40ff3b3032d377e57d1289369cd8a2e539fb3a705558fa75b2afd",
+  "candidate_artifact_identity": "5540d804ea9dbcb49148f47a66bdf4aef1b1e2eee79495a94305d864bcb0e20f",
+  "filler_code": "C12950",
+  "predecessor_decision_identity": "921d4b2386bfec3b45106389c0ece417c9cf5bb8fda4d41e3f1ca3ad22d7c2a7",
+  "prior_decision_identity": "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27",
+  "release": "26.07d",
+  "role_code": "R103",
+  "schema_version": 1,
+  "source_fact_identity": "385b9962eed179a61b29593959f42fe4cd24c53fca05b185bb51434f9b085131",
+  "source_group_identity": "e61e45cb115b5c13d559794228d2286e1c5790596fb7578fee93a60f6fb2927d",
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+  "source_inventory_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355",
+  "source_occurrence_identity": "f82f07767009dc2b4c45d4189faa6fa88ad234c941575c82ab7b248674373293",
+  "source_row_identity": "317a8871d69f8155a64c8198a6cbc1fcc87487274bb59c3142ba84488fccf0ec",
+  "subject_code": "C2860"
+}

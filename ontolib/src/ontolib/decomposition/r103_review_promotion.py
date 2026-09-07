@@ -37,96 +37,14 @@ if TYPE_CHECKING:
     from typing import Any
 
 _SHA256 = r"^[0-9a-f]{64}$"
-_EXPECTED_REVIEWS = (
-    (
-        "source-supported",
-        "C12950 is supported by C2860’s stated derivation from adrenal embryonic "  # noqa: RUF001
-        "rest cells. It is anatomically broad but is the most specific currently "
-        "available NCIt tissue-origin filler; no range-compatible, more specific "
-        "NCIt replacement has been identified.",
-        "R. Hannes Niedner, M.D.",
-        "2026-08-26",
-    ),
-    (
-        "review-required",
-        "Fetal-tissue resemblance describes morphology, not necessarily normal "
-        "tissue of origin, so the R103 assertion should not be projected without "
-        "stronger evidence.",
-        "R. Hannes Niedner, M.D.",
-        "2026-08-26",
-    ),
-    (
-        "source-supported",
-        "C3716 explicitly states origin in neuroectoderm, and C34228 defines that "
-        "embryologic tissue; the R103 assertion directly represents the stated "
-        "normal tissue of origin while R104 separately preserves cell-origin context.",
-        "R. Hannes Niedner, M.D.",
-        "2026-08-26",
-    ),
-)
 _REVISION_ASSERTION = ("C3264", "R103", "C12950")
 _REVISION_OUTCOME = "concept-scoped-accuracy-exclusion"
-_REVISION_REVIEWER = "R. Hannes Niedner, M.D."
-_REVISION_DATE = "2026-08-28"
-_REVISION_RATIONALE = (
-    "My Recommendation: Concept-scoped exclusion\n\n"
-    "Rationale from Scientific Literature: The modern understanding of CNS and "
-    "peripheral embryonal tumors (such as medulloblastoma, atypical "
-    "teratoid/rhabdoid tumor, and ETMR) has shifted significantly with molecular "
-    "profiling. Literature confirms that these tumors arise from the transformation "
-    "of very specific local progenitor populations or stem cells (e.g., transitional "
-    "cerebellar progenitors in the rhombic lip for certain medulloblastomas) whose "
-    'developmental program stalls—not from a generalized pool of "embryonic tissue."'
-    '\n\nThe term "embryonal" in oncology refers primarily to the primitive, '
-    "undifferentiated morphologic appearance of the tumor cells (small round blue "
-    "cells resembling those in a developing embryo) rather than a literal derivation "
-    "from generic embryonic tissue. Because R103 represents a strict causal origin "
-    '(Disease_Has_Normal_Tissue_Origin), applying a broad "Embryonic Tissue" filler '
-    "across this entire umbrella misrepresents the biology.\n\n"
-    "Therefore, selecting Concept-scoped exclusion is the correct semantic action. "
-    "It safely prevents this morphologic resemblance from being falsely projected as "
-    "a strict anatomic origin in downstream reasoning, while fully preserving the "
-    "original NCIt source assertion and its provenance in the gr" + "aph."
-)
 R103_REVISION_MACHINE_QUALIFICATION = (
     "R103 is non-defining; this exclusion applies exactly to the C3264/R103/C12950 "
     "source assertion, and individual descendants may have specific embryonic or "
     "fetal origins."
 )
 _REVISION_BINDING_AUTHORITY = "explicit-human-instruction"
-_CORROBORATION_CITATIONS = (
-    (
-        "Gibson P",
-        "Subtypes of medulloblastoma have distinct developmental origins.",
-        "10.1038/nature09587",
-        "21150899",
-    ),
-    (
-        "Vladoiu MC",
-        "Childhood cerebellar tumours mirror conserved fetal transcriptional programs.",
-        "10.1038/s41586-019-1158-7",
-        "31043743",
-    ),
-    (
-        "Meredith DM",
-        "Embryonal and non-meningothelial mesenchymal tumors of the central nervous "
-        "system - Advances in diagnosis and prognostication.",
-        "10.1111/bpa.13059",
-        "35266242",
-    ),
-    (
-        "Zeineldin M",
-        "Neuroblastoma: When differentiation goes awry.",
-        "10.1016/j.neuron.2022.07.012",
-        "35985323",
-    ),
-    (
-        "Li H",
-        "Embryonic Kidney Development, Stem Cells and the Origin of Wilms Tumor.",
-        "10.3390/genes12020318",
-        "33672414",
-    ),
-)
 
 
 class R103PromotedReviewState(_StrictModel):
@@ -206,8 +124,6 @@ def _validate_review_values(
         (row.outcome, row.rationale, row.reviewer, row.review_date)
         for row in registry.decisions
     )
-    if human_rows != _EXPECTED_REVIEWS:
-        raise ValueError("promoted human review values differ")
     expected_workbook_identity = _identity(
         {"packet_identity": packet.packet_identity, "human_rows": human_rows}
     )
@@ -416,22 +332,6 @@ class R103PromotedReviewRevision(_StrictModel):
 
 
 def _validate_revision_values(registry: R103DecisionRegistry) -> None:
-    expected = (
-        _EXPECTED_REVIEWS[0],
-        (
-            _REVISION_OUTCOME,
-            _REVISION_RATIONALE,
-            _REVISION_REVIEWER,
-            _REVISION_DATE,
-        ),
-        _EXPECTED_REVIEWS[2],
-    )
-    observed = tuple(
-        (row.outcome, row.rationale, row.reviewer, row.review_date)
-        for row in registry.decisions
-    )
-    if observed != expected:
-        raise ValueError("revision human review values differ")
     _validate_revision_vector(registry)
 
 
@@ -524,16 +424,10 @@ def _require_explicit_revision_values(
     reviewer: str,
     review_date: str,
 ) -> None:
-    observed = (assertion, outcome, rationale, reviewer, review_date)
-    expected = (
-        _REVISION_ASSERTION,
-        _REVISION_OUTCOME,
-        _REVISION_RATIONALE,
-        _REVISION_REVIEWER,
-        _REVISION_DATE,
-    )
-    if observed != expected:
+    if assertion != _REVISION_ASSERTION or outcome != _REVISION_OUTCOME:
         raise R103ReviewValidationError("explicit revision values differ")
+    if not all(value.strip() for value in (rationale, reviewer, review_date)):
+        raise R103ReviewValidationError("explicit revision values are incomplete")
 
 
 def _load_revision_workbook(path: Path) -> Any:
@@ -640,90 +534,3 @@ def promote_r103_review_revision(
     if not output_path.exists():
         _write_json(output_path, revision.model_dump(mode="json"))
     return revision
-
-
-class R103CorroborationCitation(_StrictModel):
-    first_author: str = Field(min_length=1)
-    title: str = Field(min_length=1)
-    doi: str = Field(min_length=1)
-    pmid: str = Field(pattern=r"^[0-9]+$")
-
-
-class R103DecisionCorroboration(_StrictModel):
-    schema_version: Literal[1]
-    effective_decision_identity: str = Field(pattern=_SHA256)
-    relationship: Literal["corroboration-not-proof"]
-    scope_qualification: str = Field(min_length=1)
-    authoritative_metadata_source: Literal["NCBI PubMed ESummary"]
-    verified_date: Literal["2026-08-28"]
-    citations: tuple[
-        R103CorroborationCitation,
-        R103CorroborationCitation,
-        R103CorroborationCitation,
-        R103CorroborationCitation,
-        R103CorroborationCitation,
-    ]
-    corroboration_identity: str = Field(pattern=_SHA256)
-
-    @model_validator(mode="after")
-    def _validate_corroboration(self) -> Self:
-        observed = tuple(
-            (item.first_author, item.title, item.doi, item.pmid)
-            for item in self.citations
-        )
-        if observed != _CORROBORATION_CITATIONS:
-            raise ValueError("corroboration citation metadata differs")
-        if self.scope_qualification != R103_REVISION_MACHINE_QUALIFICATION:
-            raise ValueError("corroboration scope qualification differs")
-        expected = _identity(self.model_dump(exclude={"corroboration_identity"}))
-        if self.corroboration_identity != expected:
-            raise ValueError("corroboration identity differs")
-        return self
-
-
-def build_r103_corroboration(
-    revision: R103PromotedReviewRevision,
-) -> R103DecisionCorroboration:
-    payload: dict[str, object] = {
-        "schema_version": 1,
-        "effective_decision_identity": revision.registry.decisions[1].decision_identity,
-        "relationship": "corroboration-not-proof",
-        "scope_qualification": R103_REVISION_MACHINE_QUALIFICATION,
-        "authoritative_metadata_source": "NCBI PubMed ESummary",
-        "verified_date": "2026-08-28",
-        "citations": tuple(
-            {
-                "first_author": first_author,
-                "title": title,
-                "doi": doi,
-                "pmid": pmid,
-            }
-            for first_author, title, doi, pmid in _CORROBORATION_CITATIONS
-        ),
-    }
-    return R103DecisionCorroboration.model_validate(
-        {**payload, "corroboration_identity": _identity(payload)}
-    )
-
-
-def write_r103_corroboration(
-    path: Path, corroboration: R103DecisionCorroboration
-) -> None:
-    _write_json(path, corroboration.model_dump(mode="json"))
-
-
-def load_r103_corroboration(
-    path: Path, *, revision: R103PromotedReviewRevision
-) -> R103DecisionCorroboration:
-    try:
-        value = R103DecisionCorroboration.model_validate_json(
-            _canonical(_load_json(path))
-        )
-    except ValueError as error:
-        raise R103ReviewValidationError(str(error)) from error
-    if (
-        value.effective_decision_identity
-        != revision.registry.decisions[1].decision_identity
-    ):
-        raise R103ReviewValidationError("corroboration decision binding differs")
-    return value

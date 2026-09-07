@@ -368,6 +368,32 @@ Machine readiness may mark only the R103 requirement satisfied; group review, R1
 and final scientific acceptance/publication remain separate human requirements, so overall
 authorization remains false.
 
+**C2860 specificity resolution (2026-09-07):** the accountable user selected
+`qualify-global-most-specific-claim` for `C2860/R103/C12950`. `C12950` remains the
+source-supported effective filler, and none of the 16 named stated descendants enumerated beneath
+`C12950` in NCIt `26.07d` is a better normal-tissue-origin filler. That bounded
+comparison does not establish global NCIt optimality, so the prior rationale's claim that `C12950`
+is the globally most-specific available NCIt tissue-origin filler is withdrawn rather than carried
+into the effective rationale. The selected artifact binds the prior decision, candidate set,
+specificity target, and unchanged applied-policy report; it creates no correction proposal, infers
+no NCI adoption, and records software only as transcriber
+(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
+
+Two literature records provide context for adrenal-rest-tumour origin without deciding the NCIt
+candidate comparison: Claahsen-van der Grinten et al., “Testicular adrenal rest tumours in
+congenital adrenal hyperplasia,” PMID
+[19500764](https://pubmed.ncbi.nlm.nih.gov/19500764/),
+doi:[10.1016/j.beem.2008.09.007](https://doi.org/10.1016/j.beem.2008.09.007), and Schröder et al.,
+“Transcriptional comparison of testicular adrenal rest tumors with fetal and adult tissues,” PMID
+[36047744](https://pubmed.ncbi.nlm.nih.gov/36047744/),
+doi:[10.1530/EJE-22-0143](https://doi.org/10.1530/EJE-22-0143). Citation metadata was retrieved from
+the NCBI PubMed ESummary endpoints for
+[19500764](https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=19500764&retmode=json)
+and
+[36047744](https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=36047744&retmode=json)
+(`GET` of each linked ESummary URL, 2026-09-07). These references are corroborating context, not an
+AI recommendation, a candidate-selection verdict, or evidence of global NCIt specificity.
+
 ## 2026-08-22 — Python domain values and wire documents have separate model systems
 
 ### D79. Dataclasses model domain values; Pydantic models validate boundaries

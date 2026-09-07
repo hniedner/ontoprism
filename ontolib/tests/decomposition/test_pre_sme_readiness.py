@@ -40,6 +40,9 @@ from ontolib.decomposition.r101_conservation import load_r101_conservation_repor
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
 )
+from ontolib.decomposition.r103_specificity_review import (
+    R103SelectedSpecificityReview,
+)
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _OP = "https://w3id.org/ontoprism/vocab#"
@@ -148,12 +151,41 @@ def _composed_readiness_inputs(
         packet_identity="4" * 64,
         review_rows=(None,) * 18,
     )
+    source_fixture = module.load_source_inventory(
+        golden / "r103-source-inventory-26.07d.json"
+    )
+    candidate_fixture = module.load_candidate_artifact(
+        golden / "r103-c12950-candidates-26.07d.json"
+    )
+    fixture_manifest_identity = module._identity({})
     monkeypatch.setattr(
         module,
         "validate_ncit_sibling_manifest",
         lambda _path: SimpleNamespace(
             source_identity=report.source_identity,
             ontology_version=report.source_release_id,
+            stated_artifact=SimpleNamespace(
+                artifact_identity=source_fixture.source_artifact_identity,
+                sha256=source_fixture.source_artifact_sha256,
+                size_bytes=source_fixture.source_artifact_size,
+            ),
+            graph_layout=SimpleNamespace(
+                stated_graph_iri=source_fixture.stated_graph_iri
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_source_inventory",
+        lambda _path: source_fixture.model_copy(
+            update={"source_manifest_identity": fixture_manifest_identity}
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_candidate_artifact",
+        lambda _path: candidate_fixture.model_copy(
+            update={"source_manifest_identity": fixture_manifest_identity}
         ),
     )
     monkeypatch.setattr(module, "load_corpus_baseline", lambda _path: baseline)
@@ -173,7 +205,12 @@ def _composed_readiness_inputs(
         packet = revision.packet.model_copy(
             update={"candidate_manifest_identity": module._identity({})}
         )
-        return SimpleNamespace(packet=packet, registry=revision.registry)
+        return SimpleNamespace(
+            packet=packet,
+            registry=revision.registry,
+            predecessor=revision.predecessor,
+            artifact_identity=revision.artifact_identity,
+        )
 
     monkeypatch.setattr(
         module,
@@ -197,6 +234,14 @@ def _composed_readiness_inputs(
         "primary_site_audit": audit_path,
         "group_packet": unused,
         "r103_review_state": golden / "r103-review-state-26.07d-rev2.json",
+        "r103_source_inventory": golden / "r103-source-inventory-26.07d.json",
+        "r103_candidates": golden / "r103-c12950-candidates-26.07d.json",
+        "r103_authority": golden / "r103-authority-normalized-26.07d.json",
+        "r103_corroboration": golden / "r103-corroboration-normalized-26.07d.json",
+        "r103_applied_policy": golden / "r103-applied-policy-26.07d.json",
+        "r103_specificity_target": golden / "r103-c2860-specificity-target-26.07d.json",
+        "r103_specificity_review": golden
+        / "r103-c2860-specificity-selected-26.07d.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
@@ -998,6 +1043,13 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             primary_site_audit=tmp_path / "absent-audit.json",
             group_packet=tmp_path / "absent-group.json",
             r103_review_state=tmp_path / "absent-r103-state.json",
+            r103_source_inventory=tmp_path / "absent-r103-inventory.json",
+            r103_candidates=tmp_path / "absent-r103-candidates.json",
+            r103_authority=tmp_path / "absent-r103-authority.json",
+            r103_corroboration=tmp_path / "absent-r103-corroboration.json",
+            r103_applied_policy=tmp_path / "absent-r103-application.json",
+            r103_specificity_target=tmp_path / "absent-r103-target.json",
+            r103_specificity_review=tmp_path / "absent-r103-pending.json",
             verify_evidence=tmp_path / "absent-verify.json",
             expected_git_head="a" * 40,
             output=output,
@@ -1056,7 +1108,7 @@ def test_composed_readiness_rejects_changed_historical_row_decisions_without_out
 
 
 @pytest.mark.unit
-def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
+def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_selection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
@@ -1078,14 +1130,14 @@ def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
     assert readiness.identities.proposal_registry_migration_identity == (
         "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705"
     )
-    revision = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
-    assert r103_requirement.status == "satisfied-by-terminal-review"
-    assert r103_requirement.count == 3
-    assert r103_requirement.registry_identity == revision.registry.registry_identity
-    assert (
-        r103_requirement.decision_identity
-        == revision.registry.decisions[1].decision_identity
-    )
+    assert r103_requirement.status == "satisfied-by-specificity-review"
+    assert r103_requirement.count == 1
+    assert r103_requirement.selected_option == "qualify-global-most-specific-claim"
+    assert readiness.identities.r103_source_inventory_identity != "0" * 64
+    assert readiness.identities.r103_candidate_artifact_identity != "0" * 64
+    assert readiness.identities.r103_authority_artifact_identity != "0" * 64
+    assert readiness.identities.r103_corroboration_artifact_identity != "0" * 64
+    assert readiness.identities.r103_applied_policy_identity != "0" * 64
     assert readiness.authorization is False
     assert readiness.publication.publication_writes_performed is False
     assert "registry" not in payload
@@ -1093,6 +1145,212 @@ def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
     assert "concept-scoped-accuracy-exclusion" not in encoded
     assert "ready-for-separate-application" not in encoded
     assert "R. Hannes Niedner" not in encoded
+
+
+@pytest.mark.unit
+def test_r103_pending_status_is_not_inferred_from_candidate_artifact_presence() -> None:
+    assert "r103_human_selection_required" not in MachineReadinessInputs.model_fields
+    assert "r103_specificity_review_identity" in MachineReadinessInputs.model_fields
+    parameters = inspect.signature(generate_pre_sme_readiness).parameters
+    assert "r103_specificity_review" in parameters
+    assert "r103_pending_specificity_review" not in parameters
+
+
+@pytest.mark.unit
+def test_selected_r103_review_resolves_pending_without_changing_evidence() -> None:
+    payload = _machine_readiness_input_payload()
+    evidence_identities = {
+        "r103_source_inventory_identity": "1" * 64,
+        "r103_candidate_artifact_identity": "2" * 64,
+        "r103_authority_artifact_identity": "3" * 64,
+        "r103_corroboration_artifact_identity": "4" * 64,
+        "r103_applied_policy_identity": "5" * 64,
+        "r103_specificity_target_identity": "6" * 64,
+    }
+    selected_payload = {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "question": (
+            "For C2860/R103/C12950, does one of the 16 enumerated named stated "
+            "descendants of C12950 in NCIt 26.07d provide a better "
+            "normal-tissue-origin filler than C12950?"
+        ),
+        "selected_option": "qualify-global-most-specific-claim",
+        "selected_candidate_code": None,
+        "enumerated_candidate_count": 16,
+        "bounded_conclusion": (
+            "None of the 16 enumerated named stated descendants of C12950 in NCIt "
+            "26.07d is a better normal-tissue-origin filler for C2860/R103 than "
+            "C12950."
+        ),
+        "effective_outcome": "source-supported",
+        "effective_rationale": (
+            "Retain C12950 as the source-supported C2860/R103 filler. None of the "
+            "16 enumerated named stated descendants of C12950 in NCIt 26.07d is a "
+            "better normal-tissue-origin filler for C2860/R103 than C12950. This "
+            "bounded comparison does not establish that C12950 is the globally "
+            "most-specific available NCIt filler."
+        ),
+        "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
+        "target_artifact_identity": evidence_identities[
+            "r103_specificity_target_identity"
+        ],
+        "candidate_artifact_identity": evidence_identities[
+            "r103_candidate_artifact_identity"
+        ],
+        "applied_policy_identity": evidence_identities["r103_applied_policy_identity"],
+        "prior_decision_identity": "9" * 64,
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
+        "software_selected_answer": False,
+    }
+    selected = R103SelectedSpecificityReview.model_validate(
+        {**selected_payload, "artifact_identity": _identity(selected_payload)}
+    )
+    payload.update(
+        **evidence_identities,
+        r103_registry_identity="7" * 64,
+        r103_c3264_terminal_decision_identity="8" * 64,
+        r103_specificity_review_identity=selected.artifact_identity,
+        r103_specificity_review=selected,
+    )
+
+    readiness = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
+    requirement = next(
+        item
+        for item in readiness.human_requirements
+        if item.requirement == "r103-review"
+    )
+
+    assert requirement.status == "satisfied-by-specificity-review"
+    assert requirement.count == 1
+    assert requirement.selected_option == "qualify-global-most-specific-claim"
+    assert requirement.effective_outcome == "source-supported"
+    assert (
+        requirement.global_claim_disposition
+        == "withdrawn-bounded-comparison-not-global-proof"
+    )
+    assert requirement.confirmation_date == "2026-09-07"
+    assert requirement.proposal_created is False
+    assert requirement.nci_adoption_inferred is False
+    assert (
+        readiness.identities.r103_specificity_review_status
+        == "selected-human-specificity-review"
+    )
+    assert readiness.identities.r103_candidate_artifact_identity == "2" * 64
+    assert readiness.identities.r103_source_inventory_identity == "1" * 64
+
+
+@pytest.mark.unit
+def test_selected_r103_review_rejects_another_applied_policy() -> None:
+    payload = _machine_readiness_input_payload()
+    selected_payload = {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "question": (
+            "For C2860/R103/C12950, does one of the 16 enumerated named stated "
+            "descendants of C12950 in NCIt 26.07d provide a better "
+            "normal-tissue-origin filler than C12950?"
+        ),
+        "selected_option": "qualify-global-most-specific-claim",
+        "selected_candidate_code": None,
+        "enumerated_candidate_count": 16,
+        "bounded_conclusion": (
+            "None of the 16 enumerated named stated descendants of C12950 in NCIt "
+            "26.07d is a better normal-tissue-origin filler for C2860/R103 than "
+            "C12950."
+        ),
+        "effective_outcome": "source-supported",
+        "effective_rationale": (
+            "Retain C12950 as the source-supported C2860/R103 filler. None of the "
+            "16 enumerated named stated descendants of C12950 in NCIt 26.07d is a "
+            "better normal-tissue-origin filler for C2860/R103 than C12950. This "
+            "bounded comparison does not establish that C12950 is the globally "
+            "most-specific available NCIt filler."
+        ),
+        "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
+        "target_artifact_identity": "6" * 64,
+        "candidate_artifact_identity": "2" * 64,
+        "applied_policy_identity": "0" * 64,
+        "prior_decision_identity": "9" * 64,
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
+        "software_selected_answer": False,
+    }
+    selected = R103SelectedSpecificityReview.model_validate(
+        {**selected_payload, "artifact_identity": _identity(selected_payload)}
+    )
+    payload.update(
+        r103_source_inventory_identity="1" * 64,
+        r103_candidate_artifact_identity="2" * 64,
+        r103_authority_artifact_identity="3" * 64,
+        r103_corroboration_artifact_identity="4" * 64,
+        r103_applied_policy_identity="5" * 64,
+        r103_specificity_target_identity="6" * 64,
+        r103_registry_identity="7" * 64,
+        r103_c3264_terminal_decision_identity="8" * 64,
+        r103_specificity_review_identity=selected.artifact_identity,
+        r103_specificity_review=selected,
+    )
+
+    with pytest.raises(ValueError, match="specificity-review evidence identities"):
+        MachineReadinessInputs.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_c3264_terminal_exclusion_survives_candidate_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.identities.r103_c3264_terminal_decision_identity != "0" * 64
+    r103_requirement = next(
+        item
+        for item in readiness.human_requirements
+        if item.requirement == "r103-review"
+    )
+    assert r103_requirement.status == "satisfied-by-specificity-review"
+
+
+@pytest.mark.unit
+def test_current_readiness_rejects_the_superseded_pending_specificity_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    arguments["r103_specificity_review"] = (
+        Path(__file__).parent / "golden/r103-c2860-specificity-pending-26.07d.json"
+    )
+
+    with pytest.raises(PreSmeValidationError):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit
@@ -1121,6 +1379,140 @@ def _identity(value: object) -> str:
             value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         ).encode("ascii")
     ).hexdigest()
+
+
+@pytest.mark.unit
+def test_readiness_rejects_self_consistent_r103_application_for_another_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    application = json.loads(
+        Path(arguments["r103_applied_policy"]).read_text(encoding="utf-8")
+    )
+    application["proposal_registry_identity"] = "0" * 64
+    application["artifact_identity"] = _identity(
+        {key: value for key, value in application.items() if key != "artifact_identity"}
+    )
+    changed = tmp_path / "changed-r103-application.json"
+    changed.write_text(json.dumps(application), encoding="utf-8")
+    arguments["r103_applied_policy"] = changed
+    selected = json.loads(
+        Path(arguments["r103_specificity_review"]).read_text(encoding="utf-8")
+    )
+    selected["applied_policy_identity"] = application["artifact_identity"]
+    selected["artifact_identity"] = _identity(
+        {key: value for key, value in selected.items() if key != "artifact_identity"}
+    )
+    changed_selected = tmp_path / "changed-r103-selected.json"
+    changed_selected.write_text(json.dumps(selected), encoding="utf-8")
+    arguments["r103_specificity_review"] = changed_selected
+
+    with pytest.raises(PreSmeValidationError, match="R103 applied proposal"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_readiness_rejects_self_consistent_authority_with_another_rev1_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    authority = json.loads(
+        Path(arguments["r103_authority"]).read_text(encoding="utf-8")
+    )
+    authority["historical_rev1_file_sha256"] = "0" * 64
+    authority["artifact_identity"] = _identity(
+        {key: value for key, value in authority.items() if key != "artifact_identity"}
+    )
+    changed_authority = tmp_path / "changed-r103-authority.json"
+    changed_authority.write_text(json.dumps(authority), encoding="utf-8")
+    arguments["r103_authority"] = changed_authority
+
+    for argument in ("r103_corroboration", "r103_applied_policy"):
+        payload = json.loads(Path(arguments[argument]).read_text(encoding="utf-8"))
+        payload["authority_artifact_identity"] = authority["artifact_identity"]
+        payload["artifact_identity"] = _identity(
+            {key: value for key, value in payload.items() if key != "artifact_identity"}
+        )
+        changed = tmp_path / f"changed-{argument}.json"
+        changed.write_text(json.dumps(payload), encoding="utf-8")
+        arguments[argument] = changed
+    specificity = __import__(
+        "ontolib.decomposition.r103_specificity_review", fromlist=["unused"]
+    )
+    golden = Path(__file__).parent / "golden"
+    inventory = specificity.load_source_inventory(
+        golden / "r103-source-inventory-26.07d.json"
+    )
+    candidates = specificity.load_candidate_artifact(
+        golden / "r103-c12950-candidates-26.07d.json"
+    )
+    changed_authority_model = specificity.load_authority_artifact(changed_authority)
+    target = specificity.build_specificity_review_target(
+        inventory=inventory,
+        candidates=candidates,
+        authority=changed_authority_model,
+    )
+    pending = specificity.build_pending_specificity_review(
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=changed_authority_model,
+        revision_path=golden / "r103-review-state-26.07d-rev2.json",
+    )
+    changed_target = tmp_path / "changed-target.json"
+    changed_selected = tmp_path / "changed-selected.json"
+    specificity.write_artifact(changed_target, target)
+    selected = specificity.build_selected_specificity_review(
+        pending=pending,
+        target=target,
+        candidates=candidates,
+        application=specificity.load_applied_policy_report(
+            arguments["r103_applied_policy"]
+        ),
+    )
+    specificity.write_artifact(changed_selected, selected)
+    arguments["r103_specificity_target"] = changed_target
+    arguments["r103_specificity_review"] = changed_selected
+
+    with pytest.raises(PreSmeValidationError, match="R103 authority history"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_readiness_rejects_self_consistent_corroboration_from_another_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    corroboration = json.loads(
+        Path(arguments["r103_corroboration"]).read_text(encoding="utf-8")
+    )
+    corroboration["historical_artifact_sha256"] = "0" * 64
+    corroboration["historical_corroboration_identity"] = "1" * 64
+    corroboration["artifact_identity"] = _identity(
+        {
+            key: value
+            for key, value in corroboration.items()
+            if key != "artifact_identity"
+        }
+    )
+    changed = tmp_path / "changed-r103-corroboration.json"
+    changed.write_text(json.dumps(corroboration), encoding="utf-8")
+    arguments["r103_corroboration"] = changed
+
+    with pytest.raises(PreSmeValidationError, match="R103 corroboration history"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit
@@ -1169,9 +1561,7 @@ def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_ou
     changed.write_text(json.dumps(state), encoding="utf-8")
     arguments["r103_review_state"] = changed
 
-    with pytest.raises(
-        PreSmeValidationError, match="revision human review values differ"
-    ):
+    with pytest.raises(PreSmeValidationError, match="revision decision vector differs"):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()
@@ -1231,7 +1621,12 @@ def test_readiness_independently_rejects_mutated_embedded_packet_bindings(
     monkeypatch.setattr(
         module,
         "load_r103_promoted_review_revision",
-        lambda _path: SimpleNamespace(packet=packet, registry=state.registry),
+        lambda _path: SimpleNamespace(
+            packet=packet,
+            registry=state.registry,
+            predecessor=state.predecessor,
+            artifact_identity=state.artifact_identity,
+        ),
     )
 
     with pytest.raises(PreSmeValidationError, match=message):

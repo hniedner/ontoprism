@@ -1,0 +1,148 @@
+{
+  "artifact_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355",
+  "parity": "canonical-qlever-xml-equal",
+  "qlever_count": 3,
+  "qlever_query_body": "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nPREFIX owl: <http://www.w3.org/2002/07/owl#>\nPREFIX n: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>\nSELECT DISTINCT ?subject ?role ?filler ?encoding WHERE {\n GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl> {\n  VALUES ?filler { n:C12950 n:C34228 }\n  VALUES ?role { n:R103 }\n  { ?subject rdfs:subClassOf ?restriction .\n    ?restriction owl:onProperty ?role ; owl:someValuesFrom ?filler .\n    BIND(\"direct-subclass-restriction\" AS ?encoding) }\n  UNION\n  { ?subject owl:equivalentClass/owl:intersectionOf/rdf:rest*/rdf:first ?restriction .\n    ?restriction owl:onProperty ?role ; owl:someValuesFrom ?filler .\n    BIND(\"equivalent-class-intersection\" AS ?encoding) }\n } } ORDER BY ?subject ?role ?filler ?encoding LIMIT 101",
+  "query_identity": "4ca45776ebd3f30b20f9462a0925b5d4893b19d6c89926350b3ae9409bb5048e",
+  "release": "26.07d",
+  "row_bound": 100,
+  "row_count": 3,
+  "rows": [
+    {
+      "complete_definition_identity": "fce261cdce58ed9ac84b82b2585014aa8a5eb93c40cdc3614b946cf7ebcf1664",
+      "encoding": "equivalent-class-intersection",
+      "filler_code": "C12950",
+      "filler_labels": [
+        "Embryonic Tissue"
+      ],
+      "filler_p97": [
+        "Tissue that is formed during the embryonic stage of life of an organism."
+      ],
+      "member_position": 2,
+      "query_identity": "4ca45776ebd3f30b20f9462a0925b5d4893b19d6c89926350b3ae9409bb5048e",
+      "release": "26.07d",
+      "role_code": "R103",
+      "role_labels": [
+        "Disease_Has_Normal_Tissue_Origin"
+      ],
+      "role_p97": [
+        "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
+      ],
+      "row_identity": "317a8871d69f8155a64c8198a6cbc1fcc87487274bb59c3142ba84488fccf0ec",
+      "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
+      "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+      "source_artifact_size": 749451268,
+      "source_fact_identity": "385b9962eed179a61b29593959f42fe4cd24c53fca05b185bb51434f9b085131",
+      "source_group_identity": "e61e45cb115b5c13d559794228d2286e1c5790596fb7578fee93a60f6fb2927d",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+      "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+      "source_occurrence_identity": "f82f07767009dc2b4c45d4189faa6fa88ad234c941575c82ab7b248674373293",
+      "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+      "structural_path": [
+        2
+      ],
+      "subject_code": "C2860",
+      "subject_labels": [
+        "Adrenal Rest Tumor"
+      ],
+      "subject_p97": [
+        "A benign, testicular or ovarian tumor, derived from adrenal embryonic rest cells. It is composed of hyperplastic adrenal cortical tissue, and it is associated with congenital adrenal hyperplasia."
+      ],
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
+    },
+    {
+      "complete_definition_identity": "4c0f4b10d0fc6337d07c6df95063c5c402d5ea6028a78cc6beb52f4ae5907986",
+      "encoding": "equivalent-class-intersection",
+      "filler_code": "C12950",
+      "filler_labels": [
+        "Embryonic Tissue"
+      ],
+      "filler_p97": [
+        "Tissue that is formed during the embryonic stage of life of an organism."
+      ],
+      "member_position": 1,
+      "query_identity": "4ca45776ebd3f30b20f9462a0925b5d4893b19d6c89926350b3ae9409bb5048e",
+      "release": "26.07d",
+      "role_code": "R103",
+      "role_labels": [
+        "Disease_Has_Normal_Tissue_Origin"
+      ],
+      "role_p97": [
+        "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
+      ],
+      "row_identity": "a70148c02528f3603d6cb5a347b9129ef8a0cdb90217fb9467ba0a09cbe70f3d",
+      "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
+      "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+      "source_artifact_size": 749451268,
+      "source_fact_identity": "9b65508efbe45468569cedcf54edbc17d62c43bd7a7dd8fc3a96eb3be6c6db9c",
+      "source_group_identity": "a59e8c63234efcd0377bd5d3c55d46806d376c39f97900a0160dc3d7aeb771a3",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+      "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+      "source_occurrence_identity": "ea85091fadd45ae71ec60966c4de0e852f9211f09b1dd682bf6d87a48c64c66d",
+      "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+      "structural_path": [
+        1
+      ],
+      "subject_code": "C3264",
+      "subject_labels": [
+        "Embryonal Neoplasm"
+      ],
+      "subject_p97": [
+        "A usually malignant neoplasm composed of primitive (immature) tissues that resemble fetal tissues.  Medulloblastoma, ependymoblastoma, pineoblastoma, and Wilms tumor are representative embryonal neoplasms."
+      ],
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
+    },
+    {
+      "complete_definition_identity": "d4fdc6a3de4fecb4a01d73b47a0539ea3abbe65472fd5a7166b5132c199015e6",
+      "encoding": "equivalent-class-intersection",
+      "filler_code": "C34228",
+      "filler_labels": [
+        "Neuroectoderm"
+      ],
+      "filler_p97": [
+        "The dorsal surface of the early vertebrate embryo that gives rise to the nervous system."
+      ],
+      "member_position": 2,
+      "query_identity": "4ca45776ebd3f30b20f9462a0925b5d4893b19d6c89926350b3ae9409bb5048e",
+      "release": "26.07d",
+      "role_code": "R103",
+      "role_labels": [
+        "Disease_Has_Normal_Tissue_Origin"
+      ],
+      "role_p97": [
+        "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
+      ],
+      "row_identity": "ded3ec3e040df4d0540b01fa13d62ff91a0b599c0e9dc310529b37c68ae5918a",
+      "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
+      "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+      "source_artifact_size": 749451268,
+      "source_fact_identity": "182fe12a542bf33f076d44491c15ea303fe64991d06abeae321f8252f071434f",
+      "source_group_identity": "0629f676b577a98a20b7dca5b4da6a939bdcc30b78b9a03067e3360794728e03",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+      "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+      "source_occurrence_identity": "508910e91fefe93eb90e762be2341bed4153620be5756b5049b86a2b3ae2f620",
+      "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+      "structural_path": [
+        2
+      ],
+      "subject_code": "C3716",
+      "subject_labels": [
+        "Primitive Neuroectodermal Tumor"
+      ],
+      "subject_p97": [
+        "A malignant neoplasm that originates in the neuroectoderm. The neuroectoderm constitutes the portion of the ectoderm of the early embryo that gives rise to the central and peripheral nervous systems and includes some glial cell precursors."
+      ],
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
+    }
+  ],
+  "schema_version": 1,
+  "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
+  "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+  "source_artifact_size": 749451268,
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+  "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+  "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+  "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967",
+  "xml_count": 3,
+  "xml_scanner": "streaming-rdfxml"
+}

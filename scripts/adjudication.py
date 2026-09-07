@@ -75,12 +75,10 @@ from ontolib.decomposition.r103_review import (
 )
 from ontolib.decomposition.r103_review_promotion import (
     R103_REVISION_MACHINE_QUALIFICATION,
-    build_r103_corroboration,
     prepare_r103_review_revision,
     promote_r103_review_revision,
     promote_r103_review_state,
     transcribe_r103_review_revision,
-    write_r103_corroboration,
 )
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
@@ -334,7 +332,6 @@ class _PromoteR103ReviewRevisionArgs(Protocol):
     output_registry: Path
     output_dry_run: Path
     output: Path
-    output_corroboration: Path
 
 
 def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -407,7 +404,6 @@ def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
     promote_revision.add_argument("--output-registry", required=True, type=Path)
     promote_revision.add_argument("--output-dry-run", required=True, type=Path)
     promote_revision.add_argument("--output", required=True, type=Path)
-    promote_revision.add_argument("--output-corroboration", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -829,11 +825,8 @@ def _promote_r103_review_revision(args: _PromoteR103ReviewRevisionArgs) -> None:
         output_dry_run_path=args.output_dry_run,
         output_path=args.output,
     )
-    corroboration = build_r103_corroboration(revision)
-    write_r103_corroboration(args.output_corroboration, corroboration)
     print(
         f"artifact_identity={revision.artifact_identity} "
-        f"corroboration_identity={corroboration.corroboration_identity} "
         "readiness=ready-for-separate-application writes_performed=false",
         file=sys.stderr,
     )

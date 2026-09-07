@@ -495,6 +495,13 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-selected-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -556,9 +563,76 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         tmp_path
         / "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json"
     )
+    assert calls[1]["r103_source_inventory"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json"
+    )
+    assert calls[1]["r103_candidates"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json"
+    )
+    assert calls[1]["r103_specificity_target"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json"
+    )
+    assert calls[1]["r103_specificity_review"] == (
+        tmp_path
+        / (
+            "ontolib/tests/decomposition/golden/"
+            "r103-c2860-specificity-selected-26.07d.json"
+        )
+    )
     assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
+
+
+@pytest.mark.unit
+def test_r103_specificity_selection_transcription_uses_only_fixed_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-pending-26.07d.json",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[dict[str, Path]] = []
+    module = __import__(
+        "ontolib.decomposition.r103_specificity_review",
+        fromlist=["generate_selected_specificity_review"],
+    )
+    monkeypatch.setattr(
+        module,
+        "generate_selected_specificity_review",
+        lambda **values: calls.append(values),
+    )
+
+    assert run_agent_replay(["transcribe-r103-specificity-selection"], tmp_path) == 0
+
+    assert calls == [
+        {
+            "inventory_path": tmp_path / required[0],
+            "candidate_path": tmp_path / required[1],
+            "authority_path": tmp_path / required[2],
+            "application_path": tmp_path / required[3],
+            "revision_path": tmp_path / required[4],
+            "target_path": tmp_path / required[5],
+            "pending_path": tmp_path / required[6],
+            "output_path": tmp_path
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "r103-c2860-specificity-selected-26.07d.json"
+            ),
+        }
+    ]
 
 
 @pytest.mark.unit
@@ -611,6 +685,13 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-selected-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:

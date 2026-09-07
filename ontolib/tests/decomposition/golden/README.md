@@ -493,17 +493,53 @@ The governed reconstruction, transcription, and promotion commands are:
 ```bash
 pdm run adjudication prepare-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --output-xlsx tmp/m1-6-r103-review-revision-blank.xlsx
 pdm run adjudication transcribe-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --blank-xlsx tmp/m1-6-r103-review-revision-blank.xlsx --output-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --subject C3264 --role R103 --filler C12950 --outcome concept-scoped-accuracy-exclusion --rationale-file tmp/r103-terminal-rationale.json --reviewer "R. Hannes Niedner, M.D." --review-date 2026-08-28
-pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json --output-corroboration ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json
+pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json
 ```
 
-Promotion reported revision identity
-`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and
-corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`
-(the final `pdm run adjudication promote-r103-review-revision ...` command above, 2026-08-28).
-The corroboration sidecar is keyed to the effective C3264 decision identity and describes
-authoritative PubMed metadata as corroboration, never proof. It contains no publisher content.
-The dry run is write-free, has zero unresolved decisions, no proposal previews, one exact
-exclusion preview, and readiness `ready-for-separate-application`; application remains separate.
+The historical promotion reported revision identity
+`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and historical
+corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`.
+Those bytes are preserved, but the historical PubMed authority/verification claim is not current
+evidence because no response bytes were retained.
+The current machine path is generated with:
+
+```bash
+pdm run agent-replay generate-r103-evidence-application
+```
+
+It writes the source-only inventory, the complete 16-row named stated C12950 descendant
+enumeration, normalized authority, downgraded reviewer-reference corroboration, applied-policy
+report, strict C2860 specificity target, and unanswered C2860 specificity-review state. The target
+binds the candidate artifact only to the exact C2860/R103/C12950 source occurrence and its
+carried-forward decision. The applied report remains unchanged: it preserves the official source assertions, suppresses only
+C3264/R103/C12950 in the effective projection, retains C2860 and C3716, leaves the schema-2
+proposal registry and oracle unchanged, creates no proposal, infers no NCI adoption, and leaves
+authorization false. Candidate generation cannot reopen that terminal C3264 exclusion.
+
+The C2860 question asks whether one of the 16 enumerated named stated descendants of C12950 in
+NCIt 26.07d provides a better normal-tissue-origin filler than C12950. Its exact choices are:
+
+1. affirm that none of those bounded 16 candidates is better;
+2. retain source-supported C2860/R103/C12950 while qualifying or withdrawing the global
+   most-specific claim; or
+3. select one enumerated existing NCIt candidate as a proposed replacement and initiate a
+   separately governed correction proposal.
+
+The pending artifact selects none of these choices and records no software-authored human decision.
+The accountable user selected choice 2 on 2026-09-07: retain source-supported
+`C2860/R103/C12950`, record that none of the bounded 16 candidates is better, and withdraw the
+global-most-specific rationale because the bounded comparison cannot establish global NCIt
+optimality. Generate its strict successor from the named pending and machine inputs with:
+
+```bash
+pdm run agent-replay transcribe-r103-specificity-selection
+```
+
+The selected artifact binds the target, candidate artifact, prior carried-forward decision, and
+unchanged applied-policy report. It records software as transcriber rather than author, selects no
+replacement candidate, creates no proposal, and infers no NCI adoption
+(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07). The pending artifact is
+retained as the exact pre-selection input, not as current readiness state.
 
 ### Final machine-readiness evidence
 
@@ -523,7 +559,8 @@ local machine evidence and performs no ontology or store publication.
 
 After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, schema-4
 `tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
-source manifest, and current-HEAD verify evidence all exist, generate the pending-human
+source manifest, selected R103 specificity state, and current-HEAD verify evidence all exist,
+generate the pending-human
 report from a clean worktree:
 
 ```bash
@@ -531,11 +568,12 @@ pdm run agent-replay generate-pre-sme-readiness
 ```
 
 Readiness strictly loads the complete promoted R103 state, validating its embedded
-packet, registry, dry-run, decision vector, and cross-bindings. It then consumes only
-the state's `.packet` for the existing source, candidate-manifest, proposal-registry,
-count, and packet-identity checks; it does not interpret registry decisions or dry-run
-semantics in the report. Therefore changed or malformed registry or dry-run state still
-fails readiness closed, while all three R103 rows remain pending human requirements.
+packet, registry, dry-run, decision vector, and cross-bindings. It also loads the strict
+C2860 specificity-review state. Changed or malformed registry, dry-run, target, or review
+state fails readiness closed. C3264 remains terminally excluded and C3716 remains covered
+by its prior terminal decision; only the C2860 specificity question is pending. A future
+human-selected review state satisfies that one requirement while retaining the same source,
+target, and candidate evidence identities.
 
 The operation validates all fixed input identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,

@@ -65,15 +65,36 @@ though current readiness no longer consumes the standalone `tmp/` packet. The
 producer is retained because the historical generation/promotion path still begins
 with that source-bound packet and blank review workbook.
 
-Current readiness reads the fixed
-`ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json` path. The strict
-revision loader validates the predecessor, embedded packet, effective registry, zero-unresolved
-dry run, one exact exclusion preview, transcription provenance, qualification, and all identities.
-Readiness binds the effective registry and C3264 decision identities in the satisfied R103
-requirement. It does not bind that requirement to Git HEAD or a generated readiness-report
-identity. Overall authorization remains false and publication remains unattempted because the
-other human requirements are independent.
+Current readiness reads the preserved terminal revision together with the generated source
+inventory, C12950 candidate enumeration, normalized authority, normalized corroboration, and
+applied-policy report under `ontolib/tests/decomposition/golden/`. A separate strict target binds
+the generic candidate enumeration to the exact C2860/R103/C12950 source occurrence and its
+carried-forward decision. The preserved unanswered state binds the exact question and three
+allowed options; the selected successor binds that state, the 16-row candidate set, the unchanged
+applied-policy report, and the prior decision. It records the user's 2026-09-07
+`qualify-global-most-specific-claim` selection with software as transcriber, retains C12950 as
+source-supported, and replaces the global-optimality rationale with the bounded conclusion that no
+enumerated descendant is better. Readiness binds the selected identity and marks the one C2860
+specificity requirement satisfied. C3264's concept-scoped exclusion remains terminal and is not
+reopened by candidate evidence. Overall authorization remains false and publication remains
+unattempted (`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
 
-`r103-c3264-corroboration-26.07d.json` is a compact sidecar consumed by a strict loader against
-the rev2 C3264 decision identity. It records citation metadata as corroboration, not proof, and
-retains the exact non-propagating descendant qualification. It does not cache publisher content.
+`r103-c3264-corroboration-26.07d.json` is preserved historical input. Because no digest-bound
+PubMed response bytes were retained, its successor
+`r103-corroboration-normalized-26.07d.json` classifies the five citations as reviewer-supplied
+references with `upstream_verified=false`; neither ESummary authority nor a verified date is
+claimed. Both remain corroboration, not proof.
+
+Run `pdm run agent-replay generate-r103-evidence-application` against the certified stated QLever
+graph and RDF/XML artifact. The generator performs bounded QLever count/page reads, independent
+streaming RDF/XML scans, canonical parity checks, strict historical/migration joins, and atomic
+deterministic writes. It creates no proposal and makes no candidate-selection verdict.
+
+Generate the accountable selected successor only after those machine artifacts exist:
+
+```bash
+pdm run agent-replay transcribe-r103-specificity-selection
+```
+
+The operation has fixed inputs and transcribes the user-confirmed decision; it does not claim
+software authorship, create a proposal, infer NCI adoption, or alter the applied policy.

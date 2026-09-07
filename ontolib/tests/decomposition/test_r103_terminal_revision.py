@@ -14,7 +14,6 @@ from ontolib.decomposition.axes import (
     is_unsupported_filler,
 )
 from ontolib.decomposition.r103_review import R103ReviewValidationError
-from ontolib.decomposition.r103_review_promotion import load_r103_corroboration
 
 GOLDEN = Path(__file__).with_name("golden")
 REV1 = GOLDEN / "r103-review-state-26.07d.json"
@@ -242,62 +241,18 @@ def test_revision_workflow_reject_branches_are_live(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "mutation", ["citation", "qualification", "identity", "binding"]
-)
-def test_corroboration_loader_rejects_tampering(tmp_path: Path, mutation: str) -> None:
+def test_tracked_rev2_and_historical_corroboration_bytes_are_preserved() -> None:
     _prepare, _transcribe, _promote, loader = _revision_api()
     revision = loader(REV2)
-    payload = json.loads(CORROBORATION.read_text(encoding="ascii"))
-    if mutation == "citation":
-        payload["citations"][0]["doi"] = "10.1000/wrong"
-    elif mutation == "qualification":
-        payload["scope_qualification"] = "descendants are excluded"
-    elif mutation == "identity":
-        payload["corroboration_identity"] = "0" * 64
-    else:
-        payload["effective_decision_identity"] = "0" * 64
-    if mutation in {"citation", "qualification", "binding"}:
-        payload["corroboration_identity"] = hashlib.sha256(
-            json.dumps(
-                {
-                    key: value
-                    for key, value in payload.items()
-                    if key != "corroboration_identity"
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            ).encode("ascii")
-        ).hexdigest()
-    changed = tmp_path / f"corroboration-{mutation}.json"
-    changed.write_text(json.dumps(payload), encoding="ascii")
 
-    with pytest.raises(R103ReviewValidationError):
-        load_r103_corroboration(changed, revision=revision)
-
-
-@pytest.mark.unit
-def test_tracked_rev2_and_corroboration_are_strict_source_bound_contracts() -> None:
-    _prepare, _transcribe, _promote, loader = _revision_api()
-    revision = loader(REV2)
-    corroboration_loader = cast(
-        "Any", getattr(r103_review_promotion, "load_r103_corroboration", None)
+    assert hashlib.sha256(REV1.read_bytes()).hexdigest() == (
+        "3b17fee5ac354ca8d48637f2a7f8b0451e0b4afed6922d0f745e6d284ca9c899"
     )
-    assert callable(corroboration_loader), "strict corroboration consumer is missing"
-    corroboration = cast("Any", corroboration_loader(CORROBORATION, revision=revision))
-
-    assert revision.registry.decisions[1].decision_identity == (
-        corroboration.effective_decision_identity
+    assert hashlib.sha256(REV2.read_bytes()).hexdigest() == (
+        "03822dcbfc4190e09e9394cb310aae2a6cca2f9c8d728bf3997d9e11d1e4730f"
     )
-    assert corroboration.relationship == "corroboration-not-proof"
-    assert corroboration.scope_qualification == QUALIFICATION
-    assert tuple((item.doi, item.pmid) for item in corroboration.citations) == (
-        ("10.1038/nature09587", "21150899"),
-        ("10.1038/s41586-019-1158-7", "31043743"),
-        ("10.1111/bpa.13059", "35266242"),
-        ("10.1016/j.neuron.2022.07.012", "35985323"),
-        ("10.3390/genes12020318", "33672414"),
+    assert hashlib.sha256(CORROBORATION.read_bytes()).hexdigest() == (
+        "a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823"
     )
     decided_subset = {
         (item.subject_code, item.role_code): frozenset({item.filler_code})
@@ -365,8 +320,6 @@ def test_cli_exposes_governed_prepare_transcribe_and_promote_revision_commands()
             "dry-run.json",
             "--output",
             "rev2.json",
-            "--output-corroboration",
-            "corroboration.json",
         ]
     )
 
