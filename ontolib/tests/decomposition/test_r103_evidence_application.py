@@ -148,6 +148,7 @@ def test_source_inventory_and_candidates_are_complete_source_only_and_determinis
         ("C200", ("C12950", "C100", "C200")),
     ]
     assert candidates.status == "candidates-enumerated-human-selection-required"
+    assert candidates.row_bound == 10
     assert '"verdict"' not in json.dumps(candidates.model_dump(mode="json"))
     candidate_path = tmp_path / "candidates.json"
     write_artifact(candidate_path, candidates)

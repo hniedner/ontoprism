@@ -148,12 +148,41 @@ def _composed_readiness_inputs(
         packet_identity="4" * 64,
         review_rows=(None,) * 18,
     )
+    source_fixture = module.load_source_inventory(
+        golden / "r103-source-inventory-26.07d.json"
+    )
+    candidate_fixture = module.load_candidate_artifact(
+        golden / "r103-c12950-candidates-26.07d.json"
+    )
+    fixture_manifest_identity = module._identity({})
     monkeypatch.setattr(
         module,
         "validate_ncit_sibling_manifest",
         lambda _path: SimpleNamespace(
             source_identity=report.source_identity,
             ontology_version=report.source_release_id,
+            stated_artifact=SimpleNamespace(
+                artifact_identity=source_fixture.source_artifact_identity,
+                sha256=source_fixture.source_artifact_sha256,
+                size_bytes=source_fixture.source_artifact_size,
+            ),
+            graph_layout=SimpleNamespace(
+                stated_graph_iri=source_fixture.stated_graph_iri
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_source_inventory",
+        lambda _path: source_fixture.model_copy(
+            update={"source_manifest_identity": fixture_manifest_identity}
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_candidate_artifact",
+        lambda _path: candidate_fixture.model_copy(
+            update={"source_manifest_identity": fixture_manifest_identity}
         ),
     )
     monkeypatch.setattr(module, "load_corpus_baseline", lambda _path: baseline)
@@ -173,7 +202,12 @@ def _composed_readiness_inputs(
         packet = revision.packet.model_copy(
             update={"candidate_manifest_identity": module._identity({})}
         )
-        return SimpleNamespace(packet=packet, registry=revision.registry)
+        return SimpleNamespace(
+            packet=packet,
+            registry=revision.registry,
+            predecessor=revision.predecessor,
+            artifact_identity=revision.artifact_identity,
+        )
 
     monkeypatch.setattr(
         module,
@@ -1133,6 +1167,30 @@ def _identity(value: object) -> str:
 
 
 @pytest.mark.unit
+def test_readiness_rejects_self_consistent_r103_application_for_another_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    application = json.loads(
+        Path(arguments["r103_applied_policy"]).read_text(encoding="utf-8")
+    )
+    application["proposal_registry_identity"] = "0" * 64
+    application["artifact_identity"] = _identity(
+        {key: value for key, value in application.items() if key != "artifact_identity"}
+    )
+    changed = tmp_path / "changed-r103-application.json"
+    changed.write_text(json.dumps(application), encoding="utf-8")
+    arguments["r103_applied_policy"] = changed
+
+    with pytest.raises(PreSmeValidationError, match="R103 applied proposal"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
 def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1238,7 +1296,12 @@ def test_readiness_independently_rejects_mutated_embedded_packet_bindings(
     monkeypatch.setattr(
         module,
         "load_r103_promoted_review_revision",
-        lambda _path: SimpleNamespace(packet=packet, registry=state.registry),
+        lambda _path: SimpleNamespace(
+            packet=packet,
+            registry=state.registry,
+            predecessor=state.predecessor,
+            artifact_identity=state.artifact_identity,
+        ),
     )
 
     with pytest.raises(PreSmeValidationError, match=message):

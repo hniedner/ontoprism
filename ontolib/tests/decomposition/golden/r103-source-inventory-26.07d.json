@@ -1,5 +1,5 @@
 {
-  "artifact_identity": "b60b236c58b79f7b64e5761590825b2257228b85a65f54036f2c811e76237035",
+  "artifact_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355",
   "parity": "canonical-qlever-xml-equal",
   "qlever_count": 3,
   "qlever_query_body": "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nPREFIX owl: <http://www.w3.org/2002/07/owl#>\nPREFIX n: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>\nSELECT DISTINCT ?subject ?role ?filler ?encoding WHERE {\n GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl> {\n  VALUES ?filler { n:C12950 n:C34228 }\n  VALUES ?role { n:R103 }\n  { ?subject rdfs:subClassOf ?restriction .\n    ?restriction owl:onProperty ?role ; owl:someValuesFrom ?filler .\n    BIND(\"direct-subclass-restriction\" AS ?encoding) }\n  UNION\n  { ?subject owl:equivalentClass/owl:intersectionOf/rdf:rest*/rdf:first ?restriction .\n    ?restriction owl:onProperty ?role ; owl:someValuesFrom ?filler .\n    BIND(\"equivalent-class-intersection\" AS ?encoding) }\n } } ORDER BY ?subject ?role ?filler ?encoding LIMIT 101",
@@ -28,7 +28,7 @@
       "role_p97": [
         "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
       ],
-      "row_identity": "9632f0f7329e51ba878253bde3d29743d5042908854dd86806f5107fde936dda",
+      "row_identity": "317a8871d69f8155a64c8198a6cbc1fcc87487274bb59c3142ba84488fccf0ec",
       "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
       "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
       "source_artifact_size": 749451268,
@@ -48,7 +48,7 @@
       "subject_p97": [
         "A benign, testicular or ovarian tumor, derived from adrenal embryonic rest cells. It is composed of hyperplastic adrenal cortical tissue, and it is associated with congenital adrenal hyperplasia."
       ],
-      "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4"
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
     },
     {
       "complete_definition_identity": "4c0f4b10d0fc6337d07c6df95063c5c402d5ea6028a78cc6beb52f4ae5907986",
@@ -70,7 +70,7 @@
       "role_p97": [
         "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
       ],
-      "row_identity": "595029dc054189ff1ee6fb88d0afe1cf78a4b63357726386d94a4dd00da8e02d",
+      "row_identity": "a70148c02528f3603d6cb5a347b9129ef8a0cdb90217fb9467ba0a09cbe70f3d",
       "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
       "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
       "source_artifact_size": 749451268,
@@ -90,7 +90,7 @@
       "subject_p97": [
         "A usually malignant neoplasm composed of primitive (immature) tissues that resemble fetal tissues.  Medulloblastoma, ependymoblastoma, pineoblastoma, and Wilms tumor are representative embryonal neoplasms."
       ],
-      "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4"
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
     },
     {
       "complete_definition_identity": "d4fdc6a3de4fecb4a01d73b47a0539ea3abbe65472fd5a7166b5132c199015e6",
@@ -112,7 +112,7 @@
       "role_p97": [
         "A role used to relate a disease to the type of normal tissue in which the disease process began. The domain and the range for this role are 'Disease, Disorder or Finding' and 'Anatomic Structure, System, or Substance', respectively."
       ],
-      "row_identity": "d7587e6db1dda310f0e0fc74542383e84504d0356b394ee3608b6eac5c7e1b4e",
+      "row_identity": "ded3ec3e040df4d0540b01fa13d62ff91a0b599c0e9dc310529b37c68ae5918a",
       "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
       "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
       "source_artifact_size": 749451268,
@@ -132,7 +132,7 @@
       "subject_p97": [
         "A malignant neoplasm that originates in the neuroectoderm. The neuroectoderm constitutes the portion of the ectoderm of the early embryo that gives rise to the central and peripheral nervous systems and includes some glial cell precursors."
       ],
-      "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4"
+      "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967"
     }
   ],
   "schema_version": 1,
@@ -142,7 +142,7 @@
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
   "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
   "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
-  "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4",
+  "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967",
   "xml_count": 3,
   "xml_scanner": "streaming-rdfxml"
 }

@@ -1,5 +1,5 @@
 {
-  "artifact_identity": "75f539f2cf4d2bbe6a2cb25eca78b5f14ef160a1dd0fd5d1572171ac5fd54d26",
+  "artifact_identity": "5540d804ea9dbcb49148f47a66bdf4aef1b1e2eee79495a94305d864bcb0e20f",
   "candidate_count": 16,
   "candidates": [
     {
@@ -313,9 +313,10 @@
   "page_query_body": "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nPREFIX n: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>\nSELECT DISTINCT ?candidate WHERE {\n GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl> {\n  ?candidate rdfs:subClassOf+ n:C12950 . FILTER(isIRI(?candidate)) }\n} ORDER BY ?candidate LIMIT {limit} OFFSET {offset}",
   "page_size": 500,
   "qlever_count": 16,
-  "query_identity": "126c2a9cba5da538b75f01830820b3d0e5e83db596a0ce81bd1d3ffb730dcc55",
+  "query_identity": "a957e4ff8a3aea3180ffcd8068bd8528be7c9a53483705563a7a6fedbf87f303",
   "release": "26.07d",
   "root_code": "C12950",
+  "row_bound": 10000,
   "schema_version": 1,
   "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
   "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
@@ -324,6 +325,6 @@
   "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
   "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
   "status": "candidates-enumerated-human-selection-required",
-  "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4",
+  "tool_identity": "fccf5ab53fb5a99db9cb2cdaf8ea2255e1029b4192b4ccd11c21ded8b6879967",
   "xml_count": 16
 }

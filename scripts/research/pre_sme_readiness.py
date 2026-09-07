@@ -1457,13 +1457,45 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             "R103 inventory source",
         ),
         (
+            r103_source.source_manifest_identity == manifest_identity
+            and r103_source.source_artifact_identity
+            == manifest.stated_artifact.artifact_identity
+            and r103_source.source_artifact_sha256 == manifest.stated_artifact.sha256
+            and r103_source.source_artifact_size == manifest.stated_artifact.size_bytes
+            and r103_source.stated_graph_iri == manifest.graph_layout.stated_graph_iri,
+            "R103 inventory manifest",
+        ),
+        (
             r103_candidate_set.source_identity == manifest.source_identity,
             "R103 candidate source",
+        ),
+        (
+            r103_candidate_set.source_manifest_identity == manifest_identity
+            and r103_candidate_set.source_artifact_identity
+            == manifest.stated_artifact.artifact_identity
+            and r103_candidate_set.source_artifact_sha256
+            == manifest.stated_artifact.sha256
+            and r103_candidate_set.source_artifact_size
+            == manifest.stated_artifact.size_bytes
+            and r103_candidate_set.stated_graph_iri
+            == manifest.graph_layout.stated_graph_iri,
+            "R103 candidate manifest",
         ),
         (
             r103_authority_artifact.source_inventory_identity
             == r103_source.artifact_identity,
             "R103 authority inventory",
+        ),
+        (
+            r103_authority_artifact.historical_rev1_artifact_identity
+            == r103_revision.predecessor.artifact_identity
+            and r103_authority_artifact.historical_rev2_artifact_identity
+            == r103_revision.artifact_identity
+            and r103_authority_artifact.historical_rev2_file_sha256
+            == hashlib.sha256(r103_review_state.read_bytes()).hexdigest()
+            and r103_authority_artifact.migration_envelope_identity
+            == migration.envelope_identity,
+            "R103 authority history",
         ),
         (
             r103_application.source_inventory_identity == r103_source.artifact_identity,
@@ -1473,6 +1505,15 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r103_application.authority_artifact_identity
             == r103_authority_artifact.artifact_identity,
             "R103 applied authority",
+        ),
+        (
+            r103_application.c3264_decision_identity
+            == r103_authority_artifact.entries[1].effective_decision_identity
+            and r103_application.proposal_registry_identity
+            == proposals.registry_identity
+            and r103_application.migration_envelope_identity
+            == migration.envelope_identity,
+            "R103 applied proposal",
         ),
         (
             r103_corroboration_artifact.authority_artifact_identity

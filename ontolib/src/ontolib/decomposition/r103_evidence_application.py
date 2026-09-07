@@ -316,6 +316,7 @@ class R103CandidateArtifact(_SourceBinding):
     root_code: Literal["C12950"]
     count_query_body: str
     page_query_body: str
+    row_bound: int = Field(gt=0)
     page_size: int = Field(gt=0)
     candidate_count: int = Field(ge=0)
     qlever_count: int = Field(ge=0)
@@ -327,21 +328,38 @@ class R103CandidateArtifact(_SourceBinding):
 
     @model_validator(mode="after")
     def _validate_candidates(self) -> Self:
-        if not (
-            self.candidate_count
-            == self.qlever_count
-            == self.xml_count
-            == len(self.candidates)
-        ):
-            raise ValueError("candidate counts differ")
-        codes = [row.code for row in self.candidates]
-        if codes != sorted(codes) or len(codes) != len(set(codes)):
-            raise ValueError("candidate rows are duplicate or unordered")
+        _validate_candidate_counts(self)
+        _validate_candidate_bounds(self)
+        _validate_candidate_order(self.candidates)
         if self.artifact_identity != _identity(
             self.model_dump(exclude={"artifact_identity"})
         ):
             raise ValueError("candidate artifact identity differs")
         return self
+
+
+def _validate_candidate_counts(artifact: R103CandidateArtifact) -> None:
+    if not (
+        artifact.candidate_count
+        == artifact.qlever_count
+        == artifact.xml_count
+        == len(artifact.candidates)
+    ):
+        raise ValueError("candidate counts differ")
+
+
+def _validate_candidate_bounds(artifact: R103CandidateArtifact) -> None:
+    if (
+        artifact.candidate_count > artifact.row_bound
+        or artifact.page_size > artifact.row_bound
+    ):
+        raise ValueError("candidate enumeration exceeds bound")
+
+
+def _validate_candidate_order(candidates: tuple[CandidateRow, ...]) -> None:
+    codes = [row.code for row in candidates]
+    if codes != sorted(codes) or len(codes) != len(set(codes)):
+        raise ValueError("candidate rows are duplicate or unordered")
 
 
 AuthorityKind = Literal["carried-forward-predecessor-decision", "new-human-decision"]
@@ -847,6 +865,7 @@ def build_candidate_artifact(
         {
             "count": CANDIDATE_COUNT_QUERY,
             "page": CANDIDATE_PAGE_QUERY,
+            "row_bound": row_bound,
             "page_size": observed_page_size,
         }
     )
@@ -863,6 +882,7 @@ def build_candidate_artifact(
         "root_code": "C12950",
         "count_query_body": CANDIDATE_COUNT_QUERY,
         "page_query_body": CANDIDATE_PAGE_QUERY,
+        "row_bound": row_bound,
         "page_size": observed_page_size,
         "candidate_count": len(candidates),
         "qlever_count": len(qlever_codes),

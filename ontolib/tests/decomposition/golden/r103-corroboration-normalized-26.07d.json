@@ -1,6 +1,6 @@
 {
-  "artifact_identity": "74619e920698f0129aafe0406a80b2932446d8ba6b1b1a29dc6fabcc29b37d67",
-  "authority_artifact_identity": "db34f5d642ca72262fd3d3254f52e048c20f94b7331f88e33442f58833b45dc6",
+  "artifact_identity": "2209992171413d8adff53d2578bf834980ab93c837e20f0ba881968eda0a5b1a",
+  "authority_artifact_identity": "429bb9c8f7c40ff3b3032d377e57d1289369cd8a2e539fb3a705558fa75b2afd",
   "effective_decision_identity": "13160d82001bf177c4a48ffef94c96c612aed0d1950889cc79e06454cc0422ed",
   "evidence_kind": "reviewer-supplied-references",
   "historical_artifact_sha256": "a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823",

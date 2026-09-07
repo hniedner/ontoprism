@@ -1,6 +1,6 @@
 {
-  "artifact_identity": "4e1c9c1e783830eccb886cf5dd8118896de05af3111e1da9ee7cea863517a06f",
-  "authority_artifact_identity": "db34f5d642ca72262fd3d3254f52e048c20f94b7331f88e33442f58833b45dc6",
+  "artifact_identity": "682376fb8ca5a209972a415d592e6866e359aa2c08d72446442ee3f01ffeafec",
+  "authority_artifact_identity": "429bb9c8f7c40ff3b3032d377e57d1289369cd8a2e539fb3a705558fa75b2afd",
   "authorization": false,
   "c2860_effective_projected": true,
   "c3264_decision_identity": "13160d82001bf177c4a48ffef94c96c612aed0d1950889cc79e06454cc0422ed",
@@ -19,5 +19,5 @@
   "proposal_registry_schema_version": 2,
   "publication_attempted": false,
   "schema_version": 1,
-  "source_inventory_identity": "b60b236c58b79f7b64e5761590825b2257228b85a65f54036f2c811e76237035"
+  "source_inventory_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355"
 }
