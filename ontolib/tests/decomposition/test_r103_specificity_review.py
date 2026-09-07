@@ -66,6 +66,24 @@ def _identity(value: object) -> str:
     ).hexdigest()
 
 
+def _selected_payload(
+    target_identity: str, candidate_identity: str
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "selected_option": "affirm-no-better-enumerated-candidate",
+        "selected_candidate_code": None,
+        "target_artifact_identity": target_identity,
+        "candidate_artifact_identity": candidate_identity,
+        "software_selected_answer": False,
+    }
+
+
 @pytest.mark.unit
 def test_pending_specificity_review_is_unanswered_actionable_c2860_evidence() -> None:
     module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
@@ -97,6 +115,103 @@ def test_pending_specificity_review_is_unanswered_actionable_c2860_evidence() ->
     encoded = pending.model_dump(mode="json")
     assert "recommendation" not in encoded
     assert "human_decision" not in encoded
+
+
+@pytest.mark.unit
+def test_selected_specificity_review_loads_with_preserved_machine_evidence(
+    tmp_path: Path,
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    inventory, candidates, authority = _inputs(module)
+    target = module.build_specificity_review_target(
+        inventory=inventory, candidates=candidates, authority=authority
+    )
+    payload = _selected_payload(target.artifact_identity, candidates.artifact_identity)
+    path = tmp_path / "selected-review.json"
+    path.write_text(
+        json.dumps({**payload, "artifact_identity": _identity(payload)}),
+        encoding="utf-8",
+    )
+
+    selected = module.load_specificity_review(
+        path,
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+        revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+    )
+
+    assert selected.status == "selected-human-specificity-review"
+    assert selected.target_artifact_identity == target.artifact_identity
+    assert selected.candidate_artifact_identity == candidates.artifact_identity
+
+
+@pytest.mark.unit
+def test_selected_specificity_review_requires_candidate_only_for_replacement() -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    payload = _selected_payload("1" * 64, "2" * 64)
+    payload["selected_candidate_code"] = "C12703"
+    payload["artifact_identity"] = _identity(payload)
+
+    with pytest.raises(ValueError, match="candidate shape"):
+        module.R103SelectedSpecificityReview.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_selected_specificity_review_rejects_unenumerated_replacement(
+    tmp_path: Path,
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    inventory, candidates, authority = _inputs(module)
+    target = module.build_specificity_review_target(
+        inventory=inventory, candidates=candidates, authority=authority
+    )
+    payload = _selected_payload(target.artifact_identity, candidates.artifact_identity)
+    payload["selected_option"] = "propose-enumerated-candidate-replacement"
+    payload["selected_candidate_code"] = "C999999"
+    path = tmp_path / "selected-review.json"
+    path.write_text(
+        json.dumps({**payload, "artifact_identity": _identity(payload)}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(module.R103SpecificityReviewError, match="not enumerated"):
+        module.load_specificity_review(
+            path,
+            target=target,
+            inventory=inventory,
+            candidates=candidates,
+            authority=authority,
+            revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+        )
+
+
+@pytest.mark.unit
+def test_selected_specificity_review_rejects_another_target(
+    tmp_path: Path,
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    inventory, candidates, authority = _inputs(module)
+    target = module.build_specificity_review_target(
+        inventory=inventory, candidates=candidates, authority=authority
+    )
+    payload = _selected_payload("0" * 64, candidates.artifact_identity)
+    path = tmp_path / "selected-review.json"
+    path.write_text(
+        json.dumps({**payload, "artifact_identity": _identity(payload)}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(module.R103SpecificityReviewError, match="binding differs"):
+        module.load_specificity_review(
+            path,
+            target=target,
+            inventory=inventory,
+            candidates=candidates,
+            authority=authority,
+            revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+        )
 
 
 @pytest.mark.unit

@@ -140,6 +140,38 @@ class R103PendingSpecificityReview(_StrictModel):
         return self
 
 
+class R103SelectedSpecificityReview(_StrictModel):
+    schema_version: Literal[1]
+    status: Literal["selected-human-specificity-review"]
+    question_kind: Literal["most-specific-named-stated-descendant"]
+    subject_code: Literal["C2860"]
+    role_code: Literal["R103"]
+    filler_code: Literal["C12950"]
+    selected_option: SpecificityChoice
+    selected_candidate_code: str | None = Field(pattern=r"^C[0-9]+$")
+    target_artifact_identity: str = Field(pattern=_SHA256)
+    candidate_artifact_identity: str = Field(pattern=_SHA256)
+    software_selected_answer: Literal[False]
+    artifact_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _validate_contract(self) -> Self:
+        proposes_candidate = (
+            self.selected_option == "propose-enumerated-candidate-replacement"
+        )
+        if proposes_candidate != (self.selected_candidate_code is not None):
+            raise ValueError("selected specificity-review candidate shape differs")
+        expected = _identity(self.model_dump(exclude={"artifact_identity"}))
+        if self.artifact_identity != expected:
+            raise ValueError("selected specificity-review identity differs")
+        return self
+
+
+type R103SpecificityReview = (
+    R103PendingSpecificityReview | R103SelectedSpecificityReview
+)
+
+
 def _c2860_row(inventory: R103SourceInventory) -> R103SourceRow:
     matches = tuple(row for row in inventory.rows if row.subject_code == "C2860")
     if len(matches) != 1:
@@ -279,6 +311,57 @@ def load_pending_specificity_review(
     if value != expected:
         raise R103SpecificityReviewError("pending specificity-review binding differs")
     return value
+
+
+def load_specificity_review(
+    path: Path,
+    *,
+    target: R103SpecificityReviewTarget,
+    inventory: R103SourceInventory,
+    candidates: R103CandidateArtifact,
+    authority: R103AuthorityArtifact,
+    revision_path: Path,
+) -> R103SpecificityReview:
+    """Load either the unanswered review or a human-selected answer."""
+    try:
+        payload = json.loads(path.read_bytes())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise R103SpecificityReviewError(str(error)) from error
+    if not isinstance(payload, dict):
+        raise R103SpecificityReviewError("specificity-review state must be an object")
+    if payload.get("status") == "pending-human-specificity-review":
+        return load_pending_specificity_review(
+            path,
+            target=target,
+            inventory=inventory,
+            candidates=candidates,
+            authority=authority,
+            revision_path=revision_path,
+        )
+    return _load_selected_specificity_review(path, target=target, candidates=candidates)
+
+
+def _load_selected_specificity_review(
+    path: Path,
+    *,
+    target: R103SpecificityReviewTarget,
+    candidates: R103CandidateArtifact,
+) -> R103SelectedSpecificityReview:
+    selected = _load(path, R103SelectedSpecificityReview)
+    if (
+        selected.target_artifact_identity != target.artifact_identity
+        or selected.candidate_artifact_identity != candidates.artifact_identity
+    ):
+        raise R103SpecificityReviewError("selected specificity-review binding differs")
+    candidate_codes = {candidate.code for candidate in candidates.candidates}
+    if (
+        selected.selected_candidate_code is not None
+        and selected.selected_candidate_code not in candidate_codes
+    ):
+        raise R103SpecificityReviewError(
+            "selected specificity-review candidate is not enumerated"
+        )
+    return selected
 
 
 def generate_specificity_review_artifacts(

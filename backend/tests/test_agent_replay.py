@@ -575,7 +575,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         tmp_path
         / "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json"
     )
-    assert calls[1]["r103_pending_specificity_review"] == (
+    assert calls[1]["r103_specificity_review"] == (
         tmp_path
         / (
             "ontolib/tests/decomposition/golden/"

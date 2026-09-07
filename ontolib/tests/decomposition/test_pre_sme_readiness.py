@@ -41,6 +41,9 @@ from ontolib.decomposition.r101_conservation import load_r101_conservation_repor
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
 )
+from ontolib.decomposition.r103_specificity_review import (
+    R103SelectedSpecificityReview,
+)
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _OP = "https://w3id.org/ontoprism/vocab#"
@@ -238,7 +241,7 @@ def _composed_readiness_inputs(
         "r103_corroboration": golden / "r103-corroboration-normalized-26.07d.json",
         "r103_applied_policy": golden / "r103-applied-policy-26.07d.json",
         "r103_specificity_target": golden / "r103-c2860-specificity-target-26.07d.json",
-        "r103_pending_specificity_review": golden
+        "r103_specificity_review": golden
         / "r103-c2860-specificity-pending-26.07d.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
@@ -1047,7 +1050,7 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             r103_corroboration=tmp_path / "absent-r103-corroboration.json",
             r103_applied_policy=tmp_path / "absent-r103-application.json",
             r103_specificity_target=tmp_path / "absent-r103-target.json",
-            r103_pending_specificity_review=tmp_path / "absent-r103-pending.json",
+            r103_specificity_review=tmp_path / "absent-r103-pending.json",
             verify_evidence=tmp_path / "absent-verify.json",
             expected_git_head="a" * 40,
             output=output,
@@ -1155,10 +1158,67 @@ def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_select
 @pytest.mark.unit
 def test_r103_pending_status_is_not_inferred_from_candidate_artifact_presence() -> None:
     assert "r103_human_selection_required" not in MachineReadinessInputs.model_fields
-    assert (
-        "r103_pending_specificity_review_identity"
-        in MachineReadinessInputs.model_fields
+    assert "r103_specificity_review_identity" in MachineReadinessInputs.model_fields
+    parameters = inspect.signature(generate_pre_sme_readiness).parameters
+    assert "r103_specificity_review" in parameters
+    assert "r103_pending_specificity_review" not in parameters
+
+
+@pytest.mark.unit
+def test_selected_r103_review_resolves_pending_without_changing_evidence() -> None:
+    payload = _machine_readiness_input_payload()
+    evidence_identities = {
+        "r103_source_inventory_identity": "1" * 64,
+        "r103_candidate_artifact_identity": "2" * 64,
+        "r103_authority_artifact_identity": "3" * 64,
+        "r103_corroboration_artifact_identity": "4" * 64,
+        "r103_applied_policy_identity": "5" * 64,
+        "r103_specificity_target_identity": "6" * 64,
+    }
+    selected_payload = {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "selected_option": "affirm-no-better-enumerated-candidate",
+        "selected_candidate_code": None,
+        "target_artifact_identity": evidence_identities[
+            "r103_specificity_target_identity"
+        ],
+        "candidate_artifact_identity": evidence_identities[
+            "r103_candidate_artifact_identity"
+        ],
+        "software_selected_answer": False,
+    }
+    selected = R103SelectedSpecificityReview.model_validate(
+        {**selected_payload, "artifact_identity": _identity(selected_payload)}
     )
+    payload.update(
+        **evidence_identities,
+        r103_registry_identity="7" * 64,
+        r103_c3264_terminal_decision_identity="8" * 64,
+        r103_specificity_review_identity=selected.artifact_identity,
+        r103_specificity_review=selected,
+    )
+
+    readiness = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
+    requirement = next(
+        item
+        for item in readiness.human_requirements
+        if item.requirement == "r103-review"
+    )
+
+    assert requirement.status == "satisfied-by-specificity-review"
+    assert requirement.count == 1
+    assert requirement.selected_option == "affirm-no-better-enumerated-candidate"
+    assert (
+        readiness.identities.r103_specificity_review_status
+        == "selected-human-specificity-review"
+    )
+    assert readiness.identities.r103_candidate_artifact_identity == "2" * 64
+    assert readiness.identities.r103_source_inventory_identity == "1" * 64
 
 
 @pytest.mark.unit
@@ -1288,7 +1348,7 @@ def test_readiness_rejects_self_consistent_authority_with_another_rev1_file(
     specificity.write_artifact(changed_target, target)
     specificity.write_artifact(changed_pending, pending)
     arguments["r103_specificity_target"] = changed_target
-    arguments["r103_pending_specificity_review"] = changed_pending
+    arguments["r103_specificity_review"] = changed_pending
 
     with pytest.raises(PreSmeValidationError, match="R103 authority history"):
         generate_pre_sme_readiness(**arguments)

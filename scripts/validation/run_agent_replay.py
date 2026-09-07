@@ -1479,7 +1479,7 @@ def _generate_pre_sme_readiness(
         "r103_corroboration",
         "r103_applied_policy",
         "r103_specificity_target",
-        "r103_pending_specificity_review",
+        "r103_specificity_review",
         "verify_evidence",
     )
     output = root / "tmp/m1-6-machine-readiness.json"
