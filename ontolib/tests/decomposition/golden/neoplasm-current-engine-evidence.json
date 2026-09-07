@@ -10769,10 +10769,11 @@
     }
   ],
   "detector_identity": "a8209a30e836c6a9a722697f5ce44ffd8a7bb6c9de4694555830b37055160b03",
-  "evidence_identity": "317468148a9ebba445861fa55f039db37c5eaf65f842cdd639c281b2e2c691a7",
+  "evidence_identity": "de25c8b0ab174725f6a0978c3b660dfe878c7f7f99581274292fdd04fc856c79",
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
-  "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+  "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
+  "proposal_registry_migration_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
   "representation_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
   "run_fingerprint_identity": "ecb34db2a7410b145bb2ed849f4d3d0a1e62aa40442b5d63eebe90d9da70ae6b",

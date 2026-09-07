@@ -30,7 +30,13 @@ from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
+    ProposalStatus,
     RelationProposal,
+)
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+    validate_historical_migration_artifact,
+    validate_migrated_proposal_registry,
 )
 from ontolib.decomposition.score import ExtractionScore, score
 from ontolib.decomposition.semantic_bundles import PairProvenance
@@ -853,12 +859,7 @@ def _normalize_adjudication_lists(raw: dict[str, object]) -> None:
     raw["concepts"] = tuple(concepts)
 
 
-_PROVENANCE_PROPOSAL_STATUS = {
-    "proposed": "proposed",
-    "locally-approved": "locally-approved",
-    "submitted": "submitted",
-    "accepted-in-ncit": "accepted",
-}
+_PROPOSAL_STATUS_ADAPTER: TypeAdapter[ProposalStatus] = TypeAdapter(ProposalStatus)
 
 
 def _augmented_constituents(
@@ -877,8 +878,15 @@ def _validate_constituent_proposal(
     constituent: GoldenConstituent,
     proposal: ConceptProposal | RelationProposal,
 ) -> None:
-    expected_status = _PROVENANCE_PROPOSAL_STATUS[constituent.provenance_status]
-    if proposal.status != expected_status:
+    try:
+        provenance_status = _PROPOSAL_STATUS_ADAPTER.validate_python(
+            constituent.provenance_status
+        )
+    except ValidationError as error:
+        raise GoldenSetValidationError(
+            f"invalid proposal provenance status: {constituent.provenance_status}"
+        ) from error
+    if proposal.status != provenance_status:
         raise GoldenSetValidationError(
             f"proposal status does not match expected provenance: {proposal.id}"
         )
@@ -894,7 +902,9 @@ def _validate_constituent_proposal(
             )
         return
     expected_filler = (
-        proposal.replacement_ncit_code if proposal.status == "accepted" else proposal.id
+        proposal.replacement_ncit_code
+        if proposal.status == "accepted-in-ncit"
+        else proposal.id
     )
     if constituent.filler != expected_filler:
         raise GoldenSetValidationError(
@@ -925,6 +935,12 @@ def _validate_proposal_registry_binding(
         raise GoldenSetValidationError(
             "adjudication and proposal registry ontology versions do not match"
         )
+    _validate_augmented_proposals(augmented, proposal_registry)
+
+
+def _validate_augmented_proposals(
+    augmented: list[GoldenConstituent], proposal_registry: ProposalRegistry
+) -> None:
     proposals = {proposal.id: proposal for proposal in proposal_registry.proposals}
     for constituent in augmented:
         proposal = proposals.get(cast("str", constituent.proposal_id))
@@ -952,6 +968,43 @@ def load_adjudication(
     except (ValidationError, ValueError) as error:
         raise _model_error(error) from error
     _validate_proposal_registry_binding(artifact, proposal_registry)
+    return artifact
+
+
+def load_migrated_historical_adjudication(
+    path: str | Path,
+    proposal_registry_path: str | Path,
+    migration_envelope_path: str | Path,
+) -> AdjudicationArtifact:
+    """Bind immutable human evidence to schema 2 without loading schema-1 data."""
+    envelope = load_proposal_registry_migration_envelope(Path(migration_envelope_path))
+    registry = validate_migrated_proposal_registry(
+        envelope, Path(proposal_registry_path)
+    )
+    validate_historical_migration_artifact(
+        envelope, "neoplasm-adjudication", Path(path)
+    )
+    raw = _read_adjudication_json(path)
+    _normalize_adjudication_lists(raw)
+    try:
+        artifact = AdjudicationArtifact.model_validate(raw)
+    except (ValidationError, ValueError) as error:
+        raise _model_error(error) from error
+    if (
+        artifact.meta.proposal_registry_identity
+        != envelope.old_registry.registry_identity
+    ):
+        raise GoldenSetValidationError(
+            "historical adjudication registry binding differs from migration envelope"
+        )
+    if (
+        artifact.meta.source_identity != registry.source_identity
+        or artifact.meta.ncit_version != registry.ontology_version
+    ):
+        raise GoldenSetValidationError(
+            "historical adjudication and current registry source binding differs"
+        )
+    _validate_augmented_proposals(_augmented_constituents(artifact), registry)
     return artifact
 
 

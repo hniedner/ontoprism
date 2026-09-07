@@ -33,7 +33,11 @@ from ontolib.decomposition.pre_resume import (
 )
 from ontolib.decomposition.proposal_registry import (
     load_proposal_registry,
+    write_proposal_registry,
     write_submission_exports,
+)
+from ontolib.decomposition.proposal_registry_migration import (
+    write_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.r101_conservation import (
@@ -206,6 +210,7 @@ class _CurrentEvidenceArgs(Protocol):
     oracle: Path
     row_decisions: Path
     proposal_registry: Path
+    proposal_registry_migration: Path | None
     run_id: str
     artifact: Path
     engine_output: Path
@@ -218,6 +223,7 @@ class _AxisDiagnosticArgs(Protocol):
     oracle: Path
     row_decisions: Path
     proposal_registry: Path
+    proposal_registry_migration: Path
     current_evidence: Path
     current_comparison: Path
     residual_filler: list[str]
@@ -486,6 +492,7 @@ async def _generate_current(args: _CurrentEvidenceArgs) -> None:
             oracle=args.oracle,
             row_decisions=args.row_decisions,
             proposal_registry=args.proposal_registry,
+            proposal_registry_migration=args.proposal_registry_migration,
             run_id=args.run_id,
             artifact=args.artifact,
             engine_output=args.engine_output,
@@ -503,6 +510,7 @@ async def _generate_axis_diagnostics(args: _AxisDiagnosticArgs) -> None:
         oracle_path=args.oracle,
         row_decisions_path=args.row_decisions,
         proposal_registry_path=args.proposal_registry,
+        proposal_registry_migration_path=args.proposal_registry_migration,
         current_evidence_path=args.current_evidence,
         current_comparison_path=args.current_comparison,
         residual_fillers=tuple(args.residual_filler),
@@ -1025,6 +1033,19 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     export_parser = subparsers.add_parser("export-proposals")
     export_parser.add_argument("registry", type=Path)
     export_parser.add_argument("output_directory", type=Path)
+    registry_parser = subparsers.add_parser("write-proposal-registry")
+    registry_parser.add_argument("registry", type=Path)
+    migration_parser = subparsers.add_parser("bind-proposal-registry-migration")
+    migration_parser.add_argument("--historical-oracle", required=True, type=Path)
+    migration_parser.add_argument("--historical-r103-review", required=True, type=Path)
+    migration_parser.add_argument(
+        "--historical-r103-revision", required=True, type=Path
+    )
+    migration_parser.add_argument(
+        "--historical-r103-corroboration", required=True, type=Path
+    )
+    migration_parser.add_argument("--current-registry", required=True, type=Path)
+    migration_parser.add_argument("--output", required=True, type=Path)
     rows_parser = subparsers.add_parser(
         "export-row-decisions",
         help="Export the selected row-decision projection from an attested workbook",
@@ -1044,6 +1065,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     current_parser.add_argument("--oracle", required=True, type=Path)
     current_parser.add_argument("--row-decisions", required=True, type=Path)
     current_parser.add_argument("--proposal-registry", required=True, type=Path)
+    current_parser.add_argument("--proposal-registry-migration", type=Path)
     current_parser.add_argument("--run-id", required=True)
     current_parser.add_argument("--artifact", required=True, type=Path)
     current_parser.add_argument("--engine-output", required=True, type=Path)
@@ -1054,6 +1076,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     axis_parser.add_argument("--oracle", required=True, type=Path)
     axis_parser.add_argument("--row-decisions", required=True, type=Path)
     axis_parser.add_argument("--proposal-registry", required=True, type=Path)
+    axis_parser.add_argument("--proposal-registry-migration", required=True, type=Path)
     axis_parser.add_argument("--current-evidence", required=True, type=Path)
     axis_parser.add_argument("--current-comparison", required=True, type=Path)
     axis_parser.add_argument(
@@ -1108,6 +1131,20 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return
     if args.command == "export-proposals":
         _export_proposals(args.registry, args.output_directory)
+        return
+    if args.command == "write-proposal-registry":
+        registry = load_proposal_registry(args.registry)
+        write_proposal_registry(registry, args.registry)
+        return
+    if args.command == "bind-proposal-registry-migration":
+        write_proposal_registry_migration_envelope(
+            historical_oracle_path=args.historical_oracle,
+            historical_r103_review_path=args.historical_r103_review,
+            historical_r103_revision_path=args.historical_r103_revision,
+            historical_r103_corroboration_path=args.historical_r103_corroboration,
+            current_registry_path=args.current_registry,
+            output_path=args.output,
+        )
         return
     if args.command == "export-row-decisions":
         _write_row_decisions(args.workbook, args.output)

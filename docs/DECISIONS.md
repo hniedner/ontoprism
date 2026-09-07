@@ -127,6 +127,17 @@ enhancement: this decision **qualifies D60** and **does not supersede D60**. The
 vocabulary and current model divergence belong to [#304](https://github.com/hniedner/ontoprism/issues/304);
 this decision neither enumerates a replacement lifecycle nor claims convergence is implemented.
 
+**Implemented lifecycle amendment (2026-09-07; #304):** proposal-registry schema 2 now uses
+exactly `proposed`, `locally-approved`, `submitted`, `accepted-in-ncit`, and `rejected`.
+`accepted-in-ncit` requires typed evidence from an identified certified official NCIt release;
+local approval remains distinct and no migration infers adoption. The append-only schema-1-to-2
+binding preserves the historical human evidence as immutable inputs while the active registry
+loader rejects schema 1. This implements D86's current lifecycle boundary without implementing
+#313 transitions, #314 publication/crosswalk redesign, #311 per-assertion review, or
+correction-aware reconciliation (`pdm run agent-test
+ontolib/tests/decomposition/test_proposal_registry.py
+ontolib/tests/decomposition/test_proposal_registry_migration.py -v`, 2026-09-07).
+
 The Metathesaurus-interoperability target is a typed, evidence-bearing mapping and link-out
 capability, not a claim that OntoPrism is NCI Metathesaurus. Every relation binds the endpoint
 ontology/release/identity, relation type and direction, evidence/provenance/status, license, and
@@ -1229,6 +1240,33 @@ can expose systematic loss outside the small golden cohort.
 ## 2026-08-02 — missing concepts and relations remain typed proposals
 
 ### D57. Proposal governance is source-bound, duplicate-checked, and non-promoting
+
+**Current-status correction (2026-09-07; #304):** proposal-registry schema 2 replaces
+the historical lifecycle spelling below with the exact closed set `proposed`,
+`locally-approved`, `submitted`, `accepted-in-ncit`, and `rejected`; persisted missing,
+legacy `accepted`, `review-required`, and malformed values are invalid. The separate SME
+adjudication `DecisionStatus.accepted` is not a proposal lifecycle value and remains unchanged
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_proposal_status_is_the_exact_closed_lifecycle ontolib/tests/decomposition/test_proposal_registry.py::test_persisted_registry_rejects_missing_legacy_and_malformed_status ontolib/tests/decomposition/test_golden_review.py::test_scorable_view_uses_accepted_decisions_and_retains_review_exclusions -v`,
+2026-09-07).
+
+`accepted-in-ncit` is structurally valid only with typed adoption evidence that identifies a
+certified official NCIt release by release, source/artifact/manifest fingerprints and
+certification profile/evidence identity; binds the exact adopted concept or relation assertion;
+and identifies its adoption provenance. Its replacement concept code or relation IRI/version
+must match that evidence. Every nonterminal status forbids both replacement and adoption-evidence
+fields (`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_terminal_concept_requires_matching_replacement_and_adoption_evidence ontolib/tests/decomposition/test_proposal_registry.py::test_terminal_relation_requires_correlated_identity_version_and_evidence ontolib/tests/decomposition/test_proposal_registry.py::test_nonterminal_proposals_forbid_adoption_evidence -v`,
+2026-09-07). No current proposal-registry software transition assigns `accepted-in-ncit`
+(`git grep -n 'status.*accepted-in-ncit' -- ontolib/src scripts`, which returns only validation,
+comparison, and SQL-policy literals and no assignment, 2026-09-07). The tracked registry contains
+two `locally-approved` and five `proposed` records, with no terminal record
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_tracked_proposal_registry_remains_valid -v`,
+2026-09-07).
+
+This correction supplies only the minimal terminal-state evidence invariant. #313 owns evidence
+intake, lifecycle history, and transitions; #314 owns publication, crosswalk, and accepted-
+replacement redesign; #311 owns per-assertion review. It does not unify `enhanced_showcase`, add a
+proposal-level `review-required` state, implement correction reconciliation, or resolve D86's
+stable enhanced-code design.
 
 Issue #57 exposed two separate gaps that the former qualifier-only mint record could not
 represent safely: a missing atomic NCIt concept and an overloaded NCIt source role that

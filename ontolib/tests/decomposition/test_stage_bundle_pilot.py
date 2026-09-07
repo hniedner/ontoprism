@@ -31,7 +31,11 @@ from scripts.research.stage_bundle_pilot import (
     write_review_workbook,
 )
 
-from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry import (
+    ProposalRegistry,
+    RelationProposal,
+    load_proposal_registry,
+)
 from ontolib.decomposition.semantic_bundles import (
     BundleAxis,
     MemberRole,
@@ -1028,6 +1032,40 @@ def test_review_workbook_binds_augmented_pair_to_proposal_registry(
     tampered.save(review)
     with pytest.raises(ValueError, match="unknown proposal"):
         import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+
+
+@pytest.mark.unit
+def test_stage_bundle_proposal_matching_uses_direct_status_and_fails_closed() -> None:
+    relation = next(
+        proposal
+        for proposal in _PROPOSAL_REGISTRY.proposals
+        if isinstance(proposal, RelationProposal)
+    )
+    submitted = RelationProposal.model_validate(
+        relation.model_dump() | {"status": "submitted"}
+    )
+    registry = ProposalRegistry(
+        source_identity=_PROPOSAL_REGISTRY.source_identity,
+        ontology_version=_PROPOSAL_REGISTRY.ontology_version,
+        proposals=(submitted,),
+    )
+
+    assert (
+        stage_bundle_pilot._proposal_for_workbook_pair(
+            registry,
+            "submitted",
+            submitted.axis,
+            "C27262",
+        )
+        == submitted.id
+    )
+    with pytest.raises(ValueError, match="invalid proposal provenance status"):
+        stage_bundle_pilot._proposal_for_workbook_pair(
+            registry,
+            "accepted",
+            submitted.axis,
+            "C27262",
+        )
 
 
 @pytest.mark.unit

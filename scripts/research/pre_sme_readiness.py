@@ -32,7 +32,11 @@ from ontolib.decomposition.evaluation import (
     EvaluationMetricName,
     MetricDenominatorRule,
 )
-from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+    validate_historical_migration_artifact,
+    validate_migrated_proposal_registry,
+)
 from ontolib.decomposition.r101_conservation import (
     R101ConservationReport,
     load_r101_conservation_report,
@@ -408,6 +412,7 @@ class MachineReadinessInputs(_StrictModel):
     r101_current_packet_identity: str = Field(pattern=_SHA256)
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     row_decisions_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     primary_site_resolved_count: int = Field(ge=0)
@@ -838,6 +843,7 @@ class ReportIdentities(_StrictModel):
     r101_current_packet_identity: str = Field(pattern=_SHA256)
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     row_decisions_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     group_packet_identity: str = Field(pattern=_SHA256)
@@ -1286,7 +1292,7 @@ def _validated_current_metrics(comparison: CurrentComparison) -> CurrentMetrics:
         raise PreSmeValidationError(str(exc)) from exc
 
 
-def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
+def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     *,
     source_manifest: Path,
     current_evidence: Path,
@@ -1296,6 +1302,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
     r101_report: Path,
     r101_validation: Path,
     proposal_registry: Path,
+    proposal_registry_migration: Path,
     row_decisions: Path,
     primary_site_audit: Path,
     group_packet: Path,
@@ -1333,13 +1340,19 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
             r101_validation, "R101 current validation"
         )
         validation = R101ReuseValidation.model_validate(validation_value)
-        proposals = load_proposal_registry(proposal_registry)
+        migration = load_proposal_registry_migration_envelope(
+            proposal_registry_migration
+        )
+        proposals = validate_migrated_proposal_registry(migration, proposal_registry)
         historical_rows = load_row_decisions(row_decisions)
         audit = PrimarySiteAudit.model_validate_json(
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
         group = load_group_review_packet(group_packet)
         r103_revision = load_r103_promoted_review_revision(r103_review_state)
+        validate_historical_migration_artifact(
+            migration, "r103-review-revision", r103_review_state
+        )
         r103 = r103_revision.packet
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
@@ -1383,7 +1396,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
         (r103.source_identity == manifest.source_identity, "R103 source"),
         (r103.candidate_manifest_identity == manifest_identity, "R103 manifest"),
         (
-            r103.proposal_registry_identity == proposals.registry_identity,
+            r103.proposal_registry_identity == migration.old_registry.registry_identity,
             "R103 proposal",
         ),
     )
@@ -1420,6 +1433,7 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed validation
             r101_current_packet_identity=validation.current_packet_identity,
             r101_validation_identity=validation.validation_identity,
             proposal_registry_identity=proposals.registry_identity,
+            proposal_registry_migration_identity=migration.envelope_identity,
             row_decisions_identity=historical_rows.payload_identity,
             primary_site_audit_identity=audit.audit_identity,
             primary_site_resolved_count=audit.resolved_site_count,

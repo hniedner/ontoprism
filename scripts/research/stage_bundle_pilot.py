@@ -26,6 +26,7 @@ from ontolib.decomposition.models import ConceptOutcome
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
+    ProposalStatus,
     load_proposal_registry,
 )
 from ontolib.decomposition.semantic_bundles import (
@@ -1852,12 +1853,7 @@ def _validate_ncit_add_corrections(
             )
 
 
-_PROVENANCE_PROPOSAL_STATUS = {
-    "proposed": "proposed",
-    "locally-approved": "locally-approved",
-    "submitted": "submitted",
-    "accepted-in-ncit": "accepted",
-}
+_PROPOSAL_STATUSES = frozenset(get_args(ProposalStatus))
 
 
 def _workbook_evidence_rows(sheet: Worksheet) -> dict[str, int]:
@@ -1897,7 +1893,9 @@ def _proposal_for_workbook_pair(
     axis: object,
     filler: object,
 ) -> str:
-    proposal_status = _PROVENANCE_PROPOSAL_STATUS.get(provenance_status)
+    if provenance_status not in _PROPOSAL_STATUSES:
+        raise ValueError(f"invalid proposal provenance status: {provenance_status}")
+    proposal_status = cast("ProposalStatus", provenance_status)
     relation_candidate = any(
         not isinstance(proposal, ConceptProposal)
         and proposal.status == proposal_status
@@ -1912,7 +1910,8 @@ def _proposal_for_workbook_pair(
     for proposal in proposal_registry.proposals:
         expected_filler = (
             proposal.replacement_ncit_code
-            if isinstance(proposal, ConceptProposal) and proposal.status == "accepted"
+            if isinstance(proposal, ConceptProposal)
+            and proposal.status == "accepted-in-ncit"
             else proposal.id
         )
         if (

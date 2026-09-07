@@ -28,6 +28,9 @@ from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
 )
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+)
 from ontolib.decomposition.publication import validate_artifact
 from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
@@ -45,6 +48,7 @@ try:
         KeptRow,
         RowDecisionExport,
         load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -58,6 +62,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         KeptRow,
         RowDecisionExport,
         load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 
@@ -194,6 +199,9 @@ class CurrentEngineEvidence(_StrictModel):
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str | None = Field(
+        default=None, pattern=_SHA256, exclude_if=lambda value: value is None
+    )
     concepts: tuple[CurrentConceptEvidence, ...]
     evidence_identity: str = Field(pattern=_SHA256)
 
@@ -449,6 +457,9 @@ class CurrentComparison(_StrictModel):
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str | None = Field(
+        default=None, pattern=_SHA256, exclude_if=lambda value: value is None
+    )
     current_evidence_identity: str = Field(pattern=_SHA256)
     metrics: CurrentMetrics
     concepts: tuple[CurrentConceptComparison, ...]
@@ -942,6 +953,11 @@ def validate_current_comparison(
             comparison.proposal_registry_identity,
         ),
         (
+            "proposal registry migration",
+            evidence.proposal_registry_migration_identity,
+            comparison.proposal_registry_migration_identity,
+        ),
+        (
             "evidence",
             evidence.evidence_identity,
             comparison.current_evidence_identity,
@@ -999,6 +1015,7 @@ def _build_current_comparison(
             "oracle_identity",
             "row_decision_identity",
             "proposal_registry_identity",
+            "proposal_registry_migration_identity",
         )
     }
     metrics, reports = _comparison_payload(adjudicated, evidence)
@@ -1027,6 +1044,7 @@ def regenerate_current_comparison(
     oracle_path: Path,
     row_decisions_path: Path,
     proposal_registry_path: Path,
+    proposal_registry_migration_path: Path | None = None,
     output: Path,
 ) -> CurrentComparison:
     """Regenerate the derived comparison from source-bound tracked evidence."""
@@ -1035,6 +1053,11 @@ def regenerate_current_comparison(
         oracle_path,
         row_decisions_path,
         proposal_registry_path,
+        *(
+            (proposal_registry_migration_path,)
+            if proposal_registry_migration_path
+            else ()
+        ),
     )
     for path in inputs:
         if not path.exists():
@@ -1050,7 +1073,22 @@ def regenerate_current_comparison(
     try:
         evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
         registry = load_proposal_registry(proposal_registry_path)
-        adjudication = load_adjudication(oracle_path, registry)
+        adjudication = (
+            load_migrated_historical_adjudication(
+                oracle_path,
+                proposal_registry_path,
+                proposal_registry_migration_path,
+            )
+            if proposal_registry_migration_path is not None
+            else load_adjudication(oracle_path, registry)
+        )
+        migration_identity = (
+            load_proposal_registry_migration_envelope(
+                proposal_registry_migration_path
+            ).envelope_identity
+            if proposal_registry_migration_path is not None
+            else None
+        )
         rows = load_row_decisions(row_decisions_path)
     except (ValueError, GoldenSetValidationError) as error:
         raise CurrentEvidenceValidationError(str(error)) from error
@@ -1061,6 +1099,11 @@ def regenerate_current_comparison(
             "proposal registry",
             evidence.proposal_registry_identity,
             registry.registry_identity,
+        ),
+        (
+            "proposal registry migration",
+            evidence.proposal_registry_migration_identity,
+            migration_identity,
         ),
     )
     for name, actual, expected in checks:
@@ -1144,6 +1187,7 @@ async def generate_current_evidence(
     oracle: Path,
     row_decisions: Path,
     proposal_registry: Path,
+    proposal_registry_migration: Path | None = None,
     run_id: str,
     artifact: Path,
     engine_output: Path,
@@ -1157,13 +1201,33 @@ async def generate_current_evidence(
     filesystem replacements promise neither crash atomicity nor guaranteed rollback.
     """
     _require_paths(
-        (sample_manifest, oracle, row_decisions, proposal_registry, artifact),
+        (
+            sample_manifest,
+            oracle,
+            row_decisions,
+            proposal_registry,
+            artifact,
+            *((proposal_registry_migration,) if proposal_registry_migration else ()),
+        ),
         (engine_output, comparison_output),
     )
     try:
         manifest = load_sample_manifest(sample_manifest)
         registry = load_proposal_registry(proposal_registry)
-        adjudication = load_adjudication(oracle, registry)
+        adjudication = (
+            load_migrated_historical_adjudication(
+                oracle, proposal_registry, proposal_registry_migration
+            )
+            if proposal_registry_migration is not None
+            else load_adjudication(oracle, registry)
+        )
+        migration_identity = (
+            load_proposal_registry_migration_envelope(
+                proposal_registry_migration
+            ).envelope_identity
+            if proposal_registry_migration is not None
+            else None
+        )
         rows = load_row_decisions(row_decisions)
     except (ValueError, GoldenSetValidationError) as error:
         raise CurrentEvidenceValidationError(str(error)) from error
@@ -1235,6 +1299,7 @@ async def generate_current_evidence(
         "oracle_identity": adjudication.identity,
         "row_decision_identity": rows.payload_identity,
         "proposal_registry_identity": registry.registry_identity,
+        "proposal_registry_migration_identity": migration_identity,
     }
     evidence_payload = {**common, "concepts": concepts}
     evidence = CurrentEngineEvidence.model_validate(

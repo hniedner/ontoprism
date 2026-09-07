@@ -889,7 +889,13 @@ def _generate_current_evidence(
     if len(values) != 1 or _RUN_ID.fullmatch(values[0]) is None:
         raise AgentReplayInputError("a persisted neoplasm run ID is required")
     script, sample, oracle, rows, registry = _adjudication_inputs(root)
-    artifact = _require_files(root, ("tmp/m1-6-current-replay.ttl",))[0]
+    artifact, migration = _require_files(
+        root,
+        (
+            "tmp/m1-6-current-replay.ttl",
+            "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        ),
+    )
     golden = root / "ontolib/tests/decomposition/golden"
     return _run(
         [
@@ -904,6 +910,8 @@ def _generate_current_evidence(
             rows,
             "--proposal-registry",
             registry,
+            "--proposal-registry-migration",
+            migration,
             "--run-id",
             values[0],
             "--artifact",
@@ -945,6 +953,9 @@ def _regenerate_current_comparison(
         oracle_path=Path(oracle),
         row_decisions_path=Path(rows),
         proposal_registry_path=Path(registry),
+        proposal_registry_migration_path=(
+            golden / "proposal-registry-schema2-migration.json"
+        ),
         output=golden / "neoplasm-current-comparison.json",
     )
     return 0
@@ -962,12 +973,13 @@ def _generate_axis_diagnostics(
     ):
         raise AgentReplayInputError("residual filler values are invalid")
     script, _sample, oracle, rows, registry = _adjudication_inputs(root)
-    source, evidence, comparison = _require_files(
+    source, evidence, comparison, migration = _require_files(
         root,
         (
             "data/qlever-ncit/.ontoprism-ncit-candidate.json",
             "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
             "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+            "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         ),
     )
     command = [
@@ -984,6 +996,8 @@ def _generate_axis_diagnostics(
         rows,
         "--proposal-registry",
         registry,
+        "--proposal-registry-migration",
+        migration,
         "--current-evidence",
         evidence,
         "--current-comparison",
@@ -1361,6 +1375,7 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
@@ -1380,6 +1395,7 @@ def _generate_pre_sme_readiness(
         "r101_report",
         "r101_validation",
         "proposal_registry",
+        "proposal_registry_migration",
         "row_decisions",
         "primary_site_audit",
         "group_packet",
