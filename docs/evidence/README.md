@@ -65,15 +65,19 @@ though current readiness no longer consumes the standalone `tmp/` packet. The
 producer is retained because the historical generation/promotion path still begins
 with that source-bound packet and blank review workbook.
 
-Current readiness reads the fixed
-`ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json` path. The strict
-revision loader validates the predecessor, embedded packet, effective registry, zero-unresolved
-dry run, one exact exclusion preview, transcription provenance, qualification, and all identities.
-Readiness binds the effective registry and C3264 decision identities in the satisfied R103
-requirement. It does not bind that requirement to Git HEAD or a generated readiness-report
-identity. Overall authorization remains false and publication remains unattempted because the
-other human requirements are independent.
+Current readiness reads the preserved terminal revision together with the generated source
+inventory, C12950 candidate enumeration, normalized authority, normalized corroboration, and
+applied-policy report under `ontolib/tests/decomposition/golden/`. It binds all five current
+artifact identities and leaves one R103 human selection pending for C2860. Overall authorization
+remains false and publication remains unattempted.
 
-`r103-c3264-corroboration-26.07d.json` is a compact sidecar consumed by a strict loader against
-the rev2 C3264 decision identity. It records citation metadata as corroboration, not proof, and
-retains the exact non-propagating descendant qualification. It does not cache publisher content.
+`r103-c3264-corroboration-26.07d.json` is preserved historical input. Because no digest-bound
+PubMed response bytes were retained, its successor
+`r103-corroboration-normalized-26.07d.json` classifies the five citations as reviewer-supplied
+references with `upstream_verified=false`; neither ESummary authority nor a verified date is
+claimed. Both remain corroboration, not proof.
+
+Run `pdm run agent-replay generate-r103-evidence-application` against the certified stated QLever
+graph and RDF/XML artifact. The generator performs bounded QLever count/page reads, independent
+streaming RDF/XML scans, canonical parity checks, strict historical/migration joins, and atomic
+deterministic writes. It creates no proposal and makes no candidate-selection verdict.

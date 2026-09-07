@@ -197,6 +197,11 @@ def _composed_readiness_inputs(
         "primary_site_audit": audit_path,
         "group_packet": unused,
         "r103_review_state": golden / "r103-review-state-26.07d-rev2.json",
+        "r103_source_inventory": golden / "r103-source-inventory-26.07d.json",
+        "r103_candidates": golden / "r103-c12950-candidates-26.07d.json",
+        "r103_authority": golden / "r103-authority-normalized-26.07d.json",
+        "r103_corroboration": golden / "r103-corroboration-normalized-26.07d.json",
+        "r103_applied_policy": golden / "r103-applied-policy-26.07d.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
@@ -998,6 +1003,11 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             primary_site_audit=tmp_path / "absent-audit.json",
             group_packet=tmp_path / "absent-group.json",
             r103_review_state=tmp_path / "absent-r103-state.json",
+            r103_source_inventory=tmp_path / "absent-r103-inventory.json",
+            r103_candidates=tmp_path / "absent-r103-candidates.json",
+            r103_authority=tmp_path / "absent-r103-authority.json",
+            r103_corroboration=tmp_path / "absent-r103-corroboration.json",
+            r103_applied_policy=tmp_path / "absent-r103-application.json",
             verify_evidence=tmp_path / "absent-verify.json",
             expected_git_head="a" * 40,
             output=output,
@@ -1056,7 +1066,7 @@ def test_composed_readiness_rejects_changed_historical_row_decisions_without_out
 
 
 @pytest.mark.unit
-def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
+def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_selection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
@@ -1078,14 +1088,13 @@ def test_composed_readiness_marks_strict_terminal_r103_revision_satisfied(
     assert readiness.identities.proposal_registry_migration_identity == (
         "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705"
     )
-    revision = load_r103_promoted_review_revision(Path(arguments["r103_review_state"]))
-    assert r103_requirement.status == "satisfied-by-terminal-review"
-    assert r103_requirement.count == 3
-    assert r103_requirement.registry_identity == revision.registry.registry_identity
-    assert (
-        r103_requirement.decision_identity
-        == revision.registry.decisions[1].decision_identity
-    )
+    assert r103_requirement.status == "pending"
+    assert r103_requirement.count == 1
+    assert readiness.identities.r103_source_inventory_identity != "0" * 64
+    assert readiness.identities.r103_candidate_artifact_identity != "0" * 64
+    assert readiness.identities.r103_authority_artifact_identity != "0" * 64
+    assert readiness.identities.r103_corroboration_artifact_identity != "0" * 64
+    assert readiness.identities.r103_applied_policy_identity != "0" * 64
     assert readiness.authorization is False
     assert readiness.publication.publication_writes_performed is False
     assert "registry" not in payload
@@ -1169,9 +1178,7 @@ def test_readiness_strict_state_load_rejects_changed_registry_outcome_without_ou
     changed.write_text(json.dumps(state), encoding="utf-8")
     arguments["r103_review_state"] = changed
 
-    with pytest.raises(
-        PreSmeValidationError, match="revision human review values differ"
-    ):
+    with pytest.raises(PreSmeValidationError, match="revision decision vector differs"):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()

@@ -495,6 +495,11 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -556,6 +561,14 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         tmp_path
         / "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json"
     )
+    assert calls[1]["r103_source_inventory"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json"
+    )
+    assert calls[1]["r103_candidates"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json"
+    )
     assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
@@ -611,6 +624,11 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "tmp/m1-6-primary-site-audit.json",
         "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
+        "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:

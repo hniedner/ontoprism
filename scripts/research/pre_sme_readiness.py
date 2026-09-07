@@ -46,6 +46,13 @@ from ontolib.decomposition.r101_review import (
     load_r101_decision_registry,
     load_r101_review_packet,
 )
+from ontolib.decomposition.r103_evidence_application import (
+    load_applied_policy_report,
+    load_authority_artifact,
+    load_candidate_artifact,
+    load_corroboration_normalization,
+    load_source_inventory,
+)
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
 )
@@ -423,6 +430,12 @@ class MachineReadinessInputs(_StrictModel):
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_decision_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_terminal_review_established: bool = False
+    r103_source_inventory_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_candidate_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_authority_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_corroboration_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_applied_policy_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_human_selection_required: bool = False
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
     exact_pair_true_positive: int = Field(ge=0)
@@ -483,8 +496,23 @@ class MachineReadinessInputs(_StrictModel):
             self.r103_registry_identity != "0" * 64
             and self.r103_decision_identity != "0" * 64
         )
-        if self.r103_terminal_review_established != terminal_identities:
+        if (
+            self.r103_terminal_review_established != terminal_identities
+            and not self.r103_human_selection_required
+        ):
             raise ValueError("R103 terminal-review status differs from identities")
+        machine_ids = (
+            self.r103_source_inventory_identity,
+            self.r103_candidate_artifact_identity,
+            self.r103_authority_artifact_identity,
+            self.r103_corroboration_artifact_identity,
+            self.r103_applied_policy_identity,
+        )
+        machine_ready = all(item != "0" * 64 for item in machine_ids)
+        if self.r103_human_selection_required != machine_ready:
+            raise ValueError("R103 human gate differs from machine artifact identities")
+        if self.r103_human_selection_required and self.r103_terminal_review_established:
+            raise ValueError("R103 cannot be terminal before candidate selection")
         return self
 
 
@@ -850,6 +878,11 @@ class ReportIdentities(_StrictModel):
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(pattern=_SHA256)
     r103_decision_identity: str = Field(pattern=_SHA256)
+    r103_source_inventory_identity: str = Field(pattern=_SHA256)
+    r103_candidate_artifact_identity: str = Field(pattern=_SHA256)
+    r103_authority_artifact_identity: str = Field(pattern=_SHA256)
+    r103_corroboration_artifact_identity: str = Field(pattern=_SHA256)
+    r103_applied_policy_identity: str = Field(pattern=_SHA256)
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
 
@@ -874,7 +907,7 @@ class MachineReadinessReport(_StrictModel):
     report_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
-    def _validate_identity(  # noqa: C901, PLR0912 - cross-validates full report
+    def _validate_identity(  # noqa: C901, PLR0912, PLR0915 - full report checks
         self,
     ) -> Self:
         requirements = [item.requirement for item in self.human_requirements]
@@ -890,7 +923,10 @@ class MachineReadinessReport(_StrictModel):
         by_requirement = {item.requirement: item for item in self.human_requirements}
         if by_requirement[_GROUP_REVIEW].count != _GROUP_REVIEW_COUNT:
             raise ValueError("group review count differs")
-        if by_requirement[_R103_REVIEW].count != _R103_REVIEW_COUNT:
+        expected_r103_count = (
+            1 if self.identities.r103_candidate_artifact_identity != "0" * 64 else 3
+        )
+        if by_requirement[_R103_REVIEW].count != expected_r103_count:
             raise ValueError("R103 review count differs")
         if (
             self.primary_site_audit.audit_identity
@@ -966,7 +1002,10 @@ class MachineReadinessReport(_StrictModel):
     def _validate_r103_requirement(self) -> Self:
         by_requirement = {item.requirement: item for item in self.human_requirements}
         r103 = by_requirement.get(_R103_REVIEW)
-        terminal_r103 = self.identities.r103_registry_identity != "0" * 64
+        terminal_r103 = (
+            self.identities.r103_registry_identity != "0" * 64
+            and self.identities.r103_candidate_artifact_identity == "0" * 64
+        )
         if terminal_r103 != isinstance(r103, SatisfiedR103Requirement):
             raise ValueError("R103 requirement differs from revision identities")
         if isinstance(r103, SatisfiedR103Requirement) and (
@@ -1099,7 +1138,9 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     else:
         requirements.append(
             PendingHumanRequirement(
-                requirement=_R103_REVIEW, count=_R103_REVIEW_COUNT, status="pending"
+                requirement=_R103_REVIEW,
+                count=1 if inputs.r103_human_selection_required else _R103_REVIEW_COUNT,
+                status="pending",
             )
         )
     if inputs.r101_exact_validation_established:
@@ -1307,6 +1348,11 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     primary_site_audit: Path,
     group_packet: Path,
     r103_review_state: Path,
+    r103_source_inventory: Path,
+    r103_candidates: Path,
+    r103_authority: Path,
+    r103_corroboration: Path,
+    r103_applied_policy: Path,
     verify_evidence: Path,
     expected_git_head: str,
     output: Path,
@@ -1354,6 +1400,13 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             migration, "r103-review-revision", r103_review_state
         )
         r103 = r103_revision.packet
+        r103_source = load_source_inventory(r103_source_inventory)
+        r103_candidate_set = load_candidate_artifact(r103_candidates)
+        r103_authority_artifact = load_authority_artifact(r103_authority)
+        r103_corroboration_artifact = load_corroboration_normalization(
+            r103_corroboration, r103_authority_artifact
+        )
+        r103_application = load_applied_policy_report(r103_applied_policy)
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
         )
@@ -1398,6 +1451,33 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         (
             r103.proposal_registry_identity == migration.old_registry.registry_identity,
             "R103 proposal",
+        ),
+        (
+            r103_source.source_identity == manifest.source_identity,
+            "R103 inventory source",
+        ),
+        (
+            r103_candidate_set.source_identity == manifest.source_identity,
+            "R103 candidate source",
+        ),
+        (
+            r103_authority_artifact.source_inventory_identity
+            == r103_source.artifact_identity,
+            "R103 authority inventory",
+        ),
+        (
+            r103_application.source_inventory_identity == r103_source.artifact_identity,
+            "R103 applied inventory",
+        ),
+        (
+            r103_application.authority_artifact_identity
+            == r103_authority_artifact.artifact_identity,
+            "R103 applied authority",
+        ),
+        (
+            r103_corroboration_artifact.authority_artifact_identity
+            == r103_authority_artifact.artifact_identity,
+            "R103 corroboration authority",
         ),
     )
     for accepted, name in checks:
@@ -1445,7 +1525,15 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r103_decision_identity=(
                 r103_revision.registry.decisions[1].decision_identity
             ),
-            r103_terminal_review_established=True,
+            r103_terminal_review_established=False,
+            r103_source_inventory_identity=r103_source.artifact_identity,
+            r103_candidate_artifact_identity=r103_candidate_set.artifact_identity,
+            r103_authority_artifact_identity=r103_authority_artifact.artifact_identity,
+            r103_corroboration_artifact_identity=(
+                r103_corroboration_artifact.artifact_identity
+            ),
+            r103_applied_policy_identity=r103_application.artifact_identity,
+            r103_human_selection_required=True,
             verify_evidence_identity=gate.evidence_identity,
             git_head=gate.git_head,
             exact_pair_true_positive=metrics.exact_pair_precision.numerator,

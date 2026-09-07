@@ -1,0 +1,43 @@
+{
+  "artifact_identity": "74619e920698f0129aafe0406a80b2932446d8ba6b1b1a29dc6fabcc29b37d67",
+  "authority_artifact_identity": "db34f5d642ca72262fd3d3254f52e048c20f94b7331f88e33442f58833b45dc6",
+  "effective_decision_identity": "13160d82001bf177c4a48ffef94c96c612aed0d1950889cc79e06454cc0422ed",
+  "evidence_kind": "reviewer-supplied-references",
+  "historical_artifact_sha256": "a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823",
+  "historical_corroboration_identity": "f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c",
+  "references": [
+    {
+      "doi": "10.1038/nature09587",
+      "first_author": "Gibson P",
+      "pmid": "21150899",
+      "title": "Subtypes of medulloblastoma have distinct developmental origins."
+    },
+    {
+      "doi": "10.1038/s41586-019-1158-7",
+      "first_author": "Vladoiu MC",
+      "pmid": "31043743",
+      "title": "Childhood cerebellar tumours mirror conserved fetal transcriptional programs."
+    },
+    {
+      "doi": "10.1111/bpa.13059",
+      "first_author": "Meredith DM",
+      "pmid": "35266242",
+      "title": "Embryonal and non-meningothelial mesenchymal tumors of the central nervous system - Advances in diagnosis and prognostication."
+    },
+    {
+      "doi": "10.1016/j.neuron.2022.07.012",
+      "first_author": "Zeineldin M",
+      "pmid": "35985323",
+      "title": "Neuroblastoma: When differentiation goes awry."
+    },
+    {
+      "doi": "10.3390/genes12020318",
+      "first_author": "Li H",
+      "pmid": "33672414",
+      "title": "Embryonic Kidney Development, Stem Cells and the Origin of Wilms Tumor."
+    }
+  ],
+  "relationship": "corroboration-not-proof",
+  "schema_version": 1,
+  "upstream_verified": false
+}

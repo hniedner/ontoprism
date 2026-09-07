@@ -493,17 +493,26 @@ The governed reconstruction, transcription, and promotion commands are:
 ```bash
 pdm run adjudication prepare-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --output-xlsx tmp/m1-6-r103-review-revision-blank.xlsx
 pdm run adjudication transcribe-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --blank-xlsx tmp/m1-6-r103-review-revision-blank.xlsx --output-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --subject C3264 --role R103 --filler C12950 --outcome concept-scoped-accuracy-exclusion --rationale-file tmp/r103-terminal-rationale.json --reviewer "R. Hannes Niedner, M.D." --review-date 2026-08-28
-pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json --output-corroboration ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json
+pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json
 ```
 
-Promotion reported revision identity
-`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and
-corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`
-(the final `pdm run adjudication promote-r103-review-revision ...` command above, 2026-08-28).
-The corroboration sidecar is keyed to the effective C3264 decision identity and describes
-authoritative PubMed metadata as corroboration, never proof. It contains no publisher content.
-The dry run is write-free, has zero unresolved decisions, no proposal previews, one exact
-exclusion preview, and readiness `ready-for-separate-application`; application remains separate.
+The historical promotion reported revision identity
+`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and historical
+corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`.
+Those bytes are preserved, but the historical PubMed authority/verification claim is not current
+evidence because no response bytes were retained.
+The current machine path is generated with:
+
+```bash
+pdm run agent-replay generate-r103-evidence-application
+```
+
+It writes the source-only inventory, the complete 16-row named stated C12950 descendant
+enumeration, normalized authority, downgraded reviewer-reference corroboration, and applied-policy
+report. The applied report preserves the official source assertions, suppresses only
+C3264/R103/C12950 in the effective projection, retains C2860 and C3716, leaves the schema-2
+proposal registry and oracle unchanged, creates no proposal, infers no NCI adoption, and leaves
+authorization false. C2860 still requires one human choice from the complete candidate evidence.
 
 ### Final machine-readiness evidence
 

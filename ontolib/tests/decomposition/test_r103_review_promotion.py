@@ -266,7 +266,7 @@ def test_loader_refuses_meaningful_registry_outcome_flip_with_recomputed_identit
     )
     output_path.write_text(json.dumps(payload), encoding="ascii")
 
-    with pytest.raises(R103ReviewValidationError, match="human review values"):
+    with pytest.raises(R103ReviewValidationError, match="workbook identity"):
         loader(output_path)
 
 

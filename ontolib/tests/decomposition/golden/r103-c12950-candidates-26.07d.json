@@ -1,0 +1,329 @@
+{
+  "artifact_identity": "75f539f2cf4d2bbe6a2cb25eca78b5f14ef160a1dd0fd5d1572171ac5fd54d26",
+  "candidate_count": 16,
+  "candidates": [
+    {
+      "code": "C12703",
+      "labels": [
+        "Ectoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "The outer of the three germ layers of the embryo; it gives rise to epidermis and neural tissue."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12703"
+      ],
+      "path_identity": "c699e4ac097d2ac0e149dcaffd45644b39118f29536ffcf4dad8cfa8b24d49ac",
+      "row_identity": "384605aeb204a452feb9ae275bef60c0cd13639139a723f890f805ae7186499a"
+    },
+    {
+      "code": "C12706",
+      "labels": [
+        "Endoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "The deepest of the three primary germ layers (ectoderm, mesoderm and endoderm) found in the early trilaminar embryo, which forms the epithelial linings of the respiratory and digestive tracts."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12706"
+      ],
+      "path_identity": "b8a6729fe82903d5efb912d298cca1a06604ee2f2063d4585a0c4e453154e3ad",
+      "row_identity": "ae5bab974d6b86400360782493b6669a23bf40c7ea2fe6719e0eaedb6988d5ad"
+    },
+    {
+      "code": "C12750",
+      "labels": [
+        "Mesoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "The middle of the three germ layers found in the trilaminar embryo (endo-, meso-, ecto-)."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12750"
+      ],
+      "path_identity": "99e234e8dab1da6815498a2735d1efd8388913819d0bd6000cd64c5a53346661",
+      "row_identity": "4a31a5a422595d4878e9cc717e41e10fed1e24783d0622f3febd03d6c2959042"
+    },
+    {
+      "code": "C13301",
+      "labels": [
+        "Mesenchyme"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "Embryonic tissue of mesodermal origin.  Develops into connective tissue, blood vessels, and lymphatic tissue."
+      ],
+      "path": [
+        "C12950",
+        "C32504",
+        "C13301"
+      ],
+      "path_identity": "96ce20ca81c96eef24abe49756b8aed2395008660300f6828e401e57edcb6402",
+      "row_identity": "b30106e4f13e7e19ca56a50df878c4f55d8c1d84a7b89a85bc1d8ab9969ac22e"
+    },
+    {
+      "code": "C133317",
+      "labels": [
+        "Inner Membrane Amniotic Membrane Tissue"
+      ],
+      "p106": [
+        "Tissue"
+      ],
+      "p97": [
+        "Tissue derived from the inner membrane of amniotic sac."
+      ],
+      "path": [
+        "C12950",
+        "C133317"
+      ],
+      "path_identity": "3992eeb1d59a6a4e50264862464b847c364f7e290313e7f085a187b45c5a1eba",
+      "row_identity": "0c45aa467aa293f67355290fd7eef69860af8f41d59c6241f294c91b4063b4dc"
+    },
+    {
+      "code": "C133318",
+      "labels": [
+        "Umbilical Cord Tissue"
+      ],
+      "p106": [
+        "Tissue"
+      ],
+      "p97": [
+        "Tissue derived from the umbilical cord."
+      ],
+      "path": [
+        "C12950",
+        "C133318"
+      ],
+      "path_identity": "eb138c22e15afbcb776e1b43c7dcb337eae7bb7b0393a34828040ac6586b808b",
+      "row_identity": "366040385e6ef08ec6b86dcbb544fc49e5f7971c046d9b6c412d50774e26f608"
+    },
+    {
+      "code": "C176324",
+      "labels": [
+        "Genital Tubercle"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A body of tissue that forms in the ventral, caudal region during embryonic development."
+      ],
+      "path": [
+        "C12950",
+        "C176324"
+      ],
+      "path_identity": "0bcb1f0be6c83b80906514ab48767040711dd02e0e8696e46ab95f62ddd9825b",
+      "row_identity": "140eac7102680873ae74edd96c1af31dae07316ddc93aca4d9d2ca20b606f449"
+    },
+    {
+      "code": "C32504",
+      "labels": [
+        "Embryonic Connective Tissue"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "One of two types of loose tissue formed during early embryonic development: mesenchyme and mucoid. Mesenchyme connective tissue eventually forms the supporting tissues of the embryo; mucoid connective tissue is found in the umbilical cord (Wharton's jelly), pulp of developing teeth, and in the nucleus pulposus of intervertebral disks."
+      ],
+      "path": [
+        "C12950",
+        "C32504"
+      ],
+      "path_identity": "77f813a53e5008effebabe9988694fe44b212a4d3be90fcb3c0695c4890e7c75",
+      "row_identity": "ca24e9eb0c71ab0207ee26298a70c74c5579455dc5cb1ec54c915ccf7613d065"
+    },
+    {
+      "code": "C34193",
+      "labels": [
+        "Intermediate Mesoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A type of intraembryonic mesoderm, formed from migrating cells in the primitive streak during gastrulation and located between the paraxial mesoderm and lateral mesoderm, that contributes to the development of the urogenital system."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12750",
+        "C34193"
+      ],
+      "path_identity": "c7085e060596e28fefb2a25acaaa4436905a38c942173fb266e059af0e46b1ef",
+      "row_identity": "a07b3c03eef013493a5218ad862c2654381d7d43d8b46ba1fe081e87699da39d"
+    },
+    {
+      "code": "C34199",
+      "labels": [
+        "Lateral Mesoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A mesodermal sheet located in the middle layer of the trilaminar embryo, lateral to the intermediate mesoderm."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12750",
+        "C34199"
+      ],
+      "path_identity": "b164736dd14df004e487b8ba7dd735b51ff73d9d4408e8b3e878e8542c579a53",
+      "row_identity": "0403cc47baedbf782ec6d33e67760cbb2697bf2704e8115a418d06f96c0c7ee1"
+    },
+    {
+      "code": "C34213",
+      "labels": [
+        "Mucous Connective Tissue"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A gelatinous type of connective tissue that is found in the umbilical cord."
+      ],
+      "path": [
+        "C12950",
+        "C32504",
+        "C34213"
+      ],
+      "path_identity": "5476e990bafa0166e2eca27ace214ddbf8f56f6afe2ddba584bc4f65ec30c830",
+      "row_identity": "60bca62f03cf367409bb74f566c92fdc9c044dc45f1d6f04c21d237f59f1fb5a"
+    },
+    {
+      "code": "C34228",
+      "labels": [
+        "Neuroectoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "The dorsal surface of the early vertebrate embryo that gives rise to the nervous system."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12703",
+        "C34228"
+      ],
+      "path_identity": "ad1ad076a5fdaed0b24898bf7d5ad58c6d65d1f635a2a8ed196805ea66c383c3",
+      "row_identity": "ade8cd582d604418ffb2117576fd9445eab0117150da61289f5912b5d1e4f245"
+    },
+    {
+      "code": "C34244",
+      "labels": [
+        "Paraxial Mesoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A thick, longitudinal column of intraembryonic mesoderm, located at either side of the notochord, that eventually forms paired somites."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12750",
+        "C34244"
+      ],
+      "path_identity": "fe75f71aa22f38faca2d22e37cc1a335ea1d145d6295e391d77b688c8a09c131",
+      "row_identity": "9df15b1f870c4d8808f738a830b22906cf477d6a757208f919e15982b163bfd9"
+    },
+    {
+      "code": "C34309",
+      "labels": [
+        "Surface Ectoderm"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "The outermost part of the ectoderm, making it the most superficial of three primary germ layers in the early embryo. It differentiates to form the epidermis and its appendages, the stratified epithelia, the cells that form the lens and cornea of the eye, and the dental enamel."
+      ],
+      "path": [
+        "C12950",
+        "C54105",
+        "C12703",
+        "C34309"
+      ],
+      "path_identity": "54eb9e7ac8ae408e8e882c2eeee4a926ca0ed5cf4a05c175cd6eaa2ca5798fdb",
+      "row_identity": "44964561c50aa70bb446f7602a1d5c9275c91dc0aabe0bc533033a560cd42d6d"
+    },
+    {
+      "code": "C54105",
+      "labels": [
+        "Germinal Layer"
+      ],
+      "p106": [
+        "Tissue"
+      ],
+      "p97": [],
+      "path": [
+        "C12950",
+        "C54105"
+      ],
+      "path_identity": "e814bee550fe163d3d49871d7d8d469bcd2b53f8d4384c2338fcb52cf949e698",
+      "row_identity": "9c10446b7eef10708a07c533fc1620ffd37e5256bb802b3f19dc98411ec21c89"
+    },
+    {
+      "code": "C82952",
+      "labels": [
+        "Gubernaculum Testis"
+      ],
+      "p106": [
+        "Embryonic Structure"
+      ],
+      "p97": [
+        "A peritoneal fold attached to the testis during embryonic development.  It is present during the scrotal descend of the testis and it subsequently undergoes atrophy."
+      ],
+      "path": [
+        "C12950",
+        "C32504",
+        "C82952"
+      ],
+      "path_identity": "e9fa3613f5e664c115e210dfb2a2595d9493e4da07efd45e492f4b3d57bb8f8a",
+      "row_identity": "ea07d762590d307ad92e5b332fdd91cad99cb2a7ec41c578d2d7b299044f8bb0"
+    }
+  ],
+  "count_query_body": "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nPREFIX n: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>\nSELECT (COUNT(DISTINCT ?candidate) AS ?count) WHERE {\n GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl> {\n  ?candidate rdfs:subClassOf+ n:C12950 . FILTER(isIRI(?candidate)) }\n}",
+  "limitations": [
+    "Named stated rdfs:subClassOf+ descendants only; no inferred descendants.",
+    "Enumeration supplies evidence for human selection and makes no equivalence or suitability verdict."
+  ],
+  "page_query_body": "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nPREFIX n: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>\nSELECT DISTINCT ?candidate WHERE {\n GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl> {\n  ?candidate rdfs:subClassOf+ n:C12950 . FILTER(isIRI(?candidate)) }\n} ORDER BY ?candidate LIMIT {limit} OFFSET {offset}",
+  "page_size": 500,
+  "qlever_count": 16,
+  "query_identity": "126c2a9cba5da538b75f01830820b3d0e5e83db596a0ce81bd1d3ffb730dcc55",
+  "release": "26.07d",
+  "root_code": "C12950",
+  "schema_version": 1,
+  "source_artifact_identity": "922083ab493fa73f6ace8910337e1ecc4d53ab8b5a7cec0a9c31b56240e30d3a",
+  "source_artifact_sha256": "c877e7ab0eba0053e918ad405888f348a64c0c6ca1c55697ce5eeee518e97b9e",
+  "source_artifact_size": 749451268,
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+  "source_manifest_identity": "8af8d04d888afecf83180eca10d60d9c46b395916cdefc5582400e7cd9c298f4",
+  "stated_graph_iri": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+  "status": "candidates-enumerated-human-selection-required",
+  "tool_identity": "77675dbd832cce80d1621a7d56c4cbf8650c3dd54d20007cd7eadbdce93bdfd4",
+  "xml_count": 16
+}
