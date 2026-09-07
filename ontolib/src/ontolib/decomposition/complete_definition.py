@@ -379,12 +379,24 @@ def _normalize_definition_rows(rows: Iterable[Row]) -> list[Row]:
     materialized = list(rows)
     if not materialized:
         return []
+    _reject_duplicate_source_bindings(materialized)
     linked_count = sum(_is_linked_row(row) for row in materialized)
     if linked_count not in {0, len(materialized)}:
         raise CompleteDefinitionError(
             "complete-definition response mixes linked and positional rows"
         )
     return _normalize_linked_rows(materialized) if linked_count else materialized
+
+
+def _reject_duplicate_source_bindings(rows: Sequence[Row]) -> None:
+    seen: set[tuple[tuple[str, str | None], ...]] = set()
+    for row in rows:
+        binding = tuple(sorted(row.items()))
+        if binding in seen:
+            raise CompleteDefinitionError(
+                "complete-definition response contains a duplicate source binding"
+            )
+        seen.add(binding)
 
 
 def _is_linked_row(row: Row) -> bool:

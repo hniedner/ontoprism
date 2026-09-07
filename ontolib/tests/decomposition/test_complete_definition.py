@@ -508,7 +508,7 @@ async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
 
 
 @pytest.mark.unit
-async def test_linked_list_accepts_an_identical_duplicate_source_row() -> None:
+async def test_linked_list_rejects_an_identical_duplicate_source_binding() -> None:
     rows = _linked_definition_rows(1)
     rows.append(dict(rows[0]))
 
@@ -518,9 +518,8 @@ async def test_linked_list_accepts_an_identical_duplicate_source_row() -> None:
         del query, required_variables
         return rows
 
-    complete = await read_complete_definition(select, "C900")
-
-    assert len(complete.facts) == 1
+    with pytest.raises(CompleteDefinitionError, match="duplicate source binding"):
+        await read_complete_definition(select, "C900")
 
 
 @pytest.mark.unit
@@ -1388,14 +1387,32 @@ def test_row_parser_rejects_conflicts_gaps_and_collapses_duplicate_groups() -> N
 
 
 @pytest.mark.unit
-def test_row_parser_accepts_an_identical_duplicate_position_binding() -> None:
+def test_row_parser_rejects_an_identical_duplicate_position_binding() -> None:
     rows = _definition_rows(
         "_:expression", ("_:restriction", _iri("R101"), _iri("C2"), False)
     )
 
-    facts = definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
+    with pytest.raises(CompleteDefinitionError, match="duplicate source binding"):
+        definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
 
-    assert len(facts) == 1
+
+@pytest.mark.unit
+async def test_invalid_caller_code_remains_distinct_from_malformed_source_rows() -> (
+    None
+):
+    selected = False
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        nonlocal selected
+        del query, required_variables
+        selected = True
+        return []
+
+    with pytest.raises(ValueError, match="Unsafe concept code"):
+        await read_complete_definition(select, "C9!")
+    assert selected is False
 
 
 @pytest.mark.unit

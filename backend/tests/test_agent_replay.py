@@ -316,6 +316,41 @@ def test_evidence_generation_requires_a_real_neoplasm_run_id(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
+    tmp_path: Path,
+) -> None:
+    fixed_inputs = (
+        "scripts/adjudication.py",
+        "samples/ncit-26.07d-m1-current-replay.json",
+        "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        "tmp/m1-6-current-replay.ttl",
+    )
+    for relative in fixed_inputs:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+    run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+
+    assert (
+        run_agent_replay(["generate-current-evidence", run_id], tmp_path, runner=runner)
+        == 0
+    )
+
+    command, options = runner.calls[0]
+    migration_option = command.index("--proposal-registry-migration")
+    assert command[migration_option + 1] == str(
+        tmp_path
+        / "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json"
+    )
+    assert command.count("--proposal-registry-migration") == 1
+    assert options["shell"] is False
+
+
+@pytest.mark.unit
 def test_axis_diagnostics_reject_unsafe_or_unbounded_fillers(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="filler"):
         run_agent_replay(

@@ -697,8 +697,8 @@ def select_constituents(
     traced = [
         replace(
             constituent,
-            source_definition_ids=tuple(source_ids(constituent)[0]),
-            source_occurrence_ids=tuple(source_ids(constituent)[1]),
+            source_definition_ids=tuple(sorted(source_ids(constituent)[0])),
+            source_occurrence_ids=tuple(sorted(source_ids(constituent)[1])),
         )
         if constituent.axis_source == "role"
         else constituent
