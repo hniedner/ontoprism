@@ -1270,6 +1270,23 @@ def _generate_r103_evidence_application(
                 output_directory=root / "ontolib/tests/decomposition/golden",
             )
         )
+        generate_specificity = importlib.import_module(
+            "ontolib.decomposition.r103_specificity_review"
+        ).generate_specificity_review_artifacts
+        specificity_artifacts = generate_specificity(
+            inventory_path=root
+            / "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
+            candidate_path=root
+            / "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
+            authority_path=root
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "r103-authority-normalized-26.07d.json"
+            ),
+            revision_path=paths[3],
+            output_directory=root / "ontolib/tests/decomposition/golden",
+        )
+        artifacts = (*artifacts, *specificity_artifacts)
     except ValueError as exc:
         raise AgentReplayInputError(str(exc)) from exc
     print(
@@ -1434,6 +1451,8 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-pending-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     paths = tuple(Path(item) for item in _require_files(root, relatives))
@@ -1459,6 +1478,8 @@ def _generate_pre_sme_readiness(
         "r103_authority",
         "r103_corroboration",
         "r103_applied_policy",
+        "r103_specificity_target",
+        "r103_pending_specificity_review",
         "verify_evidence",
     )
     output = root / "tmp/m1-6-machine-readiness.json"

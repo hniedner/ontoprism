@@ -56,6 +56,12 @@ from ontolib.decomposition.r103_evidence_application import (
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
 )
+from ontolib.decomposition.r103_specificity_review import (
+    R103PendingSpecificityReview,
+    SpecificityReviewOption,
+    load_pending_specificity_review,
+    load_specificity_review_target,
+)
 from ontolib.terminologies.ncit.sibling_store import (
     SiblingStoreValidationError,
     validate_ncit_sibling_manifest,
@@ -428,14 +434,19 @@ class MachineReadinessInputs(_StrictModel):
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
-    r103_decision_identity: str = Field(default="0" * 64, pattern=_SHA256)
-    r103_terminal_review_established: bool = False
+    r103_c3264_terminal_decision_identity: str = Field(
+        default="0" * 64, pattern=_SHA256
+    )
     r103_source_inventory_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_candidate_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_authority_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_corroboration_artifact_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_applied_policy_identity: str = Field(default="0" * 64, pattern=_SHA256)
-    r103_human_selection_required: bool = False
+    r103_specificity_target_identity: str = Field(default="0" * 64, pattern=_SHA256)
+    r103_pending_specificity_review_identity: str = Field(
+        default="0" * 64, pattern=_SHA256
+    )
+    r103_pending_specificity_review: R103PendingSpecificityReview | None = None
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
     exact_pair_true_positive: int = Field(ge=0)
@@ -492,27 +503,35 @@ class MachineReadinessInputs(_StrictModel):
 
     @model_validator(mode="after")
     def _validate_r103_status(self) -> Self:
-        terminal_identities = (
-            self.r103_registry_identity != "0" * 64
-            and self.r103_decision_identity != "0" * 64
-        )
-        if (
-            self.r103_terminal_review_established != terminal_identities
-            and not self.r103_human_selection_required
-        ):
-            raise ValueError("R103 terminal-review status differs from identities")
         machine_ids = (
             self.r103_source_inventory_identity,
             self.r103_candidate_artifact_identity,
             self.r103_authority_artifact_identity,
             self.r103_corroboration_artifact_identity,
             self.r103_applied_policy_identity,
+            self.r103_specificity_target_identity,
         )
         machine_ready = all(item != "0" * 64 for item in machine_ids)
-        if self.r103_human_selection_required != machine_ready:
-            raise ValueError("R103 human gate differs from machine artifact identities")
-        if self.r103_human_selection_required and self.r103_terminal_review_established:
-            raise ValueError("R103 cannot be terminal before candidate selection")
+        pending = self.r103_pending_specificity_review
+        if (pending is not None) != machine_ready:
+            raise ValueError("R103 specificity state differs from machine artifacts")
+        expected_pending_identity = (
+            pending.artifact_identity if pending is not None else "0" * 64
+        )
+        if self.r103_pending_specificity_review_identity != expected_pending_identity:
+            raise ValueError("R103 pending-review identity differs from state")
+        if pending is not None and (
+            pending.candidate_artifact_identity != self.r103_candidate_artifact_identity
+            or pending.target_artifact_identity != self.r103_specificity_target_identity
+            or pending.authority_artifact_identity
+            != self.r103_authority_artifact_identity
+        ):
+            raise ValueError("R103 pending-review evidence identities differ")
+        if machine_ready and (
+            self.r103_registry_identity == "0" * 64
+            or self.r103_c3264_terminal_decision_identity == "0" * 64
+        ):
+            raise ValueError("C3264 terminal exclusion identity is absent")
         return self
 
 
@@ -835,6 +854,25 @@ class PendingHumanRequirement(_StrictModel):
         return self
 
 
+class PendingR103SpecificityRequirement(_StrictModel):
+    requirement: Literal["r103-review"]
+    count: Literal[1]
+    status: Literal["pending"]
+    subject_code: Literal["C2860"]
+    role_code: Literal["R103"]
+    filler_code: Literal["C12950"]
+    question_kind: Literal["most-specific-named-stated-descendant"]
+    question: str = Field(min_length=1)
+    candidate_artifact_identity: str = Field(pattern=_SHA256)
+    pending_review_artifact_identity: str = Field(pattern=_SHA256)
+    prior_decision_identity: str = Field(pattern=_SHA256)
+    allowed_options: tuple[
+        SpecificityReviewOption,
+        SpecificityReviewOption,
+        SpecificityReviewOption,
+    ]
+
+
 class SatisfiedR101Requirement(_StrictModel):
     requirement: Literal["r101-ledger-authorization"]
     count: int = Field(gt=0)
@@ -848,12 +886,15 @@ class SatisfiedR103Requirement(_StrictModel):
     count: Literal[3]
     status: Literal["satisfied-by-terminal-review"]
     registry_identity: str = Field(pattern=_SHA256)
-    decision_identity: str = Field(pattern=_SHA256)
+    c3264_terminal_decision_identity: str = Field(pattern=_SHA256)
 
 
 HumanRequirement = Annotated[
-    PendingHumanRequirement | SatisfiedR101Requirement | SatisfiedR103Requirement,
-    Field(discriminator="status"),
+    PendingR103SpecificityRequirement
+    | PendingHumanRequirement
+    | SatisfiedR101Requirement
+    | SatisfiedR103Requirement,
+    Field(union_mode="left_to_right"),
 ]
 
 
@@ -877,12 +918,14 @@ class ReportIdentities(_StrictModel):
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(pattern=_SHA256)
-    r103_decision_identity: str = Field(pattern=_SHA256)
+    r103_c3264_terminal_decision_identity: str = Field(pattern=_SHA256)
     r103_source_inventory_identity: str = Field(pattern=_SHA256)
     r103_candidate_artifact_identity: str = Field(pattern=_SHA256)
     r103_authority_artifact_identity: str = Field(pattern=_SHA256)
     r103_corroboration_artifact_identity: str = Field(pattern=_SHA256)
     r103_applied_policy_identity: str = Field(pattern=_SHA256)
+    r103_specificity_target_identity: str = Field(pattern=_SHA256)
+    r103_pending_specificity_review_identity: str = Field(pattern=_SHA256)
     verify_evidence_identity: str = Field(pattern=_SHA256)
     git_head: str = Field(pattern=_GIT_SHA)
 
@@ -924,7 +967,9 @@ class MachineReadinessReport(_StrictModel):
         if by_requirement[_GROUP_REVIEW].count != _GROUP_REVIEW_COUNT:
             raise ValueError("group review count differs")
         expected_r103_count = (
-            1 if self.identities.r103_candidate_artifact_identity != "0" * 64 else 3
+            1
+            if self.identities.r103_pending_specificity_review_identity != "0" * 64
+            else 3
         )
         if by_requirement[_R103_REVIEW].count != expected_r103_count:
             raise ValueError("R103 review count differs")
@@ -1010,9 +1055,17 @@ class MachineReadinessReport(_StrictModel):
             raise ValueError("R103 requirement differs from revision identities")
         if isinstance(r103, SatisfiedR103Requirement) and (
             r103.registry_identity != self.identities.r103_registry_identity
-            or r103.decision_identity != self.identities.r103_decision_identity
+            or r103.c3264_terminal_decision_identity
+            != self.identities.r103_c3264_terminal_decision_identity
         ):
             raise ValueError("R103 satisfied requirement identities differ")
+        if isinstance(r103, PendingR103SpecificityRequirement) and (
+            r103.candidate_artifact_identity
+            != self.identities.r103_candidate_artifact_identity
+            or r103.pending_review_artifact_identity
+            != self.identities.r103_pending_specificity_review_identity
+        ):
+            raise ValueError("R103 pending requirement identities differ")
         return self
 
 
@@ -1119,27 +1172,50 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         inputs.exact_pair_true_positive * 10 >= 9 * inputs.exact_pair_expected
     )
     requirements: list[
-        PendingHumanRequirement | SatisfiedR101Requirement | SatisfiedR103Requirement
+        PendingR103SpecificityRequirement
+        | PendingHumanRequirement
+        | SatisfiedR101Requirement
+        | SatisfiedR103Requirement
     ] = [
         PendingHumanRequirement(
             requirement=_GROUP_REVIEW, count=_GROUP_REVIEW_COUNT, status="pending"
         ),
     ]
-    if inputs.r103_terminal_review_established:
+    pending_r103 = inputs.r103_pending_specificity_review
+    if pending_r103 is not None:
+        requirements.append(
+            PendingR103SpecificityRequirement(
+                requirement=_R103_REVIEW,
+                count=1,
+                status="pending",
+                subject_code=pending_r103.subject_code,
+                role_code=pending_r103.role_code,
+                filler_code=pending_r103.filler_code,
+                question_kind=pending_r103.question_kind,
+                question=pending_r103.question,
+                candidate_artifact_identity=pending_r103.candidate_artifact_identity,
+                pending_review_artifact_identity=pending_r103.artifact_identity,
+                prior_decision_identity=pending_r103.prior_decision_identity,
+                allowed_options=pending_r103.allowed_options,
+            )
+        )
+    elif inputs.r103_registry_identity != "0" * 64:
         requirements.append(
             SatisfiedR103Requirement(
                 requirement=_R103_REVIEW,
                 count=_R103_REVIEW_COUNT,
                 status="satisfied-by-terminal-review",
                 registry_identity=inputs.r103_registry_identity,
-                decision_identity=inputs.r103_decision_identity,
+                c3264_terminal_decision_identity=(
+                    inputs.r103_c3264_terminal_decision_identity
+                ),
             )
         )
     else:
         requirements.append(
             PendingHumanRequirement(
                 requirement=_R103_REVIEW,
-                count=1 if inputs.r103_human_selection_required else _R103_REVIEW_COUNT,
+                count=_R103_REVIEW_COUNT,
                 status="pending",
             )
         )
@@ -1353,6 +1429,8 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     r103_authority: Path,
     r103_corroboration: Path,
     r103_applied_policy: Path,
+    r103_specificity_target: Path,
+    r103_pending_specificity_review: Path,
     verify_evidence: Path,
     expected_git_head: str,
     output: Path,
@@ -1407,6 +1485,20 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r103_corroboration, r103_authority_artifact
         )
         r103_application = load_applied_policy_report(r103_applied_policy)
+        r103_target = load_specificity_review_target(
+            r103_specificity_target,
+            inventory=r103_source,
+            candidates=r103_candidate_set,
+            authority=r103_authority_artifact,
+        )
+        r103_pending = load_pending_specificity_review(
+            r103_pending_specificity_review,
+            target=r103_target,
+            inventory=r103_source,
+            candidates=r103_candidate_set,
+            authority=r103_authority_artifact,
+            revision_path=r103_review_state,
+        )
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
         )
@@ -1577,10 +1669,9 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             group_packet_identity=group.packet_identity,
             r103_packet_identity=r103.packet_identity,
             r103_registry_identity=r103_revision.registry.registry_identity,
-            r103_decision_identity=(
+            r103_c3264_terminal_decision_identity=(
                 r103_revision.registry.decisions[1].decision_identity
             ),
-            r103_terminal_review_established=False,
             r103_source_inventory_identity=r103_source.artifact_identity,
             r103_candidate_artifact_identity=r103_candidate_set.artifact_identity,
             r103_authority_artifact_identity=r103_authority_artifact.artifact_identity,
@@ -1588,7 +1679,9 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
                 r103_corroboration_artifact.artifact_identity
             ),
             r103_applied_policy_identity=r103_application.artifact_identity,
-            r103_human_selection_required=True,
+            r103_specificity_target_identity=r103_target.artifact_identity,
+            r103_pending_specificity_review_identity=r103_pending.artifact_identity,
+            r103_pending_specificity_review=r103_pending,
             verify_evidence_identity=gate.evidence_identity,
             git_head=gate.git_head,
             exact_pair_true_positive=metrics.exact_pair_precision.numerator,

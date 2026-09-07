@@ -1,0 +1,34 @@
+{
+  "allowed_options": [
+    {
+      "option": "affirm-no-better-enumerated-candidate",
+      "semantics": "Affirm that none of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d is a better filler for C2860/R103 than C12950."
+    },
+    {
+      "option": "qualify-global-most-specific-claim",
+      "semantics": "Retain the source-supported C2860/R103/C12950 assertion while qualifying or withdrawing the global most-specific claim."
+    },
+    {
+      "option": "propose-enumerated-candidate-replacement",
+      "semantics": "Select one of the 16 enumerated existing NCIt candidates as a proposed replacement and initiate a separately governed correction proposal."
+    }
+  ],
+  "artifact_identity": "79f6831e342baafe466508aad2f91d5c5f54b7db9948c1de1527db674d7e3cb7",
+  "authority_artifact_identity": "429bb9c8f7c40ff3b3032d377e57d1289369cd8a2e539fb3a705558fa75b2afd",
+  "candidate_artifact_identity": "5540d804ea9dbcb49148f47a66bdf4aef1b1e2eee79495a94305d864bcb0e20f",
+  "filler_code": "C12950",
+  "prior_decision_identity": "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27",
+  "prior_decision_outcome": "source-supported",
+  "prior_decision_rationale": "C12950 is supported by C2860\u2019s stated derivation from adrenal embryonic rest cells. It is anatomically broad but is the most specific currently available NCIt tissue-origin filler; no range-compatible, more specific NCIt replacement has been identified.",
+  "question": "For C2860/R103/C12950, does one of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d provide a better normal-tissue-origin filler than C12950?",
+  "question_kind": "most-specific-named-stated-descendant",
+  "role_code": "R103",
+  "schema_version": 1,
+  "selected_candidate_code": null,
+  "selected_option": null,
+  "software_selected_answer": false,
+  "source_inventory_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355",
+  "status": "pending-human-specificity-review",
+  "subject_code": "C2860",
+  "target_artifact_identity": "0b678e7f220cb89be4b9ffeb24833dfb5c3f2aadd706d70de5c02c33fa1f0197"
+}

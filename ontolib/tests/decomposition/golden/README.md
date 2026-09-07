@@ -508,11 +508,24 @@ pdm run agent-replay generate-r103-evidence-application
 ```
 
 It writes the source-only inventory, the complete 16-row named stated C12950 descendant
-enumeration, normalized authority, downgraded reviewer-reference corroboration, and applied-policy
-report. The applied report preserves the official source assertions, suppresses only
+enumeration, normalized authority, downgraded reviewer-reference corroboration, applied-policy
+report, strict C2860 specificity target, and unanswered C2860 specificity-review state. The target
+binds the candidate artifact only to the exact C2860/R103/C12950 source occurrence and its
+carried-forward decision. The applied report remains unchanged: it preserves the official source assertions, suppresses only
 C3264/R103/C12950 in the effective projection, retains C2860 and C3716, leaves the schema-2
 proposal registry and oracle unchanged, creates no proposal, infers no NCI adoption, and leaves
-authorization false. C2860 still requires one human choice from the complete candidate evidence.
+authorization false. Candidate generation cannot reopen that terminal C3264 exclusion.
+
+The C2860 question asks whether one of the 16 enumerated named stated descendants of C12950 in
+NCIt 26.07d provides a better normal-tissue-origin filler than C12950. Its exact choices are:
+
+1. affirm that none of those bounded 16 candidates is better;
+2. retain source-supported C2860/R103/C12950 while qualifying or withdrawing the global
+   most-specific claim; or
+3. select one enumerated existing NCIt candidate as a proposed replacement and initiate a
+   separately governed correction proposal.
+
+The pending artifact selects none of these choices and records no software-authored human decision.
 
 ### Final machine-readiness evidence
 

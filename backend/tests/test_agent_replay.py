@@ -500,6 +500,8 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-pending-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:
@@ -569,6 +571,17 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         tmp_path
         / "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json"
     )
+    assert calls[1]["r103_specificity_target"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json"
+    )
+    assert calls[1]["r103_pending_specificity_review"] == (
+        tmp_path
+        / (
+            "ontolib/tests/decomposition/golden/"
+            "r103-c2860-specificity-pending-26.07d.json"
+        )
+    )
     assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
@@ -629,6 +642,8 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/r103-authority-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-corroboration-normalized-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-applied-policy-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-target-26.07d.json",
+        "ontolib/tests/decomposition/golden/r103-c2860-specificity-pending-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
     for relative in required:

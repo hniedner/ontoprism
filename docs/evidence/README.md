@@ -67,9 +67,12 @@ with that source-bound packet and blank review workbook.
 
 Current readiness reads the preserved terminal revision together with the generated source
 inventory, C12950 candidate enumeration, normalized authority, normalized corroboration, and
-applied-policy report under `ontolib/tests/decomposition/golden/`. It binds all five current
-artifact identities and leaves one R103 human selection pending for C2860. Overall authorization
-remains false and publication remains unattempted.
+applied-policy report under `ontolib/tests/decomposition/golden/`. A separate strict target binds
+the generic candidate enumeration to the exact C2860/R103/C12950 source occurrence and its
+carried-forward decision; an unanswered specificity state binds the exact question and three
+allowed options. Readiness binds all seven current artifact identities and derives one pending
+review from that state. C3264's concept-scoped exclusion remains terminal and is not reopened by
+candidate evidence. Overall authorization remains false and publication remains unattempted.
 
 `r103-c3264-corroboration-26.07d.json` is preserved historical input. Because no digest-bound
 PubMed response bytes were retained, its successor

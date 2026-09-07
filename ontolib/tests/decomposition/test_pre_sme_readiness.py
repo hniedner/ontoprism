@@ -17,6 +17,7 @@ from scripts.research.golden_review import load_row_decisions
 from scripts.research.pre_sme_readiness import (
     MachineReadinessInputs,
     MachineReadinessReport,
+    PendingR103SpecificityRequirement,
     PreSmeValidationError,
     PrimarySiteAudit,
     PrimarySiteObservation,
@@ -236,6 +237,9 @@ def _composed_readiness_inputs(
         "r103_authority": golden / "r103-authority-normalized-26.07d.json",
         "r103_corroboration": golden / "r103-corroboration-normalized-26.07d.json",
         "r103_applied_policy": golden / "r103-applied-policy-26.07d.json",
+        "r103_specificity_target": golden / "r103-c2860-specificity-target-26.07d.json",
+        "r103_pending_specificity_review": golden
+        / "r103-c2860-specificity-pending-26.07d.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
@@ -1042,6 +1046,8 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             r103_authority=tmp_path / "absent-r103-authority.json",
             r103_corroboration=tmp_path / "absent-r103-corroboration.json",
             r103_applied_policy=tmp_path / "absent-r103-application.json",
+            r103_specificity_target=tmp_path / "absent-r103-target.json",
+            r103_pending_specificity_review=tmp_path / "absent-r103-pending.json",
             verify_evidence=tmp_path / "absent-verify.json",
             expected_git_head="a" * 40,
             output=output,
@@ -1124,6 +1130,14 @@ def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_select
     )
     assert r103_requirement.status == "pending"
     assert r103_requirement.count == 1
+    assert isinstance(r103_requirement, PendingR103SpecificityRequirement)
+    assert r103_requirement.subject_code == "C2860"
+    assert r103_requirement.role_code == "R103"
+    assert r103_requirement.filler_code == "C12950"
+    assert r103_requirement.question_kind == "most-specific-named-stated-descendant"
+    assert r103_requirement.candidate_artifact_identity != "0" * 64
+    assert r103_requirement.prior_decision_identity != "0" * 64
+    assert len(r103_requirement.allowed_options) == 3
     assert readiness.identities.r103_source_inventory_identity != "0" * 64
     assert readiness.identities.r103_candidate_artifact_identity != "0" * 64
     assert readiness.identities.r103_authority_artifact_identity != "0" * 64
@@ -1136,6 +1150,35 @@ def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_select
     assert "concept-scoped-accuracy-exclusion" not in encoded
     assert "ready-for-separate-application" not in encoded
     assert "R. Hannes Niedner" not in encoded
+
+
+@pytest.mark.unit
+def test_r103_pending_status_is_not_inferred_from_candidate_artifact_presence() -> None:
+    assert "r103_human_selection_required" not in MachineReadinessInputs.model_fields
+    assert (
+        "r103_pending_specificity_review_identity"
+        in MachineReadinessInputs.model_fields
+    )
+
+
+@pytest.mark.unit
+def test_c3264_terminal_exclusion_survives_candidate_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.identities.r103_c3264_terminal_decision_identity != "0" * 64
+    r103_requirement = next(
+        item
+        for item in readiness.human_requirements
+        if item.requirement == "r103-review"
+    )
+    assert isinstance(r103_requirement, PendingR103SpecificityRequirement)
+    assert r103_requirement.subject_code == "C2860"
 
 
 @pytest.mark.unit
@@ -1217,6 +1260,35 @@ def test_readiness_rejects_self_consistent_authority_with_another_rev1_file(
         changed = tmp_path / f"changed-{argument}.json"
         changed.write_text(json.dumps(payload), encoding="utf-8")
         arguments[argument] = changed
+    specificity = __import__(
+        "ontolib.decomposition.r103_specificity_review", fromlist=["unused"]
+    )
+    golden = Path(__file__).parent / "golden"
+    inventory = specificity.load_source_inventory(
+        golden / "r103-source-inventory-26.07d.json"
+    )
+    candidates = specificity.load_candidate_artifact(
+        golden / "r103-c12950-candidates-26.07d.json"
+    )
+    changed_authority_model = specificity.load_authority_artifact(changed_authority)
+    target = specificity.build_specificity_review_target(
+        inventory=inventory,
+        candidates=candidates,
+        authority=changed_authority_model,
+    )
+    pending = specificity.build_pending_specificity_review(
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=changed_authority_model,
+        revision_path=golden / "r103-review-state-26.07d-rev2.json",
+    )
+    changed_target = tmp_path / "changed-target.json"
+    changed_pending = tmp_path / "changed-pending.json"
+    specificity.write_artifact(changed_target, target)
+    specificity.write_artifact(changed_pending, pending)
+    arguments["r103_specificity_target"] = changed_target
+    arguments["r103_pending_specificity_review"] = changed_pending
 
     with pytest.raises(PreSmeValidationError, match="R103 authority history"):
         generate_pre_sme_readiness(**arguments)
