@@ -557,11 +557,12 @@ pdm run agent-replay generate-pre-sme-readiness
 ```
 
 Readiness strictly loads the complete promoted R103 state, validating its embedded
-packet, registry, dry-run, decision vector, and cross-bindings. It then consumes only
-the state's `.packet` for the existing source, candidate-manifest, proposal-registry,
-count, and packet-identity checks; it does not interpret registry decisions or dry-run
-semantics in the report. Therefore changed or malformed registry or dry-run state still
-fails readiness closed, while all three R103 rows remain pending human requirements.
+packet, registry, dry-run, decision vector, and cross-bindings. It also loads the strict
+C2860 specificity-review state. Changed or malformed registry, dry-run, target, or review
+state fails readiness closed. C3264 remains terminally excluded and C3716 remains covered
+by its prior terminal decision; only the C2860 specificity question is pending. A future
+human-selected review state satisfies that one requirement while retaining the same source,
+target, and candidate evidence identities.
 
 The operation validates all fixed input identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,
