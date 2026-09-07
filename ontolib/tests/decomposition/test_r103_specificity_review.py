@@ -67,7 +67,7 @@ def _identity(value: object) -> str:
 
 
 def _selected_payload(
-    target_identity: str, candidate_identity: str
+    target_identity: str, candidate_identity: str, application_identity: str
 ) -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -76,12 +76,84 @@ def _selected_payload(
         "subject_code": "C2860",
         "role_code": "R103",
         "filler_code": "C12950",
-        "selected_option": "affirm-no-better-enumerated-candidate",
+        "question": (
+            "For C2860/R103/C12950, does one of the 16 enumerated named stated "
+            "descendants of C12950 in NCIt 26.07d provide a better "
+            "normal-tissue-origin filler than C12950?"
+        ),
+        "selected_option": "qualify-global-most-specific-claim",
         "selected_candidate_code": None,
+        "enumerated_candidate_count": 16,
+        "bounded_conclusion": (
+            "None of the 16 enumerated named stated descendants of C12950 in NCIt "
+            "26.07d is a better normal-tissue-origin filler for C2860/R103 than "
+            "C12950."
+        ),
+        "effective_outcome": "source-supported",
+        "effective_rationale": (
+            "Retain C12950 as the source-supported C2860/R103 filler. None of the "
+            "16 enumerated named stated descendants of C12950 in NCIt 26.07d is a "
+            "better normal-tissue-origin filler for C2860/R103 than C12950. This "
+            "bounded comparison does not establish that C12950 is the globally "
+            "most-specific available NCIt filler."
+        ),
+        "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
         "target_artifact_identity": target_identity,
         "candidate_artifact_identity": candidate_identity,
+        "applied_policy_identity": application_identity,
+        "prior_decision_identity": (
+            "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27"
+        ),
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
         "software_selected_answer": False,
     }
+
+
+def _application(module):  # type: ignore[no-untyped-def]
+    return module.load_applied_policy_report(GOLDEN / "r103-applied-policy-26.07d.json")
+
+
+@pytest.mark.unit
+def test_selected_specificity_review_transcribes_exact_accountable_human_choice(
+    tmp_path: Path,
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    output = tmp_path / "r103-c2860-specificity-selected-26.07d.json"
+
+    selected = module.generate_selected_specificity_review(
+        inventory_path=GOLDEN / "r103-source-inventory-26.07d.json",
+        candidate_path=GOLDEN / "r103-c12950-candidates-26.07d.json",
+        authority_path=GOLDEN / "r103-authority-normalized-26.07d.json",
+        application_path=GOLDEN / "r103-applied-policy-26.07d.json",
+        revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+        target_path=GOLDEN / "r103-c2860-specificity-target-26.07d.json",
+        pending_path=GOLDEN / "r103-c2860-specificity-pending-26.07d.json",
+        output_path=output,
+    )
+
+    assert selected.model_dump(mode="json") == json.loads(output.read_text())
+    assert selected.selected_option == "qualify-global-most-specific-claim"
+    assert selected.selected_candidate_code is None
+    assert selected.enumerated_candidate_count == 16
+    assert selected.effective_outcome == "source-supported"
+    assert selected.transcription.model_dump() == {
+        "actor": "software-transcriber",
+        "authority": "user-confirmed-in-current-conversation",
+        "authorship_claimed": False,
+        "confirmation_date": "2026-09-07",
+    }
+    assert selected.proposal_created is False
+    assert selected.nci_adoption_inferred is False
+    assert "globally most-specific available NCIt tissue-origin filler" not in (
+        selected.effective_rationale
+    )
 
 
 @pytest.mark.unit
@@ -126,7 +198,12 @@ def test_selected_specificity_review_loads_with_preserved_machine_evidence(
     target = module.build_specificity_review_target(
         inventory=inventory, candidates=candidates, authority=authority
     )
-    payload = _selected_payload(target.artifact_identity, candidates.artifact_identity)
+    application = _application(module)
+    payload = _selected_payload(
+        target.artifact_identity,
+        candidates.artifact_identity,
+        application.artifact_identity,
+    )
     path = tmp_path / "selected-review.json"
     path.write_text(
         json.dumps({**payload, "artifact_identity": _identity(payload)}),
@@ -139,52 +216,13 @@ def test_selected_specificity_review_loads_with_preserved_machine_evidence(
         inventory=inventory,
         candidates=candidates,
         authority=authority,
+        application=application,
         revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
     )
 
     assert selected.status == "selected-human-specificity-review"
     assert selected.target_artifact_identity == target.artifact_identity
     assert selected.candidate_artifact_identity == candidates.artifact_identity
-
-
-@pytest.mark.unit
-def test_selected_specificity_review_requires_candidate_only_for_replacement() -> None:
-    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
-    payload = _selected_payload("1" * 64, "2" * 64)
-    payload["selected_candidate_code"] = "C12703"
-    payload["artifact_identity"] = _identity(payload)
-
-    with pytest.raises(ValueError, match="candidate shape"):
-        module.R103SelectedSpecificityReview.model_validate(payload)
-
-
-@pytest.mark.unit
-def test_selected_specificity_review_rejects_unenumerated_replacement(
-    tmp_path: Path,
-) -> None:
-    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
-    inventory, candidates, authority = _inputs(module)
-    target = module.build_specificity_review_target(
-        inventory=inventory, candidates=candidates, authority=authority
-    )
-    payload = _selected_payload(target.artifact_identity, candidates.artifact_identity)
-    payload["selected_option"] = "propose-enumerated-candidate-replacement"
-    payload["selected_candidate_code"] = "C999999"
-    path = tmp_path / "selected-review.json"
-    path.write_text(
-        json.dumps({**payload, "artifact_identity": _identity(payload)}),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(module.R103SpecificityReviewError, match="not enumerated"):
-        module.load_specificity_review(
-            path,
-            target=target,
-            inventory=inventory,
-            candidates=candidates,
-            authority=authority,
-            revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
-        )
 
 
 @pytest.mark.unit
@@ -196,7 +234,10 @@ def test_selected_specificity_review_rejects_another_target(
     target = module.build_specificity_review_target(
         inventory=inventory, candidates=candidates, authority=authority
     )
-    payload = _selected_payload("0" * 64, candidates.artifact_identity)
+    application = _application(module)
+    payload = _selected_payload(
+        "0" * 64, candidates.artifact_identity, application.artifact_identity
+    )
     path = tmp_path / "selected-review.json"
     path.write_text(
         json.dumps({**payload, "artifact_identity": _identity(payload)}),
@@ -210,7 +251,107 @@ def test_selected_specificity_review_rejects_another_target(
             inventory=inventory,
             candidates=candidates,
             authority=authority,
+            application=application,
             revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("question", "Is C12950 globally optimal?"),
+        ("selected_option", "affirm-no-better-enumerated-candidate"),
+        ("bounded_conclusion", "Unbounded conclusion."),
+        ("effective_rationale", "C12950 is globally optimal."),
+        ("prior_decision_identity", "0" * 64),
+        ("applied_policy_identity", "1" * 64),
+        ("proposal_created", True),
+        ("nci_adoption_inferred", True),
+    ],
+)
+def test_selected_specificity_review_rejects_self_consistent_tampering(
+    tmp_path: Path, field: str, replacement: object
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    inventory, candidates, authority = _inputs(module)
+    target = module.build_specificity_review_target(
+        inventory=inventory, candidates=candidates, authority=authority
+    )
+    application = _application(module)
+    payload = _selected_payload(
+        target.artifact_identity,
+        candidates.artifact_identity,
+        application.artifact_identity,
+    )
+    payload[field] = replacement
+    path = tmp_path / "changed-selected.json"
+    path.write_text(
+        json.dumps({**payload, "artifact_identity": _identity(payload)}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(module.R103SpecificityReviewError):
+        module.load_specificity_review(
+            path,
+            target=target,
+            inventory=inventory,
+            candidates=candidates,
+            authority=authority,
+            application=application,
+            revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("artifact_name", "model_name"),
+    [
+        ("r103-c2860-specificity-target-26.07d.json", "R103SpecificityReviewTarget"),
+        (
+            "r103-c2860-specificity-pending-26.07d.json",
+            "R103PendingSpecificityReview",
+        ),
+        (
+            "r103-c2860-specificity-selected-26.07d.json",
+            "R103SelectedSpecificityReview",
+        ),
+    ],
+)
+def test_specificity_artifact_models_reject_stale_identity(
+    artifact_name: str, model_name: str
+) -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    payload = json.loads((GOLDEN / artifact_name).read_text(encoding="utf-8"))
+    payload["artifact_identity"] = "0" * 64
+
+    with pytest.raises(ValueError, match="identity differs"):
+        getattr(module, model_name).model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.unit
+def test_selected_specificity_builder_rejects_incomplete_bounded_enumeration() -> None:
+    module = importlib.import_module("ontolib.decomposition.r103_specificity_review")
+    inventory, candidates, authority = _inputs(module)
+    target = module.build_specificity_review_target(
+        inventory=inventory, candidates=candidates, authority=authority
+    )
+    pending = module.build_pending_specificity_review(
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+        revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+    )
+
+    with pytest.raises(
+        module.R103SpecificityReviewError, match="selected specificity-review inputs"
+    ):
+        module.build_selected_specificity_review(
+            pending=pending,
+            target=target,
+            candidates=candidates.model_copy(update={"candidate_count": 15}),
+            application=_application(module),
         )
 
 

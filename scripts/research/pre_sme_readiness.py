@@ -60,7 +60,6 @@ from ontolib.decomposition.r103_specificity_review import (
     R103PendingSpecificityReview,
     R103SelectedSpecificityReview,
     R103SpecificityReview,
-    SpecificityChoice,
     SpecificityReviewOption,
     load_specificity_review,
     load_specificity_review_target,
@@ -524,6 +523,10 @@ class MachineReadinessInputs(_StrictModel):
         if review is not None and (
             review.candidate_artifact_identity != self.r103_candidate_artifact_identity
             or review.target_artifact_identity != self.r103_specificity_target_identity
+            or (
+                isinstance(review, R103SelectedSpecificityReview)
+                and review.applied_policy_identity != self.r103_applied_policy_identity
+            )
         ):
             raise ValueError("R103 specificity-review evidence identities differ")
         if isinstance(review, R103PendingSpecificityReview) and (
@@ -889,8 +892,13 @@ class SatisfiedR103Requirement(_StrictModel):
     count: Literal[1]
     status: Literal["satisfied-by-specificity-review"]
     selected_review_artifact_identity: str = Field(pattern=_SHA256)
-    selected_option: SpecificityChoice
-    selected_candidate_code: str | None = Field(pattern=r"^C[0-9]+$")
+    selected_option: Literal["qualify-global-most-specific-claim"]
+    selected_candidate_code: Literal[None]
+    effective_outcome: Literal["source-supported"]
+    global_claim_disposition: Literal["withdrawn-bounded-comparison-not-global-proof"]
+    confirmation_date: Literal["2026-09-07"]
+    proposal_created: Literal[False]
+    nci_adoption_inferred: Literal[False]
 
 
 HumanRequirement = Annotated[
@@ -1225,6 +1233,11 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
                 selected_review_artifact_identity=specificity_review.artifact_identity,
                 selected_option=specificity_review.selected_option,
                 selected_candidate_code=specificity_review.selected_candidate_code,
+                effective_outcome=specificity_review.effective_outcome,
+                global_claim_disposition=(specificity_review.global_claim_disposition),
+                confirmation_date=specificity_review.transcription.confirmation_date,
+                proposal_created=specificity_review.proposal_created,
+                nci_adoption_inferred=specificity_review.nci_adoption_inferred,
             )
         )
     else:
@@ -1519,8 +1532,13 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             inventory=r103_source,
             candidates=r103_candidate_set,
             authority=r103_authority_artifact,
+            application=r103_application,
             revision_path=r103_review_state,
         )
+        if not isinstance(r103_review, R103SelectedSpecificityReview):
+            raise PreSmeValidationError(
+                "current readiness requires a selected R103 specificity review"
+            )
         gate = VerifyEvidence.model_validate_json(
             _load_json_no_duplicates(verify_evidence, "verify evidence")[1]
         )

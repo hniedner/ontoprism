@@ -17,7 +17,6 @@ from scripts.research.golden_review import load_row_decisions
 from scripts.research.pre_sme_readiness import (
     MachineReadinessInputs,
     MachineReadinessReport,
-    PendingR103SpecificityRequirement,
     PreSmeValidationError,
     PrimarySiteAudit,
     PrimarySiteObservation,
@@ -242,7 +241,7 @@ def _composed_readiness_inputs(
         "r103_applied_policy": golden / "r103-applied-policy-26.07d.json",
         "r103_specificity_target": golden / "r103-c2860-specificity-target-26.07d.json",
         "r103_specificity_review": golden
-        / "r103-c2860-specificity-pending-26.07d.json",
+        / "r103-c2860-specificity-selected-26.07d.json",
         "verify_evidence": verify_path,
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
@@ -1131,16 +1130,9 @@ def test_composed_readiness_binds_r103_machine_artifacts_and_requires_one_select
     assert readiness.identities.proposal_registry_migration_identity == (
         "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705"
     )
-    assert r103_requirement.status == "pending"
+    assert r103_requirement.status == "satisfied-by-specificity-review"
     assert r103_requirement.count == 1
-    assert isinstance(r103_requirement, PendingR103SpecificityRequirement)
-    assert r103_requirement.subject_code == "C2860"
-    assert r103_requirement.role_code == "R103"
-    assert r103_requirement.filler_code == "C12950"
-    assert r103_requirement.question_kind == "most-specific-named-stated-descendant"
-    assert r103_requirement.candidate_artifact_identity != "0" * 64
-    assert r103_requirement.prior_decision_identity != "0" * 64
-    assert len(r103_requirement.allowed_options) == 3
+    assert r103_requirement.selected_option == "qualify-global-most-specific-claim"
     assert readiness.identities.r103_source_inventory_identity != "0" * 64
     assert readiness.identities.r103_candidate_artifact_identity != "0" * 64
     assert readiness.identities.r103_authority_artifact_identity != "0" * 64
@@ -1182,14 +1174,44 @@ def test_selected_r103_review_resolves_pending_without_changing_evidence() -> No
         "subject_code": "C2860",
         "role_code": "R103",
         "filler_code": "C12950",
-        "selected_option": "affirm-no-better-enumerated-candidate",
+        "question": (
+            "For C2860/R103/C12950, does one of the 16 enumerated named stated "
+            "descendants of C12950 in NCIt 26.07d provide a better "
+            "normal-tissue-origin filler than C12950?"
+        ),
+        "selected_option": "qualify-global-most-specific-claim",
         "selected_candidate_code": None,
+        "enumerated_candidate_count": 16,
+        "bounded_conclusion": (
+            "None of the 16 enumerated named stated descendants of C12950 in NCIt "
+            "26.07d is a better normal-tissue-origin filler for C2860/R103 than "
+            "C12950."
+        ),
+        "effective_outcome": "source-supported",
+        "effective_rationale": (
+            "Retain C12950 as the source-supported C2860/R103 filler. None of the "
+            "16 enumerated named stated descendants of C12950 in NCIt 26.07d is a "
+            "better normal-tissue-origin filler for C2860/R103 than C12950. This "
+            "bounded comparison does not establish that C12950 is the globally "
+            "most-specific available NCIt filler."
+        ),
+        "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
         "target_artifact_identity": evidence_identities[
             "r103_specificity_target_identity"
         ],
         "candidate_artifact_identity": evidence_identities[
             "r103_candidate_artifact_identity"
         ],
+        "applied_policy_identity": evidence_identities["r103_applied_policy_identity"],
+        "prior_decision_identity": "9" * 64,
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
         "software_selected_answer": False,
     }
     selected = R103SelectedSpecificityReview.model_validate(
@@ -1212,13 +1234,87 @@ def test_selected_r103_review_resolves_pending_without_changing_evidence() -> No
 
     assert requirement.status == "satisfied-by-specificity-review"
     assert requirement.count == 1
-    assert requirement.selected_option == "affirm-no-better-enumerated-candidate"
+    assert requirement.selected_option == "qualify-global-most-specific-claim"
+    assert requirement.effective_outcome == "source-supported"
+    assert (
+        requirement.global_claim_disposition
+        == "withdrawn-bounded-comparison-not-global-proof"
+    )
+    assert requirement.confirmation_date == "2026-09-07"
+    assert requirement.proposal_created is False
+    assert requirement.nci_adoption_inferred is False
     assert (
         readiness.identities.r103_specificity_review_status
         == "selected-human-specificity-review"
     )
     assert readiness.identities.r103_candidate_artifact_identity == "2" * 64
     assert readiness.identities.r103_source_inventory_identity == "1" * 64
+
+
+@pytest.mark.unit
+def test_selected_r103_review_rejects_another_applied_policy() -> None:
+    payload = _machine_readiness_input_payload()
+    selected_payload = {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "question": (
+            "For C2860/R103/C12950, does one of the 16 enumerated named stated "
+            "descendants of C12950 in NCIt 26.07d provide a better "
+            "normal-tissue-origin filler than C12950?"
+        ),
+        "selected_option": "qualify-global-most-specific-claim",
+        "selected_candidate_code": None,
+        "enumerated_candidate_count": 16,
+        "bounded_conclusion": (
+            "None of the 16 enumerated named stated descendants of C12950 in NCIt "
+            "26.07d is a better normal-tissue-origin filler for C2860/R103 than "
+            "C12950."
+        ),
+        "effective_outcome": "source-supported",
+        "effective_rationale": (
+            "Retain C12950 as the source-supported C2860/R103 filler. None of the "
+            "16 enumerated named stated descendants of C12950 in NCIt 26.07d is a "
+            "better normal-tissue-origin filler for C2860/R103 than C12950. This "
+            "bounded comparison does not establish that C12950 is the globally "
+            "most-specific available NCIt filler."
+        ),
+        "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
+        "target_artifact_identity": "6" * 64,
+        "candidate_artifact_identity": "2" * 64,
+        "applied_policy_identity": "0" * 64,
+        "prior_decision_identity": "9" * 64,
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
+        "software_selected_answer": False,
+    }
+    selected = R103SelectedSpecificityReview.model_validate(
+        {**selected_payload, "artifact_identity": _identity(selected_payload)}
+    )
+    payload.update(
+        r103_source_inventory_identity="1" * 64,
+        r103_candidate_artifact_identity="2" * 64,
+        r103_authority_artifact_identity="3" * 64,
+        r103_corroboration_artifact_identity="4" * 64,
+        r103_applied_policy_identity="5" * 64,
+        r103_specificity_target_identity="6" * 64,
+        r103_registry_identity="7" * 64,
+        r103_c3264_terminal_decision_identity="8" * 64,
+        r103_specificity_review_identity=selected.artifact_identity,
+        r103_specificity_review=selected,
+    )
+
+    with pytest.raises(ValueError, match="specificity-review evidence identities"):
+        MachineReadinessInputs.model_validate(payload)
 
 
 @pytest.mark.unit
@@ -1237,8 +1333,24 @@ def test_c3264_terminal_exclusion_survives_candidate_generation(
         for item in readiness.human_requirements
         if item.requirement == "r103-review"
     )
-    assert isinstance(r103_requirement, PendingR103SpecificityRequirement)
-    assert r103_requirement.subject_code == "C2860"
+    assert r103_requirement.status == "satisfied-by-specificity-review"
+
+
+@pytest.mark.unit
+def test_current_readiness_rejects_the_superseded_pending_specificity_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, _report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    arguments["r103_specificity_review"] = (
+        Path(__file__).parent / "golden/r103-c2860-specificity-pending-26.07d.json"
+    )
+
+    with pytest.raises(PreSmeValidationError):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit
@@ -1286,6 +1398,16 @@ def test_readiness_rejects_self_consistent_r103_application_for_another_registry
     changed = tmp_path / "changed-r103-application.json"
     changed.write_text(json.dumps(application), encoding="utf-8")
     arguments["r103_applied_policy"] = changed
+    selected = json.loads(
+        Path(arguments["r103_specificity_review"]).read_text(encoding="utf-8")
+    )
+    selected["applied_policy_identity"] = application["artifact_identity"]
+    selected["artifact_identity"] = _identity(
+        {key: value for key, value in selected.items() if key != "artifact_identity"}
+    )
+    changed_selected = tmp_path / "changed-r103-selected.json"
+    changed_selected.write_text(json.dumps(selected), encoding="utf-8")
+    arguments["r103_specificity_review"] = changed_selected
 
     with pytest.raises(PreSmeValidationError, match="R103 applied proposal"):
         generate_pre_sme_readiness(**arguments)
@@ -1344,11 +1466,19 @@ def test_readiness_rejects_self_consistent_authority_with_another_rev1_file(
         revision_path=golden / "r103-review-state-26.07d-rev2.json",
     )
     changed_target = tmp_path / "changed-target.json"
-    changed_pending = tmp_path / "changed-pending.json"
+    changed_selected = tmp_path / "changed-selected.json"
     specificity.write_artifact(changed_target, target)
-    specificity.write_artifact(changed_pending, pending)
+    selected = specificity.build_selected_specificity_review(
+        pending=pending,
+        target=target,
+        candidates=candidates,
+        application=specificity.load_applied_policy_report(
+            arguments["r103_applied_policy"]
+        ),
+    )
+    specificity.write_artifact(changed_selected, selected)
     arguments["r103_specificity_target"] = changed_target
-    arguments["r103_specificity_review"] = changed_pending
+    arguments["r103_specificity_review"] = changed_selected
 
     with pytest.raises(PreSmeValidationError, match="R103 authority history"):
         generate_pre_sme_readiness(**arguments)

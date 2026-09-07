@@ -1,4 +1,4 @@
-"""Strict C2860-only target and pending state for the R103 specificity review."""
+"""Strict C2860-only target, pending state, and accountable R103 selection."""
 
 from __future__ import annotations
 
@@ -13,10 +13,12 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ontolib.decomposition.r103_evidence_application import (
+    R103AppliedPolicyReport,
     R103AuthorityArtifact,
     R103CandidateArtifact,
     R103SourceInventory,
     R103SourceRow,
+    load_applied_policy_report,
     load_authority_artifact,
     load_candidate_artifact,
     load_source_inventory,
@@ -26,6 +28,7 @@ from ontolib.decomposition.r103_review_promotion import (
 )
 
 _SHA256 = r"^[0-9a-f]{64}$"
+_EXPECTED_CANDIDATE_COUNT = 16
 SPECIFICITY_QUESTION = (
     "For C2860/R103/C12950, does one of the 16 enumerated named stated "
     "descendants of C12950 in NCIt 26.07d provide a better normal-tissue-origin "
@@ -52,6 +55,15 @@ SPECIFICITY_OPTIONS: tuple[tuple[SpecificityChoice, str], ...] = (
         "Select one of the 16 enumerated existing NCIt candidates as a proposed "
         "replacement and initiate a separately governed correction proposal.",
     ),
+)
+SELECTED_BOUNDED_CONCLUSION = (
+    "None of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d "
+    "is a better normal-tissue-origin filler for C2860/R103 than C12950."
+)
+SELECTED_EFFECTIVE_RATIONALE = (
+    "Retain C12950 as the source-supported C2860/R103 filler. "
+    f"{SELECTED_BOUNDED_CONCLUSION} This bounded comparison does not establish "
+    "that C12950 is the globally most-specific available NCIt filler."
 )
 
 
@@ -140,6 +152,13 @@ class R103PendingSpecificityReview(_StrictModel):
         return self
 
 
+class SpecificityReviewTranscription(_StrictModel):
+    actor: Literal["software-transcriber"]
+    authority: Literal["user-confirmed-in-current-conversation"]
+    authorship_claimed: Literal[False]
+    confirmation_date: Literal["2026-09-07"]
+
+
 class R103SelectedSpecificityReview(_StrictModel):
     schema_version: Literal[1]
     status: Literal["selected-human-specificity-review"]
@@ -147,20 +166,32 @@ class R103SelectedSpecificityReview(_StrictModel):
     subject_code: Literal["C2860"]
     role_code: Literal["R103"]
     filler_code: Literal["C12950"]
-    selected_option: SpecificityChoice
-    selected_candidate_code: str | None = Field(pattern=r"^C[0-9]+$")
+    question: str = Field(min_length=1)
+    selected_option: Literal["qualify-global-most-specific-claim"]
+    selected_candidate_code: Literal[None]
+    enumerated_candidate_count: Literal[16]
+    bounded_conclusion: str = Field(min_length=1)
+    effective_outcome: Literal["source-supported"]
+    effective_rationale: str = Field(min_length=1)
+    global_claim_disposition: Literal["withdrawn-bounded-comparison-not-global-proof"]
     target_artifact_identity: str = Field(pattern=_SHA256)
     candidate_artifact_identity: str = Field(pattern=_SHA256)
+    applied_policy_identity: str = Field(pattern=_SHA256)
+    prior_decision_identity: str = Field(pattern=_SHA256)
+    transcription: SpecificityReviewTranscription
+    proposal_created: Literal[False]
+    nci_adoption_inferred: Literal[False]
     software_selected_answer: Literal[False]
     artifact_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _validate_contract(self) -> Self:
-        proposes_candidate = (
-            self.selected_option == "propose-enumerated-candidate-replacement"
-        )
-        if proposes_candidate != (self.selected_candidate_code is not None):
-            raise ValueError("selected specificity-review candidate shape differs")
+        if self.question != SPECIFICITY_QUESTION:
+            raise ValueError("selected specificity-review question differs")
+        if self.bounded_conclusion != SELECTED_BOUNDED_CONCLUSION:
+            raise ValueError("selected specificity-review bounded conclusion differs")
+        if self.effective_rationale != SELECTED_EFFECTIVE_RATIONALE:
+            raise ValueError("selected specificity-review effective rationale differs")
         expected = _identity(self.model_dump(exclude={"artifact_identity"}))
         if self.artifact_identity != expected:
             raise ValueError("selected specificity-review identity differs")
@@ -320,6 +351,7 @@ def load_specificity_review(
     inventory: R103SourceInventory,
     candidates: R103CandidateArtifact,
     authority: R103AuthorityArtifact,
+    application: R103AppliedPolicyReport,
     revision_path: Path,
 ) -> R103SpecificityReview:
     """Load either the unanswered review or a human-selected answer."""
@@ -338,7 +370,12 @@ def load_specificity_review(
             authority=authority,
             revision_path=revision_path,
         )
-    return _load_selected_specificity_review(path, target=target, candidates=candidates)
+    return _load_selected_specificity_review(
+        path,
+        target=target,
+        candidates=candidates,
+        application=application,
+    )
 
 
 def _load_selected_specificity_review(
@@ -346,21 +383,118 @@ def _load_selected_specificity_review(
     *,
     target: R103SpecificityReviewTarget,
     candidates: R103CandidateArtifact,
+    application: R103AppliedPolicyReport,
 ) -> R103SelectedSpecificityReview:
     selected = _load(path, R103SelectedSpecificityReview)
     if (
         selected.target_artifact_identity != target.artifact_identity
         or selected.candidate_artifact_identity != candidates.artifact_identity
+        or selected.applied_policy_identity != application.artifact_identity
+        or selected.prior_decision_identity != target.prior_decision_identity
     ):
         raise R103SpecificityReviewError("selected specificity-review binding differs")
-    candidate_codes = {candidate.code for candidate in candidates.candidates}
-    if (
-        selected.selected_candidate_code is not None
-        and selected.selected_candidate_code not in candidate_codes
-    ):
-        raise R103SpecificityReviewError(
-            "selected specificity-review candidate is not enumerated"
-        )
+    return selected
+
+
+def build_selected_specificity_review(
+    *,
+    pending: R103PendingSpecificityReview,
+    target: R103SpecificityReviewTarget,
+    candidates: R103CandidateArtifact,
+    application: R103AppliedPolicyReport,
+) -> R103SelectedSpecificityReview:
+    """Transcribe the accountable human choice without claiming software authorship."""
+    observed = (
+        pending.target_artifact_identity,
+        pending.candidate_artifact_identity,
+        pending.prior_decision_identity,
+        candidates.candidate_count,
+        application.c2860_effective_projected,
+        application.proposal_created,
+        application.nci_adoption_inferred,
+    )
+    expected = (
+        target.artifact_identity,
+        candidates.artifact_identity,
+        target.prior_decision_identity,
+        _EXPECTED_CANDIDATE_COUNT,
+        True,
+        False,
+        False,
+    )
+    if observed != expected:
+        raise R103SpecificityReviewError("selected specificity-review inputs differ")
+    payload = {
+        "schema_version": 1,
+        "status": "selected-human-specificity-review",
+        "question_kind": "most-specific-named-stated-descendant",
+        "subject_code": "C2860",
+        "role_code": "R103",
+        "filler_code": "C12950",
+        "question": SPECIFICITY_QUESTION,
+        "selected_option": "qualify-global-most-specific-claim",
+        "selected_candidate_code": None,
+        "enumerated_candidate_count": candidates.candidate_count,
+        "bounded_conclusion": SELECTED_BOUNDED_CONCLUSION,
+        "effective_outcome": "source-supported",
+        "effective_rationale": SELECTED_EFFECTIVE_RATIONALE,
+        "global_claim_disposition": ("withdrawn-bounded-comparison-not-global-proof"),
+        "target_artifact_identity": target.artifact_identity,
+        "candidate_artifact_identity": candidates.artifact_identity,
+        "applied_policy_identity": application.artifact_identity,
+        "prior_decision_identity": target.prior_decision_identity,
+        "transcription": {
+            "actor": "software-transcriber",
+            "authority": "user-confirmed-in-current-conversation",
+            "authorship_claimed": False,
+            "confirmation_date": "2026-09-07",
+        },
+        "proposal_created": False,
+        "nci_adoption_inferred": False,
+        "software_selected_answer": False,
+    }
+    return R103SelectedSpecificityReview.model_validate(
+        {**payload, "artifact_identity": _identity(payload)}
+    )
+
+
+def generate_selected_specificity_review(
+    *,
+    inventory_path: Path,
+    candidate_path: Path,
+    authority_path: Path,
+    application_path: Path,
+    revision_path: Path,
+    target_path: Path,
+    pending_path: Path,
+    output_path: Path,
+) -> R103SelectedSpecificityReview:
+    """Generate the selected state from named evidence and the recorded human choice."""
+    inventory = load_source_inventory(inventory_path)
+    candidates = load_candidate_artifact(candidate_path)
+    authority = load_authority_artifact(authority_path)
+    application = load_applied_policy_report(application_path)
+    target = load_specificity_review_target(
+        target_path,
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+    )
+    pending = load_pending_specificity_review(
+        pending_path,
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+        revision_path=revision_path,
+    )
+    selected = build_selected_specificity_review(
+        pending=pending,
+        target=target,
+        candidates=candidates,
+        application=application,
+    )
+    write_artifact(output_path, selected)
     return selected
 
 

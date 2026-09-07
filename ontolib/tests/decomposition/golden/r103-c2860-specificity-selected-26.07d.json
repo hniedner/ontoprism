@@ -1,0 +1,30 @@
+{
+  "applied_policy_identity": "682376fb8ca5a209972a415d592e6866e359aa2c08d72446442ee3f01ffeafec",
+  "artifact_identity": "1bdeba0d5f1a09c56571a0ce98b341c6dc007ae487856fe4c00597effdd54d57",
+  "bounded_conclusion": "None of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d is a better normal-tissue-origin filler for C2860/R103 than C12950.",
+  "candidate_artifact_identity": "5540d804ea9dbcb49148f47a66bdf4aef1b1e2eee79495a94305d864bcb0e20f",
+  "effective_outcome": "source-supported",
+  "effective_rationale": "Retain C12950 as the source-supported C2860/R103 filler. None of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d is a better normal-tissue-origin filler for C2860/R103 than C12950. This bounded comparison does not establish that C12950 is the globally most-specific available NCIt filler.",
+  "enumerated_candidate_count": 16,
+  "filler_code": "C12950",
+  "global_claim_disposition": "withdrawn-bounded-comparison-not-global-proof",
+  "nci_adoption_inferred": false,
+  "prior_decision_identity": "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27",
+  "proposal_created": false,
+  "question": "For C2860/R103/C12950, does one of the 16 enumerated named stated descendants of C12950 in NCIt 26.07d provide a better normal-tissue-origin filler than C12950?",
+  "question_kind": "most-specific-named-stated-descendant",
+  "role_code": "R103",
+  "schema_version": 1,
+  "selected_candidate_code": null,
+  "selected_option": "qualify-global-most-specific-claim",
+  "software_selected_answer": false,
+  "status": "selected-human-specificity-review",
+  "subject_code": "C2860",
+  "target_artifact_identity": "0b678e7f220cb89be4b9ffeb24833dfb5c3f2aadd706d70de5c02c33fa1f0197",
+  "transcription": {
+    "actor": "software-transcriber",
+    "authority": "user-confirmed-in-current-conversation",
+    "authorship_claimed": false,
+    "confirmation_date": "2026-09-07"
+  }
+}

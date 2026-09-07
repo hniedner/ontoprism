@@ -69,10 +69,15 @@ Current readiness reads the preserved terminal revision together with the genera
 inventory, C12950 candidate enumeration, normalized authority, normalized corroboration, and
 applied-policy report under `ontolib/tests/decomposition/golden/`. A separate strict target binds
 the generic candidate enumeration to the exact C2860/R103/C12950 source occurrence and its
-carried-forward decision; an unanswered specificity state binds the exact question and three
-allowed options. Readiness binds all seven current artifact identities and derives one pending
-review from that state. C3264's concept-scoped exclusion remains terminal and is not reopened by
-candidate evidence. Overall authorization remains false and publication remains unattempted.
+carried-forward decision. The preserved unanswered state binds the exact question and three
+allowed options; the selected successor binds that state, the 16-row candidate set, the unchanged
+applied-policy report, and the prior decision. It records the user's 2026-09-07
+`qualify-global-most-specific-claim` selection with software as transcriber, retains C12950 as
+source-supported, and replaces the global-optimality rationale with the bounded conclusion that no
+enumerated descendant is better. Readiness binds the selected identity and marks the one C2860
+specificity requirement satisfied. C3264's concept-scoped exclusion remains terminal and is not
+reopened by candidate evidence. Overall authorization remains false and publication remains
+unattempted (`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
 
 `r103-c3264-corroboration-26.07d.json` is preserved historical input. Because no digest-bound
 PubMed response bytes were retained, its successor
@@ -84,3 +89,12 @@ Run `pdm run agent-replay generate-r103-evidence-application` against the certif
 graph and RDF/XML artifact. The generator performs bounded QLever count/page reads, independent
 streaming RDF/XML scans, canonical parity checks, strict historical/migration joins, and atomic
 deterministic writes. It creates no proposal and makes no candidate-selection verdict.
+
+Generate the accountable selected successor only after those machine artifacts exist:
+
+```bash
+pdm run agent-replay transcribe-r103-specificity-selection
+```
+
+The operation has fixed inputs and transcribes the user-confirmed decision; it does not claim
+software authorship, create a proposal, infer NCI adoption, or alter the applied policy.

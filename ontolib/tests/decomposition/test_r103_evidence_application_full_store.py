@@ -12,6 +12,10 @@ from ontolib.decomposition.r103_evidence_application import (
     query_candidate_codes,
     query_source_inventory,
 )
+from ontolib.decomposition.r103_specificity_review import (
+    load_specificity_review,
+    load_specificity_review_target,
+)
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 GOLDEN = Path("ontolib/tests/decomposition/golden")
@@ -78,3 +82,22 @@ async def test_r103_application_artifacts_match_qlever_and_independent_real_xml(
         assert json.loads(path.read_text(encoding="ascii")) == artifact.model_dump(
             mode="json"
         )
+
+    target = load_specificity_review_target(
+        GOLDEN / "r103-c2860-specificity-target-26.07d.json",
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+    )
+    selected = load_specificity_review(
+        GOLDEN / "r103-c2860-specificity-selected-26.07d.json",
+        target=target,
+        inventory=inventory,
+        candidates=candidates,
+        authority=authority,
+        application=application,
+        revision_path=GOLDEN / "r103-review-state-26.07d-rev2.json",
+    )
+    assert selected.selected_option == "qualify-global-most-specific-claim"
+    assert selected.enumerated_candidate_count == candidates.candidate_count == 16
+    assert selected.applied_policy_identity == application.artifact_identity
