@@ -10,16 +10,18 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import replace
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
-from ontolib.decomposition.axis_contracts import (
-    AXIS_CONTRACTS,
-    normalized_axis_for_role,
+from ontolib.decomposition.axis_contracts import normalized_axis_for_role
+from ontolib.decomposition.models import (
+    Constituent,
+    OccurrenceDisposition,
+    R101DispositionKind,
+    RoleRestriction,
 )
-from ontolib.decomposition.models import Constituent, RoleRestriction
 from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
     primary_subsites_for_morphology,
@@ -32,6 +34,48 @@ if TYPE_CHECKING:
 # R82 containment is supplied independently through ``IsPartOf``.
 IsAncestor = Callable[[str, str], bool]
 IsPartOf = Callable[[str, str], bool]
+
+LocationAxis = str
+_MIN_COMPARISON_FILLERS = 2
+_LOCATION_AXES: frozenset[LocationAxis] = frozenset(
+    {
+        axes.PRIMARY_SITE_AXIS,
+        axes.PRIMARY_SUBSITE_AXIS,
+        axes.ASSOCIATED_REGION_AXIS,
+        "op:AssociatedSite",
+        "op:MetastaticSite",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RoutedOccurrence:
+    """One surviving source restriction after its final semantic route is known."""
+
+    restriction: RoleRestriction
+    normalized_axis: str
+    semantic_route: str
+    semantic_type: str | None
+    source_fact_id: str | None
+    source_occurrence_id: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RoutedPlan:
+    """The single route-before-reduction plan shared by planning and selection."""
+
+    occurrences: tuple[RoutedOccurrence, ...]
+    parent_morphologies: tuple[str, ...]
+    specificity_groups: tuple[tuple[str, tuple[str, ...]], ...]
+    comparison_groups: tuple[tuple[str, tuple[str, ...]], ...]
+    protected_pairs: frozenset[tuple[str, str]]
+    policy_decisions: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RoutedSelection:
+    constituents: tuple[Constituent, ...]
+    dispositions: tuple[OccurrenceDisposition, ...]
 
 
 def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -> bool:
@@ -131,6 +175,549 @@ def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
     return normalized_axis_for_role(r.role_code) or r.role_code
 
 
+def _primary_site_semantic_route(
+    restriction: RoleRestriction,
+    semantic_type_of: Callable[[str], str | None] | None,
+) -> tuple[str, str, str | None]:
+    if semantic_type_of is None:
+        return axes.PRIMARY_SITE_AXIS, "semantic-evidence-not-requested", None
+    semantic_type = semantic_type_of(restriction.filler_code)
+    if semantic_type is None:
+        return axes.PRIMARY_SITE_AXIS, "missing-p106", None
+    if semantic_type == axes.ORGAN_SEMANTIC_TYPE:
+        return axes.PRIMARY_SITE_AXIS, "p106-organ", semantic_type
+    return axes.ASSOCIATED_REGION_AXIS, "p106-non-organ-anatomy", semantic_type
+
+
+def _semantic_route(
+    restriction: RoleRestriction,
+    parent_morphology: str | None,
+    semantic_type_of: Callable[[str], str | None] | None,
+) -> tuple[str, str, str | None]:
+    if restriction.filler_code in primary_subsites_for_morphology(parent_morphology):
+        return axes.PRIMARY_SUBSITE_AXIS, "reviewed-primary-subsite", None
+    contextual = _r101_axis(restriction, parent_morphology)
+    if contextual is not None:
+        route = (
+            "reviewed-lineage"
+            if contextual == axes.ASSOCIATED_LINEAGE_AXIS
+            else "reviewed-primary-subsite"
+        )
+        return contextual, route, None
+    reviewed = _reviewed_source_axis(restriction, parent_morphology)
+    if reviewed is not None:
+        return reviewed, "reviewed-contextual-override", None
+    if restriction.role_code != axes.PRIMARY_SITE_ROLE:
+        axis_name = route_axis(restriction, parent_morphology)
+        route = (
+            "unknown-role" if axis_name == restriction.role_code else "role-contract"
+        )
+        return axis_name, route, None
+    return _primary_site_semantic_route(restriction, semantic_type_of)
+
+
+def _expand_routed_occurrences(
+    restriction: RoleRestriction,
+    *,
+    normalized_axis: str,
+    semantic_route: str,
+    semantic_type: str | None,
+) -> tuple[RoutedOccurrence, ...]:
+    facts = restriction.source_definition_ids
+    occurrences = restriction.source_occurrence_ids
+    if not occurrences:
+        return (
+            RoutedOccurrence(
+                restriction=restriction,
+                normalized_axis=normalized_axis,
+                semantic_route=semantic_route,
+                semantic_type=semantic_type,
+                source_fact_id=facts[0] if len(facts) == 1 else None,
+                source_occurrence_id=None,
+            ),
+        )
+    if len(facts) == 1:
+        fact_by_occurrence = (facts[0],) * len(occurrences)
+    elif len(facts) == len(occurrences):
+        fact_by_occurrence = facts
+    else:
+        raise ValueError("source occurrence-to-fact binding is ambiguous")
+    return tuple(
+        RoutedOccurrence(
+            restriction=restriction,
+            normalized_axis=normalized_axis,
+            semantic_route=semantic_route,
+            semantic_type=semantic_type,
+            source_fact_id=fact_id,
+            source_occurrence_id=occurrence_id,
+        )
+        for fact_id, occurrence_id in zip(fact_by_occurrence, occurrences, strict=True)
+    )
+
+
+def _comparison_groups(
+    occurrences: tuple[RoutedOccurrence, ...],
+    *,
+    location_only: bool,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    by_axis: dict[str, set[str]] = defaultdict(set)
+    for occurrence in occurrences:
+        if _collapse_eligible(occurrence) and (
+            not location_only or occurrence.normalized_axis in _LOCATION_AXES
+        ):
+            by_axis[occurrence.normalized_axis].add(occurrence.restriction.filler_code)
+    return tuple(
+        (axis_name, tuple(sorted(fillers)))
+        for axis_name, fillers in sorted(by_axis.items())
+        if len(fillers) > 1
+    )
+
+
+def build_routed_plan(
+    restrictions: Iterable[RoleRestriction],
+    *,
+    semantic_type_of: Callable[[str], str | None] | None = None,
+    parent_morphologies: Iterable[str] = (),
+    concept_code: str | None,
+    source_identity: str | None,
+    collapse_policy: CollapseVetoPolicy,
+) -> RoutedPlan:
+    """Route every surviving restriction once before planning any reduction."""
+    morphology_fillers = tuple(dict.fromkeys(parent_morphologies))
+    parent_morphology = morphology_fillers[0] if morphology_fillers else None
+    included = tuple(filter_excluded(restrictions, concept_code=concept_code))
+    routed_rows: list[RoutedOccurrence] = []
+    for restriction in included:
+        axis_name, route_name, semantic_type = _semantic_route(
+            restriction, parent_morphology, semantic_type_of
+        )
+        routed_rows.extend(
+            _expand_routed_occurrences(
+                restriction,
+                normalized_axis=axis_name,
+                semantic_route=route_name,
+                semantic_type=semantic_type,
+            )
+        )
+    routed = tuple(routed_rows)
+    applicable_vetoes = collapse_policy.applicable_vetoes(
+        included,
+        source_identity=source_identity,
+        concept_code=concept_code,
+        route_axis=lambda row: _semantic_route(
+            row, parent_morphology, semantic_type_of
+        )[0],
+    )
+    protected_pairs = frozenset(
+        (entry.normalized_axis, entry.broader_code) for entry in applicable_vetoes
+    )
+    policy_decisions = tuple(
+        (entry.occurrence_id, entry.atomic_decision_identity)
+        for entry in applicable_vetoes
+    )
+    return RoutedPlan(
+        occurrences=routed,
+        parent_morphologies=morphology_fillers,
+        specificity_groups=_comparison_groups(routed, location_only=False),
+        comparison_groups=_comparison_groups(routed, location_only=True),
+        protected_pairs=protected_pairs,
+        policy_decisions=policy_decisions,
+    )
+
+
+def _collapse_eligible(occurrence: RoutedOccurrence) -> bool:
+    return occurrence.semantic_route not in {"missing-p106", "unknown-role"} and (
+        occurrence.normalized_axis != axes.ASSOCIATED_LINEAGE_AXIS
+    )
+
+
+def _relation_kind(
+    axis_name: str,
+    broader: str,
+    narrower: str,
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
+) -> str | None:
+    forward_isa, reverse_isa = _directed_relation(broader, narrower, is_ancestor)
+    forward_r82, reverse_r82 = _directed_r82_relation(
+        axis_name, broader, narrower, is_part_of
+    )
+    if all((forward_isa, reverse_isa)) or all((forward_r82, reverse_r82)):
+        raise ValueError(
+            "specificity relation contains a cycle or mutually broader pair"
+        )
+    if forward_isa:
+        return "collapsed-is-a"
+    if forward_r82:
+        return "collapsed-r82"
+    return None
+
+
+def _directed_relation(
+    broader: str, narrower: str, relation: Callable[[str, str], bool]
+) -> tuple[bool, bool]:
+    distinct = broader != narrower
+    return (
+        distinct and relation(broader, narrower),
+        distinct and relation(narrower, broader),
+    )
+
+
+def _directed_r82_relation(
+    axis_name: str,
+    broader: str,
+    narrower: str,
+    is_part_of: IsPartOf,
+) -> tuple[bool, bool]:
+    if axis_name not in _LOCATION_AXES:
+        return False, False
+    return is_part_of(narrower, broader), is_part_of(broader, narrower)
+
+
+def _eligible_fillers(
+    fillers: set[str], occurrences: tuple[RoutedOccurrence, ...]
+) -> set[str]:
+    return {
+        filler
+        for filler in fillers
+        if all(
+            _collapse_eligible(row)
+            for row in occurrences
+            if row.restriction.filler_code == filler
+        )
+    }
+
+
+def _specificity_relations(
+    axis_name: str,
+    fillers: set[str],
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
+) -> dict[tuple[str, str], str]:
+    relations: dict[tuple[str, str], str] = {}
+    for broader in sorted(fillers):
+        for narrower in sorted(fillers - {broader}):
+            kind = _relation_kind(axis_name, broader, narrower, is_ancestor, is_part_of)
+            if kind is not None:
+                relations[(broader, narrower)] = kind
+    return relations
+
+
+def _collapsed_fillers(
+    eligible_fillers: set[str],
+    relations: dict[tuple[str, str], str],
+    protected_fillers: set[str],
+) -> dict[str, tuple[str, str]]:
+    leaves = eligible_fillers - {broader for broader, _narrower in relations}
+    collapsed: dict[str, tuple[str, str]] = {}
+    for broader in sorted(eligible_fillers - protected_fillers):
+        candidates = [
+            (narrower, kind)
+            for (candidate_broader, narrower), kind in relations.items()
+            if candidate_broader == broader and narrower in leaves
+        ]
+        if candidates:
+            collapsed[broader] = candidates[0]
+    return collapsed
+
+
+def _selected_fillers(
+    axis_name: str,
+    occurrences: tuple[RoutedOccurrence, ...],
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
+    protected_pairs: frozenset[tuple[str, str]],
+) -> tuple[set[str], dict[str, tuple[str, str]]]:
+    fillers = {row.restriction.filler_code for row in occurrences}
+    eligible_fillers = _eligible_fillers(fillers, occurrences)
+    if len(eligible_fillers) < _MIN_COMPARISON_FILLERS:
+        return fillers, {}
+    protected_fillers = {
+        filler
+        for protected_axis, filler in protected_pairs
+        if protected_axis == axis_name
+    }
+    relations = _specificity_relations(
+        axis_name, eligible_fillers, is_ancestor, is_part_of
+    )
+    _require_acyclic_specificity(eligible_fillers, relations)
+    collapsed = _collapsed_fillers(eligible_fillers, relations, protected_fillers)
+    return fillers - collapsed.keys(), collapsed
+
+
+def _require_acyclic_specificity(
+    fillers: set[str], relations: dict[tuple[str, str], str]
+) -> None:
+    descendants: dict[str, set[str]] = defaultdict(set)
+    for broader, narrower in relations:
+        descendants[broader].add(narrower)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(filler: str) -> None:
+        if filler in visiting:
+            raise ValueError("specificity relation contains a cycle")
+        if filler in visited:
+            return
+        visiting.add(filler)
+        for narrower in descendants[filler]:
+            visit(narrower)
+        visiting.remove(filler)
+        visited.add(filler)
+
+    for filler in fillers:
+        visit(filler)
+
+
+def _constituent_from_routed(
+    axis_name: str,
+    filler: str,
+    occurrences: tuple[RoutedOccurrence, ...],
+    retained_count: int,
+    collapsed: dict[str, tuple[str, str]],
+    policy_protected_axis: bool,
+) -> Constituent:
+    rows = tuple(row for row in occurrences if row.restriction.filler_code == filler)
+    source_roles, source_definition_ids, source_occurrence_ids = _source_bindings(rows)
+    unknown = _has_unknown_route(rows)
+    known_retained_count = _known_retained_count(occurrences, collapsed)
+    routed_exempt = axis_name in _REVIEW_EXEMPT_AXES
+    needs_review, group = _review_fields(
+        axis_name,
+        retained_count=retained_count,
+        known_retained_count=known_retained_count,
+        unknown=unknown,
+        routed_exempt=routed_exempt,
+        policy_protected_axis=policy_protected_axis,
+    )
+    chosen_over_broader = any(
+        retained == filler for retained, _kind in collapsed.values()
+    )
+    return Constituent(
+        axis=axis_name,
+        filler_code=filler,
+        axis_source="role",
+        source_roles=source_roles,
+        most_specific=chosen_over_broader,
+        needs_review=needs_review,
+        group=group,
+        source_definition_ids=source_definition_ids,
+        source_occurrence_ids=source_occurrence_ids,
+    )
+
+
+def _source_bindings(
+    rows: tuple[RoutedOccurrence, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    source_roles = tuple(sorted({row.restriction.role_code for row in rows}))
+    source_definition_ids = tuple(
+        sorted({row.source_fact_id for row in rows if row.source_fact_id is not None})
+    )
+    source_occurrence_ids = tuple(
+        sorted(
+            {
+                row.source_occurrence_id
+                for row in rows
+                if row.source_occurrence_id is not None
+            }
+        )
+    )
+    return source_roles, source_definition_ids, source_occurrence_ids
+
+
+def _has_unknown_route(rows: tuple[RoutedOccurrence, ...]) -> bool:
+    return any(row.semantic_route in {"missing-p106", "unknown-role"} for row in rows)
+
+
+def _known_retained_count(
+    occurrences: tuple[RoutedOccurrence, ...],
+    collapsed: dict[str, tuple[str, str]],
+) -> int:
+    return len(
+        {
+            row.restriction.filler_code
+            for row in occurrences
+            if row.restriction.filler_code not in collapsed
+            and row.semantic_route not in {"missing-p106", "unknown-role"}
+        }
+    )
+
+
+def _review_fields(
+    axis_name: str,
+    *,
+    retained_count: int,
+    known_retained_count: int,
+    unknown: bool,
+    routed_exempt: bool,
+    policy_protected_axis: bool,
+) -> tuple[bool, str | None]:
+    return (
+        _needs_review(
+            known_retained_count,
+            unknown=unknown,
+            routed_exempt=routed_exempt,
+            policy_protected_axis=policy_protected_axis,
+        ),
+        _relationship_group(
+            axis_name,
+            retained_count=retained_count,
+            routed_exempt=routed_exempt,
+            policy_protected_axis=policy_protected_axis,
+        ),
+    )
+
+
+def _needs_review(
+    known_retained_count: int,
+    *,
+    unknown: bool,
+    routed_exempt: bool,
+    policy_protected_axis: bool,
+) -> bool:
+    if unknown:
+        return True
+    if known_retained_count <= 1:
+        return False
+    return not routed_exempt or policy_protected_axis
+
+
+def _relationship_group(
+    axis_name: str,
+    *,
+    retained_count: int,
+    routed_exempt: bool,
+    policy_protected_axis: bool,
+) -> str | None:
+    if retained_count <= 1:
+        return None
+    if policy_protected_axis:
+        return axis_name
+    if routed_exempt and axis_name != axes.ASSOCIATED_LINEAGE_AXIS:
+        return axis_name
+    return None
+
+
+def _disposition_reduction(
+    occurrence: RoutedOccurrence,
+    occurrence_id: str,
+    collapsed: dict[str, tuple[str, str]],
+    policy_decisions: dict[str, str],
+) -> tuple[str, str, str | None]:
+    filler = occurrence.restriction.filler_code
+    if occurrence_id in policy_decisions:
+        return "retained-policy-veto", filler, None
+    if filler in collapsed:
+        retained, relation_kind = collapsed[filler]
+        return relation_kind, retained, relation_kind
+    kind = (
+        "retained-unknown"
+        if occurrence.semantic_route in {"missing-p106", "unknown-role"}
+        else "retained-routed"
+    )
+    return kind, filler, None
+
+
+def _disposition(
+    occurrence: RoutedOccurrence,
+    collapsed: dict[str, tuple[str, str]],
+    policy_decisions: dict[str, str],
+) -> OccurrenceDisposition | None:
+    occurrence_id = occurrence.source_occurrence_id
+    fact_id = occurrence.source_fact_id
+    if occurrence_id is None or fact_id is None:
+        return None
+    filler = occurrence.restriction.filler_code
+    kind, retained, relation_kind = _disposition_reduction(
+        occurrence, occurrence_id, collapsed, policy_decisions
+    )
+    return OccurrenceDisposition(
+        kind=cast("R101DispositionKind", kind),
+        source_occurrence_id=occurrence_id,
+        source_fact_id=fact_id,
+        normalized_axis=occurrence.normalized_axis,
+        source_filler=filler,
+        retained_filler=retained,
+        semantic_route=occurrence.semantic_route,
+        semantic_type=occurrence.semantic_type,
+        r82_part=retained if relation_kind == "collapsed-r82" else None,
+        r82_whole=filler if relation_kind == "collapsed-r82" else None,
+        policy_decision_identity=policy_decisions.get(occurrence_id),
+    )
+
+
+def _select_axis_partition(
+    axis_name: str,
+    occurrences: tuple[RoutedOccurrence, ...],
+    plan: RoutedPlan,
+    is_ancestor: IsAncestor,
+    part_of: IsPartOf,
+    policy_decisions: dict[str, str],
+) -> tuple[list[Constituent], list[OccurrenceDisposition]]:
+    retained, collapsed = _selected_fillers(
+        axis_name,
+        occurrences,
+        is_ancestor,
+        part_of,
+        plan.protected_pairs,
+    )
+    protected = any(pair_axis == axis_name for pair_axis, _ in plan.protected_pairs)
+    constituents = [
+        _constituent_from_routed(
+            axis_name,
+            filler,
+            occurrences,
+            len(retained),
+            collapsed,
+            protected,
+        )
+        for filler in sorted(retained)
+    ]
+    dispositions = [
+        disposition
+        for occurrence in occurrences
+        if (disposition := _disposition(occurrence, collapsed, policy_decisions))
+        is not None
+    ]
+    return constituents, dispositions
+
+
+def select_routed_plan(
+    plan: RoutedPlan,
+    is_ancestor: IsAncestor,
+    *,
+    is_part_of: IsPartOf | None = None,
+) -> RoutedSelection:
+    """Reduce only within final routed partitions and disposition every occurrence."""
+    part_of = is_part_of or (lambda _part, _whole: False)
+    by_axis: dict[str, list[RoutedOccurrence]] = defaultdict(list)
+    for occurrence in plan.occurrences:
+        by_axis[occurrence.normalized_axis].append(occurrence)
+    constituents: list[Constituent] = []
+    dispositions: list[OccurrenceDisposition] = []
+    policy_decisions = dict(plan.policy_decisions)
+    for axis_name, rows in sorted(by_axis.items()):
+        axis_constituents, axis_dispositions = _select_axis_partition(
+            axis_name,
+            tuple(rows),
+            plan,
+            is_ancestor,
+            part_of,
+            policy_decisions,
+        )
+        constituents.extend(axis_constituents)
+        dispositions.extend(axis_dispositions)
+    _append_morphology(constituents, plan.parent_morphologies)
+    return RoutedSelection(
+        constituents=tuple(
+            sorted(constituents, key=lambda row: (row.axis, row.filler_code))
+        ),
+        dispositions=tuple(
+            sorted(dispositions, key=lambda row: row.source_occurrence_id)
+        ),
+    )
+
+
 _REVIEW_EXEMPT_AXES: frozenset[str] = frozenset(
     {
         axes.ASSOCIATED_LINEAGE_AXIS,
@@ -162,168 +749,6 @@ STAGE_SYSTEM_CLASSIFICATIONS = MappingProxyType(
 STAGE_SYSTEM_CODES: frozenset[str] = frozenset(STAGE_SYSTEM_CLASSIFICATIONS)
 
 
-def _is_most_specific(filler: str, fillers: set[str], is_ancestor: IsAncestor) -> bool:
-    """True when *filler* was chosen over a strictly broader filler."""
-    return any(_is_strictly_broader(o, filler, is_ancestor) for o in fillers)
-
-
-def _is_r101_semantic_split(
-    axis_name: str,
-    fillers: set[str],
-    semantic_type_of: Callable[[str], str | None] | None,
-) -> bool:
-    return (
-        axis_name == axes.PRIMARY_SITE_AXIS
-        and semantic_type_of is not None
-        and len(fillers) > 1
-        and any(semantic_type_of(filler) is not None for filler in fillers)
-    )
-
-
-def _r101_semantic_type_constituents(
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-    is_part_of: IsPartOf,
-    semantic_type_of: Callable[[str], str | None],
-) -> list[Constituent]:
-    semantic_types = {filler: semantic_type_of(filler) for filler in fillers}
-    organ_fillers, region_fillers = _partition_location_fillers(fillers, semantic_types)
-    unknown_fillers = fillers - organ_fillers - region_fillers
-    location_broader = _location_broader(is_ancestor, is_part_of)
-    organ = most_specific(organ_fillers, location_broader) or organ_fillers
-    region = most_specific(region_fillers, location_broader) or region_fillers
-    return [
-        *_semantic_organ_constituents(organ, fillers, is_ancestor),
-        *_unknown_primary_site_constituents(unknown_fillers),
-        *_associated_region_constituents(region, fillers, is_ancestor),
-    ]
-
-
-def _partition_location_fillers(
-    fillers: set[str], semantic_types: dict[str, str | None]
-) -> tuple[set[str], set[str]]:
-    organs = {
-        filler
-        for filler in fillers
-        if semantic_types[filler] == axes.ORGAN_SEMANTIC_TYPE
-    }
-    regions = {
-        filler
-        for filler in fillers
-        if semantic_types[filler] is not None and filler not in organs
-    }
-    return organs, regions
-
-
-def _semantic_organ_constituents(
-    organs: set[str], fillers: set[str], is_ancestor: IsAncestor
-) -> list[Constituent]:
-    ambiguous = len(organs) > 1
-    return [
-        Constituent(
-            axis=axes.PRIMARY_SITE_AXIS,
-            filler_code=filler,
-            axis_source="role",
-            source_roles=(axes.PRIMARY_SITE_ROLE,),
-            most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=ambiguous,
-        )
-        for filler in organs
-    ]
-
-
-def _unknown_primary_site_constituents(
-    fillers: set[str],
-    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
-) -> list[Constituent]:
-    return [
-        Constituent(
-            axis=axes.PRIMARY_SITE_AXIS,
-            filler_code=filler,
-            axis_source="role",
-            source_roles=(source_roles or {}).get(
-                (axes.PRIMARY_SITE_AXIS, filler), (axes.PRIMARY_SITE_ROLE,)
-            ),
-            needs_review=True,
-        )
-        for filler in sorted(fillers)
-    ]
-
-
-def _associated_region_constituents(
-    regions: set[str],
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-) -> list[Constituent]:
-    group = axes.ASSOCIATED_REGION_AXIS if len(regions) > 1 else None
-    return [
-        Constituent(
-            axis=axes.ASSOCIATED_REGION_AXIS,
-            filler_code=filler,
-            axis_source="role",
-            source_roles=(axes.PRIMARY_SITE_ROLE,),
-            most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=False,
-            group=group,
-        )
-        for filler in regions
-    ]
-
-
-def _primary_subsite_constituents(
-    subsites: set[str], fillers: set[str], is_ancestor: IsAncestor
-) -> list[Constituent]:
-    return [
-        Constituent(
-            axis=axes.PRIMARY_SUBSITE_AXIS,
-            filler_code=filler,
-            axis_source="role",
-            source_roles=(axes.PRIMARY_SITE_ROLE,),
-            most_specific=_is_most_specific(filler, fillers, is_ancestor),
-        )
-        for filler in subsites
-    ]
-
-
-def _source_roles_for_axis(axis_name: str) -> tuple[str, ...]:
-    contract = AXIS_CONTRACTS.get(axis_name)
-    if contract is not None and len(contract.source_roles) == 1:
-        return contract.source_roles
-    return (axis_name,) if axis_name.startswith("R") else ()
-
-
-def _requires_review(axis_name: str, *, ambiguous: bool) -> bool:
-    if axis_name not in AXIS_CONTRACTS:
-        return True
-    return ambiguous and axis_name not in _REVIEW_EXEMPT_AXES
-
-
-def _standard_constituents(
-    axis_name: str,
-    leaves: set[str],
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
-) -> list[Constituent]:
-    ambiguous = len(leaves) > 1
-    is_routed = axis_name in _REVIEW_EXEMPT_AXES
-    synthetic_group = is_routed and axis_name != axes.ASSOCIATED_LINEAGE_AXIS
-    return [
-        Constituent(
-            axis=axis_name,
-            filler_code=filler,
-            axis_source="role",
-            source_roles=(source_roles or {}).get(
-                (axis_name, filler), _source_roles_for_axis(axis_name)
-            ),
-            most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=_requires_review(axis_name, ambiguous=ambiguous),
-            group=axis_name if synthetic_group and ambiguous else None,
-        )
-        for filler in leaves
-    ]
-
-
 def _group_by_routed_axis(
     restrictions: Iterable[RoleRestriction],
     parent_morphology: str | None = None,
@@ -340,12 +765,15 @@ def _group_by_routed_axis(
     source_role_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
     included = tuple(filter_excluded(restrictions, concept_code=concept_code))
     protected = (
-        collapse_policy.protected_fillers(
-            included,
-            source_identity=source_identity,
-            concept_code=concept_code,
-            route_axis=lambda row: route_axis(row, parent_morphology),
-        )
+        {
+            (entry.normalized_axis, entry.broader_code)
+            for entry in collapse_policy.applicable_vetoes(
+                included,
+                source_identity=source_identity,
+                concept_code=concept_code,
+                route_axis=lambda row: route_axis(row, parent_morphology),
+            )
+        }
         if collapse_policy is not None
         else set()
     )
@@ -374,241 +802,6 @@ def comparison_filler_codes(
             for filler in fillers
         }
     )
-
-
-def _known_r101_organ(
-    fillers: set[str],
-    parent_morphology: str | None,
-    axis_name: str,
-) -> str | None:
-    if (
-        axis_name != axes.PRIMARY_SITE_AXIS
-        or parent_morphology is None
-        or len(fillers) <= 1
-    ):
-        return None
-    organ = organ_for_morphology(parent_morphology)
-    return organ if organ in fillers else None
-
-
-def _resolve_r101_with_organ_lookup(
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-    parent_morphology: str | None,
-    semantic_type_of: Callable[[str], str | None] | None,
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_part_of: IsPartOf,
-    axis_name: str = "",
-) -> list[Constituent] | None:
-    """Prefer the known D23 organ while preserving distinct D20 region facts."""
-    organ = _known_r101_organ(fillers, parent_morphology, axis_name)
-    if organ is None:
-        return None
-    primary = _known_organ_constituent(organ, fillers, source_roles, is_ancestor)
-    if semantic_type_of is None:
-        return [primary]
-    return _organ_context_constituents(
-        primary=primary,
-        organ=organ,
-        fillers=fillers,
-        parent_morphology=cast("str", parent_morphology),
-        semantic_type_of=semantic_type_of,
-        source_roles=source_roles,
-        is_ancestor=is_ancestor,
-        is_part_of=is_part_of,
-    )
-
-
-def _known_organ_constituent(
-    organ: str,
-    fillers: set[str],
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_ancestor: IsAncestor,
-) -> Constituent:
-    return Constituent(
-        axis=axes.PRIMARY_SITE_AXIS,
-        filler_code=organ,
-        axis_source="role",
-        source_roles=source_roles.get(
-            (axes.PRIMARY_SITE_AXIS, organ), (axes.PRIMARY_SITE_ROLE,)
-        ),
-        most_specific=_is_most_specific(organ, fillers, is_ancestor),
-        needs_review=False,
-    )
-
-
-def _organ_context_constituents(
-    *,
-    primary: Constituent,
-    organ: str,
-    fillers: set[str],
-    parent_morphology: str,
-    semantic_type_of: Callable[[str], str | None],
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_ancestor: IsAncestor,
-    is_part_of: IsPartOf,
-) -> list[Constituent]:
-    # Retained deliberately, not dead by construction: exhaustive enumeration of
-    # 144,072 closed-form inputs, 9.0M production-shaped pipeline runs, and 14,604
-    # hermetic-suite helper executions all found this set empty. The emptiness is
-    # data-contingent on the hand-maintained MORPHOLOGY_TO_ORGAN and
-    # MORPHOLOGY_TO_PRIMARY_SUBSITES tables remaining disjoint (see
-    # ontolib.decomposition.site_resolution), not structural, so deleting the branch
-    # would silently drop subsites the moment those tables overlap.
-    subsites = set(primary_subsites_for_morphology(parent_morphology)) & fillers
-    # Partition the residual once. A missing P106 value is absence of evidence,
-    # never evidence that the source R101 filler denotes a region.
-    residual_fillers = fillers - {organ} - subsites
-    regions = {
-        filler
-        for filler in residual_fillers
-        if semantic_type_of(filler) not in {None, axes.ORGAN_SEMANTIC_TYPE}
-    }
-    unknown_fillers = {
-        filler for filler in residual_fillers if semantic_type_of(filler) is None
-    }
-    location_broader = _location_broader(is_ancestor, is_part_of)
-    region_leaves = most_specific(regions, location_broader) or regions
-    return [
-        primary,
-        *_primary_subsite_constituents(subsites, fillers, is_ancestor),
-        *_unknown_primary_site_constituents(unknown_fillers, source_roles),
-        *_associated_region_constituents(region_leaves, fillers, is_ancestor),
-    ]
-
-
-def _iter_axis_constituents(
-    by_axis: dict[str, set[str]],
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_ancestor: IsAncestor,
-    semantic_type_of: Callable[[str], str | None] | None,
-    parent_morphology: str | None = None,
-    is_part_of: IsPartOf | None = None,
-    protected: set[tuple[str, str]] | None = None,
-) -> list[Constituent]:
-    part_of = is_part_of or (lambda _part, _whole: False)
-    result: list[Constituent] = []
-    for axis_name, fillers in by_axis.items():
-        result.extend(
-            _constituents_for_axis(
-                axis_name,
-                fillers,
-                is_ancestor,
-                semantic_type_of,
-                parent_morphology,
-                source_roles,
-                part_of,
-                {
-                    filler
-                    for protected_axis, filler in protected or set()
-                    if protected_axis == axis_name
-                },
-            )
-        )
-    return result
-
-
-def _constituents_for_axis(
-    axis_name: str,
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-    semantic_type_of: Callable[[str], str | None] | None,
-    parent_morphology: str | None,
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_part_of: IsPartOf,
-    protected_fillers: set[str],
-) -> list[Constituent]:
-    resolved = _resolve_r101_with_organ_lookup(
-        fillers,
-        is_ancestor,
-        parent_morphology,
-        semantic_type_of,
-        source_roles,
-        is_part_of,
-        axis_name,
-    )
-    if resolved is None and _is_r101_semantic_split(
-        axis_name, fillers, semantic_type_of
-    ):
-        narrowed = cast("Callable[[str], str | None]", semantic_type_of)
-        resolved = _r101_semantic_type_constituents(
-            fillers, is_ancestor, is_part_of, narrowed
-        )
-    if not resolved:
-        leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
-        resolved = _standard_constituents(
-            axis_name, leaves, fillers, is_ancestor, source_roles
-        )
-    return _add_protected_fillers(
-        resolved,
-        axis_name,
-        protected_fillers,
-        fillers,
-        source_roles,
-        is_ancestor,
-    )
-
-
-def _add_protected_fillers(
-    resolved: list[Constituent],
-    axis_name: str,
-    protected_fillers: set[str],
-    fillers: set[str],
-    source_roles: dict[tuple[str, str], tuple[str, ...]],
-    is_ancestor: IsAncestor,
-) -> list[Constituent]:
-    if not protected_fillers:
-        return resolved
-    existing = {row.filler_code for row in resolved if row.axis == axis_name}
-    result = [
-        *resolved,
-        *(
-            Constituent(
-                axis=axis_name,
-                filler_code=filler,
-                axis_source="role",
-                source_roles=source_roles.get(
-                    (axis_name, filler), _source_roles_for_axis(axis_name)
-                ),
-                most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            )
-            for filler in sorted(protected_fillers - existing)
-        ),
-    ]
-    return _mark_ambiguous_axis(result, axis_name)
-
-
-def _mark_ambiguous_axis(
-    constituents: list[Constituent], axis_name: str
-) -> list[Constituent]:
-    if sum(row.axis == axis_name for row in constituents) <= 1:
-        return constituents
-    return [
-        replace(row, needs_review=True, group=axis_name)
-        if row.axis == axis_name
-        else row
-        for row in constituents
-    ]
-
-
-def _resolved_leaves(
-    axis_name: str,
-    fillers: set[str],
-    is_ancestor: IsAncestor,
-    is_part_of: IsPartOf,
-) -> set[str]:
-    if axis_name == axes.ASSOCIATED_LINEAGE_AXIS:
-        return set(fillers)
-    if axis_name in {
-        axes.PRIMARY_SITE_AXIS,
-        axes.PRIMARY_SUBSITE_AXIS,
-        axes.ASSOCIATED_REGION_AXIS,
-        "op:AssociatedSite",
-        "op:MetastaticSite",
-    }:
-        broader = _location_broader(is_ancestor, is_part_of)
-        return most_specific(fillers, broader) or set(fillers)
-    return most_specific(fillers, is_ancestor) or set(fillers)
 
 
 def _append_morphology(
@@ -658,50 +851,18 @@ def select_constituents(
     ambiguous.
     Output is sorted (axis, filler) for deterministic, diffable results.
     """
-    restriction_rows = tuple(restrictions)
     morphology_fillers = tuple(dict.fromkeys(parent_morphologies))
-    parent_morphology = morphology_fillers[0] if morphology_fillers else None
-    by_axis, source_roles, protected = _group_by_routed_axis(
-        restriction_rows,
-        parent_morphology,
-        concept_code,
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=semantic_type_of,
+        parent_morphologies=morphology_fillers,
+        concept_code=concept_code,
         source_identity=source_identity,
         collapse_policy=collapse_policy,
     )
-    constituents = _iter_axis_constituents(
-        by_axis,
-        source_roles,
+    selected = select_routed_plan(
+        plan,
         is_ancestor,
-        semantic_type_of,
-        parent_morphology,
-        is_part_of,
-        protected,
+        is_part_of=is_part_of,
     )
-    _append_morphology(constituents, morphology_fillers)
-    provenance: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
-    for restriction in filter_excluded(restriction_rows, concept_code=concept_code):
-        key = (route_axis(restriction, parent_morphology), restriction.filler_code)
-        definition_ids, occurrence_ids = provenance.setdefault(key, (set(), set()))
-        definition_ids.update(restriction.source_definition_ids)
-        occurrence_ids.update(restriction.source_occurrence_ids)
-
-    def source_ids(constituent: Constituent) -> tuple[set[str], set[str]]:
-        key = (constituent.axis, constituent.filler_code)
-        if key not in provenance and constituent.axis in {
-            axes.ASSOCIATED_REGION_AXIS,
-            axes.PRIMARY_SUBSITE_AXIS,
-        }:
-            key = (axes.PRIMARY_SITE_AXIS, constituent.filler_code)
-        return provenance[key]
-
-    traced = [
-        replace(
-            constituent,
-            source_definition_ids=tuple(sorted(source_ids(constituent)[0])),
-            source_occurrence_ids=tuple(sorted(source_ids(constituent)[1])),
-        )
-        if constituent.axis_source == "role"
-        else constituent
-        for constituent in constituents
-    ]
-    return sorted(traced, key=lambda c: (c.axis, c.filler_code))
+    return list(selected.constituents)

@@ -28,6 +28,7 @@ def _fingerprint(**changes: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
+        "routing_implementation_identity": "1" * 64,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -35,7 +36,7 @@ def _fingerprint(**changes: object) -> RunFingerprint:
         "worklist": ("C1", "C2", "C3", "C4", "C5"),
         "total_limit": None,
         "sample_manifest_identity": None,
-        "algorithm_version": "decomposition-v4",
+        "algorithm_version": "decomposition-v5",
         "config_version": "nested-definition-v2",
         "walker_max_depth": 5,
         "output_mode": "file",
@@ -408,23 +409,23 @@ def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
         Path(__file__).with_name("golden") / "neoplasm-current-corpus-baseline.json"
     )
 
-    assert baseline.run_id == "neoplasm-f9686bb3-4729-4484-8d64-4a280b67b3cf"
+    assert baseline.run_id == "neoplasm-3230f6bd-ac07-4f15-a417-64811531b4da"
     assert baseline.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
     assert baseline.representation_identity == (
-        "e32f10264163bc27fa1bd85dbdb8a2f7c03938279618dab6444ecf43164bf8ce"
+        "9b32510dad2eb367f14e26a06789727573a21071b7e15982203ad0857d41ca43"
     )
     assert baseline.worklist_count == 15_633
     assert baseline.outcome_counts.model_dump() == {
-        "decomposed": 14_864,
+        "decomposed": 14_881,
         "residual": 1,
         "semantic_excluded": 3,
-        "atomic_noop": 626,
+        "atomic_noop": 609,
         "unknown": 139,
     }
-    assert baseline.emitted_constituent_pair_count == 104_424
-    assert baseline.complete_semantic_fact_count == 844_256
-    assert baseline.source_occurrence_count == 369_903
-    assert baseline.selected_occurrence_count == 95_508
-    assert baseline.minted_count == 2_719
+    assert baseline.emitted_constituent_pair_count == 141_956
+    assert baseline.complete_semantic_fact_count == 845_806
+    assert baseline.source_occurrence_count == 370_237
+    assert baseline.selected_occurrence_count == 105_763
+    assert baseline.minted_count == 2_649

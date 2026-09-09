@@ -142,6 +142,7 @@ async def test_production_resume_preview_is_read_only_at_exact_protected_scale(
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -268,6 +269,19 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
                 "c" * 64,
                 "d" * 64,
             )
+            if run_id == "new-r101":
+                await connection.execute(
+                    "INSERT INTO decomp_occurrence_disposition "
+                    "(run_id, concept_code, occurrence_id, source_fact_id, "
+                    "disposition, "
+                    "normalized_axis, source_filler, retained_filler, semantic_route, "
+                    "semantic_type) VALUES ($1, 'C1', $2, $3, 'retained-routed', "
+                    "'op:AssociatedRegion', 'C10', 'C10', "
+                    "'p106-non-organ-anatomy', 'Anatomical Structure')",
+                    run_id,
+                    occurrence_id,
+                    "c" * 64,
+                )
         run_axes = (
             ("old-r101", "op:PrimarySite"),
             ("new-r101", "op:AssociatedRegion"),
@@ -318,6 +332,8 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
     assert item.old_links == (Pair(axis="op:PrimarySite", filler_code="C10"),)
     assert item.new_links == (Pair(axis="op:AssociatedRegion", filler_code="C10"),)
     assert item.retained_new_r101_links == item.new_links
+    assert item.new_disposition is not None
+    assert item.new_disposition.normalized_axis == "op:AssociatedRegion"
     assert tuple(
         getattr(item.old_occurrence, field) for field in STRUCTURAL_KEY_FIELDS
     ) == tuple(getattr(item.new_occurrence, field) for field in STRUCTURAL_KEY_FIELDS)

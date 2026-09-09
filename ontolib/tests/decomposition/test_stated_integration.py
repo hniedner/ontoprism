@@ -434,6 +434,18 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
         for item in selected
     ] == [
         (
+            "op:AssociatedRegion",
+            "C99752",
+            (facts_by_pair[("R101", "C99752")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R101"
+                )
+            ),
+        ),
+        (
             "op:CellType",
             "C99753",
             (facts_by_pair[("R105", "C99753")].fact_id,),
@@ -442,18 +454,6 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
                     item.occurrence_id
                     for item in complete.occurrences
                     if item.role_code == "R105"
-                )
-            ),
-        ),
-        (
-            "op:PrimarySite",
-            "C99752",
-            (facts_by_pair[("R101", "C99752")].fact_id,),
-            tuple(
-                sorted(
-                    item.occurrence_id
-                    for item in complete.occurrences
-                    if item.role_code == "R101"
                 )
             ),
         ),

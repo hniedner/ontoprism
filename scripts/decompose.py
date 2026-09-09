@@ -334,6 +334,13 @@ def main(
             sample_manifest,
         )
     )
+    residual_rate = metrics.residual_precoordination
+    residual_summary = (
+        f"{residual_rate:.2%} "
+        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        if residual_rate is not None
+        else f"unavailable (unknown={metrics.residual_precoordination_unknown_count})"
+    )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
         f"residual={metrics.residual} "
@@ -342,8 +349,7 @@ def main(
         f"minted={metrics.minted_count} "
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
-        f"residual_precoordination={metrics.residual_precoordination:.2%} "
-        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        f"residual_precoordination={residual_summary}"
     )
 
 

@@ -6,7 +6,7 @@ import datetime
 import hashlib
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -47,6 +47,7 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     DefinitionGroup,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
     canonical_definition_fact_id,
@@ -165,6 +166,7 @@ def _fingerprint() -> RunFingerprint:
         schema_version=5,
         source_identity=manifest["source_identity"],
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch=manifest["branch"],
         scope_root=manifest["scope_root"],
         scope_version=manifest["scope_version"],
@@ -292,6 +294,19 @@ def _repeated_occurrence_decomposition() -> Decomposition:
             root_group_ids=(group_id,),
             occurrences=occurrences,
         ),
+        occurrence_dispositions=tuple(
+            OccurrenceDisposition(
+                kind="retained-routed",
+                source_occurrence_id=occurrence.occurrence_id,
+                source_fact_id=fact_id,
+                normalized_axis="op:PrimarySite",
+                source_filler="C12400",
+                retained_filler="C12400",
+                semantic_route="p106-organ",
+                semantic_type="Body Part, Organ, or Organ Component",
+            )
+            for occurrence in occurrences
+        ),
     )
 
 
@@ -352,6 +367,20 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
             source_occurrence_ids=(occurrence.occurrence_id,),
             source_occurrences=(occurrence,),
         )
+
+
+@pytest.mark.unit
+def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
+    constituent = CurrentConstituent(
+        axis="R999",
+        filler="C1",
+        relationship_group=None,
+        needs_review=True,
+        source_occurrence_ids=(),
+        source_occurrences=(),
+    )
+
+    assert constituent.axis == "R999"
 
 
 @pytest.mark.unit
@@ -551,6 +580,7 @@ def test_row_replay_classifies_every_status() -> None:
             semantic_types=("Neoplastic Process",),
             all_source_occurrences=(),
             constituents=(),
+            occurrence_dispositions=(),
         )
         for concept in adjudication.concepts
     }
@@ -755,6 +785,7 @@ def test_partition_diagnosis_names_only_changed_shared_pairs() -> None:
         semantic_types=("Neoplastic Process",),
         all_source_occurrences=(),
         constituents=(),
+        occurrence_dispositions=(),
     )
 
     diagnosis = _typed_diagnosis(
@@ -847,6 +878,42 @@ def test_generate_current_evidence_preserves_repeated_source_occurrences(
 
 
 @pytest.mark.unit
+def test_generate_current_evidence_rejects_disposition_fact_drift(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "current.ttl"
+    _empty_artifact(artifact)
+    store = _Store(artifact)
+    decomposition = _repeated_occurrence_decomposition()
+    drifted = replace(decomposition.occurrence_dispositions[0], source_fact_id="f" * 64)
+    store.decompositions = [
+        replace(
+            decomposition,
+            occurrence_dispositions=(
+                drifted,
+                *decomposition.occurrence_dispositions[1:],
+            ),
+        )
+    ]
+
+    with pytest.raises(CurrentEvidenceValidationError, match=r"disposition.*fact"):
+        asyncio.run(
+            generate_current_evidence(
+                sample_manifest=_MANIFEST,
+                oracle=_ORACLE,
+                row_decisions=_ROWS,
+                proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
+                run_id="current-run",
+                artifact=artifact,
+                engine_output=tmp_path / "engine.json",
+                comparison_output=tmp_path / "comparison.json",
+                store=store,
+            )
+        )
+
+
+@pytest.mark.unit
 def test_current_concept_rejects_selected_occurrence_outside_complete_definition() -> (
     None
 ):
@@ -870,6 +937,7 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                     source_occurrences=(occurrence,),
                 ),
             ),
+            occurrence_dispositions=(),
         )
 
 
@@ -1023,6 +1091,7 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         "sample_manifest_identity": "b" * 64,
         "run_id": "run",
         "run_fingerprint_identity": "c" * 64,
+        "walker_max_depth": 7,
         "artifact_identity": "d" * 64,
         "representation_identity": "d" * 64,
         "detector_identity": "e" * 64,
@@ -1101,6 +1170,7 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         ("sample_manifest_identity", "manifest"),
         ("run_id", "run"),
         ("run_fingerprint_identity", "fingerprint"),
+        ("walker_max_depth", "walker max depth"),
         ("artifact_identity", "artifact"),
         ("representation_identity", "representation"),
         ("detector_identity", "detector"),
@@ -1132,7 +1202,11 @@ def test_current_comparator_rejects_each_identity_drift(
     )
     drifted = comparison.model_copy(
         update={
-            field: ("different" if field in {"run_id", "ncit_version"} else "f" * 64)
+            field: (
+                8
+                if field == "walker_max_depth"
+                else ("different" if field in {"run_id", "ncit_version"} else "f" * 64)
+            )
         }
     )
 
@@ -1153,30 +1227,31 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+    assert evidence.run_id == "neoplasm-378faaca-170e-4f1c-9d97-e5906e3efecd"
+    assert evidence.walker_max_depth == 7
     assert evidence.representation_identity == (
-        "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e"
+        "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa"
     )
     assert comparison.metrics.exact_pair_precision.model_dump() == {
-        "numerator": 100,
-        "denominator": 108,
-        "rate": 100 / 108,
+        "numerator": 111,
+        "denominator": 132,
+        "rate": 111 / 132,
     }
     assert comparison.metrics.exact_pair_recall.model_dump() == {
-        "numerator": 100,
+        "numerator": 111,
         "denominator": 153,
-        "rate": 100 / 153,
+        "rate": 111 / 153,
     }
     assert comparison.row_replay.aggregates.model_dump() == {
         "retained_exact": 79,
         "retained_revised": 10,
-        "excluded_still_emitted": 12,
-        "excluded_not_emitted": 4,
+        "excluded_still_emitted": 9,
+        "excluded_not_emitted": 7,
         "missing_kept": 1,
-        "added": 34,
-        "selection_miss": 16,
+        "added": 56,
+        "selection_miss": 0,
         "proposal_only": 1,
-        "unavailable_source_evidence": 13,
+        "unavailable_source_evidence": 7,
         "explicitly_out_of_scope": 19,
     }
 
@@ -1287,12 +1362,14 @@ def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
     by_code = {concept.code: concept.pair_relations for concept in comparison.concepts}
     expected_review_bearing = {
         "C101539": {
+            ("op:ClinicalFinding", "C188014"),
             ("op:ClinicalFinding", "C47806"),
             ("op:ClinicalFinding", "C47817"),
         },
         "C132677": {
             ("op:ClinicalFinding", "C40557"),
             ("op:ClinicalFinding", "C40989"),
+            ("op:ClinicalFinding", "C41444"),
             ("op:ClinicalFinding", "C48322"),
         },
         "C100054": {
@@ -1303,9 +1380,6 @@ def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
     for code, pairs in expected_review_bearing.items():
         assert set(by_code[code].expected_emitted_review_bearing) == pairs
         assert not pairs & set(by_code[code].expected_not_emitted)
-    assert ("op:ClinicalFinding", "C41444") in set(
-        by_code["C132677"].expected_not_emitted
-    )
     assert not by_code["C100054"].expected_not_emitted
 
 

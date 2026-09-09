@@ -159,6 +159,7 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         ("C101539", "C47817"),
         ("C132677", "C40557"),
         ("C132677", "C40989"),
+        ("C132677", "C41444"),
         ("C132677", "C48322"),
         ("C100054", "C36027"),
         ("C100054", "C8326"),
@@ -170,10 +171,6 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         if context.relation == "expected-emitted-review-bearing"
     }
     assert expected_review <= observed_review
-    c132677 = next(item for item in packet.concepts if item.code == "C132677")
-    assert ("op:ClinicalFinding", "C41444") in (
-        c132677.pair_relations.expected_not_emitted
-    )
     c100054 = next(item for item in packet.concepts if item.code == "C100054")
     assert not c100054.pair_relations.expected_not_emitted
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ontolib.decomposition.axis_contracts import is_contract_source_role
+
 if TYPE_CHECKING:
     from ontolib.decomposition.models import RoleRestriction
 
@@ -145,4 +147,5 @@ def is_defining_role(restriction: RoleRestriction) -> bool:
     return (
         is_projectable_role(restriction)
         and restriction.role_code not in NON_DEFINING_PROJECTED_ROLES
+        and is_contract_source_role(restriction.role_code)
     )

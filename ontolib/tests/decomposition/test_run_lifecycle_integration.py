@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import json
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import asyncpg
 import pytest
@@ -39,6 +40,7 @@ from ontolib.decomposition.provenance_models import (
     RunResumeIdentity,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
+from ontolib.decomposition.run_inspection import inspect_decomposition_runs
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -61,6 +63,7 @@ def _fingerprint(*, source: str = "a" * 64) -> RunFingerprint:
     return RunFingerprint(
         source_identity=source,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -100,6 +103,7 @@ async def _completion_metrics(
     return {
         **counts.model_dump(),
         "residual_precoordinated_count": 0,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.0,
         "complete_definition_count": sum(
             item.complete_definition is not None for item in decompositions
@@ -117,6 +121,223 @@ async def _completion_metrics(
     }
 
 
+@pytest.mark.asyncio
+async def test_stage_checkpoints_are_ordered_fenced_and_preserve_completed_upstream(
+    isolated_postgres_settings,
+) -> None:
+    del isolated_postgres_settings
+    run_id = "test-stage-checkpoint-lifecycle"
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        with pytest.raises(RunStateError, match="upstream stage"):
+            await store.claim_stage(run_id, "concept-workset", "b" * 64)
+
+        preflight = await store.claim_stage(run_id, "preflight", "a" * 64)
+        assert preflight is not None
+        output_identity = await store.complete_stage(
+            run_id,
+            "preflight",
+            preflight,
+            {"unsupported_codes": ["C36081"]},
+        )
+        concept = await store.claim_stage(run_id, "concept-workset", output_identity)
+        assert concept is not None
+        await store.fail_stage(
+            run_id, "concept-workset", concept, RuntimeError("interrupted")
+        )
+
+        stages = await store.run_stages(run_id)
+        assert [(row.stage, row.state) for row in stages[:2]] == [
+            ("preflight", "complete"),
+            ("concept-workset", "failed"),
+        ]
+        replacement = await store.claim_stage(
+            run_id, "concept-workset", output_identity
+        )
+        assert replacement is not None
+        assert replacement != concept
+        with pytest.raises(RunStateError, match="stage claim changed"):
+            await store.complete_stage(
+                run_id, "concept-workset", concept, {"complete_count": 2}
+            )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+@pytest.mark.asyncio
+async def test_residual_filler_work_is_persisted_fenced_and_resumable(
+    isolated_postgres_settings,
+) -> None:
+    del isolated_postgres_settings
+    run_id = "test-residual-filler-lifecycle"
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        upstream = "a" * 64
+        for stage in ("preflight", "concept-workset"):
+            claim = await store.claim_stage(run_id, stage, upstream)
+            assert claim is not None
+            upstream = await store.complete_stage(
+                run_id, stage, claim, {"stage": stage}
+            )
+        residual_stage = await store.claim_stage(
+            run_id, "residual-classification", upstream
+        )
+        assert residual_stage is not None
+        await store.initialize_residual_fillers(
+            run_id,
+            ("C36081", "C2"),
+            source_identity="a" * 64,
+            detector_identity="c" * 64,
+        )
+        first = await store.claim_residual_filler(run_id, "C36081")
+        assert first is not None
+        await store.complete_residual_filler(
+            run_id,
+            "C36081",
+            first,
+            definition_identity="d" * 64,
+            classification="unknown",
+            unsupported_reason="unsupported owl:unionOf member",
+        )
+        second = await store.claim_residual_filler(run_id, "C2")
+        assert second is not None
+        await store.fail_residual_filler(
+            run_id, "C2", second, RuntimeError("interrupted")
+        )
+
+        assert await store.pending_residual_fillers(run_id) == ["C2"]
+        completed = await store.residual_filler_classifications(run_id)
+        assert [(row.filler_code, row.classification) for row in completed] == [
+            ("C36081", "unknown")
+        ]
+        with pytest.raises(RunIdentityMismatchError, match="residual filler inventory"):
+            await store.initialize_residual_fillers(
+                run_id,
+                ("C2", "C36081"),
+                source_identity="a" * 64,
+                detector_identity="e" * 64,
+            )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+@pytest.mark.asyncio
+async def test_stage_and_residual_checkpoint_reject_branches_are_live(
+    isolated_postgres_settings,
+) -> None:
+    del isolated_postgres_settings
+    run_id = "test-stage-reject-liveness"
+    failed_run_id = "test-stage-reject-nonrunning"
+    damaged_run_id = "test-stage-reject-inventory"
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        with pytest.raises(RunIdentityMismatchError, match="must be SHA-256"):
+            await store.claim_stage(run_id, "preflight", "short")
+
+        preflight = await store.claim_stage(run_id, "preflight", "a" * 64)
+        assert preflight is not None
+        preflight_output = await store.complete_stage(
+            run_id, "preflight", preflight, {"allowed": True}
+        )
+        assert await store.claim_stage(run_id, "preflight", "a" * 64) is None
+        with pytest.raises(RunIdentityMismatchError, match="input identity"):
+            await store.claim_stage(run_id, "preflight", "b" * 64)
+
+        concept = await store.claim_stage(run_id, "concept-workset", preflight_output)
+        assert concept is not None
+        concept_output = await store.complete_stage(
+            run_id, "concept-workset", concept, {"complete_count": 1}
+        )
+        residual = await store.claim_stage(
+            run_id, "residual-classification", concept_output
+        )
+        assert residual is not None
+        with pytest.raises(RunIdentityMismatchError, match="duplicates"):
+            await store.initialize_residual_fillers(
+                run_id,
+                ("C1", "C1"),
+                source_identity="a" * 64,
+                detector_identity="c" * 64,
+            )
+        await store.initialize_residual_fillers(
+            run_id,
+            ("C1",),
+            source_identity="a" * 64,
+            detector_identity="c" * 64,
+        )
+        await store.initialize_residual_fillers(
+            run_id,
+            ("C1",),
+            source_identity="a" * 64,
+            detector_identity="c" * 64,
+        )
+        filler_claim = await store.claim_residual_filler(run_id, "C1")
+        assert filler_claim is not None
+        await store.complete_residual_filler(
+            run_id,
+            "C1",
+            filler_claim,
+            definition_identity="d" * 64,
+            classification="unknown",
+            unsupported_reason="valid unsupported constructor",
+        )
+        assert await store.claim_residual_filler(run_id, "C1") is None
+        with pytest.raises(RunStateError, match="changed before completion"):
+            await store.complete_residual_filler(
+                run_id,
+                "C1",
+                UUID(int=2),
+                definition_identity="d" * 64,
+                classification="unknown",
+                unsupported_reason="valid unsupported constructor",
+            )
+        with pytest.raises(RunStateError, match="changed before failure"):
+            await store.fail_residual_filler(
+                run_id, "C1", UUID(int=2), RuntimeError("stale")
+            )
+
+        inspection = (await inspect_decomposition_runs(engine, (run_id,)))[0]
+        assert (
+            inspection["run_id"],
+            inspection["stage_inventory_complete"],
+            inspection["resume_compatible"],
+        ) == (run_id, True, False)
+
+        await store.create_run(failed_run_id, "26.07d", _fingerprint())
+        assert await store.fail_run(failed_run_id, RuntimeError("stopped"))
+        with pytest.raises(RunStateError, match="requires a running"):
+            await store.claim_stage(failed_run_id, "preflight", "a" * 64)
+
+        await store.create_run(damaged_run_id, "26.07d", _fingerprint())
+        await _delete_publication_stage(damaged_run_id)
+        with pytest.raises(RunIdentityMismatchError, match="no complete stage"):
+            await store.run_stages(damaged_run_id)
+        with pytest.raises(RunIdentityMismatchError, match="checkpoint inventory"):
+            await store.claim_stage(damaged_run_id, "preflight", "a" * 64)
+    finally:
+        await _cleanup([run_id, failed_run_id, damaged_run_id])
+        await dispose_engine(engine)
+
+
+async def _delete_publication_stage(run_id: str) -> None:
+    connection = await asyncpg.connect(_dsn())
+    try:
+        await connection.execute(
+            "DELETE FROM decomp_run_stage WHERE run_id=$1 AND stage='publication'",
+            run_id,
+        )
+    finally:
+        await connection.close()
+
+
 class _LifecycleClient:
     async def version(self) -> str:
         return "26.07d"
@@ -128,6 +349,8 @@ class _LifecycleClient:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str]]:
         del required_variables
+        if "SELECT DISTINCT ?expression" in query and "owl:equivalentClass" in query:
+            return []
         raise AssertionError(f"unexpected query: {query}")
 
     async def select_once(
@@ -207,8 +430,8 @@ async def _two_codes(*_args: object, **_kwargs: object) -> list[str]:
     return ["C1", "C2"]
 
 
-async def _no_residuals(*_args: object, **_kwargs: object) -> set[str]:
-    return set()
+async def _atomic_residual(*_args: object, **_kwargs: object) -> tuple[str, str, None]:
+    return "atomic", "f" * 64, None
 
 
 async def _source() -> NcitSourceSnapshot:
@@ -1332,7 +1555,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
 ) -> None:
     monkeypatch.setattr(run_module, "_decompose_one", _InterruptedDecomposer())
     monkeypatch.setattr(run_module, "enumerate_in_scope_codes", _two_codes)
-    monkeypatch.setattr(run_module, "_precoordinated_fillers", _no_residuals)
+    monkeypatch.setattr(run_module, "_classify_residual_filler", _atomic_residual)
 
     engine = make_engine(get_settings().database_url)
     store = _RecordingStore(make_sessionmaker(engine))
@@ -1383,9 +1606,20 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
                 "SELECT metrics FROM decomp_run WHERE id = $1",
                 fresh_run,
             )
+            resumed_attempts = await conn.fetch(
+                "SELECT concept_code,attempt_count FROM decomp_work_item "
+                "WHERE run_id=$1 ORDER BY ordinal",
+                interrupted_run,
+            )
         finally:
             await conn.close()
         assert resumed_payload == fresh_payload
+        assert [
+            (row["concept_code"], row["attempt_count"]) for row in resumed_attempts
+        ] == [
+            ("C1", 1),
+            ("C2", 2),
+        ]
         assert set(json.loads(resumed_payload)) == {
             "total_in_scope",
             "decomposed",
@@ -1394,6 +1628,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             "atomic_noop",
             "unknown_outcome",
             "residual_precoordinated_count",
+            "residual_precoordination_unknown_count",
             "residual_precoordination",
             "minted_count",
             "complete_definition_count",

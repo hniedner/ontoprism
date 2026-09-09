@@ -606,8 +606,8 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                 or baseline.source_identity != manifest.source_identity
                 or baseline.ontology_release != manifest.ontology_version
                 or baseline.representation_identity != old_run.representation_identity
-                or old_run.fingerprint.algorithm_version != "decomposition-v3"
-                or new_run.fingerprint.algorithm_version != "decomposition-v4"
+                or old_run.fingerprint.algorithm_version != "decomposition-v4"
+                or new_run.fingerprint.algorithm_version != "decomposition-v5"
                 or new_run.fingerprint.source_identity != manifest.source_identity
                 or new_run.ncit_version != manifest.ontology_version
             ):
@@ -626,12 +626,13 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
             candidate_pairs = tuple(
                 sorted(
                     {
-                        (retained.filler_code, old.filler_code)
+                        (
+                            item.new_disposition.retained_filler,
+                            item.new_disposition.source_filler,
+                        )
                         for item in source_rows.occurrences
-                        if item.old_links and not item.new_links
-                        for old in item.old_links
-                        for retained in item.retained_new_r101_links
-                        if old.axis == retained.axis
+                        if item.new_disposition is not None
+                        and item.new_disposition.kind == "collapsed-r82"
                     }
                 )
             )
@@ -668,7 +669,7 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                     proof_identity=proof_identity,
                     adapter_id="ncit-stated-r82-v1",
                     query_metrics=QueryMetrics(
-                        postgres_query_count=3,
+                        postgres_query_count=4,
                         qlever_query_count=path_result.query_count + 1,
                         max_pair_batch_size=path_result.max_pair_batch_size,
                         max_r82_hops=8,

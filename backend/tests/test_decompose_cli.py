@@ -720,6 +720,37 @@ def test_main_prints_metrics_and_forwards_resume_options(
 
 
 @pytest.mark.unit
+def test_main_prints_unavailable_residual_rate_with_unknown_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def run_command(*_args: object) -> decompose.RunMetrics:
+        return decompose.RunMetrics(
+            total_in_scope=1,
+            decomposed=1,
+            residual_precoordination_unknown_count=1,
+        )
+
+    monkeypatch.setattr(decompose, "_run", run_command)
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=None,
+        load=False,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+        walker_max_depth=5,
+    )
+
+    assert "residual_precoordination=unavailable (unknown=1)" in (
+        capsys.readouterr().out
+    )
+
+
+@pytest.mark.unit
 def test_main_propagates_pipeline_failure_without_success_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

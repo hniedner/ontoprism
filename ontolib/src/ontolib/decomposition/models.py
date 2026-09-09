@@ -25,6 +25,13 @@ ConceptOutcome = Literal[
     "atomic-no-op",
     "unknown",
 ]
+R101DispositionKind = Literal[
+    "retained-routed",
+    "retained-unknown",
+    "collapsed-is-a",
+    "collapsed-r82",
+    "retained-policy-veto",
+]
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -593,6 +600,52 @@ class Constituent:
             raise ValueError("source occurrence IDs require source definition IDs")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OccurrenceDisposition:
+    """The engine's exact route/reduction verdict for one source occurrence."""
+
+    kind: R101DispositionKind
+    source_occurrence_id: str
+    source_fact_id: str
+    normalized_axis: str
+    source_filler: str
+    retained_filler: str
+    semantic_route: str
+    semantic_type: str | None
+    r82_part: str | None = None
+    r82_whole: str | None = None
+    policy_decision_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.source_occurrence_id, "source_occurrence_id")
+        _require_sha256(self.source_fact_id, "source_fact_id")
+        _require_code(self.normalized_axis, _AXIS_OR_ROLE, "normalized_axis")
+        _require_code(self.source_filler, _CONCEPT_CODE, "source_filler")
+        _require_code(self.retained_filler, _CONCEPT_CODE, "retained_filler")
+        _require_r82_disposition(self)
+        _require_policy_disposition(self)
+        if self.policy_decision_identity is not None:
+            _require_sha256(self.policy_decision_identity, "policy_decision_identity")
+
+
+def _require_r82_disposition(disposition: OccurrenceDisposition) -> None:
+    if disposition.kind == "collapsed-r82":
+        if (disposition.r82_part, disposition.r82_whole) != (
+            disposition.retained_filler,
+            disposition.source_filler,
+        ):
+            raise ValueError("collapsed R82 disposition requires directed endpoints")
+        return
+    if disposition.r82_part is not None or disposition.r82_whole is not None:
+        raise ValueError("only collapsed R82 dispositions carry R82 endpoints")
+
+
+def _require_policy_disposition(disposition: OccurrenceDisposition) -> None:
+    policy_veto = disposition.kind == "retained-policy-veto"
+    if policy_veto != (disposition.policy_decision_identity is not None):
+        raise ValueError("policy decision identity presence differs from disposition")
+
+
 @dataclass(frozen=True, slots=True)
 class DetectionResult:
     """The detector's verdict for one concept."""
@@ -700,10 +753,14 @@ class Decomposition:
     semantic_type: str | None
     constituents: Sequence[Constituent] = ()
     complete_definition: CompleteDefinition | None = None
+    occurrence_dispositions: Sequence[OccurrenceDisposition] = ()
 
     def __post_init__(self) -> None:
         _require_code(self.code, _CONCEPT_CODE, "code")
         object.__setattr__(self, "constituents", tuple(self.constituents))
+        object.__setattr__(
+            self, "occurrence_dispositions", tuple(self.occurrence_dispositions)
+        )
         _validate_axis_cardinality(self.constituents)
         _validate_definition_link(
             self.code,

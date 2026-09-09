@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 import json
 import os
 import socket
@@ -26,6 +28,70 @@ class _Runner:
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((arguments, kwargs))
         return subprocess.CompletedProcess(arguments, 0)
+
+
+@pytest.mark.unit
+def test_inspect_r101_report_reads_invalidated_binding_without_rewriting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    relative = Path("evidence/report.json.gz")
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    payload = {
+        "schema_version": 3,
+        "old_run_id": "old-run",
+        "new_run_id": "new-run",
+        "old_run_fingerprint_identity": "a" * 64,
+        "new_run_fingerprint_identity": "b" * 64,
+        "detector_identity": "c" * 64,
+        "non_r101_delta_evidence": {
+            "old_run_id": "old-run",
+            "new_run_id": "new-run",
+            "query_identity": "d" * 64,
+            "rows": [],
+        },
+        "report_identity": "e" * 64,
+    }
+    path.write_bytes(gzip.compress(json.dumps(payload).encode(), mtime=0))
+
+    assert run_agent_replay(["inspect-r101-report", str(relative)], tmp_path) == 0
+
+    observed = json.loads(capsys.readouterr().out)
+    assert observed == {
+        "detector_identity": "c" * 64,
+        "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "new_run_fingerprint_identity": "b" * 64,
+        "new_run_id": "new-run",
+        "non_r101_delta_new_run_id": "new-run",
+        "non_r101_delta_old_run_id": "old-run",
+        "non_r101_delta_query_identity": "d" * 64,
+        "non_r101_delta_row_count": 0,
+        "old_run_fingerprint_identity": "a" * 64,
+        "old_run_id": "old-run",
+        "report_identity": "e" * 64,
+        "schema_version": 3,
+    }
+
+
+@pytest.mark.unit
+def test_inspect_decomposition_runs_accepts_only_bounded_run_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[str, ...]] = []
+
+    async def inspect(run_ids: tuple[str, ...]) -> list[dict[str, object]]:
+        seen.append(run_ids)
+        return [{"run_id": run_ids[0], "compatible": False}]
+
+    monkeypatch.setattr(
+        replay, "_inspect_decomposition_runs_async", inspect, raising=False
+    )
+    run_id = "neoplasm-c476420a-879a-4d1b-888a-e183565a2f0b"
+
+    assert run_agent_replay(["inspect-decomposition-runs", run_id], tmp_path) == 0
+    assert seen == [(run_id,)]
+    with pytest.raises(AgentReplayInputError, match="invalid decomposition run ID"):
+        run_agent_replay(["inspect-decomposition-runs", "not-a-run"], tmp_path)
 
 
 class _Result:
@@ -303,6 +369,8 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) ->
         "neoplasm",
         "--sample-manifest",
         str(tmp_path / "samples/ncit-26.07d-m1-current-replay.json"),
+        "--walker-max-depth",
+        "7",
         "--out",
         str(tmp_path / "tmp/m1-6-current-replay.ttl"),
     ]

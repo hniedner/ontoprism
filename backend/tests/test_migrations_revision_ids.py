@@ -50,9 +50,9 @@ def test_migration_down_revision_chain_has_no_duplicates() -> None:
 
 
 @pytest.mark.unit
-def test_migration_head_includes_constituent_source_roles() -> None:
+def test_migration_head_includes_run_stage_checkpoints() -> None:
     modules = [_load_module(path) for path in _migration_files()]
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0022_constituent_source_roles"}
+    assert heads == {"0024_decomposition_run_stages"}

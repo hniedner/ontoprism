@@ -110,6 +110,7 @@ async def _completion_metrics(
     return {
         **counts.model_dump(),
         "residual_precoordinated_count": 0,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.0,
         "complete_definition_count": 0,
         "complete_fact_count": 0,
@@ -235,6 +236,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -350,6 +352,7 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
+                routing_implementation_identity="1" * 64,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",

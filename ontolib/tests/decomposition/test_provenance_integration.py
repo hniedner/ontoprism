@@ -29,6 +29,7 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     DefinitionGroup,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
     canonical_definition_fact_id,
@@ -64,6 +65,7 @@ def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -116,6 +118,7 @@ async def _completion_metrics(
     return {
         **counts.model_dump(),
         "residual_precoordinated_count": 0,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.0,
         "complete_definition_count": sum(
             item.complete_definition is not None for item in decompositions
@@ -268,6 +271,19 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 ),
             ),
             occurrences=occurrences,
+        ),
+        occurrence_dispositions=tuple(
+            OccurrenceDisposition(
+                kind="retained-routed",
+                source_occurrence_id=occurrence.occurrence_id,
+                source_fact_id=fact_id,
+                normalized_axis="op:PrimarySite",
+                source_filler="C12400",
+                retained_filler="C12400",
+                semantic_route="p106-organ",
+                semantic_type="Body Part, Organ, or Organ Component",
+            )
+            for occurrence in occurrences
         ),
     )
 
@@ -425,6 +441,16 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             persisted[0].constituents[0].source_occurrence_ids
             == expected_occurrence_ids
         )
+        assert (
+            tuple(
+                row.source_occurrence_id for row in persisted[0].occurrence_dispositions
+            )
+            == expected_occurrence_ids
+        )
+        assert {
+            (row.kind, row.normalized_axis, row.retained_filler)
+            for row in persisted[0].occurrence_dispositions
+        } == {("retained-routed", "op:PrimarySite", "C12400")}
 
         finished = await store.finish_run(
             _RUN_ID,
@@ -751,6 +777,7 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
         schema_version=5,
         source_identity=manifest.source_identity,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
         branch=manifest.branch,
         scope_root=manifest.scope_root,
         scope_version=manifest.scope_version,

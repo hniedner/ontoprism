@@ -18,6 +18,7 @@ import ontolib.decomposition.stated_queries as stated_queries_module
 from ontolib.decomposition.r101_conservation import (
     STRUCTURAL_KEY_FIELDS,
     ContentAuthorization,
+    EngineOccurrenceDisposition,
     LedgerBuildContext,
     LedgerCounts,
     NonR101DeltaEvidence,
@@ -66,14 +67,45 @@ def _input(
     new: tuple[Pair, ...] = (),
     retained: tuple[Pair, ...] = (),
     identifier: str = "a",
+    disposition: EngineOccurrenceDisposition | None = None,
 ) -> OccurrenceInput:
-    occurrence = _occurrence(identifier)
+    source_filler = (
+        old[0].filler_code if old and old[0].filler_code.startswith("C") else "C30"
+    )
+    occurrence = _occurrence(identifier, filler_code=source_filler)
+    if disposition is None and old and not new and retained:
+        target = retained[0]
+        disposition = EngineOccurrenceDisposition(
+            kind="collapsed-r82",
+            source_occurrence_id=occurrence.occurrence_id,
+            source_fact_id=occurrence.source_fact_id,
+            normalized_axis=target.axis,
+            source_filler=occurrence.filler_code,
+            retained_filler=target.filler_code,
+            semantic_route="p106-non-organ-anatomy",
+            semantic_type="Anatomical Structure",
+            r82_part=target.filler_code,
+            r82_whole=occurrence.filler_code,
+        )
+    elif disposition is None and new:
+        target = new[0]
+        disposition = EngineOccurrenceDisposition(
+            kind="retained-routed",
+            source_occurrence_id=occurrence.occurrence_id,
+            source_fact_id=occurrence.source_fact_id,
+            normalized_axis=target.axis,
+            source_filler=occurrence.filler_code,
+            retained_filler=target.filler_code,
+            semantic_route="p106-organ",
+            semantic_type="Body Part, Organ, or Organ Component",
+        )
     return OccurrenceInput(
         old_occurrence=occurrence,
         new_occurrence=occurrence,
         old_links=old,
         new_links=new,
         retained_new_r101_links=retained,
+        new_disposition=disposition,
     )
 
 
@@ -242,6 +274,40 @@ def test_direct_and_transitive_paths_are_ordered_and_counted_independently() -> 
         context=_context(),
     )
     assert multi_old.grouping_presentation == ()
+
+
+@pytest.mark.unit
+def test_conservation_refuses_to_infer_a_collapse_that_diverges_from_engine() -> None:
+    broad = Pair(axis="op:PrimarySite", filler_code="C30")
+    retained = Pair(axis="op:PrimarySite", filler_code="C20")
+    occurrence = _occurrence()
+    divergent = EngineOccurrenceDisposition(
+        kind="collapsed-r82",
+        source_occurrence_id=occurrence.occurrence_id,
+        source_fact_id=occurrence.source_fact_id,
+        normalized_axis="op:PrimarySite",
+        source_filler=occurrence.filler_code,
+        retained_filler="C21",
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        r82_part="C21",
+        r82_whole="C30",
+    )
+
+    report = build_r101_occurrence_ledger(
+        (
+            _input(
+                old=(broad,),
+                retained=(retained,),
+                disposition=divergent,
+            ),
+        ),
+        paths={("C20", "C30"): _path(_edge("C20", "C30"))},
+        context=_context(),
+    )
+
+    assert report.occurrences[0].disposition == "unresolved"
+    assert report.occurrences[0].disposition_reason == "unresolved-disposition"
 
 
 @pytest.mark.unit
@@ -1037,17 +1103,14 @@ def test_generated_ledger_inventory_sentinels_and_exact_tsv_are_bound() -> None:
         max_r82_hops=8,
         max_asserted_superclass_hops=20,
     )
-    assert (
-        report.json_identity
-        == "bfa2ccdcc43e7b1a7c57df023678a48b3aa32fefd21574ed62b35f430868fd54"
+    assert report.json_identity == (
+        "bfa2ccdcc43e7b1a7c57df023678a48b3aa32fefd21574ed62b35f430868fd54"
     )
-    assert (
-        report.report_identity
-        == "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
+    assert report.report_identity == (
+        "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
     )
-    assert (
-        report.tsv_identity
-        == "b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d"
+    assert report.tsv_identity == (
+        "b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d"
     )
     assert report.mechanical_status == "complete"
     assert report.content_authorization.status == "pending"

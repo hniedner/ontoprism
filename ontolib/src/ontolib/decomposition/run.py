@@ -32,12 +32,14 @@ Scope of this orchestrator (documented boundaries, not oversights):
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
@@ -73,7 +75,9 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
+    CompletionRunMetrics,
     NcitSourceSnapshot,
+    ResidualFillerClassification,
     RunFingerprint,
     RunResumeIdentity,
 )
@@ -83,10 +87,16 @@ from ontolib.decomposition.publication import (
     PublicationPreflightError,
     publish_artifact,
 )
+from ontolib.decomposition.semantic_identity import routing_implementation_identity
+from ontolib.decomposition.source_preflight import (
+    SourcePreflightResult,
+    run_source_preflight,
+)
 
 logger = get_logger(__name__)
 
 _PROGRESS_HEARTBEAT_SECONDS = 15.0
+_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES = 20_000
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -113,6 +123,10 @@ class SourceIdentityChangedError(RuntimeError):
 
 class RunPublicationError(RuntimeError):
     """Artifact publication failed and remains retryable on the running run."""
+
+
+class SourcePreflightRejectedError(RuntimeError):
+    """The completed source census found malformed or over-bound definitions."""
 
 
 class SparqlClient(Protocol):
@@ -239,8 +253,11 @@ class RunMetrics:
       §10's residual metric.
     * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
       metric**: decomposed concepts at least one of whose *emitted constituents is
-      itself* classified as pre-coordinated by the same detector. This is "is what we
-      produced actually atomic?" (irreducibility), the counterpart of
+      itself* classified as pre-coordinated by the same detector. The rate is
+      unavailable when ``residual_precoordination_unknown_count`` records a
+      decomposition containing a filler whose valid OWL constructor the detector cannot
+      interpret; unknown is never reported as atomic. This is "is what we produced
+      actually atomic?" (irreducibility), the counterpart of
       the future ``roundtrip_fidelity`` metric's "did we capture everything?"
       (completeness).
 
@@ -284,6 +301,7 @@ class RunMetrics:
         atomic_noop: int = 0,
         unknown_outcome: int = 0,
         residual_precoordinated_count: int = 0,
+        residual_precoordination_unknown_count: int = 0,
         minted_count: int = 0,
         complete_definition_count: int = 0,
         complete_fact_count: int = 0,
@@ -300,6 +318,9 @@ class RunMetrics:
         self.atomic_noop = atomic_noop
         self.unknown_outcome = unknown_outcome
         self.residual_precoordinated_count = residual_precoordinated_count
+        self.residual_precoordination_unknown_count = (
+            residual_precoordination_unknown_count
+        )
         self.minted_count = minted_count
         self.complete_definition_count = complete_definition_count
         self.complete_fact_count = complete_fact_count
@@ -322,12 +343,14 @@ class RunMetrics:
         return self.decomposed / self.total_in_scope
 
     @property
-    def residual_precoordination(self) -> float:
+    def residual_precoordination(self) -> float | None:
         """D37: fraction of decomposed concepts that are residually pre-coordinated.
 
         Detector-relative (see the class docstring). ``0.0`` when nothing decomposed —
         honestly zero, not undefined.
         """
+        if self.residual_precoordination_unknown_count:
+            return None
         if self.decomposed == 0:
             return 0.0
         return self.residual_precoordinated_count / self.decomposed
@@ -496,6 +519,78 @@ def _candidate_filler_codes(
     return codes | set(morphology_fillers)
 
 
+async def _filler_semantic_types(
+    client: DecompositionSparqlClient, filler_codes: set[str]
+) -> dict[str, list[str]]:
+    if not filler_codes:
+        return {}
+    rows = await client.select(
+        stated_queries.build_semantic_type_of_query(list(filler_codes)),
+        required_variables={"code", "st"},
+    )
+    return extract.semantic_type_of_from_rows(rows)
+
+
+def _semantic_type_resolver(
+    semantic_types: dict[str, list[str]],
+) -> Callable[[str], str | None]:
+    def resolve(filler_code: str) -> str | None:
+        types = semantic_types.get(filler_code)
+        if not types:
+            return None
+        if axes.ORGAN_SEMANTIC_TYPE in types:
+            return axes.ORGAN_SEMANTIC_TYPE
+        return min(types)
+
+    return resolve
+
+
+async def _routed_selection(
+    code: str,
+    client: DecompositionSparqlClient,
+    roles: list[RoleRestriction],
+    morphology_fillers: tuple[str, ...],
+    semantic_type_of: Callable[[str], str | None],
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
+) -> fs.RoutedSelection:
+    routed_plan = fs.build_routed_plan(
+        roles,
+        semantic_type_of=semantic_type_of,
+        parent_morphologies=morphology_fillers,
+        concept_code=code,
+        source_identity=source_identity,
+        collapse_policy=collapse_policy,
+    )
+    specificity_codes = {
+        filler
+        for _axis_name, fillers in routed_plan.specificity_groups
+        for filler in fillers
+    }
+    ancestor_pairs = set()
+    if specificity_codes:
+        ancestor_pairs = extract.ancestor_pairs_from_rows(
+            await client.select(
+                stated_queries.build_ancestor_pairs_query(specificity_codes),
+                required_variables={"ancestor", "descendant"},
+            )
+        )
+    r82_codes = sorted(
+        {
+            filler
+            for _axis_name, fillers in routed_plan.comparison_groups
+            for filler in fillers
+        }
+    )
+    part_of_pairs = await stated_queries.resolve_part_of_pairs(client, r82_codes)
+    part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
+    return fs.select_routed_plan(
+        routed_plan,
+        extract.make_is_ancestor(ancestor_pairs),
+        is_part_of=lambda part, whole: (part, whole) in part_of,
+    )
+
+
 async def _decompose_one(
     code: str,
     client: DecompositionSparqlClient,
@@ -522,13 +617,7 @@ async def _decompose_one(
     # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
     filler_codes = _candidate_filler_codes(roles, morphology_fillers)
-    semantic_type_of: dict[str, list[str]] = {}
-    if filler_codes:
-        rows = await client.select(
-            stated_queries.build_semantic_type_of_query(list(filler_codes)),
-            required_variables={"code", "st"},
-        )
-        semantic_type_of = extract.semantic_type_of_from_rows(rows)
+    semantic_type_of = await _filler_semantic_types(client, filler_codes)
 
     if not result.is_precoordinated:
         return _CandidateResult(
@@ -537,36 +626,16 @@ async def _decompose_one(
             semantic_types=semantic_types,
         )
 
-    ancestor_pairs = extract.ancestor_pairs_from_rows(
-        await client.select(
-            stated_queries.build_ancestor_pairs_query(filler_codes),
-            required_variables={"ancestor", "descendant"},
-        )
-    )
-    # Treat an R82 whole as broader than its part for specificity selection (D16).
-    part_of_pairs = await stated_queries.resolve_part_of_pairs(
-        client, fs.comparison_filler_codes(roles, concept_code=code)
-    )
-    part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
-
-    def _semantic_type_of(filler_code: str) -> str | None:
-        types = semantic_type_of.get(filler_code)
-        if not types:
-            return None
-        if axes.ORGAN_SEMANTIC_TYPE in types:
-            return axes.ORGAN_SEMANTIC_TYPE
-        return min(types)
-
-    role_constituents = fs.select_constituents(
+    routed_selection = await _routed_selection(
+        code,
+        client,
         roles,
-        extract.make_is_ancestor(ancestor_pairs),
-        parent_morphologies=morphology_fillers,
-        semantic_type_of=_semantic_type_of,
-        is_part_of=lambda part, whole: (part, whole) in part_of,
-        concept_code=code,
-        source_identity=source_identity,
-        collapse_policy=collapse_policy,
+        morphology_fillers,
+        _semantic_type_resolver(semantic_type_of),
+        source_identity,
+        collapse_policy,
     )
+    role_constituents = list(routed_selection.constituents)
 
     aspects = nlp_fallback.parse_label_aspects(label)
     nlp_constituents, minted = await constituent_index.resolve_aspects(
@@ -582,6 +651,7 @@ async def _decompose_one(
         semantic_type=result.semantic_type,
         constituents=curated,
         complete_definition=definition,
+        occurrence_dispositions=routed_selection.dispositions,
     )
     return _CandidateResult(
         decomposition=decomposition,
@@ -598,8 +668,7 @@ def _residual_count(
 ) -> int:
     """D37: how many decompositions have >=1 constituent that is itself pre-coordinated.
 
-    Pure — the "which fillers are pre-coordinated" judgement is made once, up front, by
-    :func:`_precoordinated_fillers` (running the real detector), and passed in as a set.
+    Pure: the persisted residual-classification stage supplies the classified set.
     """
     return sum(
         any(c.filler_code in precoordinated_fillers for c in d.constituents)
@@ -626,64 +695,6 @@ def _store_resident_constituent_fillers(
             if not c.filler_code.startswith("MINT-")
         }
     )
-
-
-async def _precoordinated_fillers(
-    decompositions: Sequence[Decomposition],
-    client: SparqlClient,
-    get_labels: GetLabels | None,
-    *,
-    walker_max_depth: int,
-    progress: Callable[[int, int, str], None] | None = None,
-) -> set[str]:
-    """The constituent filler codes that are themselves pre-coordinated (D37).
-
-    Every distinct store-resident filler is classified once, by the SAME detector that
-    classified the concepts (:func:`_detect_concept`) — a filler judged pre-coordinated
-    means decomposition bottomed out on a compound. De-duplicated because one filler
-    recurs across many concepts; this is a post-pass over the run, so its cost is one
-    detection per distinct filler, not per constituent.
-    """
-    fillers = _store_resident_constituent_fillers(decompositions)
-    if not fillers:
-        return set()
-    labels = await get_labels(fillers) if get_labels is not None else {}
-    precoordinated: set[str] = set()
-    for index, filler in enumerate(fillers):
-        if progress is not None:
-            progress(index, len(fillers), filler)
-        if await _is_precoordinated_filler(
-            filler,
-            client,
-            label=labels.get(filler),
-            walker_max_depth=walker_max_depth,
-        ):
-            precoordinated.add(filler)
-        if progress is not None:
-            progress(index + 1, len(fillers), filler)
-    return precoordinated
-
-
-async def _is_precoordinated_filler(
-    filler: str,
-    client: SparqlClient,
-    *,
-    label: str | None,
-    walker_max_depth: int,
-) -> bool:
-    try:
-        result, _roles, _morph, _definition, _semantic_types = await _detect_concept(
-            filler,
-            client,
-            label=label,
-            walker_max_depth=walker_max_depth,
-        )
-    except Exception:
-        logger.exception(
-            "residual-precoordination detection failed for filler_code=%s", filler
-        )
-        raise
-    return result.is_precoordinated
 
 
 class _RunSetup:
@@ -764,6 +775,7 @@ def build_resume_identity(
         schema_version=5 if sample_identity is not None else 4,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
+        routing_implementation_identity=routing_implementation_identity(),
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -805,6 +817,7 @@ async def _create_fresh_run(
         schema_version=5 if config.sample_manifest is not None else 4,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
+        routing_implementation_identity=routing_implementation_identity(),
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -921,13 +934,14 @@ async def _prepare_run(
     total_limit: int | None,
     snapshot: NcitSourceSnapshot,
     collapse_policy: CollapseVetoPolicy,
+    fresh_worklist: tuple[str, ...] | None,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
     semantic_types = config.semantic_types
-    sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if config.resume_from:
+        await _validated_sample_worklist(config, client, snapshot)
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
             run_id,
@@ -940,6 +954,8 @@ async def _prepare_run(
             ),
         )
     else:
+        if fresh_worklist is None:
+            raise RuntimeError("fresh run worklist was not preflighted")
         run_id, fingerprint = await _create_fresh_run(
             config,
             client,
@@ -948,7 +964,7 @@ async def _prepare_run(
             get_source_snapshot=get_source_snapshot,
             semantic_types=semantic_types,
             total_limit=total_limit,
-            worklist=sample_worklist,
+            worklist=fresh_worklist,
             collapse_policy=collapse_policy,
         )
     pending, labels = await _load_pending_run_data(
@@ -1095,16 +1111,26 @@ def _report_progress(
     )
 
 
-async def _reconstructed_metrics(
-    setup: _RunSetup,
-    config: RunConfig,
-    client: DecompositionSparqlClient,
-    provenance: ProvenanceStore,
-    *,
-    get_labels: GetLabels | None,
-    residual_progress: Callable[[int, int, str], None] | None = None,
+def _unsupported_definition_identity(
+    filler: str, source_identity: str, detector_identity: str, reason: str
+) -> str:
+    payload = {
+        "filler_code": filler,
+        "source_identity": source_identity,
+        "detector_identity": detector_identity,
+        "classification": "valid-unsupported",
+        "reason": reason,
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode()
+    ).hexdigest()
+
+
+async def _base_run_data(
+    setup: _RunSetup, provenance: ProvenanceStore
 ) -> tuple[RunMetrics, list[Decomposition]]:
-    """Rebuild metrics cumulatively from the full persisted worklist."""
     decompositions = await provenance.decompositions_for_run(setup.run_id)
     counts = await provenance.outcome_counts(setup.run_id)
     metrics = RunMetrics(
@@ -1117,34 +1143,146 @@ async def _reconstructed_metrics(
         minted_count=counts.minted_count,
     )
     metrics.complete_definition_count = sum(
-        decomposition.complete_definition is not None
-        for decomposition in decompositions
+        item.complete_definition is not None for item in decompositions
     )
     metrics.complete_fact_count = sum(
-        decomposition.complete_fact_count for decomposition in decompositions
+        item.complete_fact_count for item in decompositions
     )
     metrics.projected_fact_count = sum(
-        decomposition.projected_fact_count for decomposition in decompositions
+        item.projected_fact_count for item in decompositions
     )
-    metrics.projection_loss_count = sum(
-        decomposition.projection_loss_count for decomposition in decompositions
+    metrics.projection_loss_count = (
+        metrics.complete_fact_count - metrics.projected_fact_count
     )
-    if metrics.complete_fact_count:
-        metrics.projection_loss_rate = (
-            metrics.projection_loss_count / metrics.complete_fact_count
-        )
-    precoordinated = await _precoordinated_fillers(
-        decompositions,
-        client,
-        get_labels,
-        walker_max_depth=config.walker_max_depth,
-        progress=residual_progress,
-    )
-    metrics.residual_precoordinated_count = _residual_count(
-        decompositions, precoordinated_fillers=precoordinated
+    metrics.projection_loss_rate = (
+        metrics.projection_loss_count / metrics.complete_fact_count
+        if metrics.complete_fact_count
+        else 0.0
     )
     metrics.pct_decomposed = metrics.coverage
     return metrics, decompositions
+
+
+async def _classify_residual_filler(
+    filler: str,
+    client: DecompositionSparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+    source_identity: str,
+    detector_identity: str,
+) -> tuple[str, str, str | None]:
+    try:
+        result, _roles, _morphologies, definition, _types = await _detect_concept(
+            filler,
+            client,
+            label=label,
+            walker_max_depth=walker_max_depth,
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError as exc:
+        reason = str(exc)
+        return (
+            "unknown",
+            _unsupported_definition_identity(
+                filler, source_identity, detector_identity, reason
+            ),
+            reason,
+        )
+    return (
+        "precoordinated" if result.is_precoordinated else "atomic",
+        definition.identity,
+        None,
+    )
+
+
+async def _materialize_residual_filler(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    filler: str,
+    *,
+    label: str | None,
+    detector_identity: str,
+) -> None:
+    claim = await provenance.claim_residual_filler(setup.run_id, filler)
+    if claim is None:
+        raise RunStateError(f"residual filler {filler!r} could not be claimed")
+    try:
+        classification, definition_identity, reason = await _classify_residual_filler(
+            filler,
+            client,
+            label=label,
+            walker_max_depth=config.walker_max_depth,
+            source_identity=setup.fingerprint.source_identity,
+            detector_identity=detector_identity,
+        )
+        await provenance.complete_residual_filler(
+            setup.run_id,
+            filler,
+            claim,
+            definition_identity=definition_identity,
+            classification=classification,
+            unsupported_reason=reason,
+        )
+    except BaseException as exc:
+        await provenance.fail_residual_filler(setup.run_id, filler, claim, exc)
+        raise
+
+
+def _classified_residual_sets(
+    rows: Sequence[ResidualFillerClassification],
+) -> tuple[set[str], set[str], dict[str, str]]:
+    precoordinated = {
+        row.filler_code for row in rows if row.classification == "precoordinated"
+    }
+    unknown = {row.filler_code for row in rows if row.classification == "unknown"}
+    reasons = {
+        row.filler_code: row.unsupported_reason
+        for row in rows
+        if row.unsupported_reason is not None
+    }
+    return precoordinated, unknown, reasons
+
+
+async def _materialize_residual_classifications(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    decompositions: Sequence[Decomposition],
+    *,
+    get_labels: GetLabels | None,
+    progress: Callable[[int, int, str], None] | None,
+) -> tuple[set[str], set[str], dict[str, str]]:
+    fillers = tuple(_store_resident_constituent_fillers(decompositions))
+    detector_identity = setup.fingerprint.routing_implementation_identity
+    await provenance.initialize_residual_fillers(
+        setup.run_id,
+        fillers,
+        source_identity=setup.fingerprint.source_identity,
+        detector_identity=detector_identity,
+    )
+    pending = await provenance.pending_residual_fillers(setup.run_id)
+    labels = await _fetch_labels(get_labels, pending)
+    for index, filler in enumerate(pending):
+        if progress is not None:
+            progress(index, len(pending), filler)
+        await _materialize_residual_filler(
+            setup,
+            config,
+            client,
+            provenance,
+            filler,
+            label=labels.get(filler),
+            detector_identity=detector_identity,
+        )
+        if progress is not None:
+            progress(index + 1, len(pending), filler)
+    rows = await provenance.residual_filler_classifications(setup.run_id)
+    if len(rows) != len(fillers):
+        raise RunStateError("residual filler classification inventory is incomplete")
+    return _classified_residual_sets(rows)
 
 
 def _publication_paths(config: RunConfig, run_id: str) -> tuple[Path, Path] | None:
@@ -1219,6 +1357,9 @@ def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
         "atomic_noop": metrics.atomic_noop,
         "unknown_outcome": metrics.unknown_outcome,
         "residual_precoordinated_count": metrics.residual_precoordinated_count,
+        "residual_precoordination_unknown_count": (
+            metrics.residual_precoordination_unknown_count
+        ),
         "minted_count": metrics.minted_count,
         "complete_definition_count": metrics.complete_definition_count,
         "complete_fact_count": metrics.complete_fact_count,
@@ -1276,40 +1417,406 @@ async def _publish_or_complete_run(
         )
 
 
-async def _finish_run(
+async def _completed_stage_output(
+    provenance: ProvenanceStore, run_id: str, stage: str
+) -> tuple[str, dict[str, object]]:
+    rows = await provenance.run_stages(run_id)
+    row = next(item for item in rows if item.stage == stage)
+    if (
+        row.state != "complete"
+        or row.output_identity is None
+        or row.output_payload is None
+    ):
+        raise RunStateError(f"stage {stage!r} is not complete")
+    return row.output_identity, row.output_payload
+
+
+async def _preflight_stage(
     setup: _RunSetup,
     config: RunConfig,
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
+    precomputed: SourcePreflightResult | None = None,
+) -> str:
+    input_identity = setup.fingerprint.identity
+    claim = await provenance.claim_stage(setup.run_id, "preflight", input_identity)
+    if claim is None:
+        output_identity, payload = await _completed_stage_output(
+            provenance, setup.run_id, "preflight"
+        )
+        result = SourcePreflightResult.model_validate_json(json.dumps(payload))
+    else:
+        try:
+            result = precomputed or await _source_preflight_result(
+                config,
+                client,
+                setup.fingerprint.worklist,
+                source_identity=setup.fingerprint.source_identity,
+                routing_identity=setup.fingerprint.routing_implementation_identity,
+            )
+            payload = result.model_dump(mode="json", exclude_computed_fields=True)
+            output_identity = await provenance.complete_stage(
+                setup.run_id, "preflight", claim, payload
+            )
+        except BaseException as exc:
+            await provenance.fail_stage(setup.run_id, "preflight", claim, exc)
+            raise
+    _require_preflight_allowed(result)
+    return output_identity
+
+
+async def _source_preflight_result(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    worklist: tuple[str, ...],
+    *,
+    source_identity: str,
+    routing_identity: str,
+) -> SourcePreflightResult:
+    async def read_definition(code: str) -> CompleteDefinition:
+        return await complete_definition.read_complete_definition(
+            client.select,
+            code,
+        )
+
+    return await run_source_preflight(
+        worklist,
+        read_definition=read_definition,
+        source_identity=source_identity,
+        reader_identity=routing_identity,
+        query_identity=routing_identity,
+        tool_identity=await client.version() or "missing-version",
+        walker_max_depth=config.walker_max_depth,
+        max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
+    )
+
+
+def _require_preflight_allowed(result: SourcePreflightResult) -> None:
+    if not result.concept_work_allowed:
+        raise SourcePreflightRejectedError(
+            "source preflight rejected malformed="
+            f"{','.join(result.malformed_codes)} overflow="
+            f"{','.join(result.overflow_codes)}"
+        )
+
+
+async def _concept_workset_stage(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    label_lookup: LabelLookup,
+    progress: ProgressCallback | None,
+    input_identity: str,
+) -> str:
+    claim = await provenance.claim_stage(
+        setup.run_id, "concept-workset", input_identity
+    )
+    if claim is None:
+        output_identity, _payload = await _completed_stage_output(
+            provenance, setup.run_id, "concept-workset"
+        )
+        return output_identity
+    try:
+        await _process_pending_work(
+            setup, config, client, provenance, label_lookup, progress
+        )
+        pending = await provenance.pending_codes(setup.run_id)
+        if pending:
+            raise RunStateError("concept stage completed with non-complete work items")
+        return await provenance.complete_stage(
+            setup.run_id,
+            "concept-workset",
+            claim,
+            {
+                "run_fingerprint_identity": setup.fingerprint.identity,
+                "complete_count": len(setup.fingerprint.worklist),
+            },
+        )
+    except BaseException as exc:
+        await provenance.fail_stage(setup.run_id, "concept-workset", claim, exc)
+        raise
+
+
+async def _residual_classification_stage(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    concept_identity: str,
+    get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None,
+) -> tuple[RunMetrics, list[Decomposition], str, set[str]]:
+    residual_claim = await provenance.claim_stage(
+        setup.run_id, "residual-classification", concept_identity
+    )
+    try:
+        metrics, decompositions = await _base_run_data(setup, provenance)
+        precoordinated, unknown, unknown_reasons = await _residual_sets(
+            setup,
+            config,
+            client,
+            provenance,
+            decompositions,
+            claim_new=residual_claim is not None,
+            get_labels=get_labels,
+            residual_progress=residual_progress,
+        )
+        metrics.residual_precoordinated_count = _residual_count(
+            decompositions, precoordinated_fillers=precoordinated
+        )
+        metrics.residual_precoordination_unknown_count = _residual_count(
+            decompositions, precoordinated_fillers=unknown
+        )
+        residual_payload: dict[str, object] = {
+            "residual_precoordinated_count": metrics.residual_precoordinated_count,
+            "residual_precoordination_unknown_count": (
+                metrics.residual_precoordination_unknown_count
+            ),
+            "precoordinated_filler_codes": sorted(precoordinated),
+            "unknown_filler_codes": sorted(unknown),
+            "unknown_reasons": unknown_reasons,
+        }
+        residual_identity = await _seal_residual_stage(
+            setup, provenance, residual_claim, residual_payload
+        )
+    except BaseException as exc:
+        if residual_claim is not None:
+            await provenance.fail_stage(
+                setup.run_id, "residual-classification", residual_claim, exc
+            )
+        raise
+    return metrics, decompositions, residual_identity, unknown
+
+
+async def _residual_sets(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    decompositions: Sequence[Decomposition],
+    *,
+    claim_new: bool,
+    get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None,
+) -> tuple[set[str], set[str], dict[str, str]]:
+    if claim_new:
+        return await _materialize_residual_classifications(
+            setup,
+            config,
+            client,
+            provenance,
+            decompositions,
+            get_labels=get_labels,
+            progress=residual_progress,
+        )
+    rows = await provenance.residual_filler_classifications(setup.run_id)
+    return _classified_residual_sets(rows)
+
+
+async def _seal_residual_stage(
+    setup: _RunSetup,
+    provenance: ProvenanceStore,
+    claim: UUID | None,
+    payload: dict[str, object],
+) -> str:
+    if claim is not None:
+        return await provenance.complete_stage(
+            setup.run_id, "residual-classification", claim, payload
+        )
+    identity, persisted_payload = await _completed_stage_output(
+        provenance, setup.run_id, "residual-classification"
+    )
+    if persisted_payload != payload:
+        raise RunStateError(
+            "persisted residual stage differs from filler classifications"
+        )
+    return identity
+
+
+async def _metrics_stage(
+    setup: _RunSetup,
+    provenance: ProvenanceStore,
+    metrics: RunMetrics,
+    residual_identity: str,
+    residual_unknown_codes: set[str],
+) -> tuple[str, dict[str, object]]:
+    metrics_claim = await provenance.claim_stage(
+        setup.run_id, "metrics", residual_identity
+    )
+    try:
+        completion_metrics = CompletionRunMetrics.model_validate(
+            _persisted_metrics(metrics)
+        )
+        concept_unknown_codes = await provenance.unknown_outcome_codes(setup.run_id)
+        if len(concept_unknown_codes) != completion_metrics.unknown_outcome:
+            raise RunStateError("unknown outcome codes do not match completion metrics")
+        persisted_metrics = completion_metrics.model_dump(mode="json")
+        metrics_payload: dict[str, object] = {
+            "metrics": persisted_metrics,
+            "unknown_policy": "allow-enumerated-valid-unsupported",
+            "concept_unknown_codes": list(concept_unknown_codes),
+            "residual_unknown_filler_codes": sorted(residual_unknown_codes),
+            "publication_eligible": True,
+        }
+        if metrics_claim is not None:
+            metrics_identity = await provenance.complete_stage(
+                setup.run_id, "metrics", metrics_claim, metrics_payload
+            )
+        else:
+            metrics_identity, sealed_metrics = await _completed_stage_output(
+                provenance, setup.run_id, "metrics"
+            )
+            if sealed_metrics != metrics_payload:
+                raise RunStateError(
+                    "persisted metrics stage differs from persisted run outputs"
+                )
+    except BaseException as exc:
+        if metrics_claim is not None:
+            await provenance.fail_stage(setup.run_id, "metrics", metrics_claim, exc)
+        raise
+    return metrics_identity, persisted_metrics
+
+
+async def _artifact_stage(
+    setup: _RunSetup,
+    config: RunConfig,
+    provenance: ProvenanceStore,
+    decompositions: list[Decomposition],
+    metrics_identity: str,
+) -> tuple[str, tuple[Path, Path] | None]:
+    publication = _publication_paths(config, setup.run_id)
+    artifact_claim = await provenance.claim_stage(
+        setup.run_id, "artifact", metrics_identity
+    )
+    if artifact_claim is not None:
+        try:
+            await _write_staging_artifact(publication, decompositions, setup)
+            artifact_payload = _artifact_payload(publication)
+            artifact_identity = await provenance.complete_stage(
+                setup.run_id, "artifact", artifact_claim, artifact_payload
+            )
+        except BaseException as exc:
+            await provenance.fail_stage(setup.run_id, "artifact", artifact_claim, exc)
+            raise
+    else:
+        artifact_identity, artifact_payload = await _completed_stage_output(
+            provenance, setup.run_id, "artifact"
+        )
+        _require_sealed_artifact(publication, artifact_payload)
+    return artifact_identity, publication
+
+
+def _artifact_payload(publication: tuple[Path, Path] | None) -> dict[str, object]:
+    if publication is None:
+        return {"output_mode": "none"}
+    return {
+        "output_mode": "file",
+        "staging_path": str(publication[0]),
+        "sha256": hashlib.sha256(publication[0].read_bytes()).hexdigest(),
+    }
+
+
+def _require_sealed_artifact(
+    publication: tuple[Path, Path] | None, payload: dict[str, object]
+) -> None:
+    if publication is None:
+        return
+    candidate = publication[0] if publication[0].exists() else publication[1]
+    if not candidate.exists():
+        raise RunPublicationError("sealed artifact is missing or changed")
+    if hashlib.sha256(candidate.read_bytes()).hexdigest() != payload.get("sha256"):
+        raise RunPublicationError("sealed artifact is missing or changed")
+
+
+async def _publication_stage(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    artifact_identity: str,
+    publication: tuple[Path, Path] | None,
+    decompositions: list[Decomposition],
+    persisted_metrics: dict[str, object],
+    get_source_snapshot: GetSourceSnapshot,
+) -> None:
+    publication_claim = await provenance.claim_stage(
+        setup.run_id, "publication", artifact_identity
+    )
+    if publication_claim is None:
+        return
+    try:
+        await _verify_final_source_snapshot(
+            setup, client, get_source_snapshot, publication
+        )
+        await _publish_or_complete_run(
+            setup=setup,
+            config=config,
+            client=client,
+            provenance=provenance,
+            decompositions=decompositions,
+            metrics=persisted_metrics,
+            publication=publication,
+        )
+        await provenance.complete_stage(
+            setup.run_id,
+            "publication",
+            publication_claim,
+            {"publication_state": "published" if publication else "not_requested"},
+        )
+    except BaseException as exc:
+        await provenance.fail_stage(setup.run_id, "publication", publication_claim, exc)
+        raise
+
+
+async def _checkpointed_finish_run(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    concept_identity: str,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
-    residual_progress: Callable[[int, int, str], None] | None = None,
+    residual_progress: Callable[[int, int, str], None] | None,
 ) -> RunMetrics:
-    metrics, decompositions = await _reconstructed_metrics(
+    (
+        metrics,
+        decompositions,
+        residual_identity,
+        residual_unknown_codes,
+    ) = await _residual_classification_stage(
         setup,
         config,
         client,
         provenance,
+        concept_identity=concept_identity,
         get_labels=get_labels,
         residual_progress=residual_progress,
     )
-    publication = _publication_paths(config, setup.run_id)
-    await _write_staging_artifact(publication, decompositions, setup)
-    await _verify_final_source_snapshot(
+    metrics_identity, persisted_metrics = await _metrics_stage(
         setup,
-        client,
-        get_source_snapshot,
-        publication,
+        provenance,
+        metrics,
+        residual_identity,
+        residual_unknown_codes,
     )
-    await _publish_or_complete_run(
-        setup=setup,
-        config=config,
-        client=client,
-        provenance=provenance,
-        decompositions=decompositions,
-        metrics=_persisted_metrics(metrics),
+    artifact_identity, publication = await _artifact_stage(
+        setup, config, provenance, decompositions, metrics_identity
+    )
+    await _publication_stage(
+        setup,
+        config,
+        client,
+        provenance,
+        artifact_identity=artifact_identity,
         publication=publication,
+        decompositions=decompositions,
+        persisted_metrics=persisted_metrics,
+        get_source_snapshot=get_source_snapshot,
     )
     return metrics
 
@@ -1357,6 +1864,52 @@ async def _active_collapse_policy(
     return policy
 
 
+async def _fresh_preflight(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    snapshot: NcitSourceSnapshot,
+    total_limit: int | None,
+) -> tuple[tuple[str, ...] | None, SourcePreflightResult | None]:
+    if config.resume_from is not None:
+        return None, None
+    sample_worklist = await _validated_sample_worklist(config, client, snapshot)
+    worklist = (
+        tuple(await _standard_worklist(config, client, total_limit))
+        if sample_worklist is None
+        else sample_worklist
+    )
+    routing_identity = routing_implementation_identity()
+    result = await _source_preflight_result(
+        config,
+        client,
+        worklist,
+        source_identity=snapshot.source_identity,
+        routing_identity=routing_identity,
+    )
+    _require_preflight_allowed(result)
+    return worklist, result
+
+
+async def _record_pipeline_failure(
+    provenance: ProvenanceStore, setup: _RunSetup, exc: BaseException
+) -> None:
+    if isinstance(exc, SourceIdentityChangedError):
+        recorded = await provenance.invalidate_run(setup.run_id, exc)
+        message = (
+            "Partial results were NOT discarded: run "
+            f"{setup.run_id!r} was no longer 'running'. Inspect "
+            "decomp_constituent/decomp_minted_proposal before reuse."
+        )
+    else:
+        recorded = await provenance.fail_run(setup.run_id, exc)
+        message = (
+            f"Run failure was NOT recorded: run {setup.run_id!r} holds "
+            "a different terminal state, or its row is gone."
+        )
+    if not recorded:
+        exc.add_note(message)
+
+
 async def run_pipeline(
     config: RunConfig,
     client: DecompositionSparqlClient,
@@ -1386,6 +1939,9 @@ async def run_pipeline(
     active_collapse_policy = await _active_collapse_policy(
         collapse_policy, client, snapshot, config.walker_max_depth
     )
+    fresh_worklist, fresh_preflight = await _fresh_preflight(
+        config, client, snapshot, total_limit
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -1395,22 +1951,32 @@ async def run_pipeline(
         total_limit=total_limit,
         snapshot=snapshot,
         collapse_policy=active_collapse_policy,
+        fresh_worklist=fresh_worklist,
     )
 
     try:
-        await _process_pending_work(
+        preflight_identity = await _preflight_stage(
+            setup,
+            config,
+            client,
+            provenance,
+            precomputed=fresh_preflight,
+        )
+        concept_identity = await _concept_workset_stage(
             setup,
             config,
             client,
             provenance,
             label_lookup,
             progress,
+            preflight_identity,
         )
-        return await _finish_run(
+        return await _checkpointed_finish_run(
             setup,
             config,
             client,
             provenance,
+            concept_identity=concept_identity,
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
             residual_progress=residual_progress,
@@ -1421,21 +1987,7 @@ async def run_pipeline(
         raise
     except BaseException as exc:
         try:
-            if isinstance(exc, SourceIdentityChangedError):
-                discarded = await provenance.invalidate_run(setup.run_id, exc)
-                if not discarded:
-                    exc.add_note(
-                        "Partial results were NOT discarded: run "
-                        f"{setup.run_id!r} was no longer 'running'. Inspect "
-                        "decomp_constituent/decomp_minted_proposal before reuse."
-                    )
-            else:
-                recorded = await provenance.fail_run(setup.run_id, exc)
-                if not recorded:
-                    exc.add_note(
-                        f"Run failure was NOT recorded: run {setup.run_id!r} holds "
-                        "a different terminal state, or its row is gone."
-                    )
+            await _record_pipeline_failure(provenance, setup, exc)
         except BaseException as failure_error:
             exc.add_note(
                 "Recording the run failure also failed: "

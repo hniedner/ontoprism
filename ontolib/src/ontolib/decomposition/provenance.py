@@ -26,7 +26,10 @@ if TYPE_CHECKING:
         Constituent,
         Decomposition,
     )
-    from ontolib.decomposition.r101_conservation import R101LedgerSource
+    from ontolib.decomposition.r101_conservation import (
+        OccurrenceInput,
+        R101LedgerSource,
+    )
 
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -35,33 +38,34 @@ from ontolib.decomposition.models import (
     Decomposition,
     DefinitionGroup,
     GenusDefinitionFact,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
 )
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE,
     CompletedRunForEvidence,
     CompletionRunMetrics,
     CorpusBaselineAggregate,
     MintedConcept,
     PersistedRunMetrics,
     PublicationMarkerSnapshot,
+    ResidualFillerClassification,
     RunFingerprint,
     RunOutcomeCounts,
     RunResumeIdentity,
+    RunStageCheckpoint,
+    RunStageName,
     RunSummary,
     WorkItemOutcome,
+    stage_output_identity,
 )
 
 _logger = logging.getLogger(__name__)
 
 
-def _same_delta_rows(previous: object | None, current: object) -> object:
-    if previous is not None and previous != current:
-        raise ValueError("non-R101 delta evidence differs across occurrence rows")
-    return current
-
-
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
+_SHA256_HEX_LENGTH = 64
 
 
 class RunStateError(RuntimeError):
@@ -70,6 +74,86 @@ class RunStateError(RuntimeError):
 
 class RunIdentityMismatchError(RuntimeError):
     """A resume or completion attempted to cross an immutable run identity."""
+
+
+def _require_stage_inventory(rows: Sequence[RowMapping]) -> None:
+    if tuple(row["stage"] for row in rows) != RUN_STAGE_SEQUENCE:
+        raise RunIdentityMismatchError(
+            "persisted run has no complete stage checkpoint inventory"
+        )
+
+
+def _completed_stage_matches(row: RowMapping, input_identity: str) -> bool:
+    if row["state"] != "complete":
+        return False
+    if row["input_identity"] != input_identity:
+        raise RunIdentityMismatchError("completed stage input identity does not match")
+    return True
+
+
+def _require_residual_context(
+    persisted_source: object, source_identity: str, stage_state: object
+) -> None:
+    if persisted_source != source_identity:
+        raise RunIdentityMismatchError("residual filler source identity differs")
+    if stage_state != "running":
+        raise RunStateError("residual filler initialization requires stage claim")
+
+
+def _existing_residual_inventory_matches(
+    existing: Sequence[RowMapping], expected: tuple[tuple[str, str, str], ...]
+) -> bool:
+    if not existing:
+        return False
+    actual = tuple(
+        (row["filler_code"], row["source_identity"], row["detector_identity"])
+        for row in existing
+    )
+    if actual != expected:
+        raise RunIdentityMismatchError("residual filler inventory differs")
+    return True
+
+
+def _parse_r101_occurrences(rows: Sequence[RowMapping]) -> list[OccurrenceInput]:
+    from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
+        EngineOccurrenceDisposition,
+        OccurrenceInput,
+        Pair,
+        R101ConservationValidationError,
+        StructuralOccurrence,
+    )
+
+    occurrences: list[OccurrenceInput] = []
+    for row in rows:
+        if row["old_occurrence"] is None or row["new_occurrence"] is None:
+            raise R101ConservationValidationError("structural-key-mismatch")
+        old_payload = dict(row["old_occurrence"])
+        new_payload = dict(row["new_occurrence"])
+        old_payload["structural_path"] = tuple(old_payload["structural_path"])
+        new_payload["structural_path"] = tuple(new_payload["structural_path"])
+        retained_links = cast("list[dict[str, str]]", row["retained_links"])
+        disposition = row["new_disposition"]
+        occurrences.append(
+            OccurrenceInput(
+                old_occurrence=StructuralOccurrence.model_validate(old_payload),
+                new_occurrence=StructuralOccurrence.model_validate(new_payload),
+                old_links=tuple(row["old_links"]),
+                new_links=tuple(row["new_links"]),
+                retained_new_r101_links=tuple(
+                    Pair.model_validate(item)
+                    for item in sorted(
+                        retained_links,
+                        key=lambda item: (item["axis"], item["filler_code"]),
+                    )
+                ),
+                new_disposition=(
+                    EngineOccurrenceDisposition.model_validate(disposition)
+                    if disposition is not None
+                    else None
+                ),
+            )
+        )
+    return occurrences
 
 
 def _require_completion_source(row: RowMapping, source_identity: str) -> None:
@@ -195,6 +279,8 @@ def _residual_precoordination_metric(
     metrics: dict[str, object],
 ) -> float | None:
     """Read a stored rate or derive it for count-only historical run rows."""
+    if metrics.get("residual_precoordination_unknown_count"):
+        return None
     rate = metrics.get("residual_precoordination")
     if rate is not None:
         return cast("float", rate)
@@ -515,6 +601,31 @@ def _constituent_occurrence_rows(
     ]
 
 
+def _occurrence_disposition_rows(
+    run_id: str,
+    concept_code: str,
+    dispositions: Sequence[OccurrenceDisposition],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "occurrence_id": row.source_occurrence_id,
+            "source_fact_id": row.source_fact_id,
+            "disposition": row.kind,
+            "normalized_axis": row.normalized_axis,
+            "source_filler": row.source_filler,
+            "retained_filler": row.retained_filler,
+            "semantic_route": row.semantic_route,
+            "semantic_type": row.semantic_type,
+            "r82_part": row.r82_part,
+            "r82_whole": row.r82_whole,
+            "policy_decision_identity": row.policy_decision_identity,
+        }
+        for row in dispositions
+    ]
+
+
 def _proposal_rows(
     run_id: str,
     concept_code: str,
@@ -541,6 +652,8 @@ async def _delete_completion_rows(
 ) -> None:
     params = {"run_id": run_id, "concept_code": concept_code}
     for statement in (
+        "DELETE FROM decomp_occurrence_disposition "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
         "DELETE FROM decomp_constituent_occurrence "
         "WHERE run_id = :run_id AND concept_code = :concept_code",
         "DELETE FROM decomp_source_occurrence "
@@ -574,6 +687,7 @@ async def _persist_completion_rows(
     concept_code: str,
     constituents: list[Constituent],
     complete_definition: CompleteDefinition | None,
+    dispositions: Sequence[OccurrenceDisposition],
     minted: tuple[MintedProposal, ...],
 ) -> None:
     await _insert_completion_rows(
@@ -619,6 +733,17 @@ async def _persist_completion_rows(
         ":source_fact_id, :source_group_id, :anchor_code, :depth, :role_code, "
         ":filler_code, :structural_path, :member_position)",
         _source_occurrence_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_occurrence_disposition "
+        "(run_id, concept_code, occurrence_id, source_fact_id, disposition, "
+        "normalized_axis, source_filler, retained_filler, semantic_route, "
+        "semantic_type, r82_part, r82_whole, policy_decision_identity) VALUES "
+        "(:run_id, :concept_code, :occurrence_id, :source_fact_id, :disposition, "
+        ":normalized_axis, :source_filler, :retained_filler, :semantic_route, "
+        ":semantic_type, :r82_part, :r82_whole, :policy_decision_identity)",
+        _occurrence_disposition_rows(run_id, concept_code, dispositions),
     )
     await _insert_completion_rows(
         session,
@@ -918,6 +1043,7 @@ async def _load_decomposition_rows(
     Sequence[RowMapping],
     Sequence[RowMapping],
     Sequence[RowMapping],
+    Sequence[RowMapping],
 ]:
     work_items = await session.execute(
         text(
@@ -979,6 +1105,16 @@ async def _load_decomposition_rows(
         ),
         {"run_id": run_id},
     )
+    disposition_result = await session.execute(
+        text(
+            "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
+            "normalized_axis, source_filler, retained_filler, semantic_route, "
+            "semantic_type, r82_part, r82_whole, policy_decision_identity "
+            "FROM decomp_occurrence_disposition WHERE run_id = :run_id "
+            "ORDER BY concept_code, occurrence_id"
+        ),
+        {"run_id": run_id},
+    )
     return (
         work_items.mappings().all(),
         constituent_result.mappings().all(),
@@ -987,6 +1123,7 @@ async def _load_decomposition_rows(
         edge_result.mappings().all(),
         occurrence_result.mappings().all(),
         occurrence_link_result.mappings().all(),
+        disposition_result.mappings().all(),
     )
 
 
@@ -1131,6 +1268,29 @@ def _occurrences_by_code(
     return by_code
 
 
+def _dispositions_by_code(
+    rows: Sequence[RowMapping],
+) -> dict[str, list[OccurrenceDisposition]]:
+    by_code: dict[str, list[OccurrenceDisposition]] = {}
+    for row in rows:
+        by_code.setdefault(row["concept_code"], []).append(
+            OccurrenceDisposition(
+                kind=row["disposition"],
+                source_occurrence_id=row["occurrence_id"],
+                source_fact_id=row["source_fact_id"],
+                normalized_axis=row["normalized_axis"],
+                source_filler=row["source_filler"],
+                retained_filler=row["retained_filler"],
+                semantic_route=row["semantic_route"],
+                semantic_type=row["semantic_type"],
+                r82_part=row["r82_part"],
+                r82_whole=row["r82_whole"],
+                policy_decision_identity=row["policy_decision_identity"],
+            )
+        )
+    return by_code
+
+
 class ProvenanceStore:
     """Persistence for decomposition run manifests and constituents."""
 
@@ -1220,6 +1380,353 @@ class ProvenanceStore:
                         for ordinal, code in enumerate(fingerprint.worklist)
                     ],
                 )
+            await session.execute(
+                text(
+                    "INSERT INTO decomp_run_stage (run_id,stage,ordinal) "
+                    "VALUES (:run_id,:stage,:ordinal)"
+                ),
+                [
+                    {"run_id": run_id, "stage": stage, "ordinal": ordinal}
+                    for ordinal, stage in enumerate(RUN_STAGE_SEQUENCE)
+                ],
+            )
+
+    async def run_stages(self, run_id: str) -> tuple[RunStageCheckpoint, ...]:
+        """Read the exact stage inventory; legacy/missing inventories fail closed."""
+        async with self._sf() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT run_id,stage,ordinal,state,attempt_count,"
+                            "claim_token,"
+                            "input_identity,output_identity,output_payload,started_at,"
+                            "finished_at,failed_at,error_type,error_message FROM "
+                            "decomp_run_stage WHERE run_id=:run_id ORDER BY ordinal"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if tuple(row["stage"] for row in rows) != RUN_STAGE_SEQUENCE:
+            raise RunIdentityMismatchError(
+                "persisted run has no complete stage checkpoint inventory"
+            )
+        return tuple(RunStageCheckpoint.model_validate(dict(row)) for row in rows)
+
+    async def claim_stage(
+        self, run_id: str, stage: RunStageName, input_identity: str
+    ) -> UUID | None:
+        """Claim the first incomplete stage using an immutable input identity."""
+        if len(input_identity) != _SHA256_HEX_LENGTH:
+            raise RunIdentityMismatchError("stage input identity must be SHA-256")
+        token = uuid4()
+        now = datetime.datetime.now(datetime.UTC)
+        ordinal = RUN_STAGE_SEQUENCE.index(stage)
+        async with self._sf() as session, session.begin():
+            run = await session.execute(
+                text("SELECT status FROM decomp_run WHERE id=:run_id FOR UPDATE"),
+                {"run_id": run_id},
+            )
+            if run.scalar_one_or_none() != "running":
+                raise RunStateError("stage claim requires a running decomposition run")
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT stage,ordinal,state,input_identity FROM "
+                            "decomp_run_stage "
+                            "WHERE run_id=:run_id ORDER BY ordinal FOR UPDATE"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            _require_stage_inventory(rows)
+            if any(row["state"] != "complete" for row in rows[:ordinal]):
+                raise RunStateError("upstream stage is not complete")
+            target = rows[ordinal]
+            if _completed_stage_matches(target, input_identity):
+                return None
+            if target["input_identity"] not in {None, input_identity}:
+                raise RunIdentityMismatchError("stage input identity does not match")
+            await session.execute(
+                text(
+                    "UPDATE decomp_run_stage SET state='running',attempt_count="
+                    "attempt_count+1,claim_token=:token,input_identity=:input_identity,"
+                    "started_at=:started_at,finished_at=NULL,failed_at=NULL,error_type=NULL,"
+                    "error_message=NULL WHERE run_id=:run_id AND stage=:stage"
+                ),
+                {
+                    "run_id": run_id,
+                    "stage": stage,
+                    "token": token,
+                    "input_identity": input_identity,
+                    "started_at": now,
+                },
+            )
+        return token
+
+    async def complete_stage(
+        self,
+        run_id: str,
+        stage: RunStageName,
+        claim_token: UUID,
+        output_payload: dict[str, object],
+    ) -> str:
+        """Atomically seal a stage output under its fencing token."""
+        output_identity = stage_output_identity(output_payload)
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_run_stage SET state='complete',claim_token=NULL,"
+                    "output_identity=:output_identity,"
+                    "output_payload=CAST(:payload AS jsonb),"
+                    "finished_at=:finished_at WHERE run_id=:run_id AND stage=:stage "
+                    "AND state='running' AND claim_token=:claim_token"
+                ),
+                {
+                    "run_id": run_id,
+                    "stage": stage,
+                    "claim_token": claim_token,
+                    "output_identity": output_identity,
+                    "payload": _json.dumps(output_payload, sort_keys=True),
+                    "finished_at": datetime.datetime.now(datetime.UTC),
+                },
+            )
+            if not cast("int", result.rowcount):  # type: ignore[attr-defined]
+                raise RunStateError("stage claim changed before completion")
+        return output_identity
+
+    async def fail_stage(
+        self,
+        run_id: str,
+        stage: RunStageName,
+        claim_token: UUID,
+        error: BaseException,
+    ) -> None:
+        """Record a bounded stage failure without changing completed upstream stages."""
+        error_type, error_message = _bounded_failure(error)
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_run_stage SET state='failed',claim_token=NULL,"
+                    "failed_at=:failed_at,error_type=:error_type,"
+                    "error_message=:error_message "
+                    "WHERE run_id=:run_id AND stage=:stage AND state='running' "
+                    "AND claim_token=:claim_token"
+                ),
+                {
+                    "run_id": run_id,
+                    "stage": stage,
+                    "claim_token": claim_token,
+                    "failed_at": datetime.datetime.now(datetime.UTC),
+                    "error_type": error_type,
+                    "error_message": error_message,
+                },
+            )
+            if not cast("int", result.rowcount):  # type: ignore[attr-defined]
+                raise RunStateError("stage claim changed before failure record")
+
+    async def initialize_residual_fillers(
+        self,
+        run_id: str,
+        filler_codes: Sequence[str],
+        *,
+        source_identity: str,
+        detector_identity: str,
+    ) -> None:
+        """Create or validate one exact sorted filler workset."""
+        codes = tuple(sorted(set(filler_codes)))
+        if len(codes) != len(filler_codes):
+            raise RunIdentityMismatchError(
+                "residual filler inventory contains duplicates"
+            )
+        async with self._sf() as session, session.begin():
+            run = (
+                await session.execute(
+                    text(
+                        "SELECT source_identity FROM decomp_run WHERE id=:run_id "
+                        "FOR UPDATE"
+                    ),
+                    {"run_id": run_id},
+                )
+            ).scalar_one_or_none()
+            stage = (
+                await session.execute(
+                    text(
+                        "SELECT state FROM decomp_run_stage WHERE run_id=:run_id "
+                        "AND stage='residual-classification' FOR UPDATE"
+                    ),
+                    {"run_id": run_id},
+                )
+            ).scalar_one_or_none()
+            _require_residual_context(run, source_identity, stage)
+            existing = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT filler_code,source_identity,detector_identity FROM "
+                            "decomp_residual_filler WHERE run_id=:run_id "
+                            "ORDER BY ordinal"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            expected = tuple(
+                (code, source_identity, detector_identity) for code in codes
+            )
+            if _existing_residual_inventory_matches(existing, expected):
+                return
+            if codes:
+                await session.execute(
+                    text(
+                        "INSERT INTO decomp_residual_filler "
+                        "(run_id,filler_code,ordinal,source_identity,"
+                        "detector_identity) "
+                        "VALUES (:run_id,:filler_code,:ordinal,:source_identity,"
+                        ":detector_identity)"
+                    ),
+                    [
+                        {
+                            "run_id": run_id,
+                            "filler_code": code,
+                            "ordinal": ordinal,
+                            "source_identity": source_identity,
+                            "detector_identity": detector_identity,
+                        }
+                        for ordinal, code in enumerate(codes)
+                    ],
+                )
+
+    async def pending_residual_fillers(self, run_id: str) -> list[str]:
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT filler_code FROM decomp_residual_filler "
+                    "WHERE run_id=:run_id "
+                    "AND state<>'complete' ORDER BY ordinal"
+                ),
+                {"run_id": run_id},
+            )
+            return list(result.scalars().all())
+
+    async def claim_residual_filler(self, run_id: str, filler_code: str) -> UUID | None:
+        token = uuid4()
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_residual_filler SET state='running',attempt_count="
+                    "attempt_count+1,claim_token=:token,claimed_at=:claimed_at,"
+                    "failed_at=NULL,error_type=NULL,error_message=NULL "
+                    "WHERE run_id=:run_id AND filler_code=:filler_code "
+                    "AND state IN ('pending','running','failed') "
+                    "RETURNING claim_token"
+                ),
+                {
+                    "run_id": run_id,
+                    "filler_code": filler_code,
+                    "token": token,
+                    "claimed_at": datetime.datetime.now(datetime.UTC),
+                },
+            )
+            claimed = result.scalar_one_or_none()
+            return UUID(str(claimed)) if claimed is not None else None
+
+    async def complete_residual_filler(
+        self,
+        run_id: str,
+        filler_code: str,
+        claim_token: UUID,
+        *,
+        definition_identity: str,
+        classification: str,
+        unsupported_reason: str | None,
+    ) -> None:
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_residual_filler SET state='complete',"
+                    "claim_token=NULL,"
+                    "claimed_at=NULL,definition_identity=:definition_identity,"
+                    "classification=:classification,unsupported_reason=:unsupported_reason,"
+                    "completed_at=:completed_at WHERE run_id=:run_id AND "
+                    "filler_code=:filler_code AND state='running' AND "
+                    "claim_token=:claim_token"
+                ),
+                {
+                    "run_id": run_id,
+                    "filler_code": filler_code,
+                    "claim_token": claim_token,
+                    "definition_identity": definition_identity,
+                    "classification": classification,
+                    "unsupported_reason": unsupported_reason,
+                    "completed_at": datetime.datetime.now(datetime.UTC),
+                },
+            )
+            if not cast("int", result.rowcount):  # type: ignore[attr-defined]
+                raise RunStateError("residual filler claim changed before completion")
+
+    async def fail_residual_filler(
+        self,
+        run_id: str,
+        filler_code: str,
+        claim_token: UUID,
+        error: BaseException,
+    ) -> None:
+        error_type, error_message = _bounded_failure(error)
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_residual_filler SET state='failed',claim_token=NULL,"
+                    "claimed_at=NULL,failed_at=:failed_at,error_type=:error_type,"
+                    "error_message=:error_message WHERE run_id=:run_id AND "
+                    "filler_code=:filler_code AND state='running' AND "
+                    "claim_token=:claim_token"
+                ),
+                {
+                    "run_id": run_id,
+                    "filler_code": filler_code,
+                    "claim_token": claim_token,
+                    "failed_at": datetime.datetime.now(datetime.UTC),
+                    "error_type": error_type,
+                    "error_message": error_message,
+                },
+            )
+            if not cast("int", result.rowcount):  # type: ignore[attr-defined]
+                raise RunStateError(
+                    "residual filler claim changed before failure record"
+                )
+
+    async def residual_filler_classifications(
+        self, run_id: str
+    ) -> tuple[ResidualFillerClassification, ...]:
+        async with self._sf() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT run_id,filler_code,ordinal,source_identity,"
+                            "definition_identity,detector_identity,classification,"
+                            "unsupported_reason FROM decomp_residual_filler WHERE "
+                            "run_id=:run_id AND state='complete' ORDER BY ordinal"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(
+            ResidualFillerClassification.model_validate(dict(row)) for row in rows
+        )
 
     @staticmethod
     def _validated_fingerprint(
@@ -1344,6 +1851,18 @@ class ProvenanceStore:
             )
             return list(result.scalars().all())
 
+    async def unknown_outcome_codes(self, run_id: str) -> tuple[str, ...]:
+        """Return every explicitly typed unknown concept in worklist order."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT concept_code FROM decomp_work_item WHERE run_id=:run_id "
+                    "AND state='complete' AND outcome='unknown' ORDER BY ordinal"
+                ),
+                {"run_id": run_id},
+            )
+            return tuple(result.scalars().all())
+
     async def claim_work_item(self, run_id: str, concept_code: str) -> UUID | None:
         """Atomically claim one pending/failed item; return its fencing token."""
         token = uuid4()
@@ -1413,6 +1932,9 @@ class ProvenanceStore:
                 concept_code,
                 constituents,
                 complete_definition,
+                decomposition.occurrence_dispositions
+                if decomposition is not None
+                else (),
                 minted,
             )
             await _mark_work_item_complete(
@@ -1585,6 +2107,7 @@ class ProvenanceStore:
                 edge_rows,
                 occurrence_rows,
                 occurrence_link_rows,
+                disposition_rows,
             ) = await _load_decomposition_rows(session, run_id)
 
         constituents_by_code = _constituents_by_code(
@@ -1596,6 +2119,7 @@ class ProvenanceStore:
             edge_rows,
         )
         occurrences_by_code = _occurrences_by_code(occurrence_rows)
+        dispositions_by_code = _dispositions_by_code(disposition_rows)
         return [
             Decomposition(
                 code=row["concept_code"],
@@ -1608,6 +2132,9 @@ class ProvenanceStore:
                     groups_by_code,
                     roots_by_code,
                     occurrences_by_code,
+                ),
+                occurrence_dispositions=tuple(
+                    dispositions_by_code.get(row["concept_code"], [])
                 ),
             )
             for row in work_item_rows
@@ -1727,54 +2254,45 @@ class ProvenanceStore:
         from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
             NonR101DeltaEvidence,
             NonR101DeltaRow,
-            OccurrenceInput,
-            Pair,
             R101ConservationValidationError,
             R101LedgerSource,
-            StructuralOccurrence,
             r101_ledger_query_identity,
+            r101_non_r101_delta_query,
             r101_occurrence_ledger_query,
         )
 
         sql = text(r101_occurrence_ledger_query())
+        delta_sql = text(r101_non_r101_delta_query())
         async with self._sf() as session:
             result = await session.execute(
                 sql, {"old_run_id": old_run_id, "new_run_id": new_run_id}
             )
             rows = result.mappings().all()
-        occurrences: list[OccurrenceInput] = []
-        delta_rows: object | None = None
-        for row in rows:
-            if row["old_occurrence"] is None or row["new_occurrence"] is None:
-                raise R101ConservationValidationError("structural-key-mismatch")
-            old_payload = dict(row["old_occurrence"])
-            new_payload = dict(row["new_occurrence"])
-            old_payload["structural_path"] = tuple(old_payload["structural_path"])
-            new_payload["structural_path"] = tuple(new_payload["structural_path"])
-            retained_links = cast("list[dict[str, str]]", row["retained_links"])
-            occurrences.append(
-                OccurrenceInput(
-                    old_occurrence=StructuralOccurrence.model_validate(old_payload),
-                    new_occurrence=StructuralOccurrence.model_validate(new_payload),
-                    old_links=tuple(row["old_links"]),
-                    new_links=tuple(row["new_links"]),
-                    retained_new_r101_links=tuple(
-                        Pair.model_validate(item)
-                        for item in sorted(
-                            retained_links,
-                            key=lambda item: (item["axis"], item["filler_code"]),
-                        )
-                    ),
-                )
+            delta_result = await session.execute(
+                delta_sql,
+                {"old_run_id": old_run_id, "new_run_id": new_run_id},
             )
-            delta_rows = _same_delta_rows(delta_rows, row["non_r101_delta_rows"])
+            delta_rows = delta_result.mappings().all()
+        occurrences = _parse_r101_occurrences(rows)
+        parsed_delta_rows = tuple(
+            NonR101DeltaRow.model_validate(dict(item)) for item in delta_rows
+        )
+        if len(parsed_delta_rows) != len(set(parsed_delta_rows)):
+            raise R101ConservationValidationError("duplicate non-R101 delta evidence")
         evidence = NonR101DeltaEvidence(
             old_run_id=old_run_id,
             new_run_id=new_run_id,
             query_identity=r101_ledger_query_identity(),
             rows=tuple(
-                NonR101DeltaRow.model_validate(item)
-                for item in cast("list[dict[str, str]]", delta_rows or [])
+                sorted(
+                    parsed_delta_rows,
+                    key=lambda row: (
+                        row.change,
+                        row.concept_code,
+                        row.axis,
+                        row.filler_code,
+                    ),
+                )
             ),
         )
         return R101LedgerSource(
@@ -2020,6 +2538,9 @@ class ProvenanceStore:
             atomic_noop=metrics.atomic_noop,
             unknown_outcome=metrics.unknown_outcome,
             residual_precoordinated_count=metrics.residual_precoordinated_count,
+            residual_precoordination_unknown_count=(
+                metrics.residual_precoordination_unknown_count
+            ),
             residual_precoordination=metrics.residual_precoordination,
             minted_count=metrics.minted_count,
             complete_definition_count=metrics.complete_definition_count,

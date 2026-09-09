@@ -10,6 +10,7 @@ operation failure.
 from __future__ import annotations
 
 import asyncio
+import gzip
 import hashlib
 import importlib
 import json
@@ -38,6 +39,7 @@ _RUN_ID = re.compile(
 )
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
+_MAX_INSPECTED_RUNS = 8
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
@@ -130,6 +132,69 @@ class ConsolidationContext:
     manifest_bytes: bytes
     manifest_digest: str
     source_specs: tuple[dict[str, object], ...]
+
+
+async def _inspect_decomposition_runs_async(
+    run_ids: tuple[str, ...],
+) -> list[dict[str, object]]:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    inspect = importlib.import_module(
+        "ontolib.decomposition.run_inspection"
+    ).inspect_decomposition_runs
+    engine = database.make_engine(settings.database_url)
+    try:
+        return await inspect(engine, run_ids)
+    finally:
+        await database.dispose_engine(engine)
+
+
+def _inspect_decomposition_runs(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del root, runner
+    if not values or len(values) > _MAX_INSPECTED_RUNS:
+        raise AgentReplayInputError("inspect-decomposition-runs requires 1-8 run IDs")
+    if any(_RUN_ID.fullmatch(value) is None for value in values):
+        raise AgentReplayInputError("invalid decomposition run ID")
+    payload = asyncio.run(_inspect_decomposition_runs_async(tuple(values)))
+    print(json.dumps(payload, sort_keys=True, indent=2))
+    return 0
+
+
+def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -> int:
+    del runner
+    if len(values) != 1:
+        raise AgentReplayInputError("inspect-r101-report requires one report path")
+    relative = _validated_repository_relative(values[0], label="R101 report")
+    path = root / relative
+    _require_no_symlink_components(path, root=root, label="R101 report")
+    if not path.is_file() or not path.name.endswith(".json.gz"):
+        raise AgentReplayInputError("R101 report must be an existing .json.gz file")
+    try:
+        content = gzip.decompress(path.read_bytes())
+    except (OSError, EOFError) as exc:
+        raise AgentReplayInputError("R101 report is not valid gzip") from exc
+    payload = _load_strict_json(content, label="R101 report")
+    delta = payload.get("non_r101_delta_evidence")
+    if not isinstance(delta, dict) or not isinstance(delta.get("rows"), list):
+        raise AgentReplayInputError("R101 report delta evidence has an invalid shape")
+    result = {
+        "schema_version": payload.get("schema_version"),
+        "old_run_id": payload.get("old_run_id"),
+        "new_run_id": payload.get("new_run_id"),
+        "old_run_fingerprint_identity": payload.get("old_run_fingerprint_identity"),
+        "new_run_fingerprint_identity": payload.get("new_run_fingerprint_identity"),
+        "detector_identity": payload.get("detector_identity"),
+        "non_r101_delta_old_run_id": delta.get("old_run_id"),
+        "non_r101_delta_new_run_id": delta.get("new_run_id"),
+        "non_r101_delta_query_identity": delta.get("query_identity"),
+        "non_r101_delta_row_count": len(delta["rows"]),
+        "report_identity": payload.get("report_identity"),
+        "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    print(json.dumps(result, sort_keys=True, indent=2))
+    return 0
 
 
 def _subprocess_runner(
@@ -875,6 +940,8 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
             "neoplasm",
             "--sample-manifest",
             sample,
+            "--walker-max-depth",
+            "7",
             "--out",
             str(root / "tmp/m1-6-current-replay.ttl"),
         ],
@@ -2698,6 +2765,8 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
+    "inspect-decomposition-runs": _inspect_decomposition_runs,
+    "inspect-r101-report": _inspect_r101_report,
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,

@@ -7,6 +7,7 @@ import json
 import math
 from datetime import UTC, datetime
 from typing import Literal, Self, cast
+from uuid import UUID
 
 from pydantic import (
     AwareDatetime,
@@ -23,6 +24,22 @@ from ontolib.decomposition.models import ConceptOutcome
 
 _STANDARD_RUN_SCHEMA = 4
 _SAMPLE_RUN_SCHEMA = 5
+RunStageName = Literal[
+    "preflight",
+    "concept-workset",
+    "residual-classification",
+    "metrics",
+    "artifact",
+    "publication",
+]
+RUN_STAGE_SEQUENCE: tuple[RunStageName, ...] = (
+    "preflight",
+    "concept-workset",
+    "residual-classification",
+    "metrics",
+    "artifact",
+    "publication",
+)
 
 
 def _require_matching_scope_root(
@@ -40,6 +57,14 @@ def _require_matching_output_load(
 ) -> None:
     if load_mode == "named-graph" and output_mode != "file":
         raise ValueError("named-graph load requires file output")
+
+
+def stage_output_identity(payload: dict[str, object]) -> str:
+    """Identify one stage output from canonical JSON only."""
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class NcitSourceSnapshot(BaseModel):
@@ -77,6 +102,7 @@ class RunFingerprint(BaseModel):
     schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -154,6 +180,7 @@ class RunResumeIdentity(BaseModel):
     schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -187,6 +214,9 @@ class RunResumeIdentity(BaseModel):
             schema_version=fingerprint.schema_version,
             source_identity=fingerprint.source_identity,
             collapse_policy_identity=fingerprint.collapse_policy_identity,
+            routing_implementation_identity=(
+                fingerprint.routing_implementation_identity
+            ),
             branch=fingerprint.branch,
             scope_root=fingerprint.scope_root,
             scope_version=fingerprint.scope_version,
@@ -199,6 +229,126 @@ class RunResumeIdentity(BaseModel):
             output_mode=fingerprint.output_mode,
             load_mode=fingerprint.load_mode,
         )
+
+
+class RunStageCheckpoint(BaseModel):
+    """One fenced, identity-bound durable pipeline stage."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(min_length=1)
+    stage: RunStageName
+    ordinal: int = Field(ge=0, le=len(RUN_STAGE_SEQUENCE) - 1)
+    state: Literal["pending", "running", "complete", "failed"]
+    attempt_count: int = Field(ge=0)
+    claim_token: UUID | None = None
+    input_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    output_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    output_payload: dict[str, object] | None = None
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    failed_at: AwareDatetime | None = None
+    error_type: str | None = Field(default=None, min_length=1, max_length=128)
+    error_message: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    def _validate_pending(self) -> None:
+        bound_values = (
+            self.claim_token,
+            self.input_identity,
+            self.output_identity,
+            self.output_payload,
+            self.started_at,
+            self.finished_at,
+            self.failed_at,
+            self.error_type,
+            self.error_message,
+        )
+        if self.attempt_count or any(value is not None for value in bound_values):
+            raise ValueError("pending stage cannot bind an attempt")
+
+    def _validate_running(self) -> None:
+        if self.claim_token is None or self.started_at is None:
+            raise ValueError("running stage requires a fenced claim")
+        terminal_values = (
+            self.output_identity,
+            self.output_payload,
+            self.finished_at,
+            self.failed_at,
+            self.error_type,
+            self.error_message,
+        )
+        if any(value is not None for value in terminal_values):
+            raise ValueError("running stage cannot carry terminal output")
+
+    def _validate_complete(self) -> None:
+        if (
+            self.output_identity is None
+            or self.output_payload is None
+            or self.finished_at is None
+        ):
+            raise ValueError("complete stage requires output")
+        if any(
+            value is not None
+            for value in (self.failed_at, self.error_type, self.error_message)
+        ):
+            raise ValueError("complete stage cannot carry failure")
+
+    def _validate_failed(self) -> None:
+        if (
+            self.failed_at is None
+            or self.error_type is None
+            or self.error_message is None
+        ):
+            raise ValueError("failed stage requires bounded failure")
+        if any(
+            value is not None
+            for value in (self.output_identity, self.output_payload, self.finished_at)
+        ):
+            raise ValueError("failed stage cannot carry completed output")
+
+    @model_validator(mode="after")
+    def _state_shape_is_closed(self) -> Self:
+        if self.ordinal != RUN_STAGE_SEQUENCE.index(self.stage):
+            raise ValueError("stage ordinal does not match the declared sequence")
+        if self.state == "pending":
+            self._validate_pending()
+            return self
+        return self._validate_attempted_state()
+
+    def _validate_attempted_state(self) -> Self:
+        if self.attempt_count < 1 or self.input_identity is None:
+            raise ValueError("attempted stage requires input identity")
+        if self.state == "running":
+            self._validate_running()
+            return self
+        if self.claim_token is not None:
+            raise ValueError("terminal stage cannot retain a claim token")
+        if self.state == "complete":
+            self._validate_complete()
+            return self
+        self._validate_failed()
+        return self
+
+
+class ResidualFillerClassification(BaseModel):
+    """A completed store-resident filler classification."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(min_length=1)
+    filler_code: str = Field(pattern=r"^C[0-9]+$")
+    ordinal: int = Field(ge=0)
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    definition_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    classification: Literal["atomic", "precoordinated", "unknown"]
+    unsupported_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _unknown_reason_matches_classification(self) -> Self:
+        if (self.classification == "unknown") != (self.unsupported_reason is not None):
+            raise ValueError("unknown filler classification requires its reason")
+        return self
 
 
 def _require_matching_sample_schema(
@@ -275,6 +425,7 @@ class PersistedRunMetrics(BaseModel):
     atomic_noop: int | None = Field(default=None, ge=0)
     unknown_outcome: int | None = Field(default=None, ge=0)
     residual_precoordinated_count: int | None = Field(default=None, ge=0)
+    residual_precoordination_unknown_count: int | None = Field(default=None, ge=0)
     residual_precoordination: float | None = Field(default=None, ge=0, le=1)
     minted_count: int | None = Field(default=None, ge=0)
     complete_definition_count: int | None = Field(default=None, ge=0)
@@ -306,10 +457,18 @@ class PersistedRunMetrics(BaseModel):
             raise ValueError("outcome counts do not sum to total_in_scope")
 
     def _validate_residual_metrics(self) -> None:
-        if self.residual_precoordinated_count is None or self.decomposed is None:
+        if self.decomposed is None:
             return
-        if self.residual_precoordinated_count > self.decomposed:
-            raise ValueError("residual count exceeds decomposed count")
+        self._validate_residual_bounds(self.decomposed)
+        if self.residual_precoordination_unknown_count:
+            if self.residual_precoordination is not None:
+                raise ValueError(
+                    "residual precoordination rate must be unavailable when "
+                    "fillers are unclassifiable"
+                )
+            return
+        if self.residual_precoordinated_count is None:
+            return
         expected = (
             self.residual_precoordinated_count / self.decomposed
             if self.decomposed
@@ -320,6 +479,18 @@ class PersistedRunMetrics(BaseModel):
             self.residual_precoordination,
             expected,
         )
+
+    def _validate_residual_bounds(self, decomposed: int) -> None:
+        bounded = (
+            (self.residual_precoordinated_count, "residual count"),
+            (
+                self.residual_precoordination_unknown_count,
+                "residual unknown count",
+            ),
+        )
+        for count, name in bounded:
+            if count is not None and count > decomposed:
+                raise ValueError(f"{name} exceeds decomposed count")
 
     def _validate_definition_count(self) -> None:
         if (
@@ -383,7 +554,8 @@ class CompletionRunMetrics(BaseModel):
     atomic_noop: int = Field(ge=0)
     unknown_outcome: int = Field(ge=0)
     residual_precoordinated_count: int = Field(ge=0)
-    residual_precoordination: float = Field(ge=0, le=1)
+    residual_precoordination_unknown_count: int = Field(ge=0)
+    residual_precoordination: float | None = Field(ge=0, le=1)
     minted_count: int = Field(ge=0)
     complete_definition_count: int = Field(ge=0)
     complete_fact_count: int = Field(ge=0)
@@ -559,6 +731,7 @@ class RunSummary(BaseModel):
     atomic_noop: int | None = Field(default=None, ge=0)
     unknown_outcome: int | None = Field(default=None, ge=0)
     residual_precoordinated_count: int | None = Field(default=None, ge=0)
+    residual_precoordination_unknown_count: int | None = Field(default=None, ge=0)
     residual_precoordination: float | None = Field(default=None, ge=0, le=1)
     minted_count: int | None = Field(default=None, ge=0)
     complete_definition_count: int | None = Field(default=None, ge=0)

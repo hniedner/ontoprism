@@ -13,7 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ontolib.decomposition.axes import is_defining_role, is_in_scope
+from ontolib.decomposition.axes import (
+    NON_DEFINING_PROJECTED_ROLES,
+    is_defining_role,
+    is_in_scope,
+    is_projectable_role,
+)
 from ontolib.decomposition.models import DetectionResult, RoleRestriction
 
 if TYPE_CHECKING:
@@ -42,6 +47,18 @@ def _representative_type(semantic_types: Sequence[str]) -> str | None:
     return next((t for t in ordered if is_in_scope(t)), ordered[0] if ordered else None)
 
 
+def _candidate_axis_count(
+    roles: list[RoleRestriction], *, has_parent_morphology: bool, multi_aspect: bool
+) -> int:
+    candidate_axes = {
+        restriction.role_code
+        for restriction in roles
+        if is_projectable_role(restriction)
+        and restriction.role_code not in NON_DEFINING_PROJECTED_ROLES
+    }
+    return len(candidate_axes) + int(has_parent_morphology) + int(multi_aspect)
+
+
 def detect(
     code: str,
     semantic_types: Sequence[str],
@@ -61,11 +78,14 @@ def detect(
     defining_axes = {r.role_code for r in roles if is_defining_role(r)}
     multi_aspect = label_multi_aspect(label)
 
-    decomposable_axes = len(defining_axes)
-    if has_parent_morphology:
-        decomposable_axes += 1
-    if multi_aspect:
-        decomposable_axes += 1
+    # Unknown roles remain nondefining, but retain their historical candidacy signal so
+    # a morphology-plus-unknown concept still enters projection and preserves the raw
+    # review-required role rather than disappearing as an atomic no-op.
+    decomposable_axes = _candidate_axis_count(
+        roles,
+        has_parent_morphology=has_parent_morphology,
+        multi_aspect=multi_aspect,
+    )
 
     in_scope = any(is_in_scope(t) for t in semantic_types)
     is_precoordinated = in_scope and decomposable_axes >= min_decomposable_axes

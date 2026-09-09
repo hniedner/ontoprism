@@ -23,6 +23,7 @@ from ontolib.decomposition.resume_dry_run import (
 )
 from ontolib.decomposition.run import RunConfig
 from ontolib.decomposition.run import build_resume_identity as _build_resume_identity
+from ontolib.decomposition.semantic_identity import routing_implementation_identity
 
 SOURCE_IDENTITY = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
 
@@ -36,12 +37,13 @@ def build_resume_identity(*args: Any, **kwargs: Any):
 def _fingerprint() -> RunFingerprint:
     config = RunConfig(
         branch=DecompositionBranch.NEOPLASM,
-        out=Path("tmp/neoplasm-r101-v4-full.ttl"),
+        out=Path("tmp/neoplasm-r101-v5-full.ttl"),
         walker_max_depth=7,
     )
     return RunFingerprint(
         source_identity=SOURCE_IDENTITY,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+        routing_implementation_identity=routing_implementation_identity(),
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

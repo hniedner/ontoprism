@@ -337,9 +337,7 @@ def test_most_specific_flag_is_per_filler_not_axis_aggregate() -> None:
 
 
 @pytest.mark.unit
-def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
-    # A pathological cycle (A ancestor of B AND B ancestor of A) must not silently drop
-    # the whole axis — keep both and flag for curation.
+def test_cyclic_hierarchy_fails_closed() -> None:
     def cyclic(a: str, b: str) -> bool:
         return {(a, b), (b, a)} & {("C1001", "C1002"), ("C1002", "C1001")} != set()
 
@@ -347,9 +345,8 @@ def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
         ("R101", "C1001", "Disease_Has_Primary_Anatomic_Site"),
         ("R101", "C1002", "Disease_Has_Primary_Anatomic_Site"),
     )
-    constituents = select_constituents(restrictions, cyclic)
-    assert {c.filler_code for c in constituents} == {"C1001", "C1002"}
-    assert all(c.needs_review for c in constituents)
+    with pytest.raises(ValueError, match=r"cycle|mutually broader"):
+        select_constituents(restrictions, cyclic)
 
 
 @pytest.mark.unit

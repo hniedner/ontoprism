@@ -140,38 +140,19 @@ def test_veto_adds_broaders_without_erasing_normal_r101_region_resolution() -> N
         source_identity=_SOURCE,
         collapse_policy=collapse_policy.NO_COLLAPSE_VETO_POLICY,
     )
-    protected = select_constituents(
-        roles,
-        ancestors,
-        concept_code="C5292",
-        parent_morphologies=("C4959",),
-        semantic_type_of=semantic_types.get,
-        source_identity=_SOURCE,
-        collapse_policy=_policy(),
-    )
+    with pytest.raises(CollapsePolicyError, match=r"axis.*drift"):
+        select_constituents(
+            roles,
+            ancestors,
+            concept_code="C5292",
+            parent_morphologies=("C4959",),
+            semantic_type_of=semantic_types.get,
+            source_identity=_SOURCE,
+            collapse_policy=_policy(),
+        )
     baseline_pairs = {(row.axis, row.filler_code) for row in baseline}
-    protected_pairs = {(row.axis, row.filler_code) for row in protected}
 
     assert ("op:AssociatedRegion", "C32292") in baseline_pairs
-    assert protected_pairs == baseline_pairs | {
-        ("op:PrimarySite", "C12351"),
-        ("op:PrimarySite", "C12439"),
-        ("op:PrimarySite", "C12512"),
-    }
-    primary = [row for row in protected if row.axis == "op:PrimarySite"]
-    assert len(primary) > 1
-    assert all(row.needs_review and row.group == "op:PrimarySite" for row in primary)
-    baseline_region = next(
-        row
-        for row in baseline
-        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
-    )
-    protected_region = next(
-        row
-        for row in protected
-        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
-    )
-    assert protected_region == baseline_region
 
 
 @pytest.mark.unit
@@ -188,21 +169,15 @@ def test_single_protected_axis_value_is_not_grouped_as_ambiguous() -> None:
         RoleRestriction("R101", "C12351", anchoring_genus="C4807"),
         RoleRestriction("R101", "C32639", anchoring_genus="C5292"),
     ]
-    constituents = select_constituents(
-        roles,
-        lambda parent, child: (parent, child) == ("C12351", "C32639"),
-        concept_code="C5292",
-        semantic_type_of=lambda _code: "Anatomical Structure",
-        source_identity=_SOURCE,
-        collapse_policy=policy,
-    )
-    protected = next(
-        row
-        for row in constituents
-        if row.axis == "op:PrimarySite" and row.filler_code == "C12351"
-    )
-    assert protected.needs_review is False
-    assert protected.group is None
+    with pytest.raises(CollapsePolicyError, match=r"axis.*drift"):
+        select_constituents(
+            roles,
+            lambda parent, child: (parent, child) == ("C12351", "C32639"),
+            concept_code="C5292",
+            semantic_type_of=lambda _code: "Anatomical Structure",
+            source_identity=_SOURCE,
+            collapse_policy=policy,
+        )
 
 
 @pytest.mark.unit
@@ -311,6 +286,7 @@ def test_policy_identity_is_required_by_fingerprint_and_resume_identity() -> Non
         "schema_version": 4,
         "source_identity": _SOURCE,
         "collapse_policy_identity": _policy().policy_identity,
+        "routing_implementation_identity": "1" * 64,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
