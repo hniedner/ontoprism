@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -30,8 +31,10 @@ R101DispositionKind = Literal[
     "retained-unknown",
     "collapsed-is-a",
     "collapsed-r82",
+    "collapsed-mixed",
     "retained-policy-veto",
 ]
+SpecificityRelationKind = Literal["is-a", "r82"]
 SemanticRoute = Literal[
     "semantic-evidence-not-requested",
     "missing-p106",
@@ -51,6 +54,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _AXIS_OR_ROLE = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
 # A filler is an NCIt code or a minted proposal id (see decomposition.minting).
 _FILLER_CODE = re.compile(r"C[0-9]+|MINT-[0-9a-f]{12}")
+_MIN_MIXED_PATH_EDGES = 2
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -613,6 +617,23 @@ class Constituent:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SpecificityPathEdge:
+    """One source-bound accepted edge in a transitive mixed specificity path."""
+
+    kind: SpecificityRelationKind
+    broader_code: str
+    narrower_code: str
+    source_identity: str
+
+    def __post_init__(self) -> None:
+        _require_code(self.broader_code, _CONCEPT_CODE, "broader_code")
+        _require_code(self.narrower_code, _CONCEPT_CODE, "narrower_code")
+        _require_sha256(self.source_identity, "source_identity")
+        if self.broader_code == self.narrower_code:
+            raise ValueError("specificity path edge must connect distinct fillers")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OccurrenceDisposition:
     """The engine's exact route/reduction verdict for one source occurrence."""
 
@@ -626,6 +647,7 @@ class OccurrenceDisposition:
     semantic_type: str | None
     r82_part: str | None = None
     r82_whole: str | None = None
+    specificity_path: tuple[SpecificityPathEdge, ...] = ()
     policy_decision_identity: str | None = None
 
     def __post_init__(self) -> None:
@@ -638,6 +660,7 @@ class OccurrenceDisposition:
         if retained != (self.retained_filler == self.source_filler):
             raise ValueError("retained filler equality differs from disposition")
         _require_r82_disposition(self)
+        _require_specificity_path(self)
         _require_policy_disposition(self)
         if self.policy_decision_identity is not None:
             _require_sha256(self.policy_decision_identity, "policy_decision_identity")
@@ -653,6 +676,35 @@ def _require_r82_disposition(disposition: OccurrenceDisposition) -> None:
         return
     if disposition.r82_part is not None or disposition.r82_whole is not None:
         raise ValueError("only collapsed R82 dispositions carry R82 endpoints")
+
+
+def _require_specificity_path(disposition: OccurrenceDisposition) -> None:
+    path = disposition.specificity_path
+    if disposition.kind != "collapsed-mixed":
+        if path:
+            raise ValueError("only mixed collapse carries a specificity path")
+        return
+    if not _is_mixed_specificity_path(path):
+        raise ValueError("mixed collapse requires both specificity edge kinds")
+    if path[0].broader_code != disposition.source_filler:
+        raise ValueError("mixed specificity path does not start at source filler")
+    if path[-1].narrower_code != disposition.retained_filler:
+        raise ValueError("mixed specificity path does not end at retained filler")
+    if not _is_contiguous_specificity_path(path):
+        raise ValueError("mixed specificity path is not contiguous")
+
+
+def _is_mixed_specificity_path(path: tuple[SpecificityPathEdge, ...]) -> bool:
+    return len(path) >= _MIN_MIXED_PATH_EDGES and {edge.kind for edge in path} == {
+        "is-a",
+        "r82",
+    }
+
+
+def _is_contiguous_specificity_path(path: tuple[SpecificityPathEdge, ...]) -> bool:
+    return all(
+        left.narrower_code == right.broader_code for left, right in pairwise(path)
+    )
 
 
 def _require_policy_disposition(disposition: OccurrenceDisposition) -> None:

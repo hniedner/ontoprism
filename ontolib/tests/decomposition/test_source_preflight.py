@@ -90,6 +90,31 @@ async def test_preflight_enumerates_closure_and_distinguishes_valid_unknowns() -
 
 
 @pytest.mark.unit
+async def test_preflight_identity_binds_mixed_chain_inventory() -> None:
+    async def read(code: str) -> CompleteDefinition:
+        return _definition(code, "C2", "C3")
+
+    shared = {
+        "read_definition": read,
+        "source_identity": "a" * 64,
+        "reader_identity": "b" * 64,
+        "query_identity": "c" * 64,
+        "tool_identity": "qlever-v1",
+        "walker_max_depth": 7,
+        "max_nodes": 4096,
+    }
+    first = await run_source_preflight(
+        ("C1",), mixed_chain_inventory_identity="d" * 64, **shared
+    )
+    second = await run_source_preflight(
+        ("C1",), mixed_chain_inventory_identity="e" * 64, **shared
+    )
+
+    assert first.mixed_chain_inventory_identity == "d" * 64
+    assert first.identity != second.identity
+
+
+@pytest.mark.unit
 async def test_preflight_rejects_malformed_and_overflow() -> None:
     async def read(code: str) -> CompleteDefinition:
         if code == "C1":

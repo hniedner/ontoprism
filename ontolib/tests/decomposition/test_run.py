@@ -1446,12 +1446,55 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
 
     identity = await run_module._preflight_stage(
         _checkpoint_setup(),
-        RunConfig(branch="neoplasm"),
+        RunConfig(branch="disease"),
         MagicMock(),
         provenance,
     )
 
     assert identity == result.identity
+
+
+@pytest.mark.unit
+async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None:
+    result = await run_source_preflight(
+        (),
+        read_definition=AsyncMock(),
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=10,
+        mixed_chain_inventory_identity="d" * 64,
+    )
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="preflight",
+                state="complete",
+                output_identity=result.identity,
+                output_payload=result.model_dump(
+                    mode="json", exclude_computed_fields=True
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="mixed-chain inventory"):
+        await run_module._preflight_stage(
+            _checkpoint_setup(),
+            RunConfig(
+                branch="neoplasm",
+                mixed_chain_inventory_path=Path(
+                    "ontolib/src/ontolib/decomposition/data/"
+                    "neoplasm_mixed_chain_inventory.json"
+                ),
+            ),
+            MagicMock(),
+            provenance,
+        )
 
 
 @pytest.mark.unit

@@ -26,7 +26,11 @@ from ontolib.decomposition.filler_selection import (
 from ontolib.decomposition.filler_selection import (
     select_constituents as _select_constituents,
 )
-from ontolib.decomposition.models import OccurrenceDisposition, RoleRestriction
+from ontolib.decomposition.models import (
+    OccurrenceDisposition,
+    RoleRestriction,
+    SpecificityPathEdge,
+)
 from ontolib.decomposition.site_resolution import (
     MORPHOLOGY_TO_ORGAN,
     MORPHOLOGY_TO_PRIMARY_SUBSITES,
@@ -69,6 +73,94 @@ def select_constituents(*args: Any, **kwargs: Any):
                 "policy_decision_identity": "3" * 64,
             },
             "policy decision identity presence",
+        ),
+        (
+            {
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                )
+            },
+            "only mixed collapse",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (),
+            },
+            "both specificity edge kinds",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C40",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C25",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "does not start at source filler",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C25",
+                        narrower_code="C40",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "does not end at retained filler",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C26",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "not contiguous",
         ),
     ],
 )
@@ -739,7 +831,7 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     assert {c.axis for c in cons} == {PRIMARY_SITE_AXIS}
     assert all(c.needs_review for c in cons)
-    assert all(c.group is None for c in cons)
+    assert {c.group for c in cons} == {PRIMARY_SITE_AXIS}
 
 
 @pytest.mark.unit

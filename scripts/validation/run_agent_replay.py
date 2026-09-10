@@ -20,7 +20,7 @@ import socket
 import stat
 import subprocess
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,6 +43,8 @@ _MAX_INSPECTED_RUNS = 8
 _R101_COMPARATOR_OLD_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
 _R101_COMPARATOR_NEW_RUN = "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
+_EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
+_MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
@@ -576,6 +578,213 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
     if len(output.encode()) > _MAX_R101_INSPECTION_BYTES:
         raise AgentReplayInputError("R101 inspection output exceeds bounded byte limit")
     print(output)
+    return 0
+
+
+async def _classify_mixed_chain_delta(
+    *,
+    delta: Any,
+    rows: tuple[Any, ...],
+    client: Any,
+    source_identity: str,
+    extract: Any,
+    fs: Any,
+    inventory_module: Any,
+    models: Any,
+    stated: Any,
+) -> Any | None:
+    fillers = {row.source_filler for row in rows}
+    if (
+        delta.filler_code not in fillers
+        or len(fillers) < _MIN_SPECIFICITY_FILLERS
+        or len(delta.source_roles) != 1
+    ):
+        return None
+    ancestor_rows = await client.select(
+        stated.build_ancestor_pairs_query(fillers),
+        required_variables={"ancestor", "descendant"},
+    )
+    ancestor_pairs = extract.ancestor_pairs_from_rows(ancestor_rows)
+    part_pairs = await stated.resolve_part_of_pairs(client, fillers)
+    occurrences = tuple(
+        fs.RoutedOccurrence(
+            restriction=models.RoleRestriction(
+                role_code=row.source_role,
+                filler_code=row.source_filler,
+                anchoring_genus=row.anchoring_genus,
+                source_definition_ids=(row.source_fact_id,),
+                source_occurrence_ids=(row.source_occurrence_id,),
+                source_kind="stated",
+            ),
+            normalized_axis=row.normalized_axis,
+            semantic_route=row.semantic_route,
+            semantic_type=row.semantic_type,
+            source_fact_id=row.source_fact_id,
+            source_occurrence_id=row.source_occurrence_id,
+        )
+        for row in rows
+    )
+    plan = fs.RoutedPlan(
+        occurrences=occurrences,
+        parent_morphologies=(),
+        specificity_groups=((delta.axis, tuple(sorted(fillers))),),
+        comparison_groups=((delta.axis, tuple(sorted(fillers))),),
+        protected_pairs=frozenset(
+            (row.normalized_axis, row.source_filler)
+            for row in rows
+            if row.policy_decision_identity is not None
+        ),
+        policy_decisions=tuple(
+            (row.source_occurrence_id, row.policy_decision_identity)
+            for row in rows
+            if row.policy_decision_identity is not None
+        ),
+        source_identity=source_identity,
+    )
+    part_of = {(pair.part, pair.whole) for pair in part_pairs}
+    selected = fs.select_routed_plan(
+        plan,
+        extract.make_is_ancestor(set(ancestor_pairs)),
+        is_part_of=lambda part, whole, pairs=part_of: (part, whole) in pairs,
+    )
+    broad = tuple(
+        item
+        for item in selected.dispositions
+        if item.source_filler == delta.filler_code
+    )
+    if not broad or any(item.kind != "collapsed-mixed" for item in broad):
+        return None
+    first = broad[0]
+    if any(
+        item.retained_filler != first.retained_filler
+        or item.specificity_path != first.specificity_path
+        for item in broad
+    ):
+        return None
+    return inventory_module.MixedChainCandidate(
+        concept_code=delta.concept_code,
+        axis=delta.axis,
+        source_role=delta.source_roles[0],
+        broad_filler=delta.filler_code,
+        terminal_filler=first.retained_filler,
+        source_occurrence_ids=tuple(
+            sorted(item.source_occurrence_id for item in broad)
+        ),
+        specificity_path=first.specificity_path,
+    )
+
+
+async def _generate_mixed_chain_inventory_async(
+    report_path: Path, output: Path
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    extract = importlib.import_module("ontolib.decomposition.extract")
+    fs = importlib.import_module("ontolib.decomposition.filler_selection")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    models = importlib.import_module("ontolib.decomposition.models")
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    semantic_identity = importlib.import_module(
+        "ontolib.decomposition.semantic_identity"
+    )
+    stated = importlib.import_module("ontolib.decomposition.stated_queries")
+    ncit_client = importlib.import_module("ontolib.terminologies.ncit.client")
+    report = conservation.load_r101_conservation_report(report_path)
+    structural = report.non_r101_delta_evidence.rows
+    if len(structural) != _EXPECTED_R101_STRUCTURAL_ADDITIONS or any(
+        row.change != "added" for row in structural
+    ):
+        raise AgentReplayInputError("mixed-chain inventory requires exact 39 additions")
+    codes = tuple(sorted({row.concept_code for row in structural}))
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        run = await store.completed_comparator_run_for_evidence(report.new_run_id)
+        persisted = await store.selector_occurrences_for_codes(report.new_run_id, codes)
+    finally:
+        await database.dispose_engine(engine)
+    by_concept_axis: dict[tuple[str, str], list[Any]] = defaultdict(list)
+    for row in persisted:
+        by_concept_axis[(row.concept_code, row.normalized_axis)].append(row)
+    candidates = []
+    unclassified: set[str] = set()
+    async with ncit_client.ncit_sparql_client(settings.ncit_sparql_url) as client:
+        for delta in structural:
+            rows = tuple(by_concept_axis[(delta.concept_code, delta.axis)])
+            candidate = await _classify_mixed_chain_delta(
+                delta=delta,
+                rows=rows,
+                client=client,
+                source_identity=run.fingerprint.source_identity,
+                extract=extract,
+                fs=fs,
+                inventory_module=inventory_module,
+                models=models,
+                stated=stated,
+            )
+            if candidate is None:
+                unclassified.add(delta.concept_code)
+                continue
+            candidates.append(candidate)
+    inventory = inventory_module.MixedChainInventory.create(
+        source_identity=run.fingerprint.source_identity,
+        worklist_identity=inventory_module.mixed_chain_worklist_identity(
+            run.fingerprint.worklist
+        ),
+        worklist_count=len(run.fingerprint.worklist),
+        selector_identity=semantic_identity.routing_implementation_identity(),
+        source_run_id=run.run_id,
+        source_report_identity=report.report_identity,
+        candidates=tuple(candidates),
+        unclassified_codes=tuple(unclassified),
+    )
+    inventory_module.write_mixed_chain_inventory(output, inventory)
+    print(json.dumps(inventory.model_dump(mode="json"), sort_keys=True, indent=2))
+
+
+def _generate_mixed_chain_inventory(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-mixed-chain-inventory accepts no arguments"
+        )
+    report = (
+        root / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-conservation.json.gz"
+    )
+    output = root / "tmp/m1-6-mixed-chain-inventory.json"
+    output.unlink(missing_ok=True)
+    asyncio.run(_generate_mixed_chain_inventory_async(report, output))
+    return 0
+
+
+def _record_mixed_chain_inventory(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError("record-mixed-chain-inventory accepts no arguments")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    source = root / "tmp/m1-6-mixed-chain-inventory.json"
+    target = (
+        root / "ontolib/src/ontolib/decomposition/data/"
+        "neoplasm_mixed_chain_inventory.json"
+    )
+    inventory = inventory_module.load_mixed_chain_inventory(source)
+    if (
+        inventory.candidate_count != _EXPECTED_R101_STRUCTURAL_ADDITIONS
+        or inventory.unclassified_codes
+    ):
+        raise AgentReplayInputError("mixed-chain inventory is not complete")
+    inventory_module.write_mixed_chain_inventory(target, inventory)
+    print(f"recorded {inventory.identity} at {target.relative_to(root)}")
     return 0
 
 
@@ -3154,6 +3363,8 @@ _OPERATIONS: dict[str, Operation] = {
     "promote-current-r101-evidence": _promote_current_r101_evidence,
     "record-current-r101-diagnostic": _record_current_r101_diagnostic,
     "inspect-r101-report": _inspect_r101_report,
+    "generate-mixed-chain-inventory": _generate_mixed_chain_inventory,
+    "record-mixed-chain-inventory": _record_mixed_chain_inventory,
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,

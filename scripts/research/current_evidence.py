@@ -162,12 +162,20 @@ class CurrentConstituent(_StrictModel):
         return self
 
 
+class CurrentSpecificityPathEdge(_StrictModel):
+    kind: Literal["is-a", "r82"]
+    broader_code: str = Field(pattern=r"^C[0-9]+$")
+    narrower_code: str = Field(pattern=r"^C[0-9]+$")
+    source_identity: str = Field(pattern=_SHA256)
+
+
 class CurrentOccurrenceDisposition(_StrictModel):
     kind: Literal[
         "retained-routed",
         "retained-unknown",
         "collapsed-is-a",
         "collapsed-r82",
+        "collapsed-mixed",
         "retained-policy-veto",
     ]
     source_occurrence: CurrentSourceOccurrence
@@ -177,6 +185,9 @@ class CurrentOccurrenceDisposition(_StrictModel):
     retained_pair: tuple[str, str]
     r82_part: str | None
     r82_whole: str | None
+    specificity_path: tuple[CurrentSpecificityPathEdge, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     policy_decision_identity: str | None
 
     @model_validator(mode="after")
@@ -195,6 +206,9 @@ class CurrentOccurrenceDisposition(_StrictModel):
             self.r82_whole,
         ) != (self.retained_pair[1], self.source_occurrence.filler_code):
             raise ValueError("R82 endpoints differ from disposition")
+        mixed = self.kind == "collapsed-mixed"
+        if mixed != bool(self.specificity_path):
+            raise ValueError("mixed specificity path presence differs from disposition")
         if (self.kind == "retained-policy-veto") != (
             self.policy_decision_identity is not None
         ):
@@ -651,6 +665,15 @@ def _disposition_documents(
                 retained_pair=retained_pair,
                 r82_part=item.r82_part,
                 r82_whole=item.r82_whole,
+                specificity_path=tuple(
+                    CurrentSpecificityPathEdge(
+                        kind=edge.kind,
+                        broader_code=edge.broader_code,
+                        narrower_code=edge.narrower_code,
+                        source_identity=edge.source_identity,
+                    )
+                    for edge in item.specificity_path
+                ),
                 policy_decision_identity=item.policy_decision_identity,
             )
         )

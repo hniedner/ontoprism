@@ -68,6 +68,11 @@ from ontolib.decomposition.collapse_policy import (
     load_packaged_collapse_veto_policy,
 )
 from ontolib.decomposition.legacy_writer import write_ttl
+from ontolib.decomposition.mixed_chain_inventory import (
+    load_mixed_chain_inventory,
+    mixed_chain_worklist_identity,
+    require_mixed_chain_preflight,
+)
 from ontolib.decomposition.models import (
     CompleteDefinition,
     ConceptOutcome,
@@ -199,6 +204,7 @@ class RunConfig:
         resume_from: str | None = None,
         walker_max_depth: int = 5,
         sample_manifest: DecompositionSampleManifest | None = None,
+        mixed_chain_inventory_path: Path | None = None,
     ) -> None:
         self.branch = parse_branch(branch)
         self.out = out
@@ -207,6 +213,7 @@ class RunConfig:
         self.resume_from = resume_from
         self.walker_max_depth = walker_max_depth
         self.sample_manifest = sample_manifest
+        self.mixed_chain_inventory_path = mixed_chain_inventory_path
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -1463,6 +1470,19 @@ async def _preflight_stage(
             await provenance.fail_stage(setup.run_id, "preflight", claim, exc)
             raise
     _require_preflight_allowed(result)
+    required_inventory = _required_mixed_chain_inventory_identity(
+        config,
+        source_identity=setup.fingerprint.source_identity,
+        worklist=setup.fingerprint.worklist,
+        routing_identity=setup.fingerprint.routing_implementation_identity,
+    )
+    if (
+        required_inventory is not None
+        and result.mixed_chain_inventory_identity != required_inventory
+    ):
+        raise SourcePreflightRejectedError(
+            "source preflight rejected stale mixed-chain inventory"
+        )
     return output_identity
 
 
@@ -1480,6 +1500,17 @@ async def _source_preflight_result(
             code,
         )
 
+    inventory_identity = _required_mixed_chain_inventory_identity(
+        config,
+        source_identity=source_identity,
+        worklist=worklist,
+        routing_identity=routing_identity,
+    )
+    kwargs = (
+        {"mixed_chain_inventory_identity": inventory_identity}
+        if inventory_identity is not None
+        else {}
+    )
     return await run_source_preflight(
         worklist,
         read_definition=read_definition,
@@ -1489,7 +1520,33 @@ async def _source_preflight_result(
         tool_identity=await client.version() or "missing-version",
         walker_max_depth=config.walker_max_depth,
         max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
+        **kwargs,
     )
+
+
+def _required_mixed_chain_inventory_identity(
+    config: RunConfig,
+    *,
+    source_identity: str,
+    worklist: tuple[str, ...],
+    routing_identity: str,
+) -> str | None:
+    if config.mixed_chain_inventory_path is None:
+        return None
+    try:
+        inventory = load_mixed_chain_inventory(config.mixed_chain_inventory_path)
+        require_mixed_chain_preflight(
+            inventory,
+            source_identity=source_identity,
+            worklist_identity=mixed_chain_worklist_identity(worklist),
+            worklist_count=len(worklist),
+            selector_identity=routing_identity,
+        )
+    except (OSError, ValueError) as exc:
+        raise SourcePreflightRejectedError(
+            f"source preflight rejected mixed-chain inventory: {exc}"
+        ) from exc
+    return inventory.identity
 
 
 def _require_preflight_allowed(result: SourcePreflightResult) -> None:

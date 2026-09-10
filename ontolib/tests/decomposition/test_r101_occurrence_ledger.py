@@ -501,6 +501,44 @@ def test_engine_disposition_rejects_impossible_filler_and_route_states(
 
 
 @pytest.mark.unit
+def test_engine_disposition_accepts_source_bound_mixed_path() -> None:
+    disposition = EngineOccurrenceDisposition.model_validate(
+        {
+            "kind": "collapsed-mixed",
+            "source_occurrence_id": "1" * 64,
+            "source_fact_id": "2" * 64,
+            "normalized_axis": "op:MetastaticSite",
+            "source_filler": "C30",
+            "retained_filler": "C10",
+            "semantic_route": "p106-organ",
+            "semantic_type": "Body Part, Organ, or Organ Component",
+            "r82_part": None,
+            "r82_whole": None,
+            "specificity_path": [
+                {
+                    "kind": "is-a",
+                    "broader_code": "C30",
+                    "narrower_code": "C20",
+                    "source_identity": "3" * 64,
+                },
+                {
+                    "kind": "r82",
+                    "broader_code": "C20",
+                    "narrower_code": "C10",
+                    "source_identity": "3" * 64,
+                },
+            ],
+            "policy_decision_identity": None,
+        }
+    )
+
+    assert tuple(edge.kind for edge in disposition.specificity_path) == (
+        "is-a",
+        "r82",
+    )
+
+
+@pytest.mark.unit
 def test_one_step_and_closure_are_the_only_r82_evidence_count_partitions() -> None:
     assert "retained_direct" not in LedgerCounts.model_fields
     assert "retained-direct" not in json.dumps(

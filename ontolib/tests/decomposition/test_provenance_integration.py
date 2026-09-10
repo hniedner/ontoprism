@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import hashlib
+import json
 from pathlib import Path
 
 import asyncpg
@@ -486,6 +487,40 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
                 await conn.execute(
                     "UPDATE decomp_occurrence_disposition "
                     "SET retained_filler = 'C999' WHERE run_id = $1",
+                    _RUN_ID,
+                )
+        finally:
+            await transaction.rollback()
+        transaction = conn.transaction()
+        await transaction.start()
+        try:
+            mixed_path = json.dumps(
+                [
+                    {
+                        "kind": "is-a",
+                        "broader_code": "C12400",
+                        "narrower_code": "C1",
+                        "source_identity": "a" * 64,
+                    },
+                    {
+                        "kind": "r82",
+                        "broader_code": "C1",
+                        "narrower_code": "C999",
+                        "source_identity": "a" * 64,
+                    },
+                ]
+            )
+            await conn.execute(
+                "UPDATE decomp_occurrence_disposition SET disposition = "
+                "'collapsed-mixed', retained_filler = 'C999', "
+                "specificity_path = $2::jsonb WHERE run_id = $1",
+                _RUN_ID,
+                mixed_path,
+            )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "UPDATE decomp_occurrence_disposition "
+                    "SET specificity_path = '[]'::jsonb WHERE run_id = $1",
                     _RUN_ID,
                 )
         finally:

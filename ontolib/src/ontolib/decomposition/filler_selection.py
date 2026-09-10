@@ -22,6 +22,8 @@ from ontolib.decomposition.models import (
     R101DispositionKind,
     RoleRestriction,
     SemanticRoute,
+    SpecificityPathEdge,
+    SpecificityRelationKind,
 )
 from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
@@ -71,6 +73,7 @@ class RoutedPlan:
     comparison_groups: tuple[tuple[str, tuple[str, ...]], ...]
     protected_pairs: frozenset[tuple[str, str]]
     policy_decisions: tuple[tuple[str, str], ...]
+    source_identity: str | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -78,6 +81,13 @@ class RoutedSelection:
     constituents: tuple[Constituent, ...]
     dispositions: tuple[OccurrenceDisposition, ...]
     synthetic_occurrence_count: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CollapseDecision:
+    retained_filler: str
+    relation_kind: R101DispositionKind
+    specificity_path: tuple[SpecificityPathEdge, ...] = ()
 
 
 def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -> bool:
@@ -324,6 +334,7 @@ def build_routed_plan(
         comparison_groups=_comparison_groups(routed, location_only=True),
         protected_pairs=protected_pairs,
         policy_decisions=policy_decisions,
+        source_identity=source_identity,
     )
 
 
@@ -339,7 +350,7 @@ def _relation_kind(
     narrower: str,
     is_ancestor: IsAncestor,
     is_part_of: IsPartOf,
-) -> str | None:
+) -> SpecificityRelationKind | None:
     forward_isa, reverse_isa = _directed_relation(broader, narrower, is_ancestor)
     forward_r82, reverse_r82 = _directed_r82_relation(
         axis_name, broader, narrower, is_part_of
@@ -349,9 +360,9 @@ def _relation_kind(
             "specificity relation contains a cycle or mutually broader pair"
         )
     if forward_isa:
-        return "collapsed-is-a"
+        return "is-a"
     if forward_r82:
-        return "collapsed-r82"
+        return "r82"
     return None
 
 
@@ -395,8 +406,8 @@ def _specificity_relations(
     fillers: set[str],
     is_ancestor: IsAncestor,
     is_part_of: IsPartOf,
-) -> dict[tuple[str, str], str]:
-    relations: dict[tuple[str, str], str] = {}
+) -> dict[tuple[str, str], SpecificityRelationKind]:
+    relations: dict[tuple[str, str], SpecificityRelationKind] = {}
     for broader in sorted(fillers):
         for narrower in sorted(fillers - {broader}):
             kind = _relation_kind(axis_name, broader, narrower, is_ancestor, is_part_of)
@@ -407,20 +418,83 @@ def _specificity_relations(
 
 def _collapsed_fillers(
     eligible_fillers: set[str],
-    relations: dict[tuple[str, str], str],
+    relations: dict[tuple[str, str], SpecificityRelationKind],
     protected_fillers: set[str],
-) -> dict[str, tuple[str, str]]:
-    leaves = eligible_fillers - {broader for broader, _narrower in relations}
-    collapsed: dict[str, tuple[str, str]] = {}
+    source_identity: str | None,
+) -> dict[str, CollapseDecision]:
+    outgoing: dict[str, list[tuple[str, SpecificityRelationKind]]] = defaultdict(list)
+    for (broader, narrower), kind in relations.items():
+        outgoing[broader].append((narrower, kind))
+    collapsed: dict[str, CollapseDecision] = {}
     for broader in sorted(eligible_fillers - protected_fillers):
-        candidates = [
-            (narrower, kind)
-            for (candidate_broader, narrower), kind in relations.items()
-            if candidate_broader == broader and narrower in leaves
-        ]
-        if candidates:
-            collapsed[broader] = candidates[0]
+        decision = _collapse_decision(
+            _terminal_paths(broader, outgoing), source_identity
+        )
+        if decision is not None:
+            collapsed[broader] = decision
     return collapsed
+
+
+SpecificityPath = tuple[tuple[str, str, SpecificityRelationKind], ...]
+
+
+def _terminal_paths(
+    broader: str,
+    outgoing: dict[str, list[tuple[str, SpecificityRelationKind]]],
+) -> list[SpecificityPath]:
+    if not outgoing[broader]:
+        return [()]
+    return [
+        ((broader, narrower, kind), *suffix)
+        for narrower, kind in sorted(outgoing[broader])
+        for suffix in _terminal_paths(narrower, outgoing)
+    ]
+
+
+def _collapse_decision(
+    candidate_paths: list[SpecificityPath], source_identity: str | None
+) -> CollapseDecision | None:
+    paths = [path for path in candidate_paths if path]
+    terminals = {path[-1][1] for path in paths}
+    if len(terminals) != 1:
+        return None
+    path = min(paths, key=lambda value: (len(value), value))
+    relation_kind = _path_disposition_kind(path)
+    specificity_path = _mixed_path_evidence(path, relation_kind, source_identity)
+    return CollapseDecision(
+        retained_filler=next(iter(terminals)),
+        relation_kind=relation_kind,
+        specificity_path=specificity_path,
+    )
+
+
+def _path_disposition_kind(path: SpecificityPath) -> R101DispositionKind:
+    kinds = {edge[2] for edge in path}
+    if kinds == {"is-a"}:
+        return "collapsed-is-a"
+    if kinds == {"r82"}:
+        return "collapsed-r82"
+    return "collapsed-mixed"
+
+
+def _mixed_path_evidence(
+    path: SpecificityPath,
+    relation_kind: R101DispositionKind,
+    source_identity: str | None,
+) -> tuple[SpecificityPathEdge, ...]:
+    if relation_kind != "collapsed-mixed":
+        return ()
+    if source_identity is None:
+        raise ValueError("mixed specificity path lacks source identity")
+    return tuple(
+        SpecificityPathEdge(
+            kind=kind,
+            broader_code=broader,
+            narrower_code=narrower,
+            source_identity=source_identity,
+        )
+        for broader, narrower, kind in path
+    )
 
 
 def _selected_fillers(
@@ -429,7 +503,8 @@ def _selected_fillers(
     is_ancestor: IsAncestor,
     is_part_of: IsPartOf,
     protected_pairs: frozenset[tuple[str, str]],
-) -> tuple[set[str], dict[str, tuple[str, str]]]:
+    source_identity: str | None,
+) -> tuple[set[str], dict[str, CollapseDecision]]:
     fillers = {row.restriction.filler_code for row in occurrences}
     eligible_fillers = _eligible_fillers(fillers, occurrences)
     if len(eligible_fillers) < _MIN_COMPARISON_FILLERS:
@@ -443,12 +518,15 @@ def _selected_fillers(
         axis_name, eligible_fillers, is_ancestor, is_part_of
     )
     _require_acyclic_specificity(eligible_fillers, relations)
-    collapsed = _collapsed_fillers(eligible_fillers, relations, protected_fillers)
+    collapsed = _collapsed_fillers(
+        eligible_fillers, relations, protected_fillers, source_identity
+    )
     return fillers - collapsed.keys(), collapsed
 
 
 def _require_acyclic_specificity(
-    fillers: set[str], relations: dict[tuple[str, str], str]
+    fillers: set[str],
+    relations: dict[tuple[str, str], SpecificityRelationKind],
 ) -> None:
     descendants: dict[str, set[str]] = defaultdict(set)
     for broader, narrower in relations:
@@ -476,7 +554,7 @@ def _constituent_from_routed(
     filler: str,
     occurrences: tuple[RoutedOccurrence, ...],
     retained_count: int,
-    collapsed: dict[str, tuple[str, str]],
+    collapsed: dict[str, CollapseDecision],
     policy_protected_axis: bool,
 ) -> Constituent:
     rows = tuple(row for row in occurrences if row.restriction.filler_code == filler)
@@ -493,7 +571,7 @@ def _constituent_from_routed(
         policy_protected_axis=policy_protected_axis,
     )
     chosen_over_broader = any(
-        retained == filler for retained, _kind in collapsed.values()
+        decision.retained_filler == filler for decision in collapsed.values()
     )
     return Constituent(
         axis=axis_name,
@@ -533,7 +611,7 @@ def _has_unknown_route(rows: tuple[RoutedOccurrence, ...]) -> bool:
 
 def _known_retained_count(
     occurrences: tuple[RoutedOccurrence, ...],
-    collapsed: dict[str, tuple[str, str]],
+    collapsed: dict[str, CollapseDecision],
 ) -> int:
     return len(
         {
@@ -564,6 +642,8 @@ def _review_fields(
         _relationship_group(
             axis_name,
             retained_count=retained_count,
+            known_retained_count=known_retained_count,
+            unknown=unknown,
             routed_exempt=routed_exempt,
             policy_protected_axis=policy_protected_axis,
         ),
@@ -588,6 +668,8 @@ def _relationship_group(
     axis_name: str,
     *,
     retained_count: int,
+    known_retained_count: int,
+    unknown: bool,
     routed_exempt: bool,
     policy_protected_axis: bool,
 ) -> str | None:
@@ -597,32 +679,44 @@ def _relationship_group(
         return axis_name
     if routed_exempt and axis_name != axes.ASSOCIATED_LINEAGE_AXIS:
         return axis_name
+    if _requires_ambiguity_group(unknown, routed_exempt, known_retained_count):
+        return axis_name
     return None
+
+
+def _requires_ambiguity_group(
+    unknown: bool, routed_exempt: bool, known_retained_count: int
+) -> bool:
+    return not unknown and not routed_exempt and known_retained_count > 1
 
 
 def _disposition_reduction(
     occurrence: RoutedOccurrence,
     occurrence_id: str,
-    collapsed: dict[str, tuple[str, str]],
+    collapsed: dict[str, CollapseDecision],
     policy_decisions: dict[str, str],
-) -> tuple[str, str, str | None]:
+) -> tuple[R101DispositionKind, str, tuple[SpecificityPathEdge, ...]]:
     filler = occurrence.restriction.filler_code
     if occurrence_id in policy_decisions:
-        return "retained-policy-veto", filler, None
+        return "retained-policy-veto", filler, ()
     if filler in collapsed:
-        retained, relation_kind = collapsed[filler]
-        return relation_kind, retained, relation_kind
+        decision = collapsed[filler]
+        return (
+            decision.relation_kind,
+            decision.retained_filler,
+            decision.specificity_path,
+        )
     kind = (
         "retained-unknown"
         if occurrence.semantic_route in {"missing-p106", "unknown-role"}
         else "retained-routed"
     )
-    return kind, filler, None
+    return cast("R101DispositionKind", kind), filler, ()
 
 
 def _disposition(
     occurrence: RoutedOccurrence,
-    collapsed: dict[str, tuple[str, str]],
+    collapsed: dict[str, CollapseDecision],
     policy_decisions: dict[str, str],
 ) -> OccurrenceDisposition | None:
     occurrence_id = occurrence.source_occurrence_id
@@ -634,11 +728,11 @@ def _disposition(
             "stated restriction requires source occurrence and fact identities"
         )
     filler = occurrence.restriction.filler_code
-    kind, retained, relation_kind = _disposition_reduction(
+    kind, retained, specificity_path = _disposition_reduction(
         occurrence, occurrence_id, collapsed, policy_decisions
     )
     return OccurrenceDisposition(
-        kind=cast("R101DispositionKind", kind),
+        kind=kind,
         source_occurrence_id=occurrence_id,
         source_fact_id=fact_id,
         normalized_axis=occurrence.normalized_axis,
@@ -646,8 +740,9 @@ def _disposition(
         retained_filler=retained,
         semantic_route=occurrence.semantic_route,
         semantic_type=occurrence.semantic_type,
-        r82_part=retained if relation_kind == "collapsed-r82" else None,
-        r82_whole=filler if relation_kind == "collapsed-r82" else None,
+        r82_part=retained if kind == "collapsed-r82" else None,
+        r82_whole=filler if kind == "collapsed-r82" else None,
+        specificity_path=specificity_path,
         policy_decision_identity=policy_decisions.get(occurrence_id),
     )
 
@@ -666,6 +761,7 @@ def _select_axis_partition(
         is_ancestor,
         part_of,
         plan.protected_pairs,
+        plan.source_identity,
     )
     protected = any(pair_axis == axis_name for pair_axis, _ in plan.protected_pairs)
     constituents = [

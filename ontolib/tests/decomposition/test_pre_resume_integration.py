@@ -360,9 +360,10 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
                     "(run_id, concept_code, occurrence_id, source_fact_id, "
                     "disposition, "
                     "normalized_axis, source_filler, retained_filler, semantic_route, "
-                    "semantic_type) VALUES ($1, 'C1', $2, $3, 'retained-routed', "
+                    "semantic_type, specificity_path) VALUES "
+                    "($1, 'C1', $2, $3, 'retained-routed', "
                     "'op:AssociatedRegion', 'C10', 'C10', "
-                    "'p106-non-organ-anatomy', 'Anatomical Structure')",
+                    "'p106-non-organ-anatomy', 'Anatomical Structure', '[]'::jsonb)",
                     run_id,
                     occurrence_id,
                     "c" * 64,

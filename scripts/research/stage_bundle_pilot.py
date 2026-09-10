@@ -83,6 +83,7 @@ _SOURCE_IDENTITY = "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c3436
 _STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
 _METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
 _SOURCE_OCCURRENCE_COUNT = 304
+_MIN_MIXED_PATH_EDGES = 2
 _ANCHOR_PART_COUNT = 2
 _RETAINED_PAIR_PART_COUNT = 2
 _CORRECTION_PROVENANCE = frozenset(get_args(PairProvenance))
@@ -1273,6 +1274,10 @@ def _engine_r101_dispositions(  # noqa: C901, PLR0912
                     raise ValueError(
                         "engine R101 R82 evidence diverges from disposition"
                     )
+            elif kind == "collapsed-mixed":
+                path = raw.get("specificity_path")
+                if not isinstance(path, list) or len(path) < _MIN_MIXED_PATH_EDGES:
+                    raise ValueError("engine R101 mixed specificity path is invalid")
             elif kind != "collapsed-is-a":
                 raise ValueError("engine R101 disposition kind is invalid")
             key = (code, fact_id)
@@ -1289,6 +1294,7 @@ def _engine_r101_dispositions(  # noqa: C901, PLR0912
                 "semantic_type": raw.get("semantic_type"),
                 "r82_part": raw.get("r82_part"),
                 "r82_whole": raw.get("r82_whole"),
+                "specificity_path": raw.get("specificity_path", []),
                 "policy_decision_identity": raw.get("policy_decision_identity"),
             }
     return result

@@ -22,6 +22,9 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance_models import CompletionRunMetrics
 
 ReadDefinition = Callable[[str], Awaitable[CompleteDefinition]]
+_NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
+    b"no-mixed-chain-inventory"
+).hexdigest()
 
 
 class SourcePreflightResult(BaseModel):
@@ -34,6 +37,7 @@ class SourcePreflightResult(BaseModel):
     worklist_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reader_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     query_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     tool_identity: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
     max_nodes: int = Field(gt=0)
@@ -136,6 +140,7 @@ async def run_source_preflight(
     tool_identity: str,
     walker_max_depth: int,
     max_nodes: int,
+    mixed_chain_inventory_identity: str = _NO_MIXED_CHAIN_INVENTORY_IDENTITY,
 ) -> SourcePreflightResult:
     """Census exact roots plus conservative defined-genus and filler closure."""
     queue = deque((code, True) for code in worklist)
@@ -172,6 +177,7 @@ async def run_source_preflight(
         worklist_identity=_worklist_identity(worklist),
         reader_identity=reader_identity,
         query_identity=query_identity,
+        mixed_chain_inventory_identity=mixed_chain_inventory_identity,
         tool_identity=tool_identity,
         walker_max_depth=walker_max_depth,
         max_nodes=max_nodes,

@@ -7,6 +7,7 @@ import datetime
 import json as _json
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
     from ontolib.decomposition.minting import MintedConcept as MintedProposal
+    from ontolib.decomposition.mixed_chain_inventory import PersistedSelectorOccurrence
     from ontolib.decomposition.models import (
         CompleteDefinition,
         Constituent,
@@ -42,6 +44,7 @@ from ontolib.decomposition.models import (
     OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
+    SpecificityPathEdge,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE,
@@ -63,6 +66,7 @@ from ontolib.decomposition.provenance_models import (
 )
 
 _logger = logging.getLogger(__name__)
+_MAX_BOUNDED_SELECTOR_CODES = 100
 
 
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
@@ -621,6 +625,11 @@ def _occurrence_disposition_rows(
             "semantic_type": row.semantic_type,
             "r82_part": row.r82_part,
             "r82_whole": row.r82_whole,
+            "specificity_path": _json.dumps(
+                [asdict(edge) for edge in row.specificity_path],
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             "policy_decision_identity": row.policy_decision_identity,
         }
         for row in dispositions
@@ -740,10 +749,12 @@ async def _persist_completion_rows(
         "INSERT INTO decomp_occurrence_disposition "
         "(run_id, concept_code, occurrence_id, source_fact_id, disposition, "
         "normalized_axis, source_filler, retained_filler, semantic_route, "
-        "semantic_type, r82_part, r82_whole, policy_decision_identity) VALUES "
+        "semantic_type, r82_part, r82_whole, specificity_path, "
+        "policy_decision_identity) VALUES "
         "(:run_id, :concept_code, :occurrence_id, :source_fact_id, :disposition, "
         ":normalized_axis, :source_filler, :retained_filler, :semantic_route, "
-        ":semantic_type, :r82_part, :r82_whole, :policy_decision_identity)",
+        ":semantic_type, :r82_part, :r82_whole, CAST(:specificity_path AS jsonb), "
+        ":policy_decision_identity)",
         _occurrence_disposition_rows(run_id, concept_code, dispositions),
     )
     await _insert_completion_rows(
@@ -1110,7 +1121,8 @@ async def _load_decomposition_rows(
         text(
             "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
             "normalized_axis, source_filler, retained_filler, semantic_route, "
-            "semantic_type, r82_part, r82_whole, policy_decision_identity "
+            "semantic_type, r82_part, r82_whole, specificity_path, "
+            "policy_decision_identity "
             "FROM decomp_occurrence_disposition WHERE run_id = :run_id "
             "ORDER BY concept_code, occurrence_id"
         ),
@@ -1286,6 +1298,14 @@ def _dispositions_by_code(
                 semantic_type=row["semantic_type"],
                 r82_part=row["r82_part"],
                 r82_whole=row["r82_whole"],
+                specificity_path=tuple(
+                    SpecificityPathEdge(**item)
+                    for item in (
+                        _json.loads(row["specificity_path"])
+                        if isinstance(row["specificity_path"], str)
+                        else row["specificity_path"]
+                    )
+                ),
                 policy_decision_identity=row["policy_decision_identity"],
             )
         )
@@ -2251,6 +2271,38 @@ class ProvenanceStore:
         """Return cumulative counters over the materialized exact worklist."""
         async with self._sf() as session:
             return await _persisted_outcome_counts(session, run_id)
+
+    async def selector_occurrences_for_codes(
+        self, run_id: str, concept_codes: tuple[str, ...]
+    ) -> tuple[PersistedSelectorOccurrence, ...]:
+        """Load exact persisted routed occurrences for a bounded concept set."""
+        from ontolib.decomposition.mixed_chain_inventory import (  # noqa: PLC0415
+            PersistedSelectorOccurrence,
+        )
+
+        if not concept_codes or len(concept_codes) > _MAX_BOUNDED_SELECTOR_CODES:
+            raise ValueError("selector occurrence request must contain 1-100 codes")
+        if tuple(sorted(set(concept_codes))) != concept_codes:
+            raise ValueError("selector occurrence codes must be canonical and unique")
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT d.concept_code, d.occurrence_id AS source_occurrence_id, "
+                    "d.source_fact_id, o.role_code AS source_role, "
+                    "o.anchor_code AS anchoring_genus, d.normalized_axis, "
+                    "d.source_filler, d.semantic_route, d.semantic_type, "
+                    "d.policy_decision_identity FROM decomp_occurrence_disposition d "
+                    "JOIN decomp_source_occurrence o USING "
+                    "(run_id, concept_code, occurrence_id) WHERE d.run_id = :run_id "
+                    "AND d.concept_code = ANY(CAST(:codes AS text[])) "
+                    "ORDER BY d.concept_code, d.normalized_axis, d.occurrence_id"
+                ),
+                {"run_id": run_id, "codes": list(concept_codes)},
+            )
+            rows = result.mappings().all()
+        return tuple(
+            PersistedSelectorOccurrence.model_validate(dict(row)) for row in rows
+        )
 
     async def corpus_baseline_aggregate(self, run_id: str) -> CorpusBaselineAggregate:
         """Aggregate the complete baseline payload in one bounded SQL query."""

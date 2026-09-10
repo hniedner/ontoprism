@@ -230,6 +230,68 @@ def test_transitive_collapse_disposition_names_the_surviving_leaf() -> None:
 
 
 @pytest.mark.unit
+def test_mixed_chain_collapses_to_terminal_with_truthful_path() -> None:
+    rows = tuple(
+        _restriction(code, role="R100", fact=str(index) * 64, occurrence=letter * 64)
+        for index, (code, letter) in enumerate(
+            (("C1", "a"), ("C2", "b"), ("C3", "c")), start=1
+        )
+    )
+    plan = build_routed_plan(
+        rows,
+        concept_code="C9000",
+        source_identity=_SOURCE,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    result = select_routed_plan(
+        plan,
+        lambda broader, narrower: (broader, narrower) == ("C1", "C2"),
+        is_part_of=lambda part, whole: (part, whole) == ("C3", "C2"),
+    )
+
+    assert [
+        (row.axis, row.filler_code, row.most_specific) for row in result.constituents
+    ] == [("op:AssociatedSite", "C3", True)]
+    by_occurrence = {row.source_occurrence_id: row for row in result.dispositions}
+    broad = by_occurrence["a" * 64]
+    assert (
+        broad.kind,
+        broad.retained_filler,
+        broad.source_fact_id,
+        broad.source_occurrence_id,
+    ) == ("collapsed-mixed", "C3", "1" * 64, "a" * 64)
+    assert [
+        (edge.kind, edge.broader_code, edge.narrower_code, edge.source_identity)
+        for edge in broad.specificity_path
+    ] == [
+        ("is-a", "C1", "C2", _SOURCE),
+        ("r82", "C2", "C3", _SOURCE),
+    ]
+    assert by_occurrence["b" * 64].kind == "collapsed-r82"
+    assert by_occurrence["c" * 64].kind == "retained-routed"
+
+
+@pytest.mark.unit
+def test_known_nonexempt_ambiguity_has_axis_bound_review_group() -> None:
+    plan = build_routed_plan(
+        (
+            _restriction("C1", role="R105", fact="1" * 64, occurrence="1" * 64),
+            _restriction("C2", role="R105", fact="2" * 64, occurrence="2" * 64),
+        ),
+        concept_code="C9000",
+        source_identity=_SOURCE,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    result = select_routed_plan(plan, lambda _broader, _narrower: False)
+
+    assert {(row.needs_review, row.group) for row in result.constituents} == {
+        (True, "op:CellType")
+    }
+
+
+@pytest.mark.unit
 def test_r82_reverse_cross_axis_and_nonlocation_relations_do_not_collapse() -> None:
     rows = (
         _restriction("C1", fact="1" * 64, occurrence="1" * 64),

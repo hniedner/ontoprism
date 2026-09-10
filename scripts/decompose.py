@@ -167,6 +167,15 @@ async def _run(
         resume_from=resume,
         walker_max_depth=walker_max_depth,
         sample_manifest=sample,
+        mixed_chain_inventory_path=(
+            Path(__file__).resolve().parents[1]
+            / "ontolib/src/ontolib/decomposition/data/"
+            "neoplasm_mixed_chain_inventory.json"
+            if branch is DecompositionBranch.NEOPLASM
+            and sample is None
+            and total_limit is None
+            else None
+        ),
     )
     if sample is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")

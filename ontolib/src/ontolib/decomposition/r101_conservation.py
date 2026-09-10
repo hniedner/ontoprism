@@ -17,7 +17,7 @@ from contextlib import suppress
 from itertools import pairwise
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import to_jsonable_python
 
 from ontolib.decomposition.models import SemanticRoute
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _CODE = r"^C[0-9]+$"
+_MIN_MIXED_PATH_EDGES = 2
 R101_CONSERVATION_SCHEMA_VERSION = 3
 _GZIP_HEADER_SIZE = 10
 _HISTORICAL_V4_QUERY_IDENTITY = (
@@ -241,6 +242,31 @@ class OccurrenceInput(_StrictModel):
         return self
 
 
+class EngineSpecificityPathEdge(_StrictModel):
+    kind: Literal["is-a", "r82"]
+    broader_code: str = Field(pattern=_CODE)
+    narrower_code: str = Field(pattern=_CODE)
+    source_identity: str = Field(pattern=_SHA256)
+
+
+def _engine_specificity_path(value: object) -> object:
+    if not isinstance(value, (tuple, list)):
+        return value
+    return tuple(
+        EngineSpecificityPathEdge.model_validate(
+            edge
+            if isinstance(edge, dict)
+            else {
+                "kind": edge.kind,
+                "broader_code": edge.broader_code,
+                "narrower_code": edge.narrower_code,
+                "source_identity": edge.source_identity,
+            }
+        )
+        for edge in value
+    )
+
+
 class EngineOccurrenceDisposition(_StrictModel):
     """The new engine's source-bound disposition consumed by conservation."""
 
@@ -249,6 +275,7 @@ class EngineOccurrenceDisposition(_StrictModel):
         "retained-unknown",
         "collapsed-is-a",
         "collapsed-r82",
+        "collapsed-mixed",
         "retained-policy-veto",
     ]
     source_occurrence_id: str = Field(pattern=_SHA256)
@@ -260,7 +287,13 @@ class EngineOccurrenceDisposition(_StrictModel):
     semantic_type: str | None
     r82_part: str | None = Field(default=None, pattern=_CODE)
     r82_whole: str | None = Field(default=None, pattern=_CODE)
+    specificity_path: tuple[EngineSpecificityPathEdge, ...] = ()
     policy_decision_identity: str | None = Field(default=None, pattern=_SHA256)
+
+    @field_validator("specificity_path", mode="before")
+    @classmethod
+    def _parse_specificity_path(cls, value: object) -> object:
+        return _engine_specificity_path(value)
 
     @model_validator(mode="after")
     def _evidence_matches_kind(self) -> Self:
@@ -297,6 +330,30 @@ def _validate_engine_disposition(disposition: EngineOccurrenceDisposition) -> No
     for valid, message in requirements:
         if not valid:
             raise ValueError(message)
+    _validate_engine_mixed_path(disposition)
+
+
+def _validate_engine_mixed_path(disposition: EngineOccurrenceDisposition) -> None:
+    path = disposition.specificity_path
+    if (disposition.kind == "collapsed-mixed") != bool(path):
+        raise ValueError("engine mixed specificity path differs from disposition")
+    if not path:
+        return
+    nodes = tuple((edge.broader_code, edge.narrower_code) for edge in path)
+    valid = all(
+        (
+            len(nodes) >= _MIN_MIXED_PATH_EDGES,
+            nodes[0][0] == disposition.source_filler,
+            nodes[-1][1] == disposition.retained_filler,
+            _engine_path_is_contiguous(nodes),
+        )
+    )
+    if not valid:
+        raise ValueError("engine mixed specificity path is not contiguous")
+
+
+def _engine_path_is_contiguous(nodes: tuple[tuple[str, str], ...]) -> bool:
+    return all(left[1] == right[0] for left, right in pairwise(nodes))
 
 
 SourceRoleCode = Annotated[str, Field(pattern=r"^R[0-9]+$")]
