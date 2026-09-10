@@ -148,42 +148,49 @@ def r101_occurrence_ledger_query() -> str:
 
 
 def r101_non_r101_delta_query() -> str:
-    """Return the non-R101 constituent delta query, isolated from the inventory sort."""
+    """Return the complete typed non-R101 constituent delta query."""
     return (
-        "WITH r101_pairs AS (SELECT co.concept_code,co.axis,co.filler_code FROM "
-        "decomp_constituent_occurrence co JOIN decomp_source_occurrence o USING "
-        "(run_id,concept_code,occurrence_id) WHERE co.run_id IN "
-        "(:old_run_id,:new_run_id) AND o.role_code='R101'), "
-        "old_supported AS (SELECT co.concept_code,co.axis,co.filler_code FROM "
-        "decomp_constituent_occurrence co JOIN decomp_source_occurrence o USING "
-        "(run_id,concept_code,occurrence_id) WHERE co.run_id=:old_run_id AND "
-        "o.role_code<>'R101' UNION SELECT c.concept_code,c.axis,c.filler_code FROM "
-        "decomp_constituent c WHERE c.run_id=:old_run_id AND NOT EXISTS (SELECT 1 "
-        "FROM decomp_constituent_occurrence co WHERE co.run_id=c.run_id AND "
-        "co.concept_code=c.concept_code AND co.axis=c.axis AND "
-        "co.filler_code=c.filler_code)), old_non AS (SELECT * FROM old_supported "
-        "EXCEPT SELECT * FROM r101_pairs), "
-        "new_supported AS (SELECT co.concept_code,co.axis,co.filler_code FROM "
-        "decomp_constituent_occurrence co JOIN decomp_source_occurrence o USING "
-        "(run_id,concept_code,occurrence_id) WHERE co.run_id=:new_run_id AND "
-        "o.role_code<>'R101' UNION SELECT c.concept_code,c.axis,c.filler_code FROM "
-        "decomp_constituent c WHERE c.run_id=:new_run_id AND NOT EXISTS (SELECT 1 "
-        "FROM decomp_constituent_occurrence co WHERE co.run_id=c.run_id AND "
-        "co.concept_code=c.concept_code AND co.axis=c.axis AND "
-        "co.filler_code=c.filler_code)), new_non AS (SELECT * FROM new_supported "
-        "EXCEPT SELECT * FROM r101_pairs) "
-        "SELECT 'removed' change,concept_code,axis,filler_code FROM "
+        "WITH supported AS (SELECT c.run_id,c.concept_code,c.axis,c.filler_code,"
+        "c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
+        "c.relationship_group,c.source_definition_ids,COALESCE(array_agg("
+        "co.occurrence_id ORDER BY co.occurrence_id) FILTER (WHERE o.role_code "
+        "IS NOT NULL AND o.role_code<>'R101'),ARRAY[]::text[]) "
+        "source_occurrence_ids,count(co.occurrence_id)=0 unbound,COALESCE("
+        "bool_or(o.role_code='R101'),false) r101_bound FROM "
+        "decomp_constituent c LEFT JOIN decomp_constituent_occurrence co USING "
+        "(run_id,concept_code,axis,filler_code) LEFT JOIN decomp_source_occurrence o "
+        "USING (run_id,concept_code,occurrence_id) WHERE c.run_id IN "
+        "(:old_run_id,:new_run_id) GROUP BY c.run_id,c.concept_code,c.axis,"
+        "c.filler_code,c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
+        "c.relationship_group,c.source_definition_ids), old_non AS (SELECT "
+        "concept_code,axis,filler_code,axis_source,source_roles,most_specific,"
+        "needs_review,relationship_group,source_definition_ids,source_occurrence_ids "
+        "FROM supported WHERE run_id=:old_run_id AND (unbound OR "
+        "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
+        "source_roles @> '[\"R101\"]'::jsonb), new_non AS (SELECT concept_code,"
+        "axis,filler_code,axis_source,source_roles,most_specific,needs_review,"
+        "relationship_group,source_definition_ids,source_occurrence_ids FROM "
+        "supported WHERE run_id=:new_run_id AND (unbound OR "
+        "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
+        "source_roles @> '[\"R101\"]'::jsonb) SELECT 'removed' change,* FROM "
         "(SELECT * FROM old_non EXCEPT SELECT * FROM new_non) removed UNION ALL "
-        "SELECT 'added' change,concept_code,axis,filler_code FROM "
-        "(SELECT * FROM new_non EXCEPT SELECT * FROM old_non) added "
-        "ORDER BY change,concept_code,axis,filler_code"
+        "SELECT 'added' change,* FROM (SELECT * FROM new_non EXCEPT SELECT * FROM "
+        "old_non) added ORDER BY change,concept_code,axis,filler_code,axis_source,"
+        "source_roles,most_specific,needs_review,relationship_group,"
+        "source_definition_ids,source_occurrence_ids"
     )
 
 
 def r101_ledger_query_identity() -> str:
-    """Identify the exact SQL pair that produces occurrence and delta evidence."""
+    """Identify the exact SQL and typed delta-classification semantics."""
     return hashlib.sha256(
-        _canonical((r101_occurrence_ledger_query(), r101_non_r101_delta_query()))
+        _canonical(
+            (
+                r101_occurrence_ledger_query(),
+                r101_non_r101_delta_query(),
+                inspect.getsource(classify_non_r101_delta_rows),
+            )
+        )
     ).hexdigest()
 
 
@@ -276,10 +283,211 @@ class NonR101DeltaRow(_StrictModel):
     concept_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    axis_source: Literal["role", "nlp", "parent"]
+    source_roles: tuple[str, ...]
+    most_specific: bool
+    needs_review: bool
+    relationship_group: str | None
+    source_definition_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _evidence_is_canonical(self) -> Self:
+        _validate_non_r101_row(self)
+        return self
 
 
-def _delta_row_key(row: NonR101DeltaRow) -> tuple[str, str, str, str]:
-    return row.change, row.concept_code, row.axis, row.filler_code
+_NON_R101_KEY_FIELDS = ("concept_code", "axis", "filler_code")
+_NON_R101_METADATA_FIELDS = (
+    "axis_source",
+    "source_roles",
+    "most_specific",
+    "needs_review",
+    "relationship_group",
+    "source_definition_ids",
+    "source_occurrence_ids",
+)
+NonR101MetadataField = Literal[
+    "axis_source",
+    "source_roles",
+    "most_specific",
+    "needs_review",
+    "relationship_group",
+    "source_definition_ids",
+    "source_occurrence_ids",
+]
+
+
+class NonR101MetadataDelta(_StrictModel):
+    old: NonR101DeltaRow
+    new: NonR101DeltaRow
+    changed_fields: tuple[NonR101MetadataField, ...]
+
+    @model_validator(mode="after")
+    def _rows_form_one_exact_metadata_change(self) -> Self:
+        _validate_metadata_delta(self)
+        return self
+
+
+def _validate_non_r101_row(row: NonR101DeltaRow) -> None:
+    for label, values in (
+        ("source roles", row.source_roles),
+        ("source definition IDs", row.source_definition_ids),
+        ("source occurrence IDs", row.source_occurrence_ids),
+    ):
+        if values != tuple(sorted(set(values))):
+            raise ValueError(f"non-R101 {label} are not canonical and unique")
+    if any(re.fullmatch(r"^R[0-9]+$", role) is None for role in row.source_roles):
+        raise ValueError("non-R101 source roles are malformed")
+    identities = row.source_definition_ids + row.source_occurrence_ids
+    if any(re.fullmatch(_SHA256, identity) is None for identity in identities):
+        raise ValueError("non-R101 source evidence identity is malformed")
+
+
+def _validate_metadata_delta(delta: NonR101MetadataDelta) -> None:
+    if delta.old.change != "removed" or delta.new.change != "added":
+        raise ValueError("metadata delta directions differ")
+    if not _metadata_rows_share_key(delta.old, delta.new):
+        raise ValueError("metadata delta constituent keys differ")
+    expected = _changed_metadata_fields(delta.old, delta.new)
+    if not expected or delta.changed_fields != expected:
+        raise ValueError("metadata delta changed fields differ")
+
+
+def _metadata_rows_share_key(old: NonR101DeltaRow, new: NonR101DeltaRow) -> bool:
+    return all(
+        getattr(old, field) == getattr(new, field) for field in _NON_R101_KEY_FIELDS
+    )
+
+
+def _changed_metadata_fields(
+    old: NonR101DeltaRow, new: NonR101DeltaRow
+) -> tuple[NonR101MetadataField, ...]:
+    return tuple(
+        cast("NonR101MetadataField", field)
+        for field in _NON_R101_METADATA_FIELDS
+        if getattr(old, field) != getattr(new, field)
+    )
+
+
+class ClassifiedNonR101Delta(_StrictModel):
+    row: NonR101DeltaRow
+    classification: Literal[
+        "r101-bearing-cohort-output-delta", "algorithm-variable-output-delta"
+    ]
+    r101_occurrence_ids: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _occurrences_are_canonical(self) -> Self:
+        if self.r101_occurrence_ids != tuple(
+            sorted(set(self.r101_occurrence_ids))
+        ) or any(
+            re.fullmatch(_SHA256, identity) is None
+            for identity in self.r101_occurrence_ids
+        ):
+            raise ValueError("classified R101 occurrence IDs are not canonical")
+        if (self.classification == "r101-bearing-cohort-output-delta") != bool(
+            self.r101_occurrence_ids
+        ):
+            raise ValueError("classified output delta evidence differs from its kind")
+        return self
+
+
+def classify_non_r101_delta_rows(
+    rows: tuple[NonR101DeltaRow, ...],
+    *,
+    r101_changed_occurrences: dict[str, tuple[str, ...]],
+    allow_algorithm_variable: bool = False,
+) -> tuple[
+    tuple[NonR101DeltaRow, ...],
+    tuple[NonR101MetadataDelta, ...],
+    tuple[ClassifiedNonR101Delta, ...],
+]:
+    """Separate pair additions/removals from metadata changes on retained pairs."""
+    by_key: dict[tuple[str, str, str], list[NonR101DeltaRow]] = defaultdict(list)
+    for row in rows:
+        key = cast(
+            "tuple[str, str, str]",
+            tuple(getattr(row, field) for field in _NON_R101_KEY_FIELDS),
+        )
+        by_key[key].append(row)
+    structural: list[NonR101DeltaRow] = []
+    metadata: list[NonR101MetadataDelta] = []
+    classified: list[ClassifiedNonR101Delta] = []
+    for key in sorted(by_key):
+        group_structural, group_metadata, group_classified = _classify_delta_group(
+            tuple(by_key[key]),
+            r101_occurrence_ids=r101_changed_occurrences.get(key[0], ()),
+            allow_algorithm_variable=allow_algorithm_variable,
+        )
+        structural.extend(group_structural)
+        metadata.extend(group_metadata)
+        classified.extend(group_classified)
+    return (
+        tuple(sorted(structural, key=_delta_row_key)),
+        tuple(metadata),
+        tuple(sorted(classified, key=lambda item: _delta_row_key(item.row))),
+    )
+
+
+def _delta_row_key(row: NonR101DeltaRow) -> tuple[str, bytes]:
+    return row.change, _canonical(row.model_dump(mode="json"))
+
+
+def _classify_delta_group(
+    rows: tuple[NonR101DeltaRow, ...],
+    *,
+    r101_occurrence_ids: tuple[str, ...],
+    allow_algorithm_variable: bool,
+) -> tuple[
+    tuple[NonR101DeltaRow, ...],
+    tuple[NonR101MetadataDelta, ...],
+    tuple[ClassifiedNonR101Delta, ...],
+]:
+    metadata = _paired_metadata_delta(rows)
+    if metadata is not None:
+        return (), (metadata,), ()
+    if not allow_algorithm_variable:
+        return rows, (), ()
+    classification = (
+        "r101-bearing-cohort-output-delta"
+        if r101_occurrence_ids
+        else "algorithm-variable-output-delta"
+    )
+    classified = _classified_output_rows(rows, classification, r101_occurrence_ids)
+    return (), (), classified
+
+
+def _paired_metadata_delta(
+    rows: tuple[NonR101DeltaRow, ...],
+) -> NonR101MetadataDelta | None:
+    removed = tuple(row for row in rows if row.change == "removed")
+    added = tuple(row for row in rows if row.change == "added")
+    if len(removed) != 1 or len(added) != 1:
+        return None
+    old, new = removed[0], added[0]
+    return NonR101MetadataDelta(
+        old=old,
+        new=new,
+        changed_fields=_changed_metadata_fields(old, new),
+    )
+
+
+def _classified_output_rows(
+    rows: tuple[NonR101DeltaRow, ...],
+    classification: Literal[
+        "r101-bearing-cohort-output-delta", "algorithm-variable-output-delta"
+    ],
+    occurrence_ids: tuple[str, ...],
+) -> tuple[ClassifiedNonR101Delta, ...]:
+    return tuple(
+        ClassifiedNonR101Delta(
+            row=row,
+            classification=classification,
+            r101_occurrence_ids=occurrence_ids,
+        )
+        for row in rows
+    )
 
 
 class NonR101DeltaEvidence(_StrictModel):
@@ -287,18 +495,61 @@ class NonR101DeltaEvidence(_StrictModel):
     new_run_id: str = Field(min_length=1)
     query_identity: str = Field(pattern=_SHA256)
     rows: tuple[NonR101DeltaRow, ...]
+    metadata_deltas: tuple[NonR101MetadataDelta, ...] = ()
+    classified_rows: tuple[ClassifiedNonR101Delta, ...] = ()
+    raw_typed_delta_count: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _is_exact_canonical_query_result(self) -> Self:
-        if self.query_identity not in {
-            _HISTORICAL_V4_QUERY_IDENTITY,
-            r101_ledger_query_identity(),
-        }:
-            raise ValueError("non-R101 delta query identity differs")
-        ordered = tuple(sorted(self.rows, key=_delta_row_key))
-        if self.rows != ordered or len(self.rows) != len(set(self.rows)):
-            raise ValueError("non-R101 delta rows are not canonical and unique")
+        _validate_non_r101_delta_evidence(self)
         return self
+
+
+def _validate_non_r101_delta_evidence(evidence: NonR101DeltaEvidence) -> None:
+    current_identity = r101_ledger_query_identity()
+    if evidence.query_identity not in {_HISTORICAL_V4_QUERY_IDENTITY, current_identity}:
+        raise ValueError("non-R101 delta query identity differs")
+    if evidence.query_identity == current_identity:
+        expected_raw = (
+            len(evidence.rows)
+            + len(evidence.classified_rows)
+            + 2 * len(evidence.metadata_deltas)
+        )
+        if evidence.raw_typed_delta_count != expected_raw:
+            raise ValueError("raw typed non-R101 delta count differs")
+    _require_canonical_unique(
+        evidence.rows,
+        tuple(sorted(evidence.rows, key=_delta_row_key)),
+        "non-R101 delta rows",
+    )
+    metadata_ordered = tuple(
+        sorted(
+            evidence.metadata_deltas,
+            key=lambda row: tuple(
+                getattr(row.old, field) for field in _NON_R101_KEY_FIELDS
+            ),
+        )
+    )
+    _require_canonical_unique(
+        evidence.metadata_deltas,
+        metadata_ordered,
+        "non-R101 metadata deltas",
+    )
+    classified_ordered = tuple(
+        sorted(evidence.classified_rows, key=lambda item: _delta_row_key(item.row))
+    )
+    _require_canonical_unique(
+        evidence.classified_rows,
+        classified_ordered,
+        "classified non-R101 deltas",
+    )
+
+
+def _require_canonical_unique(
+    values: tuple[object, ...], ordered: tuple[object, ...], label: str
+) -> None:
+    if values != ordered or len(values) != len(set(values)):
+        raise ValueError(f"{label} are not canonical and unique")
 
 
 class R101LedgerSource(_StrictModel):
@@ -311,7 +562,11 @@ class R101LedgerSource(_StrictModel):
 
 class R101LedgerConsumerStore(Protocol):
     async def r101_occurrence_ledger(
-        self, old_run_id: str, new_run_id: str
+        self,
+        old_run_id: str,
+        new_run_id: str,
+        *,
+        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource: ...
 
 
@@ -381,27 +636,34 @@ class LedgerBuildContext(_StrictModel):
     adapter_id: str = Field(min_length=1)
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
+    comparator_qualification_identity: str | None = Field(default=None, pattern=_SHA256)
 
     @model_validator(mode="after")
     def _proof_binds_prerequisites(self) -> Self:
-        if self.detector_identity != r101_detector_identity():
-            raise ValueError(
-                "detector identity does not match current ledger semantics"
-            )
-        if self.proof_identity != r101_proof_identity(
-            self.pre_resume_proof_identity,
-            self.resume_dry_run_identity,
-            self.mixed_cohort_identity,
-        ):
-            raise ValueError(
-                "proof identity does not bind prerequisite proof identities"
-            )
-        if (
-            self.non_r101_delta_evidence.old_run_id != self.old_run_id
-            or self.non_r101_delta_evidence.new_run_id != self.new_run_id
-        ):
-            raise ValueError("non-R101 delta evidence does not bind report runs")
+        _validate_ledger_build_context(self)
         return self
+
+
+def _validate_ledger_build_context(context: LedgerBuildContext) -> None:
+    if context.non_r101_delta_evidence.query_identity != r101_ledger_query_identity():
+        raise ValueError("current ledger query identity differs")
+    if context.comparator_qualification_identity is None:
+        raise ValueError("current comparator qualification identity is missing")
+    if context.detector_identity != r101_detector_identity():
+        raise ValueError("detector identity does not match current ledger semantics")
+    expected_proof = r101_proof_identity(
+        context.pre_resume_proof_identity,
+        context.resume_dry_run_identity,
+        context.mixed_cohort_identity,
+    )
+    if context.proof_identity != expected_proof:
+        raise ValueError("proof identity does not bind prerequisite proof identities")
+    evidence = context.non_r101_delta_evidence
+    if (
+        evidence.old_run_id != context.old_run_id
+        or evidence.new_run_id != context.new_run_id
+    ):
+        raise ValueError("non-R101 delta evidence does not bind report runs")
 
 
 class LedgerOccurrence(StructuralOccurrence):
@@ -479,6 +741,7 @@ class R101ConservationReport(_StrictModel):
     counts: LedgerCounts
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
+    comparator_qualification_identity: str | None = Field(default=None, pattern=_SHA256)
     grouping_presentation: tuple[GroupingPattern, ...]
     occurrences: tuple[LedgerOccurrence, ...]
     json_identity: str = Field(pattern=_SHA256)
@@ -507,9 +770,9 @@ def _validate_content_authorization(authorization: ContentAuthorization) -> None
 
 def _validate_report_bindings(report: R101ConservationReport) -> None:
     if report.non_r101_delta_evidence.query_identity == _HISTORICAL_V4_QUERY_IDENTITY:
-        _validate_historical_v4_binding(report)
-    elif report.detector_identity != r101_detector_identity():
-        raise ValueError("detector identity does not match current ledger semantics")
+        _validate_historical_report_binding(report)
+    else:
+        _validate_current_report_binding(report)
     expected_proof = r101_proof_identity(
         report.pre_resume_proof_identity,
         report.resume_dry_run_identity,
@@ -524,6 +787,19 @@ def _validate_report_bindings(report: R101ConservationReport) -> None:
         or report.non_r101_delta_evidence.new_run_id != report.new_run_id
     ):
         raise ValueError("non-R101 delta evidence does not bind report runs")
+
+
+def _validate_historical_report_binding(report: R101ConservationReport) -> None:
+    if report.comparator_qualification_identity is not None:
+        raise ValueError("historical comparator qualification must be absent")
+    _validate_historical_v4_binding(report)
+
+
+def _validate_current_report_binding(report: R101ConservationReport) -> None:
+    if report.comparator_qualification_identity is None:
+        raise ValueError("current comparator qualification identity is missing")
+    if report.detector_identity != r101_detector_identity():
+        raise ValueError("detector identity does not match current ledger semantics")
 
 
 def _validate_historical_v4_binding(report: R101ConservationReport) -> None:
@@ -675,7 +951,26 @@ def _semantic_payload(
         "report_identity",
     ):
         payload.pop(field, None)
+    _strip_historical_delta_extensions(payload)
     return payload
+
+
+def _strip_historical_delta_extensions(payload: dict[str, object]) -> None:
+    delta = payload.get("non_r101_delta_evidence")
+    if not isinstance(delta, dict):
+        return
+    if delta.get("query_identity") != _HISTORICAL_V4_QUERY_IDENTITY:
+        return
+    if (
+        delta.get("metadata_deltas") not in (None, [], ())
+        or delta.get("classified_rows") not in (None, [], ())
+        or delta.get("raw_typed_delta_count") is not None
+    ):
+        raise ValueError("historical R101 delta extensions must be empty")
+    delta.pop("metadata_deltas", None)
+    delta.pop("classified_rows", None)
+    delta.pop("raw_typed_delta_count", None)
+    payload.pop("comparator_qualification_identity", None)
 
 
 def _json_identity(report: R101ConservationReport | dict[str, object]) -> str:
@@ -689,6 +984,7 @@ def _report_identity(report: R101ConservationReport | dict[str, object]) -> str:
         else dict(report)
     )
     payload.pop("report_identity", None)
+    _strip_historical_delta_extensions(payload)
     return _sha256(_canonical(payload))
 
 
@@ -1147,7 +1443,14 @@ async def validate_r101_consumer_dry_run(
     store: R101LedgerConsumerStore,
 ) -> str:
     """Reload the persisted inventory and return the ledger digest readied for use."""
-    source = await store.r101_occurrence_ledger(report.old_run_id, report.new_run_id)
+    source = await store.r101_occurrence_ledger(
+        report.old_run_id,
+        report.new_run_id,
+        allow_algorithm_variable=any(
+            item.classification == "algorithm-variable-output-delta"
+            for item in report.non_r101_delta_evidence.classified_rows
+        ),
+    )
     source_by_key = _index_source_inventory(source)
     _validate_consumer_inventory(report, source, source_by_key)
     return report.json_identity

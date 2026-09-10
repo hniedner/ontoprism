@@ -32,6 +32,7 @@ from ontolib.decomposition.r101_conservation import (
     R101LedgerSource,
     StructuralOccurrence,
     build_r101_occurrence_ledger,
+    classify_non_r101_delta_rows,
     load_r101_conservation_report,
     r101_detector_identity,
     r101_ledger_query_identity,
@@ -168,6 +169,7 @@ def _context(**changes: object) -> LedgerBuildContext:
             max_asserted_superclass_hops=20,
         ),
         "non_r101_delta_evidence": _delta_evidence(),
+        "comparator_qualification_identity": "7" * 64,
     }
     values.update(changes)
     return LedgerBuildContext.model_validate(values)
@@ -183,7 +185,76 @@ def _delta_evidence(
         new_run_id=new_run_id,
         query_identity=r101_ledger_query_identity(),
         rows=rows,
+        metadata_deltas=(),
+        raw_typed_delta_count=len(rows),
     )
+
+
+def _delta_row(**changes: object) -> NonR101DeltaRow:
+    values: dict[str, object] = {
+        "change": "added",
+        "concept_code": "C1",
+        "axis": "op:Morphology",
+        "filler_code": "C20",
+        "axis_source": "role",
+        "source_roles": ("R102",),
+        "most_specific": True,
+        "needs_review": False,
+        "relationship_group": None,
+        "source_definition_ids": ("1" * 64,),
+        "source_occurrence_ids": ("2" * 64,),
+    }
+    values.update(changes)
+    return NonR101DeltaRow.model_validate(values)
+
+
+@pytest.mark.unit
+def test_non_r101_delta_rows_preserve_complete_typed_constituent_evidence() -> None:
+    row = _delta_row()
+
+    assert row.model_dump() == {
+        "change": "added",
+        "concept_code": "C1",
+        "axis": "op:Morphology",
+        "filler_code": "C20",
+        "axis_source": "role",
+        "source_roles": ("R102",),
+        "most_specific": True,
+        "needs_review": False,
+        "relationship_group": None,
+        "source_definition_ids": ("1" * 64,),
+        "source_occurrence_ids": ("2" * 64,),
+    }
+    payload = row.model_dump()
+    payload.pop("axis_source")
+    with pytest.raises(ValidationError, match="axis_source"):
+        NonR101DeltaRow.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_typed_metadata_changes_are_separate_from_constituent_pair_deltas() -> None:
+    removed = _delta_row(change="removed", most_specific=False)
+    added = _delta_row(change="added", most_specific=True)
+    structural = _delta_row(concept_code="C2")
+    algorithm_only = _delta_row(concept_code="C3")
+
+    rows, metadata, classified = classify_non_r101_delta_rows(
+        (added, algorithm_only, removed, structural),
+        r101_changed_occurrences={"C2": ("3" * 64,)},
+        allow_algorithm_variable=True,
+    )
+
+    assert rows == ()
+    assert len(metadata) == 1
+    assert metadata[0].old == removed
+    assert metadata[0].new == added
+    assert metadata[0].changed_fields == ("most_specific",)
+    assert classified[0].row == structural
+    assert classified[0].classification == "r101-bearing-cohort-output-delta"
+    assert classified[0].r101_occurrence_ids == ("3" * 64,)
+    assert classified[1].row == algorithm_only
+    assert classified[1].classification == "algorithm-variable-output-delta"
+    assert classified[1].r101_occurrence_ids == ()
 
 
 @pytest.mark.unit
@@ -308,6 +379,51 @@ def test_conservation_refuses_to_infer_a_collapse_that_diverges_from_engine() ->
 
     assert report.occurrences[0].disposition == "unresolved"
     assert report.occurrences[0].disposition_reason == "unresolved-disposition"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"kind": "retained-routed", "r82_part": "C20", "r82_whole": "C30"},
+            "R82 evidence",
+        ),
+        (
+            {"r82_part": "C21"},
+            "R82 endpoints",
+        ),
+        (
+            {
+                "kind": "retained-routed",
+                "r82_part": None,
+                "r82_whole": None,
+                "policy_decision_identity": "9" * 64,
+            },
+            "policy evidence",
+        ),
+    ],
+)
+def test_engine_disposition_rejects_evidence_inconsistent_with_its_kind(
+    changes: dict[str, object], message: str
+) -> None:
+    payload: dict[str, object] = {
+        "kind": "collapsed-r82",
+        "source_occurrence_id": "1" * 64,
+        "source_fact_id": "2" * 64,
+        "normalized_axis": "op:PrimarySite",
+        "source_filler": "C30",
+        "retained_filler": "C20",
+        "semantic_route": "p106-organ",
+        "semantic_type": "Body Part, Organ, or Organ Component",
+        "r82_part": "C20",
+        "r82_whole": "C30",
+        "policy_decision_identity": None,
+    }
+    payload.update(changes)
+
+    with pytest.raises(ValidationError, match=message):
+        EngineOccurrenceDisposition.model_validate(payload)
 
 
 @pytest.mark.unit
@@ -615,12 +731,7 @@ def test_duplicate_mismatched_and_partial_source_rows_fail_closed() -> None:
 
 @pytest.mark.unit
 def test_non_r101_delta_and_exact_count_mismatch_fail_closed() -> None:
-    delta = NonR101DeltaRow(
-        change="added",
-        concept_code="C1",
-        axis="op:Morphology",
-        filler_code="C20",
-    )
+    delta = _delta_row()
     report = build_r101_occurrence_ledger(
         (_input(),),
         paths={},
@@ -647,19 +758,14 @@ def test_delta_rows_bind_query_runs_count_and_gate_malformed_or_omitted_rows() -
         "new_run_id": "new",
         "query_identity": query_identity,
         "rows": (
-            {
-                "change": "added",
-                "concept_code": "C2",
-                "axis": "op:Morphology",
-                "filler_code": "C20",
-            },
-            {
-                "change": "removed",
-                "concept_code": "C1",
-                "axis": "op:Morphology",
-                "filler_code": "C10",
-            },
+            _delta_row(concept_code="C2").model_dump(),
+            _delta_row(
+                change="removed", concept_code="C1", filler_code="C10"
+            ).model_dump(),
         ),
+        "metadata_deltas": (),
+        "classified_rows": (),
+        "raw_typed_delta_count": 2,
     }
     context_payload = _context().model_dump()
     context_payload["non_r101_delta_evidence"] = evidence
@@ -670,14 +776,21 @@ def test_delta_rows_bind_query_runs_count_and_gate_malformed_or_omitted_rows() -
     assert report.counts.non_r101_delta == 2
     assert report.non_r101_delta_evidence.model_dump(mode="json") == {
         **evidence,
-        "rows": list(evidence["rows"]),
+        "rows": [
+            _delta_row(concept_code="C2").model_dump(mode="json"),
+            _delta_row(
+                change="removed", concept_code="C1", filler_code="C10"
+            ).model_dump(mode="json"),
+        ],
+        "metadata_deltas": [],
+        "classified_rows": [],
     }
     assert report.mechanical_status == "incomplete"
 
     for mutation, message in (
         (
             lambda payload: payload["non_r101_delta_evidence"]["rows"].pop(),
-            "count-mismatch",
+            "raw typed non-R101 delta count",
         ),
         (
             lambda payload: payload["non_r101_delta_evidence"]["rows"][0].update(
@@ -711,9 +824,31 @@ def test_delta_rows_bind_query_runs_count_and_gate_malformed_or_omitted_rows() -
             new_run_id="new",
             query_identity=query_identity,
             rows=tuple(reversed(rows)),
+            raw_typed_delta_count=2,
         )
     with pytest.raises(ValidationError, match="bind report runs"):
         _context(non_r101_delta_evidence=_delta_evidence(old_run_id="different-old"))
+
+
+@pytest.mark.unit
+def test_current_generation_refuses_the_historical_delta_query_identity() -> None:
+    historical_identity = r101_module._HISTORICAL_V4_QUERY_IDENTITY
+    payload = _context().model_dump()
+    payload["non_r101_delta_evidence"]["query_identity"] = historical_identity
+
+    with pytest.raises(ValidationError, match="current ledger query identity"):
+        LedgerBuildContext.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_current_report_binds_comparator_qualification_identity() -> None:
+    report = build_r101_occurrence_ledger((_input(),), paths={}, context=_context())
+
+    assert report.comparator_qualification_identity == "7" * 64
+    payload = _context().model_dump()
+    payload.pop("comparator_qualification_identity")
+    with pytest.raises(ValidationError, match="comparator qualification"):
+        LedgerBuildContext.model_validate(payload)
 
 
 @pytest.mark.unit
@@ -845,8 +980,13 @@ class _ConsumerStore:
         self.source = source
 
     async def r101_occurrence_ledger(
-        self, old_run_id: str, new_run_id: str
+        self,
+        old_run_id: str,
+        new_run_id: str,
+        *,
+        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource:
+        del allow_algorithm_variable
         assert (old_run_id, new_run_id) == ("old", "new")
         return self.source
 
@@ -876,16 +1016,7 @@ async def test_consumer_dry_run_rejects_every_persisted_inventory_drift() -> Non
         ),
         (
             valid.model_copy(
-                update={
-                    "non_r101_delta_evidence": _delta_evidence(
-                        NonR101DeltaRow(
-                            change="added",
-                            concept_code="C1",
-                            axis="op:Morphology",
-                            filler_code="C20",
-                        )
-                    )
-                }
+                update={"non_r101_delta_evidence": _delta_evidence(_delta_row())}
             ),
             "non-R101",
         ),
@@ -1162,3 +1293,57 @@ def test_generated_ledger_inventory_sentinels_and_exact_tsv_are_bound() -> None:
             max_r82_hops=8,
             max_asserted_superclass_hops=20,
         )
+
+
+@pytest.mark.unit
+def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
+    report = load_r101_conservation_report(
+        Path(__file__).parent / "golden/neoplasm-r101-v5-conservation.json.gz"
+    )
+    evidence = report.non_r101_delta_evidence
+
+    assert (report.old_run_id, report.new_run_id) == (
+        "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+        "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+    )
+    assert report.counts.model_dump() == {
+        "total": 43_414,
+        "projected": 29_995,
+        "unchanged_unprojected": 13_419,
+        "covered_by_retained_r82": 0,
+        "unresolved": 0,
+        "one_step": 0,
+        "closure_only": 0,
+        "non_r101_delta": 0,
+    }
+    assert report.comparator_qualification_identity == (
+        "939ff37cd463bad9324cb223e9771c0b5b47eba67a9790ea6e587ff6d5448c43"
+    )
+    assert report.report_identity == (
+        "3018e197c19b455af113c78ef6ddc0d73d875bc9061e84490f41347aeb47c9dd"
+    )
+    assert report.json_identity == (
+        "027640aa69f17a6daff0badbc1c6370a18f30fc7b94c94f23daf794a414d6394"
+    )
+    assert report.tsv_identity == (
+        "23653bc37f4a43e69455dee7380e5928cb4258294520609fde78bb31310b14b1"
+    )
+    assert evidence.rows == ()
+    assert evidence.raw_typed_delta_count == 5_167
+    assert len(evidence.metadata_deltas) == 2_564
+    assert len(evidence.classified_rows) == 39
+    assert {
+        classification: sum(
+            row.classification == classification for row in evidence.classified_rows
+        )
+        for classification in (
+            "r101-bearing-cohort-output-delta",
+            "algorithm-variable-output-delta",
+        )
+    } == {
+        "r101-bearing-cohort-output-delta": 22,
+        "algorithm-variable-output-delta": 17,
+    }
+    assert report.mechanical_status == "complete"
+    assert report.content_authorization.status == "pending"
+    assert report.publication_gate == "blocked"

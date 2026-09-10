@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         Constituent,
         Decomposition,
     )
+    from ontolib.decomposition.r101_comparator import ComparatorRun
     from ontolib.decomposition.r101_conservation import (
         OccurrenceInput,
         R101LedgerSource,
@@ -1291,6 +1292,46 @@ def _dispositions_by_code(
     return by_code
 
 
+def _comparator_run_from_row(run_id: str, row: RowMapping) -> ComparatorRun:
+    from ontolib.decomposition.r101_comparator import (  # noqa: PLC0415
+        ComparatorRun,
+    )
+
+    if row["status"] != "complete" or row["publication_state"] != "published":
+        raise RunStateError(
+            f"decomposition run {run_id!r} is not complete and published"
+        )
+    representation_identity = row["representation_identity"]
+    artifact_path = row["publication_artifact_path"]
+    if representation_identity is None or artifact_path is None:
+        raise RunStateError(f"decomposition run {run_id!r} lacks publication evidence")
+    run = ComparatorRun.model_validate_json(
+        _json.dumps(
+            {
+                "run_id": run_id,
+                "ncit_version": row["ncit_version"],
+                "fingerprint": row["fingerprint"],
+                "fingerprint_identity": row["fingerprint_sha256"],
+                "representation_identity": representation_identity,
+                "publication_artifact_path": artifact_path,
+            },
+            sort_keys=True,
+        )
+    )
+    if row["source_identity"] != run.fingerprint.source_identity:
+        raise RunIdentityMismatchError(
+            "persisted run source identity does not match its fingerprint"
+        )
+    return run
+
+
+def _require_comparator_worklist(run: ComparatorRun, codes: Sequence[str]) -> None:
+    if tuple(codes) != run.fingerprint.worklist:
+        raise RunIdentityMismatchError(
+            "materialized worklist does not match the immutable run fingerprint"
+        )
+
+
 class ProvenanceStore:
     """Persistence for decomposition run manifests and constituents."""
 
@@ -2181,6 +2222,31 @@ class ProvenanceStore:
                 publication_artifact_path=artifact_path,
             )
 
+    async def completed_comparator_run_for_evidence(self, run_id: str) -> ComparatorRun:
+        """Read completed publication fields for a controlled historical comparison."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT status, ncit_version, source_identity, fingerprint, "
+                    "fingerprint_sha256, publication_state, representation_identity, "
+                    "publication_artifact_path FROM decomp_run WHERE id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            row = result.mappings().first()
+            if row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            run = _comparator_run_from_row(run_id, row)
+            worklist_result = await session.execute(
+                text(
+                    "SELECT concept_code FROM decomp_work_item "
+                    "WHERE run_id = :run_id ORDER BY ordinal"
+                ),
+                {"run_id": run_id},
+            )
+            _require_comparator_worklist(run, worklist_result.scalars().all())
+            return run
+
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""
         async with self._sf() as session:
@@ -2248,7 +2314,11 @@ class ProvenanceStore:
             )
 
     async def r101_occurrence_ledger(
-        self, old_run_id: str, new_run_id: str
+        self,
+        old_run_id: str,
+        new_run_id: str,
+        *,
+        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource:
         """Read both exact occurrence inventories and links in one bounded query."""
         from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
@@ -2256,6 +2326,7 @@ class ProvenanceStore:
             NonR101DeltaRow,
             R101ConservationValidationError,
             R101LedgerSource,
+            classify_non_r101_delta_rows,
             r101_ledger_query_identity,
             r101_non_r101_delta_query,
             r101_occurrence_ledger_query,
@@ -2275,25 +2346,34 @@ class ProvenanceStore:
             delta_rows = delta_result.mappings().all()
         occurrences = _parse_r101_occurrences(rows)
         parsed_delta_rows = tuple(
-            NonR101DeltaRow.model_validate(dict(item)) for item in delta_rows
+            NonR101DeltaRow.model_validate_json(_json.dumps(dict(item), sort_keys=True))
+            for item in delta_rows
         )
         if len(parsed_delta_rows) != len(set(parsed_delta_rows)):
             raise R101ConservationValidationError("duplicate non-R101 delta evidence")
+        r101_occurrences: dict[str, list[str]] = {}
+        for item in occurrences:
+            r101_occurrences.setdefault(item.old_occurrence.concept_code, []).append(
+                item.old_occurrence.occurrence_id
+            )
+        structural_rows, metadata_deltas, classified_rows = (
+            classify_non_r101_delta_rows(
+                parsed_delta_rows,
+                r101_changed_occurrences={
+                    concept: tuple(sorted(set(occurrence_ids)))
+                    for concept, occurrence_ids in r101_occurrences.items()
+                },
+                allow_algorithm_variable=allow_algorithm_variable,
+            )
+        )
         evidence = NonR101DeltaEvidence(
             old_run_id=old_run_id,
             new_run_id=new_run_id,
             query_identity=r101_ledger_query_identity(),
-            rows=tuple(
-                sorted(
-                    parsed_delta_rows,
-                    key=lambda row: (
-                        row.change,
-                        row.concept_code,
-                        row.axis,
-                        row.filler_code,
-                    ),
-                )
-            ),
+            rows=structural_rows,
+            metadata_deltas=metadata_deltas,
+            classified_rows=classified_rows,
+            raw_typed_delta_count=len(parsed_delta_rows),
         )
         return R101LedgerSource(
             occurrences=tuple(occurrences), non_r101_delta_evidence=evidence

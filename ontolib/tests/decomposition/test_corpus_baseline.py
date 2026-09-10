@@ -347,6 +347,12 @@ def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
             "full-run",
             "--new-run-id",
             "v4-full-run",
+            "--old-artifact",
+            "old.ttl",
+            "--new-artifact",
+            "new.ttl",
+            "--qualification-output",
+            "qualification.json",
             "--endpoint",
             "http://localhost:7888",
             "--output",
@@ -365,6 +371,9 @@ def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
     assert args.baseline == Path("baseline.json")
     assert args.run_id == "full-run"
     assert args.new_run_id == "v4-full-run"
+    assert args.old_artifact == Path("old.ttl")
+    assert args.new_artifact == Path("new.ttl")
+    assert args.qualification_output == Path("qualification.json")
     assert args.endpoint == "http://localhost:7888"
     assert args.output == Path("report.json.gz")
     assert args.pre_resume_proof_identity == "1" * 64
@@ -409,23 +418,23 @@ def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
         Path(__file__).with_name("golden") / "neoplasm-current-corpus-baseline.json"
     )
 
-    assert baseline.run_id == "neoplasm-3230f6bd-ac07-4f15-a417-64811531b4da"
+    assert baseline.run_id == "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
     assert baseline.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
     assert baseline.representation_identity == (
-        "9b32510dad2eb367f14e26a06789727573a21071b7e15982203ad0857d41ca43"
+        "1e5f04fefa9b817d8a86f8279e732bc6ea0a886e4a2cad7fe0b66ec1fc2f6752"
     )
     assert baseline.worklist_count == 15_633
     assert baseline.outcome_counts.model_dump() == {
-        "decomposed": 14_881,
+        "decomposed": 14_884,
         "residual": 1,
         "semantic_excluded": 3,
-        "atomic_noop": 609,
+        "atomic_noop": 606,
         "unknown": 139,
     }
-    assert baseline.emitted_constituent_pair_count == 141_956
-    assert baseline.complete_semantic_fact_count == 845_806
-    assert baseline.source_occurrence_count == 370_237
-    assert baseline.selected_occurrence_count == 105_763
+    assert baseline.emitted_constituent_pair_count == 141_965
+    assert baseline.complete_semantic_fact_count == 845_825
+    assert baseline.source_occurrence_count == 370_253
+    assert baseline.selected_occurrence_count == 105_770
     assert baseline.minted_count == 2_649

@@ -1,0 +1,568 @@
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from ontolib.decomposition.corpus_baseline import (
+    CorpusBaseline,
+    corpus_baseline_identity,
+)
+from ontolib.decomposition.r101_comparator import (
+    ComparatorFingerprint,
+    ComparatorRun,
+    R101ComparatorQualification,
+    R101ComparatorValidationError,
+    qualify_r101_comparator,
+    write_r101_comparator_qualification,
+)
+from ontolib.decomposition.r101_conservation import r101_ledger_query_identity
+
+
+def _fingerprint(**changes: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": 4,
+        "source_identity": "a" * 64,
+        "collapse_policy_identity": "b" * 64,
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
+        "semantic_types": (
+            "Cell or Molecular Dysfunction",
+            "Disease or Syndrome",
+            "Neoplastic Process",
+        ),
+        "worklist": ("C1", "C2"),
+        "total_limit": None,
+        "sample_manifest_identity": None,
+        "algorithm_version": "decomposition-v4",
+        "config_version": "nested-definition-v2",
+        "walker_max_depth": 7,
+        "output_mode": "file",
+        "load_mode": "none",
+        "emitted_at": datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC),
+    }
+    payload.update(changes)
+    return payload
+
+
+def _identity(payload: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            default=lambda value: value.isoformat().replace("+00:00", "Z"),
+        ).encode()
+    ).hexdigest()
+
+
+def _run(
+    run_id: str,
+    artifact: Path,
+    *,
+    algorithm: str,
+    routing_identity: str | None,
+    **fingerprint_changes: object,
+) -> ComparatorRun:
+    fingerprint = _fingerprint(
+        algorithm_version=algorithm,
+        **fingerprint_changes,
+    )
+    if routing_identity is not None:
+        fingerprint["routing_implementation_identity"] = routing_identity
+    artifact.write_text(
+        "".join(
+            f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
+            "<https://w3id.org/ontoprism/vocab#hasConstituent>   "
+            "[<https://w3id.org/ontoprism/vocab#axis> "
+            "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+            "<https://w3id.org/ontoprism/vocab#filler> "
+            "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C10> ; "
+            '<https://w3id.org/ontoprism/vocab#axisSource> "role" ] .\n'
+            for code in ("C187445", "C187447", "C53558")
+        )
+        + f"# artifact for {run_id}\n"
+    )
+    representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    return ComparatorRun.model_validate(
+        {
+            "run_id": run_id,
+            "ncit_version": "26.07d",
+            "fingerprint": fingerprint,
+            "fingerprint_identity": _identity(fingerprint),
+            "representation_identity": representation_identity,
+            "publication_artifact_path": str(artifact),
+        }
+    )
+
+
+def _baseline(run: ComparatorRun) -> CorpusBaseline:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "run_id": run.run_id,
+        "source_identity": run.fingerprint.source_identity,
+        "ontology_release": run.ncit_version,
+        "branch": run.fingerprint.branch,
+        "scope_root": run.fingerprint.scope_root,
+        "scope_version": run.fingerprint.scope_version,
+        "run_fingerprint_identity": run.fingerprint_identity,
+        "representation_identity": run.representation_identity,
+        "artifact_identity": run.representation_identity,
+        "detector_identity": "d" * 64,
+        "worklist_count": len(run.fingerprint.worklist),
+        "outcome_counts": {
+            "decomposed": 2,
+            "residual": 0,
+            "semantic_excluded": 0,
+            "atomic_noop": 0,
+            "unknown": 0,
+        },
+        "emitted_constituent_pair_count": 2,
+        "complete_semantic_fact_count": 2,
+        "source_occurrence_count": 2,
+        "selected_occurrence_count": 2,
+        "minted_count": 0,
+    }
+    return CorpusBaseline.model_validate(
+        {**payload, "baseline_identity": corpus_baseline_identity(payload)}
+    )
+
+
+@pytest.mark.unit
+def test_qualifies_exact_full_v4_v5_pair_and_binds_both_artifacts(
+    tmp_path: Path,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+
+    qualification = qualify_r101_comparator(
+        old_run=old,
+        new_run=new,
+        old_baseline=_baseline(old),
+        old_artifact=old_artifact,
+        new_artifact=new_artifact,
+    )
+
+    assert qualification.control.worklist == ("C1", "C2")
+    assert qualification.control.total_limit is None
+    assert qualification.control.sample_manifest_identity is None
+    assert qualification.old.algorithm_version == "decomposition-v4"
+    assert qualification.old.routing_implementation_identity == "not-recorded"
+    assert qualification.new.algorithm_version == "decomposition-v5"
+    assert qualification.new.routing_implementation_identity == "c" * 64
+    assert qualification.old.artifact_identity == old.representation_identity
+    assert qualification.new.artifact_identity == new.representation_identity
+    assert {row.concept_code for row in qualification.shared_canary_constituents} == {
+        "C187445",
+        "C187447",
+        "C53558",
+    }
+    assert all(
+        row.axis == "op:Morphology" and row.filler_code == "C10"
+        for row in qualification.shared_canary_constituents
+    )
+    assert qualification.query_identity == r101_ledger_query_identity()
+    assert qualification.qualification_identity
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("side", "changes", "message"),
+    [
+        ("new", {"source_identity": "f" * 64}, "source identity"),
+        ("new", {"collapse_policy_identity": "f" * 64}, "collapse policy"),
+        ("new", {"branch": "disease", "scope_root": "C2991"}, "branch"),
+        ("new", {"scope_version": "other"}, "scope version"),
+        ("new", {"semantic_types": ("Disease or Syndrome",)}, "semantic types"),
+        ("new", {"worklist": ("C1",)}, "worklist"),
+        ("new", {"total_limit": 2}, "total limit"),
+        (
+            "new",
+            {"schema_version": 5, "sample_manifest_identity": "e" * 64},
+            "sample manifest",
+        ),
+        ("new", {"config_version": "other"}, "configuration"),
+        ("new", {"walker_max_depth": 8}, "walker depth"),
+        ("new", {"output_mode": "none"}, "output mode"),
+        ("new", {"load_mode": "named-graph"}, "load mode"),
+    ],
+)
+def test_comparator_refuses_each_confounded_or_partial_pair_dimension(
+    tmp_path: Path,
+    side: str,
+    changes: dict[str, object],
+    message: str,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+        **(changes if side == "old" else {}),
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+        **(changes if side == "new" else {}),
+    )
+
+    with pytest.raises(R101ComparatorValidationError, match=message):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+def test_comparator_refuses_wrong_versions_release_baseline_and_artifact(
+    tmp_path: Path,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+
+    cases = (
+        (
+            old.model_copy(
+                update={
+                    "fingerprint": old.fingerprint.model_copy(
+                        update={"algorithm_version": "decomposition-v3"}
+                    )
+                }
+            ),
+            new,
+            _baseline(old),
+            "algorithm",
+        ),
+        (
+            old,
+            new.model_copy(update={"ncit_version": "other"}),
+            _baseline(old),
+            "release",
+        ),
+        (
+            old,
+            new,
+            _baseline(old).model_copy(update={"run_id": "different"}),
+            "baseline",
+        ),
+    )
+    for candidate_old, candidate_new, baseline, message in cases:
+        with pytest.raises(R101ComparatorValidationError, match=message):
+            qualify_r101_comparator(
+                old_run=candidate_old,
+                new_run=candidate_new,
+                old_baseline=baseline,
+                old_artifact=old_artifact,
+                new_artifact=new_artifact,
+            )
+
+    new_artifact.write_text("modified\n")
+    with pytest.raises(R101ComparatorValidationError, match="artifact"):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+def test_comparator_refuses_when_an_alleged_addition_is_absent_on_either_side(
+    tmp_path: Path,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+    old_artifact.write_text(
+        old_artifact.read_text().replace(
+            "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C187445>",
+            "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C187446>",
+        )
+    )
+    changed_old = old.model_copy(
+        update={
+            "representation_identity": hashlib.sha256(
+                old_artifact.read_bytes()
+            ).hexdigest()
+        }
+    )
+
+    with pytest.raises(R101ComparatorValidationError, match="C187445"):
+        qualify_r101_comparator(
+            old_run=changed_old,
+            new_run=new,
+            old_baseline=_baseline(changed_old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+def test_comparator_wire_models_reject_corrupt_fingerprint_identity(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "old.ttl"
+    run = _run(
+        "old-full",
+        artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+    )
+    with pytest.raises(ValidationError, match="fingerprint identity"):
+        ComparatorRun.model_validate(
+            {**run.model_dump(), "fingerprint_identity": "0" * 64}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"semantic_types": ("Neoplastic Process", "Disease or Syndrome")},
+            "canonical",
+        ),
+        ({"worklist": ()}, "nonempty"),
+        ({"worklist": ("C1", "C1")}, "unique"),
+        ({"branch": "disease"}, "scope root"),
+    ],
+)
+def test_comparator_fingerprint_rejects_noncanonical_scope_and_collections(
+    changes: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        ComparatorFingerprint.model_validate(_fingerprint(**changes))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"schema_version": 5},
+        {"branch": "disease", "scope_root": "C2991"},
+        {"total_limit": 2},
+        {"sample_manifest_identity": "e" * 64},
+        {"output_mode": "none"},
+    ],
+)
+def test_comparator_rejects_matching_pairs_that_are_not_full_standard_neoplasm_runs(
+    tmp_path: Path, changes: dict[str, object]
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+        **changes,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+        **changes,
+    )
+
+    with pytest.raises(R101ComparatorValidationError):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("artifact_kind", ["directory", "symlink"])
+def test_comparator_refuses_non_regular_artifacts(
+    tmp_path: Path, artifact_kind: str
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full", old_artifact, algorithm="decomposition-v4", routing_identity=None
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+    invalid_artifact = tmp_path / "invalid"
+    if artifact_kind == "directory":
+        invalid_artifact.mkdir()
+    else:
+        invalid_artifact.symlink_to(old_artifact)
+
+    with pytest.raises(R101ComparatorValidationError, match="regular file"):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=invalid_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("old_routing_identity", "new_routing_identity", "message"),
+    [(None, None, "v5 routing"), ("c" * 64, "c" * 64, "independent variables")],
+)
+def test_comparator_requires_distinct_recorded_v5_routing_identity(
+    tmp_path: Path,
+    old_routing_identity: str | None,
+    new_routing_identity: str | None,
+    message: str,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=old_routing_identity,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity=new_routing_identity,
+    )
+
+    with pytest.raises(R101ComparatorValidationError, match=message):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+def test_comparator_refuses_different_canary_constituents(tmp_path: Path) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full", old_artifact, algorithm="decomposition-v4", routing_identity=None
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+    new_artifact.write_text(new_artifact.read_text().replace("#C10>", "#C11>"))
+    changed_new = new.model_copy(
+        update={
+            "representation_identity": hashlib.sha256(
+                new_artifact.read_bytes()
+            ).hexdigest()
+        }
+    )
+
+    with pytest.raises(R101ComparatorValidationError, match="additions differ"):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=changed_new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+
+
+@pytest.mark.unit
+def test_qualification_identity_and_atomic_writer_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full", old_artifact, algorithm="decomposition-v4", routing_identity=None
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+    qualification = qualify_r101_comparator(
+        old_run=old,
+        new_run=new,
+        old_baseline=_baseline(old),
+        old_artifact=old_artifact,
+        new_artifact=new_artifact,
+    )
+    with pytest.raises(ValidationError, match="qualification identity"):
+        R101ComparatorQualification.model_validate(
+            {**qualification.model_dump(), "qualification_identity": "0" * 64}
+        )
+
+    destination = tmp_path / "qualification.json"
+    write_r101_comparator_qualification(destination, qualification)
+    assert json.loads(destination.read_text()) == qualification.model_dump(mode="json")
+    original = destination.read_bytes()
+
+    def fail_replace(_source: str, _destination: Path) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(
+        "ontolib.decomposition.r101_comparator.os.replace", fail_replace
+    )
+    with pytest.raises(OSError, match="simulated replace failure"):
+        write_r101_comparator_qualification(destination, qualification)
+    assert destination.read_bytes() == original
+    assert tuple(tmp_path.glob(".qualification.json.*")) == ()

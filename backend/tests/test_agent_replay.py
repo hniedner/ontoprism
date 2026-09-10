@@ -9,6 +9,7 @@ import os
 import socket
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import scripts.validation.run_agent_replay as replay
@@ -66,6 +67,13 @@ def test_inspect_r101_report_reads_invalidated_binding_without_rewriting(
         "non_r101_delta_old_run_id": "old-run",
         "non_r101_delta_query_identity": "d" * 64,
         "non_r101_delta_row_count": 0,
+        "non_r101_metadata_delta_count": 0,
+        "non_r101_classified_delta_count": 0,
+        "non_r101_raw_typed_delta_count": None,
+        "non_r101_classifications": {},
+        "comparator_qualification_identity": None,
+        "mechanical_status": None,
+        "counts": None,
         "old_run_fingerprint_identity": "a" * 64,
         "old_run_id": "old-run",
         "report_identity": "e" * 64,
@@ -92,6 +100,152 @@ def test_inspect_decomposition_runs_accepts_only_bounded_run_ids(
     assert seen == [(run_id,)]
     with pytest.raises(AgentReplayInputError, match="invalid decomposition run ID"):
         run_agent_replay(["inspect-decomposition-runs", "not-a-run"], tmp_path)
+
+
+@pytest.mark.unit
+def test_current_r101_comparator_qualification_uses_only_fixed_full_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "tmp/m1-6-prechange-v4-corpus-baseline.json",
+        "tmp/m1-6-prechange-v4-full-corpus.ttl",
+        "tmp/m1-6-current-full-corpus.ttl",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[tuple[Path, Path, Path, Path]] = []
+
+    async def qualify(
+        baseline: Path, old_artifact: Path, new_artifact: Path, output: Path
+    ) -> None:
+        calls.append((baseline, old_artifact, new_artifact, output))
+
+    monkeypatch.setattr(
+        replay, "_qualify_current_r101_comparator_async", qualify, raising=False
+    )
+
+    assert run_agent_replay(["qualify-current-r101-comparator"], tmp_path) == 0
+    assert calls == [
+        (
+            tmp_path / required[0],
+            tmp_path / required[1],
+            tmp_path / required[2],
+            tmp_path / "tmp/m1-6-r101-v5-comparator-qualification.json",
+        )
+    ]
+    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
+        run_agent_replay(["qualify-current-r101-comparator", "sample.ttl"], tmp_path)
+
+
+@pytest.mark.unit
+def test_current_r101_conservation_generation_uses_fixed_qualified_pair(
+    tmp_path: Path,
+) -> None:
+    required = (
+        "scripts/adjudication.py",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "tmp/m1-6-prechange-v4-corpus-baseline.json",
+        "tmp/m1-6-prechange-v4-full-corpus.ttl",
+        "tmp/m1-6-current-full-corpus.ttl",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(
+            ["generate-current-r101-conservation"], tmp_path, runner=runner
+        )
+        == 0
+    )
+
+    command = runner.calls[0][0]
+    assert command[:3] == ["/opt/homebrew/bin/pdm", "run", "adjudication"]
+    assert "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820" in command
+    assert "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722" in command
+    assert str(tmp_path / "tmp/m1-6-prechange-v4-full-corpus.ttl") in command
+    assert str(tmp_path / "tmp/m1-6-current-full-corpus.ttl") in command
+    assert str(tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz") in command
+    assert str(tmp_path / "tmp/m1-6-r101-v5-comparator-qualification.json") in command
+
+
+@pytest.mark.unit
+def test_current_corpus_baseline_generation_uses_fixed_published_run(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(["generate-current-corpus-baseline"], tmp_path, runner=runner)
+        == 0
+    )
+
+    command = runner.calls[0][0]
+    assert command[:3] == ["/opt/homebrew/bin/pdm", "run", "adjudication"]
+    assert "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722" in command
+    assert str(tmp_path / "tmp/m1-6-current-full-corpus.ttl") in command
+    assert str(tmp_path / "tmp/m1-6-current-corpus-baseline.json") in command
+
+
+@pytest.mark.unit
+def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report_source = tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz"
+    baseline_source = tmp_path / "tmp/m1-6-current-corpus-baseline.json"
+    report_source.parent.mkdir(parents=True)
+    report_source.write_bytes(b"report")
+    baseline_source.write_bytes(b"baseline")
+    golden = tmp_path / "ontolib/tests/decomposition/golden"
+    golden.mkdir(parents=True)
+
+    conservation = __import__(
+        "ontolib.decomposition.r101_conservation",
+        fromlist=["load_r101_conservation_report"],
+    )
+    baseline_module = __import__(
+        "ontolib.decomposition.corpus_baseline", fromlist=["load_corpus_baseline"]
+    )
+    monkeypatch.setattr(
+        conservation,
+        "load_r101_conservation_report",
+        lambda _path: SimpleNamespace(
+            old_run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+            new_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+            new_run_fingerprint_identity="a" * 64,
+            new_representation_identity="b" * 64,
+            mechanical_status="complete",
+            non_r101_delta_evidence=SimpleNamespace(rows=()),
+        ),
+    )
+    monkeypatch.setattr(
+        baseline_module,
+        "load_corpus_baseline",
+        lambda _path: SimpleNamespace(
+            run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+            run_fingerprint_identity="a" * 64,
+            representation_identity="b" * 64,
+        ),
+    )
+
+    assert run_agent_replay(["promote-current-r101-evidence"], tmp_path) == 0
+
+    assert (golden / "neoplasm-r101-v5-conservation.json.gz").read_bytes() == b"report"
+    assert (
+        golden / "neoplasm-current-corpus-baseline.json"
+    ).read_bytes() == b"baseline"
 
 
 class _Result:

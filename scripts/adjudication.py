@@ -40,6 +40,10 @@ from ontolib.decomposition.proposal_registry_migration import (
     write_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.r101_comparator import (
+    qualify_r101_comparator,
+    write_r101_comparator_qualification,
+)
 from ontolib.decomposition.r101_conservation import (
     LedgerBuildContext,
     QueryMetrics,
@@ -418,6 +422,9 @@ class _R101ConservationArgs(Protocol):
     baseline: Path
     run_id: str
     new_run_id: str
+    old_artifact: Path
+    new_artifact: Path
+    qualification_output: Path
     endpoint: str
     output: Path
     pre_resume_proof_identity: str
@@ -599,29 +606,22 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
 
             store = ProvenanceStore(make_sessionmaker(engine))
             baseline = load_corpus_baseline(args.baseline)
-            old_run = await store.completed_run_for_evidence(args.run_id)
-            new_run = await store.completed_run_for_evidence(args.new_run_id)
+            old_run = await store.completed_comparator_run_for_evidence(args.run_id)
+            new_run = await store.completed_comparator_run_for_evidence(args.new_run_id)
+            qualification = qualify_r101_comparator(
+                old_run=old_run,
+                new_run=new_run,
+                old_baseline=baseline,
+                old_artifact=args.old_artifact,
+                new_artifact=args.new_artifact,
+            )
             if (
-                baseline.run_id != old_run.run_id
-                or baseline.source_identity != manifest.source_identity
-                or baseline.ontology_release != manifest.ontology_version
-                or baseline.representation_identity != old_run.representation_identity
-                or old_run.fingerprint.algorithm_version != "decomposition-v4"
-                or new_run.fingerprint.algorithm_version != "decomposition-v5"
-                or new_run.fingerprint.source_identity != manifest.source_identity
-                or new_run.ncit_version != manifest.ontology_version
+                qualification.control.source_identity != manifest.source_identity
+                or qualification.control.ontology_release != manifest.ontology_version
             ):
                 raise ValueError("source-identity-mismatch")
-            old_dimensions = old_run.fingerprint.model_dump(
-                exclude={"algorithm_version", "emitted_at"}
-            )
-            new_dimensions = new_run.fingerprint.model_dump(
-                exclude={"algorithm_version", "emitted_at"}
-            )
-            if old_dimensions != new_dimensions:
-                raise ValueError("source-identity-mismatch: run fingerprint drift")
             source_rows = await store.r101_occurrence_ledger(
-                args.run_id, args.new_run_id
+                args.run_id, args.new_run_id, allow_algorithm_variable=True
             )
             candidate_pairs = tuple(
                 sorted(
@@ -676,9 +676,15 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                         max_asserted_superclass_hops=20,
                     ),
                     non_r101_delta_evidence=source_rows.non_r101_delta_evidence,
+                    comparator_qualification_identity=(
+                        qualification.qualification_identity
+                    ),
                 ),
             )
             write_r101_occurrence_ledger(args.output, report)
+            write_r101_comparator_qualification(
+                args.qualification_output, qualification
+            )
             print(
                 f"json_identity={report.json_identity} "
                 f"tsv_identity={report.tsv_identity} "
@@ -973,6 +979,9 @@ def _add_r101_parsers(subparsers: Any) -> None:
     conservation_parser.add_argument("--baseline", required=True, type=Path)
     conservation_parser.add_argument("--run-id", required=True)
     conservation_parser.add_argument("--new-run-id", required=True)
+    conservation_parser.add_argument("--old-artifact", required=True, type=Path)
+    conservation_parser.add_argument("--new-artifact", required=True, type=Path)
+    conservation_parser.add_argument("--qualification-output", required=True, type=Path)
     conservation_parser.add_argument("--endpoint", required=True)
     conservation_parser.add_argument("--output", required=True, type=Path)
     conservation_parser.add_argument("--pre-resume-proof-identity", required=True)

@@ -21,6 +21,7 @@ import socket
 import stat
 import subprocess
 import sys
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -40,6 +41,8 @@ _RUN_ID = re.compile(
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
 _MAX_INSPECTED_RUNS = 8
+_R101_COMPARATOR_OLD_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
+_R101_COMPARATOR_NEW_RUN = "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
@@ -162,6 +165,219 @@ def _inspect_decomposition_runs(
     return 0
 
 
+async def _qualify_current_r101_comparator_async(
+    baseline: Path, old_artifact: Path, new_artifact: Path, output: Path
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    comparator = importlib.import_module("ontolib.decomposition.r101_comparator")
+    corpus = importlib.import_module("ontolib.decomposition.corpus_baseline")
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        old_run = await store.completed_comparator_run_for_evidence(
+            _R101_COMPARATOR_OLD_RUN
+        )
+        new_run = await store.completed_comparator_run_for_evidence(
+            _R101_COMPARATOR_NEW_RUN
+        )
+        qualification = comparator.qualify_r101_comparator(
+            old_run=old_run,
+            new_run=new_run,
+            old_baseline=corpus.load_corpus_baseline(baseline),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+        comparator.write_r101_comparator_qualification(output, qualification)
+        print(
+            json.dumps(
+                {
+                    "old_run_id": qualification.old.run_id,
+                    "new_run_id": qualification.new.run_id,
+                    "query_identity": qualification.query_identity,
+                    "shared_canary_constituents": len(
+                        qualification.shared_canary_constituents
+                    ),
+                    "qualification_identity": qualification.qualification_identity,
+                },
+                sort_keys=True,
+                indent=2,
+            )
+        )
+    finally:
+        await database.dispose_engine(engine)
+
+
+def _qualify_current_r101_comparator(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "qualify-current-r101-comparator accepts no arguments"
+        )
+    baseline, old_artifact, new_artifact = (
+        Path(path)
+        for path in _require_files(
+            root,
+            (
+                "tmp/m1-6-prechange-v4-corpus-baseline.json",
+                "tmp/m1-6-prechange-v4-full-corpus.ttl",
+                "tmp/m1-6-current-full-corpus.ttl",
+            ),
+        )
+    )
+    asyncio.run(
+        _qualify_current_r101_comparator_async(
+            baseline,
+            old_artifact,
+            new_artifact,
+            root / "tmp/m1-6-r101-v5-comparator-qualification.json",
+        )
+    )
+    return 0
+
+
+def _generate_current_r101_conservation(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-current-r101-conservation accepts no arguments"
+        )
+    _script, source_manifest, baseline, old_artifact, new_artifact = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "tmp/m1-6-prechange-v4-corpus-baseline.json",
+            "tmp/m1-6-prechange-v4-full-corpus.ttl",
+            "tmp/m1-6-current-full-corpus.ttl",
+        ),
+    )
+    return _run(
+        [
+            _PDM,
+            "run",
+            "adjudication",
+            "generate-r101-conservation",
+            "--source-manifest",
+            source_manifest,
+            "--baseline",
+            baseline,
+            "--run-id",
+            _R101_COMPARATOR_OLD_RUN,
+            "--new-run-id",
+            _R101_COMPARATOR_NEW_RUN,
+            "--old-artifact",
+            old_artifact,
+            "--new-artifact",
+            new_artifact,
+            "--qualification-output",
+            str(root / "tmp/m1-6-r101-v5-comparator-qualification.json"),
+            "--endpoint",
+            "http://localhost:7888",
+            "--output",
+            str(root / "tmp/m1-6-r101-v5-conservation.json.gz"),
+            "--pre-resume-proof-identity",
+            "f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018",
+            "--resume-dry-run-identity",
+            "2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98",
+            "--mixed-cohort-identity",
+            "dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a",
+        ],
+        root,
+        runner,
+    )
+
+
+def _generate_current_corpus_baseline(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-current-corpus-baseline accepts no arguments"
+        )
+    _script, source_manifest, artifact = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "tmp/m1-6-current-full-corpus.ttl",
+        ),
+    )
+    return _run(
+        [
+            _PDM,
+            "run",
+            "adjudication",
+            "generate-corpus-baseline",
+            "--source-manifest",
+            source_manifest,
+            "--run-id",
+            _R101_COMPARATOR_NEW_RUN,
+            "--artifact",
+            artifact,
+            "--output",
+            str(root / "tmp/m1-6-current-corpus-baseline.json"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _promote_current_r101_evidence(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "promote-current-r101-evidence accepts no arguments"
+        )
+    report_path, baseline_path = (
+        Path(item)
+        for item in _require_files(
+            root,
+            (
+                "tmp/m1-6-r101-v5-conservation.json.gz",
+                "tmp/m1-6-current-corpus-baseline.json",
+            ),
+        )
+    )
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    baseline_module = importlib.import_module("ontolib.decomposition.corpus_baseline")
+    report = conservation.load_r101_conservation_report(report_path)
+    baseline = baseline_module.load_corpus_baseline(baseline_path)
+    if (
+        report.old_run_id != _R101_COMPARATOR_OLD_RUN
+        or report.new_run_id != _R101_COMPARATOR_NEW_RUN
+        or report.mechanical_status != "complete"
+        or report.non_r101_delta_evidence.rows
+    ):
+        raise AgentReplayInputError(
+            "current R101 report does not certify the fixed comparator pair"
+        )
+    if (
+        baseline.run_id != report.new_run_id
+        or baseline.run_fingerprint_identity != report.new_run_fingerprint_identity
+        or baseline.representation_identity != report.new_representation_identity
+    ):
+        raise AgentReplayInputError(
+            "current corpus baseline does not bind the qualified new run"
+        )
+    golden = root / "ontolib/tests/decomposition/golden"
+    if not golden.is_dir():
+        raise AgentReplayInputError("golden evidence directory does not exist")
+    (golden / "neoplasm-r101-v5-conservation.json.gz").write_bytes(
+        report_path.read_bytes()
+    )
+    (golden / "neoplasm-current-corpus-baseline.json").write_bytes(
+        baseline_path.read_bytes()
+    )
+    return 0
+
+
 def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -> int:
     del runner
     if len(values) != 1:
@@ -179,6 +395,19 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
     delta = payload.get("non_r101_delta_evidence")
     if not isinstance(delta, dict) or not isinstance(delta.get("rows"), list):
         raise AgentReplayInputError("R101 report delta evidence has an invalid shape")
+    metadata_deltas = delta.get("metadata_deltas", [])
+    classified_rows = delta.get("classified_rows", [])
+    if not isinstance(metadata_deltas, list) or not isinstance(classified_rows, list):
+        raise AgentReplayInputError(
+            "R101 report typed delta evidence has an invalid shape"
+        )
+    classifications = Counter(
+        item.get("classification")
+        for item in classified_rows
+        if isinstance(item, dict) and isinstance(item.get("classification"), str)
+    )
+    if sum(classifications.values()) != len(classified_rows):
+        raise AgentReplayInputError("R101 report delta classification is malformed")
     result = {
         "schema_version": payload.get("schema_version"),
         "old_run_id": payload.get("old_run_id"),
@@ -190,6 +419,15 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
         "non_r101_delta_new_run_id": delta.get("new_run_id"),
         "non_r101_delta_query_identity": delta.get("query_identity"),
         "non_r101_delta_row_count": len(delta["rows"]),
+        "non_r101_metadata_delta_count": len(metadata_deltas),
+        "non_r101_classified_delta_count": len(classified_rows),
+        "non_r101_raw_typed_delta_count": delta.get("raw_typed_delta_count"),
+        "non_r101_classifications": dict(sorted(classifications.items())),
+        "comparator_qualification_identity": payload.get(
+            "comparator_qualification_identity"
+        ),
+        "mechanical_status": payload.get("mechanical_status"),
+        "counts": payload.get("counts"),
         "report_identity": payload.get("report_identity"),
         "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
@@ -2766,6 +3004,10 @@ _OPERATIONS: dict[str, Operation] = {
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
     "inspect-decomposition-runs": _inspect_decomposition_runs,
+    "qualify-current-r101-comparator": _qualify_current_r101_comparator,
+    "generate-current-r101-conservation": _generate_current_r101_conservation,
+    "generate-current-corpus-baseline": _generate_current_corpus_baseline,
+    "promote-current-r101-evidence": _promote_current_r101_evidence,
     "inspect-r101-report": _inspect_r101_report,
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,

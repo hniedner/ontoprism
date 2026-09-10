@@ -11,6 +11,7 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.pre_resume import PRE_RESUME_SQL, acquire_candidate_evidence
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.r101_comparator import ComparatorRun
 from ontolib.decomposition.r101_conservation import (
     STRUCTURAL_KEY_FIELDS,
     LedgerBuildContext,
@@ -30,6 +31,90 @@ class _P106Client:
         assert query.lstrip().startswith("PREFIX")
         assert required_variables == {"code", "st"}
         return [{"code": "C12418", "st": "Body Location or Region"}]
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_comparator_reader_accepts_exact_historical_fingerprint_without_mutation(
+    isolated_postgres_url: str,
+) -> None:
+    dsn = isolated_postgres_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    fingerprint = {
+        "schema_version": 4,
+        "source_identity": "a" * 64,
+        "collapse_policy_identity": "b" * 64,
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
+        "semantic_types": [
+            "Cell or Molecular Dysfunction",
+            "Disease or Syndrome",
+            "Neoplastic Process",
+        ],
+        "worklist": ["C1"],
+        "total_limit": None,
+        "sample_manifest_identity": None,
+        "algorithm_version": "decomposition-v4",
+        "config_version": "nested-definition-v2",
+        "walker_max_depth": 7,
+        "output_mode": "file",
+        "load_mode": "none",
+        "emitted_at": "2026-09-08T00:00:00Z",
+    }
+    fingerprint_identity = hashlib.sha256(
+        json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    connection = await asyncpg.connect(dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
+            "finished_at, source_identity, fingerprint, fingerprint_sha256, "
+            "emitted_at, "
+            "publication_state, publication_attempt_count, representation_identity, "
+            "publication_artifact_path, publication_built_at, publication_started_at, "
+            "publication_finished_at) "
+            "VALUES ('historical-full', 'neoplasm', 'complete', '26.07d', now(), "
+            "now(), $1, $2::jsonb, $3, now(), 'published', 1, $4, 'tmp/old.ttl', "
+            "now(), now(), now())",
+            "a" * 64,
+            json.dumps(fingerprint),
+            fingerprint_identity,
+            "c" * 64,
+        )
+        await connection.execute(
+            "INSERT INTO decomp_work_item (run_id, concept_code, ordinal, state, "
+            "attempt_count, semantic_type, semantic_types, outcome, is_decomposed, "
+            "is_residual, has_complete_definition, constituent_count, minted_count, "
+            "completed_at) VALUES ('historical-full', 'C1', 0, 'complete', 1, "
+            "'Neoplastic Process', '[\"Neoplastic Process\"]'::jsonb, 'atomic-no-op', "
+            "false, false, false, 0, 0, now())"
+        )
+        before = await connection.fetchval(
+            "SELECT to_jsonb(r) FROM decomp_run r WHERE id='historical-full'"
+        )
+    finally:
+        await connection.close()
+
+    engine = make_engine(isolated_postgres_url)
+    try:
+        observed = await ProvenanceStore(
+            make_sessionmaker(engine)
+        ).completed_comparator_run_for_evidence("historical-full")
+    finally:
+        await dispose_engine(engine)
+
+    connection = await asyncpg.connect(dsn)
+    try:
+        after = await connection.fetchval(
+            "SELECT to_jsonb(r) FROM decomp_run r WHERE id='historical-full'"
+        )
+    finally:
+        await connection.close()
+
+    assert isinstance(observed, ComparatorRun)
+    assert observed.fingerprint.routing_implementation_identity is None
+    assert observed.fingerprint_identity == fingerprint_identity
+    assert json.loads(before) == json.loads(after)
 
 
 @pytest.mark.integration
@@ -347,12 +432,26 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             "concept_code": "C1",
             "axis": "op:Morphology",
             "filler_code": "C21",
+            "axis_source": "parent",
+            "source_roles": (),
+            "most_specific": True,
+            "needs_review": False,
+            "relationship_group": None,
+            "source_definition_ids": (),
+            "source_occurrence_ids": (),
         },
         {
             "change": "removed",
             "concept_code": "C1",
             "axis": "op:Morphology",
             "filler_code": "C20",
+            "axis_source": "parent",
+            "source_roles": (),
+            "most_specific": True,
+            "needs_review": False,
+            "relationship_group": None,
+            "source_definition_ids": (),
+            "source_occurrence_ids": (),
         },
     ]
     assert ledger.non_r101_delta_evidence.old_run_id == "old-r101"
@@ -383,6 +482,7 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             max_asserted_superclass_hops=20,
         ),
         non_r101_delta_evidence=ledger.non_r101_delta_evidence,
+        comparator_qualification_identity="9" * 64,
     )
     report = build_r101_occurrence_ledger(
         ledger.occurrences,

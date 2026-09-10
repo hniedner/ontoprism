@@ -26,6 +26,7 @@ from ontolib.decomposition.provenance import (
     RunStateError,
 )
 from ontolib.decomposition.provenance_models import RunFingerprint, WorkItemOutcome
+from ontolib.decomposition.r101_comparator import ComparatorFingerprint
 
 
 def _empty_completion_metrics() -> dict[str, object]:
@@ -793,6 +794,90 @@ async def test_completed_run_for_evidence_rejects_malformed_fingerprint() -> Non
 
     with pytest.raises(RunIdentityMismatchError, match="corrupt"):
         await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+
+def _comparator_run_row(**changes: object) -> dict[str, object]:
+    fingerprint = ComparatorFingerprint.model_validate(
+        {
+            "schema_version": 4,
+            "source_identity": "a" * 64,
+            "collapse_policy_identity": "b" * 64,
+            "branch": "neoplasm",
+            "scope_root": "C3262",
+            "scope_version": "stated-genus-subclass-v1",
+            "semantic_types": ("Neoplastic Process",),
+            "worklist": ("C1",),
+            "total_limit": None,
+            "sample_manifest_identity": None,
+            "algorithm_version": "decomposition-v4",
+            "config_version": "nested-definition-v2",
+            "walker_max_depth": 7,
+            "output_mode": "file",
+            "load_mode": "none",
+            "emitted_at": datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC),
+        }
+    )
+    row: dict[str, object] = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": fingerprint.source_identity,
+        "fingerprint": fingerprint.model_dump(mode="json", exclude_unset=True),
+        "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "published",
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/historical.ttl",
+    }
+    row.update(changes)
+    return row
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "error", "message"),
+    [
+        ({"status": "running"}, RunStateError, "not complete and published"),
+        (
+            {"publication_state": "not_requested"},
+            RunStateError,
+            "not complete and published",
+        ),
+        ({"representation_identity": None}, RunStateError, "publication evidence"),
+        ({"publication_artifact_path": None}, RunStateError, "publication evidence"),
+        (
+            {"source_identity": "d" * 64},
+            RunIdentityMismatchError,
+            "source identity",
+        ),
+    ],
+)
+def test_comparator_run_reader_rejects_incomplete_or_inconsistent_evidence(
+    changes: dict[str, object],
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error, match=message):
+        provenance_module._comparator_run_from_row(
+            "historical-full", cast("Any", _comparator_run_row(**changes))
+        )
+
+
+@pytest.mark.unit
+def test_comparator_worklist_must_match_immutable_fingerprint() -> None:
+    run = provenance_module._comparator_run_from_row(
+        "historical-full", cast("Any", _comparator_run_row())
+    )
+    provenance_module._require_comparator_worklist(run, ["C1"])
+    with pytest.raises(RunIdentityMismatchError, match="materialized worklist"):
+        provenance_module._require_comparator_worklist(run, ["C2"])
+
+
+@pytest.mark.unit
+async def test_completed_comparator_run_for_evidence_rejects_missing_run() -> None:
+    sf = _make_mock_sf()
+    sf().execute.return_value.mappings.return_value.first.return_value = None
+
+    with pytest.raises(RunStateError, match="does not exist"):
+        await ProvenanceStore(sf).completed_comparator_run_for_evidence("missing")
 
 
 @pytest.mark.unit

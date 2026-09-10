@@ -43,7 +43,39 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
 RUN_ID = "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"
+PRECHANGE_FULL_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
+CURRENT_FULL_RUN = "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
 COMPLETED_FULL_RUN = "completed-full-run"
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_exact_full_v4_v5_pair_has_no_typed_non_r101_delta() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        ledger = await ProvenanceStore(
+            make_sessionmaker(engine)
+        ).r101_occurrence_ledger(
+            PRECHANGE_FULL_RUN,
+            CURRENT_FULL_RUN,
+            allow_algorithm_variable=True,
+        )
+    finally:
+        await dispose_engine(engine)
+
+    assert ledger.postgres_query_count == 2
+    assert ledger.non_r101_delta_evidence.old_run_id == PRECHANGE_FULL_RUN
+    assert ledger.non_r101_delta_evidence.new_run_id == CURRENT_FULL_RUN
+    evidence = ledger.non_r101_delta_evidence
+    assert evidence.rows == ()
+    assert evidence.classified_rows
+    assert evidence.raw_typed_delta_count == (
+        len(evidence.classified_rows) + 2 * len(evidence.metadata_deltas)
+    )
+    assert {item.classification for item in evidence.classified_rows} == {
+        "r101-bearing-cohort-output-delta",
+        "algorithm-variable-output-delta",
+    }
 
 
 @pytest.mark.integration
