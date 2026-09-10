@@ -80,8 +80,13 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
+    NO_MIXED_CHAIN_INVENTORY_IDENTITY,
+    RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
+    FreshAdmitted,
+    FullRunExecutionIdentity,
     NcitSourceSnapshot,
+    Refused,
     ResidualFillerClassification,
     RunFingerprint,
     RunResumeIdentity,
@@ -132,6 +137,10 @@ class RunPublicationError(RuntimeError):
 
 class SourcePreflightRejectedError(RuntimeError):
     """The completed source census found malformed or over-bound definitions."""
+
+
+class RunAdmissionRefusedError(RuntimeError):
+    """The authoritative provenance boundary refused this invocation."""
 
 
 class SparqlClient(Protocol):
@@ -783,6 +792,20 @@ def build_resume_identity(
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
+        mixed_chain_inventory_identity=(
+            (
+                _required_mixed_chain_inventory_identity(
+                    config,
+                    source_identity=snapshot.source_identity,
+                    worklist=(),
+                    routing_identity=routing_implementation_identity(),
+                )
+                if config.mixed_chain_inventory_path is not None
+                else None
+            )
+            or NO_MIXED_CHAIN_INVENTORY_IDENTITY
+        ),
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -797,39 +820,35 @@ def build_resume_identity(
     )
 
 
-async def _create_fresh_run(
+def _requested_fingerprint(
     config: RunConfig,
-    client: DecompositionSparqlClient,
-    provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
     *,
-    get_source_snapshot: GetSourceSnapshot,
     semantic_types: tuple[str, ...],
     total_limit: int | None,
-    worklist: tuple[str, ...] | None = None,
+    worklist: tuple[str, ...],
     collapse_policy: CollapseVetoPolicy,
-) -> tuple[str, RunFingerprint]:
-    run_id = _new_run_id(config.branch)
-    codes = (
-        await _standard_worklist(config, client, total_limit)
-        if worklist is None
-        else list(worklist)
-    )
-    await _require_source_snapshot(
-        client,
-        get_source_snapshot,
-        expected=snapshot,
-    )
-    fingerprint = RunFingerprint(
+) -> RunFingerprint:
+    return RunFingerprint(
         schema_version=5 if config.sample_manifest is not None else 4,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
+        mixed_chain_inventory_identity=(
+            _required_mixed_chain_inventory_identity(
+                config,
+                source_identity=snapshot.source_identity,
+                worklist=worklist,
+                routing_identity=routing_implementation_identity(),
+            )
+            or NO_MIXED_CHAIN_INVENTORY_IDENTITY
+        ),
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
         semantic_types=semantic_types,
-        worklist=tuple(codes),
+        worklist=worklist,
         total_limit=total_limit,
         sample_manifest_identity=(
             config.sample_manifest.identity
@@ -843,8 +862,6 @@ async def _create_fresh_run(
         load_mode="named-graph" if config.load_to_store else "none",
         emitted_at=datetime.now(UTC),
     )
-    await provenance.create_run(run_id, snapshot.ontology_version, fingerprint)
-    return run_id, fingerprint
 
 
 async def _standard_worklist(
@@ -943,37 +960,37 @@ async def _prepare_run(
     collapse_policy: CollapseVetoPolicy,
     fresh_worklist: tuple[str, ...] | None,
 ) -> _RunSetup:
-    """Create or reopen one exact source-bound worklist."""
+    """Admit exactly one source-bound worklist through the shared DB boundary."""
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
     semantic_types = config.semantic_types
-    if config.resume_from:
-        await _validated_sample_worklist(config, client, snapshot)
-        run_id = config.resume_from
-        fingerprint = await provenance.resume_run(
-            run_id,
-            build_resume_identity(
-                config,
-                snapshot,
-                semantic_types=semantic_types,
-                total_limit=total_limit,
-                collapse_policy=collapse_policy,
-            ),
+    if fresh_worklist is None:
+        raise RuntimeError("run worklist was not preflighted")
+    fingerprint = _requested_fingerprint(
+        config,
+        snapshot,
+        semantic_types=semantic_types,
+        total_limit=total_limit,
+        worklist=fresh_worklist,
+        collapse_policy=collapse_policy,
+    )
+    await _require_source_snapshot(client, get_source_snapshot, expected=snapshot)
+    execution = FullRunExecutionIdentity.from_fingerprint(fingerprint)
+    admission = await provenance.admit_run(
+        _new_run_id(config.branch),
+        snapshot.ontology_version,
+        fingerprint,
+        execution,
+        resume_run_id=config.resume_from,
+    )
+    if isinstance(admission, Refused):
+        raise RunAdmissionRefusedError(
+            f"decomposition admission refused: {admission.reason.value}; "
+            "inspect existing runs and use --resume with the exact compatible run"
         )
-    else:
-        if fresh_worklist is None:
-            raise RuntimeError("fresh run worklist was not preflighted")
-        run_id, fingerprint = await _create_fresh_run(
-            config,
-            client,
-            provenance,
-            snapshot,
-            get_source_snapshot=get_source_snapshot,
-            semantic_types=semantic_types,
-            total_limit=total_limit,
-            worklist=fresh_worklist,
-            collapse_policy=collapse_policy,
-        )
+    run_id = admission.run_id
+    if not isinstance(admission, FreshAdmitted):
+        fingerprint = await provenance.fingerprint_for_run(run_id)
     pending, labels = await _load_pending_run_data(
         provenance,
         run_id,
@@ -1927,8 +1944,6 @@ async def _fresh_preflight(
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
 ) -> tuple[tuple[str, ...] | None, SourcePreflightResult | None]:
-    if config.resume_from is not None:
-        return None, None
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
         tuple(await _standard_worklist(config, client, total_limit))
@@ -1945,6 +1960,31 @@ async def _fresh_preflight(
     )
     _require_preflight_allowed(result)
     return worklist, result
+
+
+async def _resume_preflight(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    snapshot: NcitSourceSnapshot,
+) -> tuple[tuple[str, ...], SourcePreflightResult]:
+    if config.resume_from is None:
+        raise RuntimeError("resume preflight requires an explicit run id")
+    persisted = await provenance.fingerprint_for_run(config.resume_from)
+    sample_worklist = await _validated_sample_worklist(config, client, snapshot)
+    if sample_worklist is not None and sample_worklist != persisted.worklist:
+        raise SourcePreflightRejectedError(
+            "sample manifest worklist does not match the persisted run"
+        )
+    result = await _source_preflight_result(
+        config,
+        client,
+        persisted.worklist,
+        source_identity=snapshot.source_identity,
+        routing_identity=routing_implementation_identity(),
+    )
+    _require_preflight_allowed(result)
+    return persisted.worklist, result
 
 
 async def _record_pipeline_failure(
@@ -1996,9 +2036,14 @@ async def run_pipeline(
     active_collapse_policy = await _active_collapse_policy(
         collapse_policy, client, snapshot, config.walker_max_depth
     )
-    fresh_worklist, fresh_preflight = await _fresh_preflight(
-        config, client, snapshot, total_limit
-    )
+    if config.resume_from is None:
+        fresh_worklist, fresh_preflight = await _fresh_preflight(
+            config, client, snapshot, total_limit
+        )
+    else:
+        fresh_worklist, fresh_preflight = await _resume_preflight(
+            config, client, provenance, snapshot
+        )
     setup = await _prepare_run(
         config,
         client,

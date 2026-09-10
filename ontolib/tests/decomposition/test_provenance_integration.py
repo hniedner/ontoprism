@@ -42,7 +42,11 @@ from ontolib.decomposition.provenance import (
     RunIdentityMismatchError,
     RunStateError,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 from ontolib.decomposition.sampling import load_sample_manifest
 
 _RUN_ID = "test-provenance-integration-run"
@@ -93,6 +97,8 @@ def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -853,6 +859,8 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
         source_identity=manifest.source_identity,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest.branch,
         scope_root=manifest.scope_root,
         scope_version=manifest.scope_version,

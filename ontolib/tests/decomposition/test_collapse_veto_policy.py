@@ -20,7 +20,11 @@ from ontolib.decomposition.collapse_policy_generation import (
 )
 from ontolib.decomposition.filler_selection import select_constituents
 from ontolib.decomposition.models import RoleRestriction
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.r101_review import load_r101_decision_registry
 
@@ -287,6 +291,8 @@ def test_policy_identity_is_required_by_fingerprint_and_resume_identity() -> Non
         "source_identity": _SOURCE,
         "collapse_policy_identity": _policy().policy_identity,
         "routing_implementation_identity": "1" * 64,
+        "mixed_chain_inventory_identity": "2" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",

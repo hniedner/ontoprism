@@ -25,7 +25,11 @@ from ontolib.decomposition.provenance import (
     RunIdentityMismatchError,
     RunStateError,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, WorkItemOutcome
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    WorkItemOutcome,
+)
 from ontolib.decomposition.r101_comparator import ComparatorFingerprint
 
 
@@ -645,6 +649,8 @@ async def test_finish_run_sets_complete() -> None:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -716,6 +722,8 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

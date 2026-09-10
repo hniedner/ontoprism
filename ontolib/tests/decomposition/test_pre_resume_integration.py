@@ -10,7 +10,11 @@ import pytest
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.pre_resume import PRE_RESUME_SQL, acquire_candidate_evidence
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 from ontolib.decomposition.r101_comparator import ComparatorRun
 from ontolib.decomposition.r101_conservation import (
     STRUCTURAL_KEY_FIELDS,
@@ -228,6 +232,8 @@ async def test_production_resume_preview_is_read_only_at_exact_protected_scale(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

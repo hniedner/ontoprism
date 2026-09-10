@@ -66,6 +66,26 @@ def test_progress_message_suppresses_nonmilestone_completions() -> None:
 
 
 @pytest.mark.unit
+def test_direct_script_exposes_no_admission_bypass_flag() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decompose.py",
+            "--source-manifest",
+            "missing.json",
+            "--force",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "No such option: --force" in unstyle(result.stderr)
+
+
+@pytest.mark.unit
 def test_residual_progress_prints_milestones(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
