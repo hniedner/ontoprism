@@ -481,7 +481,8 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "sample_artifact_identity": "e" * 64,
         "corpus_baseline_identity": "f" * 64,
         "corpus_artifact_identity": "1" * 64,
-        "r101_report_identity": "2" * 64,
+        "r101_current_report_identity": "2" * 64,
+        "r101_historical_report_identity": "3" * 64,
         "r101_registry_identity": "3" * 64,
         "r101_existing_packet_identity": "4" * 64,
         "r101_current_packet_identity": "5" * 64,
@@ -515,10 +516,12 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         },
         "group_review_count": 18,
         "r103_review_count": 3,
-        "r101_exact_validation_established": False,
+        "r101_historical_validation_established": False,
+        "r101_current_authorization_status": "pending",
         "r101_occurrence_count": 1,
         "r101_mechanical_unresolved": 0,
         "r101_non_r101_delta": 0,
+        "r101_metadata_delta": 0,
     }
 
 
@@ -655,6 +658,8 @@ def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> 
 
     assert report.semantic_gate.status == "not-evaluated"
     assert [entry.kind for entry in report.semantic_gate.entries] == [
+        "r101-unexplained-structural-delta",
+        "r101-semantic-metadata-delta",
         "unclassified-delta",
         "axis-contract-violation",
         "normalized-group-violation",
@@ -662,7 +667,7 @@ def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> 
         "primary-site-cardinality",
         "unexplained-r101-loss",
     ]
-    deferred = report.semantic_gate.entries[:4]
+    deferred = report.semantic_gate.entries[2:6]
     assert all(entry.status == "not-evaluated" for entry in deferred)
     assert all(not hasattr(entry, "blocker_count") for entry in deferred)
     assert report.authorization is False
@@ -680,7 +685,13 @@ def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> 
             1,
         ),
         ("r101_mechanical_unresolved", 2, "unexplained-r101-loss", 2),
-        ("r101_non_r101_delta", 3, "unclassified-delta", 3),
+        (
+            "r101_non_r101_delta",
+            3,
+            "r101-unexplained-structural-delta",
+            3,
+        ),
+        ("r101_metadata_delta", 4, "r101-semantic-metadata-delta", 4),
     ],
 )
 def test_supported_semantic_violations_emit_blocked_reports(
@@ -733,7 +744,7 @@ def test_semantic_gate_rejects_invalid_correlated_variants(mutation: str) -> Non
             "evidence": ["audit:" + "8" * 64],
         }
     else:
-        entries[0]["blocker_count"] = 0
+        entries[2]["blocker_count"] = 0
     payload["semantic_gate"]["entries"] = tuple(entries)
 
     with pytest.raises(
@@ -865,7 +876,7 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     payload.update(
         primary_site_resolved_count=8039,
         primary_site_review_required_count=5918,
-        r101_occurrence_count=3291,
+        r101_occurrence_count=43_414,
     )
     report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
 
@@ -897,18 +908,16 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
         "final-full-corpus-scientific-acceptance-and-publication",
     ]
     assert report.human_requirements[2].status == "pending"
-    assert report.human_requirements[2].count == 3291
+    assert report.human_requirements[2].count == 43_414
 
 
 @pytest.mark.unit
-def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity() -> (
-    None
-):
+def test_historical_r101_reuse_does_not_authorize_current_content() -> None:
     payload = _machine_readiness_input_payload()
     payload.update(
         r101_existing_packet_identity="4" * 64,
         r101_current_packet_identity="4" * 64,
-        r101_exact_validation_established=True,
+        r101_historical_validation_established=True,
         r101_occurrence_count=3291,
     )
     inputs = MachineReadinessInputs.model_validate(payload)
@@ -916,20 +925,16 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
     requirement = build_machine_readiness(inputs).human_requirements[2]
 
     assert requirement.requirement == "r101-ledger-authorization"
-    assert requirement.status == "satisfied-by-exact-reuse"
-    assert requirement.packet_identity == "4" * 64
-    assert requirement.registry_identity == "3" * 64
+    assert requirement.status == "pending"
 
 
 @pytest.mark.unit
-def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities() -> (
-    None
-):
+def test_readiness_report_refuses_current_r101_authorization_as_satisfied() -> None:
     input_payload = _machine_readiness_input_payload()
     input_payload.update(
         r101_existing_packet_identity="4" * 64,
         r101_current_packet_identity="4" * 64,
-        r101_exact_validation_established=True,
+        r101_historical_validation_established=True,
         r101_occurrence_count=3291,
     )
     inputs = MachineReadinessInputs.model_validate(input_payload)
@@ -939,22 +944,23 @@ def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities(
     requirements[2] = {
         "requirement": "r101-ledger-authorization",
         "count": 3291,
-        "status": "pending",
+        "status": "satisfied-by-exact-reuse",
+        "packet_identity": "4" * 64,
+        "registry_identity": "3" * 64,
     }
     payload["human_requirements"] = tuple(requirements)
 
     with pytest.raises(
-        ValueError, match="R101 requirement differs from packet identities"
+        ValueError, match=r"human_requirements|current R101 authorization"
     ):
         type(report).model_validate(payload)
 
 
 @pytest.mark.unit
-def test_r101_human_requirement_uses_current_covered_occurrence_count() -> None:
+def test_r101_human_requirement_covers_every_current_source_occurrence() -> None:
     report = load_r101_conservation_report(_R101_REPORT)
 
-    assert r101_human_occurrence_count(report) == 3291
-    assert r101_human_occurrence_count(report) != report.counts.total
+    assert r101_human_occurrence_count(report) == report.counts.total == 43_414
 
 
 @pytest.mark.unit

@@ -306,9 +306,9 @@ async def test_stage_and_residual_checkpoint_reject_branches_are_live(
 
         inspection = (await inspect_decomposition_runs(engine, (run_id,)))[0]
         assert (
-            inspection["run_id"],
-            inspection["stage_inventory_complete"],
-            inspection["resume_compatible"],
+            inspection.run_id,
+            inspection.stage_inventory_complete,
+            inspection.resume_compatible,
         ) == (run_id, True, False)
 
         await store.create_run(failed_run_id, "26.07d", _fingerprint())

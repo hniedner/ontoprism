@@ -16,6 +16,7 @@ ROUTING_IMPLEMENTATION_FILES = (
     Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
     Path("ontolib/src/ontolib/decomposition/models.py"),
     Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
+    Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
 )
 
 

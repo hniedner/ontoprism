@@ -32,6 +32,17 @@ R101DispositionKind = Literal[
     "collapsed-r82",
     "retained-policy-veto",
 ]
+SemanticRoute = Literal[
+    "semantic-evidence-not-requested",
+    "missing-p106",
+    "p106-organ",
+    "p106-non-organ-anatomy",
+    "reviewed-primary-subsite",
+    "reviewed-lineage",
+    "reviewed-contextual-override",
+    "unknown-role",
+    "role-contract",
+]
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -546,6 +557,7 @@ class RoleRestriction:
     anchoring_genus: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     source_occurrence_ids: tuple[str, ...] = ()
+    source_kind: Literal["stated", "synthetic"] = "synthetic"
 
     def __post_init__(self) -> None:
         for field_name in ("source_definition_ids", "source_occurrence_ids"):
@@ -610,7 +622,7 @@ class OccurrenceDisposition:
     normalized_axis: str
     source_filler: str
     retained_filler: str
-    semantic_route: str
+    semantic_route: SemanticRoute
     semantic_type: str | None
     r82_part: str | None = None
     r82_whole: str | None = None
@@ -622,6 +634,9 @@ class OccurrenceDisposition:
         _require_code(self.normalized_axis, _AXIS_OR_ROLE, "normalized_axis")
         _require_code(self.source_filler, _CONCEPT_CODE, "source_filler")
         _require_code(self.retained_filler, _CONCEPT_CODE, "retained_filler")
+        retained = self.kind.startswith("retained-")
+        if retained != (self.retained_filler == self.source_filler):
+            raise ValueError("retained filler equality differs from disposition")
         _require_r82_disposition(self)
         _require_policy_disposition(self)
         if self.policy_decision_identity is not None:

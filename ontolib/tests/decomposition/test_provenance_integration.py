@@ -61,6 +61,32 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     return sqlalchemy_url.replace("+asyncpg", "")
 
 
+@pytest.mark.integration
+async def test_occurrence_disposition_constraints_reject_impossible_states() -> None:
+    connection = await asyncpg.connect(_asyncpg_dsn(get_settings().database_url))
+    try:
+        rows = await connection.fetch(
+            "SELECT conname, pg_get_constraintdef(oid) AS definition "
+            "FROM pg_constraint WHERE conrelid = "
+            "'decomp_occurrence_disposition'::regclass"
+        )
+    finally:
+        await connection.close()
+
+    constraints = {row["conname"]: row["definition"] for row in rows}
+    assert "ck_decomp_disposition_filler_relation" in constraints
+    assert "ck_decomp_disposition_r82_endpoints" in constraints
+    assert "ck_decomp_disposition_semantic_route" in constraints
+    assert (
+        "retained_filler = source_filler"
+        in constraints["ck_decomp_disposition_filler_relation"]
+    )
+    assert (
+        "r82_part = retained_filler"
+        in constraints["ck_decomp_disposition_r82_endpoints"]
+    )
+
+
 def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
@@ -451,6 +477,20 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             (row.kind, row.normalized_axis, row.retained_filler)
             for row in persisted[0].occurrence_dispositions
         } == {("retained-routed", "op:PrimarySite", "C12400")}
+
+        conn = await asyncpg.connect(dsn)
+        transaction = conn.transaction()
+        await transaction.start()
+        try:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "UPDATE decomp_occurrence_disposition "
+                    "SET retained_filler = 'C999' WHERE run_id = $1",
+                    _RUN_ID,
+                )
+        finally:
+            await transaction.rollback()
+            await conn.close()
 
         finished = await store.finish_run(
             _RUN_ID,

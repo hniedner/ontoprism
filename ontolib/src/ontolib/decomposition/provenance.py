@@ -2317,8 +2317,6 @@ class ProvenanceStore:
         self,
         old_run_id: str,
         new_run_id: str,
-        *,
-        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource:
         """Read both exact occurrence inventories and links in one bounded query."""
         from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
@@ -2353,9 +2351,10 @@ class ProvenanceStore:
             raise R101ConservationValidationError("duplicate non-R101 delta evidence")
         r101_occurrences: dict[str, list[str]] = {}
         for item in occurrences:
-            r101_occurrences.setdefault(item.old_occurrence.concept_code, []).append(
-                item.old_occurrence.occurrence_id
-            )
+            if item.old_links != item.new_links:
+                r101_occurrences.setdefault(
+                    item.old_occurrence.concept_code, []
+                ).append(item.old_occurrence.occurrence_id)
         structural_rows, metadata_deltas, classified_rows = (
             classify_non_r101_delta_rows(
                 parsed_delta_rows,
@@ -2363,7 +2362,6 @@ class ProvenanceStore:
                     concept: tuple(sorted(set(occurrence_ids)))
                     for concept, occurrence_ids in r101_occurrences.items()
                 },
-                allow_algorithm_variable=allow_algorithm_variable,
             )
         )
         evidence = NonR101DeltaEvidence(

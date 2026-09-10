@@ -68,6 +68,7 @@ def test_inspect_r101_report_reads_invalidated_binding_without_rewriting(
         "non_r101_delta_query_identity": "d" * 64,
         "non_r101_delta_row_count": 0,
         "non_r101_metadata_delta_count": 0,
+        "non_r101_metadata_changed_fields": {},
         "non_r101_classified_delta_count": 0,
         "non_r101_raw_typed_delta_count": None,
         "non_r101_classifications": {},
@@ -205,9 +206,11 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
 ) -> None:
     report_source = tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz"
     baseline_source = tmp_path / "tmp/m1-6-current-corpus-baseline.json"
+    qualification_source = tmp_path / "tmp/m1-6-r101-v5-comparator-qualification.json"
     report_source.parent.mkdir(parents=True)
     report_source.write_bytes(b"report")
     baseline_source.write_bytes(b"baseline")
+    qualification_source.write_bytes(b"qualification")
     golden = tmp_path / "ontolib/tests/decomposition/golden"
     golden.mkdir(parents=True)
 
@@ -218,6 +221,10 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
     baseline_module = __import__(
         "ontolib.decomposition.corpus_baseline", fromlist=["load_corpus_baseline"]
     )
+    comparator_module = __import__(
+        "ontolib.decomposition.r101_comparator",
+        fromlist=["load_r101_comparator_qualification"],
+    )
     monkeypatch.setattr(
         conservation,
         "load_r101_conservation_report",
@@ -227,7 +234,10 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
             new_run_fingerprint_identity="a" * 64,
             new_representation_identity="b" * 64,
             mechanical_status="complete",
-            non_r101_delta_evidence=SimpleNamespace(rows=()),
+            comparator_qualification_identity="c" * 64,
+            non_r101_delta_evidence=SimpleNamespace(
+                rows=(), metadata_deltas=(), classified_rows=(), raw_typed_delta_count=0
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -239,6 +249,11 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
             representation_identity="b" * 64,
         ),
     )
+    monkeypatch.setattr(
+        comparator_module,
+        "load_r101_comparator_qualification",
+        lambda _path: SimpleNamespace(qualification_identity="c" * 64),
+    )
 
     assert run_agent_replay(["promote-current-r101-evidence"], tmp_path) == 0
 
@@ -246,6 +261,42 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
     assert (
         golden / "neoplasm-current-corpus-baseline.json"
     ).read_bytes() == b"baseline"
+
+
+@pytest.mark.unit
+def test_incomplete_current_r101_report_can_only_be_recorded_as_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"incomplete-report")
+    golden = tmp_path / "ontolib/tests/decomposition/golden"
+    golden.mkdir(parents=True)
+    conservation = __import__(
+        "ontolib.decomposition.r101_conservation",
+        fromlist=["load_r101_conservation_report"],
+    )
+    monkeypatch.setattr(
+        conservation,
+        "load_r101_conservation_report",
+        lambda _path: SimpleNamespace(
+            old_run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+            new_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+            mechanical_status="incomplete",
+            publication_gate="blocked",
+            non_r101_delta_evidence=SimpleNamespace(
+                rows=(object(),),
+                metadata_deltas=(object(),),
+                classified_rows=(),
+                raw_typed_delta_count=3,
+            ),
+        ),
+    )
+
+    assert run_agent_replay(["record-current-r101-diagnostic"], tmp_path) == 0
+    assert (
+        golden / "neoplasm-r101-v5-conservation.json.gz"
+    ).read_bytes() == b"incomplete-report"
 
 
 class _Result:
@@ -709,7 +760,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "tmp/m1-6-current-full-corpus.ttl",
         "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
@@ -773,6 +824,10 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     )
     assert calls[1]["r101_validation"] == (
         tmp_path / "tmp/r101-review-reuse-validation.json"
+    )
+    assert calls[1]["r101_report"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz"
     )
     assert calls[1]["group_packet"] == (
         tmp_path / "tmp/m1-6-group-review-packet-rev2.json"
@@ -899,7 +954,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
         "tmp/m1-6-current-full-corpus.ttl",
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
@@ -960,7 +1015,7 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
         "tmp/m1-6-current-full-corpus.ttl",
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",

@@ -642,7 +642,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0024_decomposition_run_stages"
+    assert revision == "0025_disposition_invariants"
     assert legacy_rows == 1
     assert publication_tables == 2
 

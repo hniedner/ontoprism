@@ -21,6 +21,7 @@ from ontolib.decomposition.models import (
     OccurrenceDisposition,
     R101DispositionKind,
     RoleRestriction,
+    SemanticRoute,
 )
 from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
@@ -54,7 +55,7 @@ class RoutedOccurrence:
 
     restriction: RoleRestriction
     normalized_axis: str
-    semantic_route: str
+    semantic_route: SemanticRoute
     semantic_type: str | None
     source_fact_id: str | None
     source_occurrence_id: str | None
@@ -76,6 +77,7 @@ class RoutedPlan:
 class RoutedSelection:
     constituents: tuple[Constituent, ...]
     dispositions: tuple[OccurrenceDisposition, ...]
+    synthetic_occurrence_count: int = 0
 
 
 def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -> bool:
@@ -178,7 +180,7 @@ def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
 def _primary_site_semantic_route(
     restriction: RoleRestriction,
     semantic_type_of: Callable[[str], str | None] | None,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, SemanticRoute, str | None]:
     if semantic_type_of is None:
         return axes.PRIMARY_SITE_AXIS, "semantic-evidence-not-requested", None
     semantic_type = semantic_type_of(restriction.filler_code)
@@ -193,7 +195,7 @@ def _semantic_route(
     restriction: RoleRestriction,
     parent_morphology: str | None,
     semantic_type_of: Callable[[str], str | None] | None,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, SemanticRoute, str | None]:
     if restriction.filler_code in primary_subsites_for_morphology(parent_morphology):
         return axes.PRIMARY_SUBSITE_AXIS, "reviewed-primary-subsite", None
     contextual = _r101_axis(restriction, parent_morphology)
@@ -220,7 +222,7 @@ def _expand_routed_occurrences(
     restriction: RoleRestriction,
     *,
     normalized_axis: str,
-    semantic_route: str,
+    semantic_route: SemanticRoute,
     semantic_type: str | None,
 ) -> tuple[RoutedOccurrence, ...]:
     facts = restriction.source_definition_ids
@@ -626,7 +628,11 @@ def _disposition(
     occurrence_id = occurrence.source_occurrence_id
     fact_id = occurrence.source_fact_id
     if occurrence_id is None or fact_id is None:
-        return None
+        if occurrence.restriction.source_kind == "synthetic":
+            return None
+        raise ValueError(
+            "stated restriction requires source occurrence and fact identities"
+        )
     filler = occurrence.restriction.filler_code
     kind, retained, relation_kind = _disposition_reduction(
         occurrence, occurrence_id, collapsed, policy_decisions
@@ -714,6 +720,10 @@ def select_routed_plan(
         ),
         dispositions=tuple(
             sorted(dispositions, key=lambda row: row.source_occurrence_id)
+        ),
+        synthetic_occurrence_count=sum(
+            occurrence.restriction.source_kind == "synthetic"
+            for occurrence in plan.occurrences
         ),
     )
 

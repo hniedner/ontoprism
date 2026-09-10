@@ -240,21 +240,59 @@ def test_typed_metadata_changes_are_separate_from_constituent_pair_deltas() -> N
 
     rows, metadata, classified = classify_non_r101_delta_rows(
         (added, algorithm_only, removed, structural),
-        r101_changed_occurrences={"C2": ("3" * 64,)},
-        allow_algorithm_variable=True,
+        r101_changed_occurrences={"C2": ("2" * 64,)},
     )
 
-    assert rows == ()
+    assert rows == (algorithm_only,)
     assert len(metadata) == 1
     assert metadata[0].old == removed
     assert metadata[0].new == added
     assert metadata[0].changed_fields == ("most_specific",)
     assert classified[0].row == structural
-    assert classified[0].classification == "r101-bearing-cohort-output-delta"
-    assert classified[0].r101_occurrence_ids == ("3" * 64,)
-    assert classified[1].row == algorithm_only
-    assert classified[1].classification == "algorithm-variable-output-delta"
-    assert classified[1].r101_occurrence_ids == ()
+    assert classified[0].classification == "r101-occurrence-linked-output-delta"
+    assert classified[0].r101_occurrence_ids == ("2" * 64,)
+
+
+@pytest.mark.unit
+def test_r101_cohort_membership_without_occurrence_evidence_remains_unexplained() -> (
+    None
+):
+    unrelated = _delta_row(source_occurrence_ids=("2" * 64,))
+
+    rows, metadata, classified = classify_non_r101_delta_rows(
+        (unrelated,),
+        r101_changed_occurrences={"C1": ("3" * 64,)},
+    )
+
+    assert rows == (unrelated,)
+    assert metadata == ()
+    assert classified == ()
+
+
+@pytest.mark.unit
+def test_semantic_metadata_changes_block_mechanical_completion() -> None:
+    removed = _delta_row(change="removed", most_specific=False)
+    added = _delta_row(change="added", most_specific=True)
+    _, metadata, _ = classify_non_r101_delta_rows(
+        (removed, added), r101_changed_occurrences={}
+    )
+    evidence = NonR101DeltaEvidence(
+        old_run_id="old",
+        new_run_id="new",
+        query_identity=r101_ledger_query_identity(),
+        rows=(),
+        metadata_deltas=metadata,
+        raw_typed_delta_count=2,
+    )
+
+    report = build_r101_occurrence_ledger(
+        (_input(),),
+        paths={},
+        context=_context(non_r101_delta_evidence=evidence),
+    )
+
+    assert report.mechanical_status == "incomplete"
+    assert report.publication_gate == "blocked"
 
 
 @pytest.mark.unit
@@ -423,6 +461,42 @@ def test_engine_disposition_rejects_evidence_inconsistent_with_its_kind(
     payload.update(changes)
 
     with pytest.raises(ValidationError, match=message):
+        EngineOccurrenceDisposition.model_validate(payload)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"kind": "retained-routed", "retained_filler": "C21"},
+        {
+            "kind": "collapsed-is-a",
+            "retained_filler": "C30",
+            "r82_part": None,
+            "r82_whole": None,
+        },
+        {"semantic_route": "invented-route"},
+    ],
+)
+def test_engine_disposition_rejects_impossible_filler_and_route_states(
+    changes: dict[str, object],
+) -> None:
+    payload: dict[str, object] = {
+        "kind": "collapsed-r82",
+        "source_occurrence_id": "1" * 64,
+        "source_fact_id": "2" * 64,
+        "normalized_axis": "op:PrimarySite",
+        "source_filler": "C30",
+        "retained_filler": "C20",
+        "semantic_route": "p106-organ",
+        "semantic_type": "Body Part, Organ, or Organ Component",
+        "r82_part": "C20",
+        "r82_whole": "C30",
+        "policy_decision_identity": None,
+    }
+    payload.update(changes)
+
+    with pytest.raises(ValidationError):
         EngineOccurrenceDisposition.model_validate(payload)
 
 
@@ -738,7 +812,9 @@ def test_non_r101_delta_and_exact_count_mismatch_fail_closed() -> None:
         context=_context(non_r101_delta_evidence=_delta_evidence(delta)),
     )
     assert report.mechanical_status == "incomplete"
-    assert report.occurrences[0].disposition_reason == "non-r101-delta"
+    assert report.occurrences[0].disposition_reason == "explicit-no-old-or-new-links"
+    assert report.counts.unresolved == 0
+    assert report.counts.non_r101_delta == 1
     with pytest.raises(R101ConservationValidationError, match="non-r101-delta"):
         validate_r101_publication(report)
 
@@ -983,10 +1059,7 @@ class _ConsumerStore:
         self,
         old_run_id: str,
         new_run_id: str,
-        *,
-        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource:
-        del allow_algorithm_variable
         assert (old_run_id, new_run_id) == ("old", "new")
         return self.source
 
@@ -1314,36 +1387,28 @@ def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
         "unresolved": 0,
         "one_step": 0,
         "closure_only": 0,
-        "non_r101_delta": 0,
+        "non_r101_delta": 39,
     }
     assert report.comparator_qualification_identity == (
-        "939ff37cd463bad9324cb223e9771c0b5b47eba67a9790ea6e587ff6d5448c43"
+        "754e532097f81302a6c707f219bd594144ae551a5671a1bc0533e7e2cd8e4fe7"
     )
     assert report.report_identity == (
-        "3018e197c19b455af113c78ef6ddc0d73d875bc9061e84490f41347aeb47c9dd"
+        "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
     )
     assert report.json_identity == (
-        "027640aa69f17a6daff0badbc1c6370a18f30fc7b94c94f23daf794a414d6394"
+        "28ef430877da83d54fece6f28e6e77e44a2ed3db62e8674ef1e015472dca2009"
     )
     assert report.tsv_identity == (
         "23653bc37f4a43e69455dee7380e5928cb4258294520609fde78bb31310b14b1"
     )
-    assert evidence.rows == ()
+    assert report.query_metrics.postgres_query_count == 6
+    assert len(evidence.rows) == 39
     assert evidence.raw_typed_delta_count == 5_167
     assert len(evidence.metadata_deltas) == 2_564
-    assert len(evidence.classified_rows) == 39
-    assert {
-        classification: sum(
-            row.classification == classification for row in evidence.classified_rows
-        )
-        for classification in (
-            "r101-bearing-cohort-output-delta",
-            "algorithm-variable-output-delta",
-        )
-    } == {
-        "r101-bearing-cohort-output-delta": 22,
-        "algorithm-variable-output-delta": 17,
-    }
-    assert report.mechanical_status == "complete"
+    assert evidence.classified_rows == ()
+    assert evidence.raw_typed_delta_count == (
+        len(evidence.rows) + 2 * len(evidence.metadata_deltas)
+    )
+    assert report.mechanical_status == "incomplete"
     assert report.content_authorization.status == "pending"
     assert report.publication_gate == "blocked"

@@ -15,10 +15,12 @@ import zlib
 from collections import Counter, defaultdict
 from contextlib import suppress
 from itertools import pairwise
-from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import to_jsonable_python
+
+from ontolib.decomposition.models import SemanticRoute
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -254,7 +256,7 @@ class EngineOccurrenceDisposition(_StrictModel):
     normalized_axis: str = Field(min_length=1)
     source_filler: str = Field(pattern=_CODE)
     retained_filler: str = Field(pattern=_CODE)
-    semantic_route: str = Field(min_length=1)
+    semantic_route: SemanticRoute
     semantic_type: str | None
     r82_part: str | None = Field(default=None, pattern=_CODE)
     r82_whole: str | None = Field(default=None, pattern=_CODE)
@@ -262,20 +264,43 @@ class EngineOccurrenceDisposition(_StrictModel):
 
     @model_validator(mode="after")
     def _evidence_matches_kind(self) -> Self:
-        if (self.kind == "collapsed-r82") != (
-            self.r82_part is not None and self.r82_whole is not None
-        ):
-            raise ValueError("engine R82 evidence differs from disposition")
-        if self.kind == "collapsed-r82" and (
-            self.r82_part,
-            self.r82_whole,
-        ) != (self.retained_filler, self.source_filler):
-            raise ValueError("engine R82 endpoints differ from disposition")
-        if (self.kind == "retained-policy-veto") != (
-            self.policy_decision_identity is not None
-        ):
-            raise ValueError("engine policy evidence differs from disposition")
+        _validate_engine_disposition(self)
         return self
+
+
+def _validate_engine_disposition(disposition: EngineOccurrenceDisposition) -> None:
+    retained = disposition.kind.startswith("retained-")
+    has_r82_evidence = None not in (disposition.r82_part, disposition.r82_whole)
+    r82_endpoints = (disposition.r82_part, disposition.r82_whole)
+    expected_r82_endpoints = {
+        "collapsed-r82": (disposition.retained_filler, disposition.source_filler)
+    }.get(disposition.kind, r82_endpoints)
+    requirements = (
+        (
+            (disposition.kind == "collapsed-r82") == has_r82_evidence,
+            "engine R82 evidence differs from disposition",
+        ),
+        (
+            r82_endpoints == expected_r82_endpoints,
+            "engine R82 endpoints differ from disposition",
+        ),
+        (
+            (disposition.kind == "retained-policy-veto")
+            == (disposition.policy_decision_identity is not None),
+            "engine policy evidence differs from disposition",
+        ),
+        (
+            retained == (disposition.retained_filler == disposition.source_filler),
+            "engine retained filler equality differs from disposition",
+        ),
+    )
+    for valid, message in requirements:
+        if not valid:
+            raise ValueError(message)
+
+
+SourceRoleCode = Annotated[str, Field(pattern=r"^R[0-9]+$")]
+SourceEvidenceIdentity = Annotated[str, Field(pattern=_SHA256)]
 
 
 class NonR101DeltaRow(_StrictModel):
@@ -284,12 +309,12 @@ class NonR101DeltaRow(_StrictModel):
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
     axis_source: Literal["role", "nlp", "parent"]
-    source_roles: tuple[str, ...]
+    source_roles: tuple[SourceRoleCode, ...]
     most_specific: bool
     needs_review: bool
     relationship_group: str | None
-    source_definition_ids: tuple[str, ...]
-    source_occurrence_ids: tuple[str, ...]
+    source_definition_ids: tuple[SourceEvidenceIdentity, ...]
+    source_occurrence_ids: tuple[SourceEvidenceIdentity, ...]
 
     @model_validator(mode="after")
     def _evidence_is_canonical(self) -> Self:
@@ -337,11 +362,6 @@ def _validate_non_r101_row(row: NonR101DeltaRow) -> None:
     ):
         if values != tuple(sorted(set(values))):
             raise ValueError(f"non-R101 {label} are not canonical and unique")
-    if any(re.fullmatch(r"^R[0-9]+$", role) is None for role in row.source_roles):
-        raise ValueError("non-R101 source roles are malformed")
-    identities = row.source_definition_ids + row.source_occurrence_ids
-    if any(re.fullmatch(_SHA256, identity) is None for identity in identities):
-        raise ValueError("non-R101 source evidence identity is malformed")
 
 
 def _validate_metadata_delta(delta: NonR101MetadataDelta) -> None:
@@ -372,9 +392,7 @@ def _changed_metadata_fields(
 
 class ClassifiedNonR101Delta(_StrictModel):
     row: NonR101DeltaRow
-    classification: Literal[
-        "r101-bearing-cohort-output-delta", "algorithm-variable-output-delta"
-    ]
+    classification: Literal["r101-occurrence-linked-output-delta"]
     r101_occurrence_ids: tuple[str, ...]
 
     @model_validator(mode="after")
@@ -386,10 +404,14 @@ class ClassifiedNonR101Delta(_StrictModel):
             for identity in self.r101_occurrence_ids
         ):
             raise ValueError("classified R101 occurrence IDs are not canonical")
-        if (self.classification == "r101-bearing-cohort-output-delta") != bool(
-            self.r101_occurrence_ids
-        ):
-            raise ValueError("classified output delta evidence differs from its kind")
+        if not self.r101_occurrence_ids:
+            raise ValueError(
+                "classified output delta lacks changed R101 occurrence IDs"
+            )
+        if not set(self.row.source_occurrence_ids) & set(self.r101_occurrence_ids):
+            raise ValueError(
+                "classified output delta is not linked to changed R101 evidence"
+            )
         return self
 
 
@@ -397,7 +419,6 @@ def classify_non_r101_delta_rows(
     rows: tuple[NonR101DeltaRow, ...],
     *,
     r101_changed_occurrences: dict[str, tuple[str, ...]],
-    allow_algorithm_variable: bool = False,
 ) -> tuple[
     tuple[NonR101DeltaRow, ...],
     tuple[NonR101MetadataDelta, ...],
@@ -418,7 +439,6 @@ def classify_non_r101_delta_rows(
         group_structural, group_metadata, group_classified = _classify_delta_group(
             tuple(by_key[key]),
             r101_occurrence_ids=r101_changed_occurrences.get(key[0], ()),
-            allow_algorithm_variable=allow_algorithm_variable,
         )
         structural.extend(group_structural)
         metadata.extend(group_metadata)
@@ -438,7 +458,6 @@ def _classify_delta_group(
     rows: tuple[NonR101DeltaRow, ...],
     *,
     r101_occurrence_ids: tuple[str, ...],
-    allow_algorithm_variable: bool,
 ) -> tuple[
     tuple[NonR101DeltaRow, ...],
     tuple[NonR101MetadataDelta, ...],
@@ -447,15 +466,20 @@ def _classify_delta_group(
     metadata = _paired_metadata_delta(rows)
     if metadata is not None:
         return (), (metadata,), ()
-    if not allow_algorithm_variable:
-        return rows, (), ()
-    classification = (
-        "r101-bearing-cohort-output-delta"
-        if r101_occurrence_ids
-        else "algorithm-variable-output-delta"
+    changed = set(r101_occurrence_ids)
+    classified = tuple(
+        ClassifiedNonR101Delta(
+            row=row,
+            classification="r101-occurrence-linked-output-delta",
+            r101_occurrence_ids=tuple(
+                sorted(changed.intersection(row.source_occurrence_ids))
+            ),
+        )
+        for row in rows
+        if changed.intersection(row.source_occurrence_ids)
     )
-    classified = _classified_output_rows(rows, classification, r101_occurrence_ids)
-    return (), (), classified
+    explained_rows = tuple(item.row for item in classified)
+    return tuple(row for row in rows if row not in explained_rows), (), classified
 
 
 def _paired_metadata_delta(
@@ -473,23 +497,6 @@ def _paired_metadata_delta(
     )
 
 
-def _classified_output_rows(
-    rows: tuple[NonR101DeltaRow, ...],
-    classification: Literal[
-        "r101-bearing-cohort-output-delta", "algorithm-variable-output-delta"
-    ],
-    occurrence_ids: tuple[str, ...],
-) -> tuple[ClassifiedNonR101Delta, ...]:
-    return tuple(
-        ClassifiedNonR101Delta(
-            row=row,
-            classification=classification,
-            r101_occurrence_ids=occurrence_ids,
-        )
-        for row in rows
-    )
-
-
 class NonR101DeltaEvidence(_StrictModel):
     old_run_id: str = Field(min_length=1)
     new_run_id: str = Field(min_length=1)
@@ -498,6 +505,14 @@ class NonR101DeltaEvidence(_StrictModel):
     metadata_deltas: tuple[NonR101MetadataDelta, ...] = ()
     classified_rows: tuple[ClassifiedNonR101Delta, ...] = ()
     raw_typed_delta_count: int | None = Field(default=None, ge=0)
+
+    @property
+    def unexplained_structural_delta_count(self) -> int:
+        return len(self.rows)
+
+    @property
+    def semantic_metadata_delta_count(self) -> int:
+        return len(self.metadata_deltas)
 
     @model_validator(mode="after")
     def _is_exact_canonical_query_result(self) -> Self:
@@ -565,8 +580,6 @@ class R101LedgerConsumerStore(Protocol):
         self,
         old_run_id: str,
         new_run_id: str,
-        *,
-        allow_algorithm_variable: bool = False,
     ) -> R101LedgerSource: ...
 
 
@@ -874,7 +887,11 @@ def _validate_report_counts(report: R101ConservationReport) -> bool:
     )
     if report.counts != expected:
         raise ValueError("count-mismatch: report counts differ from occurrences")
-    complete = expected.unresolved == 0 and expected.non_r101_delta == 0
+    complete = (
+        expected.unresolved == 0
+        and expected.non_r101_delta == 0
+        and report.non_r101_delta_evidence.semantic_metadata_delta_count == 0
+    )
     expected_status = "complete" if complete else "incomplete"
     if report.mechanical_status != expected_status:
         raise ValueError("count-mismatch: mechanical status differs from counts")
@@ -1373,27 +1390,15 @@ def build_r101_occurrence_ledger(
     _validate_input_inventory(ordered)
     occurrences = tuple(_classify(item, paths, context) for item in ordered)
     non_r101_delta_count = len(context.non_r101_delta_evidence.rows)
-    if non_r101_delta_count:
-        occurrences = tuple(
-            item.model_copy(
-                update={
-                    "disposition": "unresolved",
-                    "disposition_reason": "non-r101-delta",
-                    "retained_r82_target": None,
-                    "r82_evidence_kind": "none",
-                    "r82_path": (),
-                    "path_length": 0,
-                }
-            )
-            for item in occurrences
-        )
     counts = _ledger_counts(occurrences, non_r101_delta_count)
     payload: dict[str, object] = {
         "schema_version": R101_CONSERVATION_SCHEMA_VERSION,
         **context.model_dump(exclude={"adapter_id"}),
         "structural_key_fields": STRUCTURAL_KEY_FIELDS,
         "mechanical_status": "complete"
-        if counts.unresolved == 0 and counts.non_r101_delta == 0
+        if counts.unresolved == 0
+        and counts.non_r101_delta == 0
+        and context.non_r101_delta_evidence.semantic_metadata_delta_count == 0
         else "incomplete",
         "counts": counts,
         "grouping_presentation": _grouping(occurrences),
@@ -1446,10 +1451,6 @@ async def validate_r101_consumer_dry_run(
     source = await store.r101_occurrence_ledger(
         report.old_run_id,
         report.new_run_id,
-        allow_algorithm_variable=any(
-            item.classification == "algorithm-variable-output-delta"
-            for item in report.non_r101_delta_evidence.classified_rows
-        ),
     )
     source_by_key = _index_source_inventory(source)
     _validate_consumer_inventory(report, source, source_by_key)

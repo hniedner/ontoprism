@@ -15,6 +15,7 @@ from ontolib.decomposition.corpus_baseline import (
 from ontolib.decomposition.r101_comparator import (
     ComparatorFingerprint,
     ComparatorRun,
+    ComparatorRunBinding,
     R101ComparatorQualification,
     R101ComparatorValidationError,
     qualify_r101_comparator,
@@ -132,6 +133,25 @@ def _baseline(run: ComparatorRun) -> CorpusBaseline:
     return CorpusBaseline.model_validate(
         {**payload, "baseline_identity": corpus_baseline_identity(payload)}
     )
+
+
+@pytest.mark.unit
+def test_comparator_binding_model_rejects_v5_without_recorded_routing_identity() -> (
+    None
+):
+    with pytest.raises(ValidationError, match="routing"):
+        ComparatorRunBinding.model_validate(
+            {
+                "run_id": "run",
+                "fingerprint_identity": "a" * 64,
+                "representation_identity": "b" * 64,
+                "publication_artifact_path": "published.ttl",
+                "artifact_path": "artifact.ttl",
+                "artifact_identity": "b" * 64,
+                "algorithm_version": "decomposition-v5",
+                "routing_implementation_identity": "not-recorded",
+            }
+        )
 
 
 @pytest.mark.unit
@@ -336,7 +356,7 @@ def test_comparator_refuses_when_an_alleged_addition_is_absent_on_either_side(
         }
     )
 
-    with pytest.raises(R101ComparatorValidationError, match="C187445"):
+    with pytest.raises(R101ComparatorValidationError) as error:
         qualify_r101_comparator(
             old_run=changed_old,
             new_run=new,
@@ -344,6 +364,7 @@ def test_comparator_refuses_when_an_alleged_addition_is_absent_on_either_side(
             old_artifact=old_artifact,
             new_artifact=new_artifact,
         )
+    assert "C187445, C187447, C53558" in str(error.value)
 
 
 @pytest.mark.unit
@@ -550,6 +571,19 @@ def test_qualification_identity_and_atomic_writer_fail_closed(
         R101ComparatorQualification.model_validate(
             {**qualification.model_dump(), "qualification_identity": "0" * 64}
         )
+
+    rebound = qualification.model_dump(mode="json")
+    rebound["old"]["algorithm_version"] = "decomposition-v5"
+    rebound["old"]["routing_implementation_identity"] = "d" * 64
+    rebound["qualification_identity"] = _identity(
+        {
+            key: value
+            for key, value in rebound.items()
+            if key != "qualification_identity"
+        }
+    )
+    with pytest.raises(ValidationError, match="old comparator algorithm"):
+        R101ComparatorQualification.model_validate_json(json.dumps(rebound))
 
     destination = tmp_path / "qualification.json"
     write_r101_comparator_qualification(destination, qualification)

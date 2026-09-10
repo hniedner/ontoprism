@@ -147,7 +147,7 @@ async def _inspect_decomposition_runs_async(
     ).inspect_decomposition_runs
     engine = database.make_engine(settings.database_url)
     try:
-        return await inspect(engine, run_ids)
+        return [item.model_dump(mode="json") for item in await inspect(engine, run_ids)]
     finally:
         await database.dispose_engine(engine)
 
@@ -335,25 +335,35 @@ def _promote_current_r101_evidence(
         raise AgentReplayInputError(
             "promote-current-r101-evidence accepts no arguments"
         )
-    report_path, baseline_path = (
+    report_path, baseline_path, qualification_path = (
         Path(item)
         for item in _require_files(
             root,
             (
                 "tmp/m1-6-r101-v5-conservation.json.gz",
                 "tmp/m1-6-current-corpus-baseline.json",
+                "tmp/m1-6-r101-v5-comparator-qualification.json",
             ),
         )
     )
     conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
     baseline_module = importlib.import_module("ontolib.decomposition.corpus_baseline")
+    comparator_module = importlib.import_module("ontolib.decomposition.r101_comparator")
     report = conservation.load_r101_conservation_report(report_path)
     baseline = baseline_module.load_corpus_baseline(baseline_path)
+    qualification = comparator_module.load_r101_comparator_qualification(
+        qualification_path
+    )
     if (
         report.old_run_id != _R101_COMPARATOR_OLD_RUN
         or report.new_run_id != _R101_COMPARATOR_NEW_RUN
         or report.mechanical_status != "complete"
         or report.non_r101_delta_evidence.rows
+        or report.non_r101_delta_evidence.metadata_deltas
+        or report.non_r101_delta_evidence.raw_typed_delta_count
+        != len(report.non_r101_delta_evidence.classified_rows)
+        or report.comparator_qualification_identity
+        != qualification.qualification_identity
     ):
         raise AgentReplayInputError(
             "current R101 report does not certify the fixed comparator pair"
@@ -374,6 +384,47 @@ def _promote_current_r101_evidence(
     )
     (golden / "neoplasm-current-corpus-baseline.json").write_bytes(
         baseline_path.read_bytes()
+    )
+    return 0
+
+
+def _record_current_r101_diagnostic(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    """Record incomplete fixed-pair evidence without representing it as promoted."""
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "record-current-r101-diagnostic accepts no arguments"
+        )
+    (report_path_raw,) = _require_files(
+        root, ("tmp/m1-6-r101-v5-conservation.json.gz",)
+    )
+    report_path = Path(report_path_raw)
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    report = conservation.load_r101_conservation_report(report_path)
+    evidence = report.non_r101_delta_evidence
+    expected_raw = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    if (
+        report.old_run_id != _R101_COMPARATOR_OLD_RUN
+        or report.new_run_id != _R101_COMPARATOR_NEW_RUN
+        or report.mechanical_status != "incomplete"
+        or report.publication_gate != "blocked"
+        or evidence.raw_typed_delta_count != expected_raw
+        or not (evidence.rows or evidence.metadata_deltas)
+    ):
+        raise AgentReplayInputError(
+            "current R101 diagnostic is not an incomplete fixed-pair report"
+        )
+    golden = root / "ontolib/tests/decomposition/golden"
+    if not golden.is_dir():
+        raise AgentReplayInputError("golden evidence directory does not exist")
+    (golden / "neoplasm-r101-v5-conservation.json.gz").write_bytes(
+        report_path.read_bytes()
     )
     return 0
 
@@ -408,6 +459,17 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
     )
     if sum(classifications.values()) != len(classified_rows):
         raise AgentReplayInputError("R101 report delta classification is malformed")
+    metadata_changed_fields: Counter[str] = Counter()
+    for item in metadata_deltas:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("changed_fields"), list)
+            or not all(isinstance(field, str) for field in item["changed_fields"])
+        ):
+            raise AgentReplayInputError(
+                "R101 report metadata delta evidence is malformed"
+            )
+        metadata_changed_fields.update(item["changed_fields"])
     result = {
         "schema_version": payload.get("schema_version"),
         "old_run_id": payload.get("old_run_id"),
@@ -420,6 +482,9 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
         "non_r101_delta_query_identity": delta.get("query_identity"),
         "non_r101_delta_row_count": len(delta["rows"]),
         "non_r101_metadata_delta_count": len(metadata_deltas),
+        "non_r101_metadata_changed_fields": dict(
+            sorted(metadata_changed_fields.items())
+        ),
         "non_r101_classified_delta_count": len(classified_rows),
         "non_r101_raw_typed_delta_count": delta.get("raw_typed_delta_count"),
         "non_r101_classifications": dict(sorted(classifications.items())),
@@ -1784,7 +1849,7 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
         "tmp/m1-6-current-full-corpus.ttl",
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
@@ -3008,6 +3073,7 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-current-r101-conservation": _generate_current_r101_conservation,
     "generate-current-corpus-baseline": _generate_current_corpus_baseline,
     "promote-current-r101-evidence": _promote_current_r101_evidence,
+    "record-current-r101-diagnostic": _record_current_r101_diagnostic,
     "inspect-r101-report": _inspect_r101_report,
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,

@@ -21,7 +21,7 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
 | `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
 | `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
-| `neoplasm-r101-v5-conservation.json.gz` | Qualified full-corpus v4→v5 mechanical ledger with typed delta classification; not content authorization. |
+| `neoplasm-r101-v5-conservation.json.gz` | Qualified full-corpus v4→v5 diagnostic ledger with fail-closed unexplained typed deltas; not promoted evidence or content authorization. |
 | `r101-review-registry-v3-sme.json.gz` | Deterministic test golden of the complete proposed review registry; it is not runtime package data or publication authorization. |
 
 `proposal-registry.json` is the sole current strict golden governance record for minted proposals.
@@ -88,7 +88,7 @@ The compressed review registry has schema 3/status `proposed`, identity
 `358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975`, and exactly
 3,291 atomic rows partitioned into 3,288 `approved-non-exclusive-coverage` and three
 `rejected-retain-broader` outcomes; all 2,800 disease-exception values are false
-(`pdm run pytest ontolib/tests/decomposition/test_collapse_veto_policy.py::test_tracked_registry_golden_has_exact_authorized_accounting -q`,
+(`pdm run agent-test ontolib/tests/decomposition/test_collapse_veto_policy.py::test_tracked_registry_golden_has_exact_authorized_accounting -v`,
 2026-08-20). The three rejections are operational collapse vetoes only: their broader source
 sites remain review-required alongside Frontal Sulcus (C32639), while complete source facts,
 equivalence quarantine, publication state, and NCIt adoption state remain unchanged.
@@ -588,6 +588,14 @@ always records authorization false and publication `not-attempted`
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
 2026-09-06).
 
+Readiness consumes the current v5 diagnostic for mechanical conservation while retaining the v4
+packet/registry validation only as separately identified historical human evidence. The 39
+unexplained structural rows and 2,564 semantic metadata pairs block readiness; current v5 content
+authorization remains pending. The broader total-delta classifier remains `not-evaluated` under
+Issue #127 rather than being inferred from the R101-isolated comparison
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-10).
+
 Generate the exhaustive fanout observation against the configured current source:
 
 ```bash
@@ -603,7 +611,6 @@ concept work:
 
 ```bash
 pdm run agent-replay generate-current-corpus-baseline
-pdm run agent-replay promote-current-r101-evidence
 ```
 
 The tracked baseline binds run `neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722`, all 15,633
@@ -670,29 +677,43 @@ milestone review; this ledger must not be described as published or accepted con
 
 ## R101 v4-to-v5 qualified occurrence ledger
 
-The bounded operations qualify the exact persisted comparator pair, regenerate the current
-ledger and baseline, and promote only validated evidence to the fixed tracked paths:
+The bounded operations first qualify the exact persisted comparator pair and then regenerate the
+current ledger from the two persisted runs and artifacts. The current incomplete report is recorded
+as a diagnostic; promotion remains a separate fail-closed operation and must not be run until a
+later report has no unexplained structural or semantic metadata deltas:
 
 ```bash
 pdm run agent-replay qualify-current-r101-comparator
 pdm run agent-replay generate-current-r101-conservation
 pdm run agent-replay generate-current-corpus-baseline
-pdm run agent-replay promote-current-r101-evidence
+pdm run agent-replay record-current-r101-diagnostic
 pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz
 ```
 
+The eventual promotion order is qualification → report/baseline generation →
+`pdm run agent-replay promote-current-r101-evidence`; that final command validates the exact
+qualification identity, raw/metadata/classified/unclassified reconciliation, fixed run bindings,
+and complete mechanical gate before writing either promoted artifact.
+
 The report binds old run `neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820` and new run
-`neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722`, records 43,414 R101 source occurrences with zero
-unresolved rows, and has report identity
-`3018e197c19b455af113c78ef6ddc0d73d875bc9061e84490f41347aeb47c9dd`. Its complete typed delta
-input has 5,167 rows: 2,564 paired metadata changes consume 5,128 rows, while the remaining 39
-are explicitly classified as 22 R101-bearing-cohort output deltas and 17 algorithm-variable output
-deltas; no unclassified row remains
+`neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722`, records 43,414 R101 source occurrences as
+29,995 projected and 13,419 unchanged-unprojected with zero R101 disposition failures, and has
+report identity `25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba`.
+Its exact typed delta input has 5,167 rows: 2,564 paired semantic metadata changes consume 5,128
+rows and the remaining 39 structural rows are unexplained. No row has occurrence-level evidence
+that proves causation by a changed R101 link, so none is classified. The metadata inventory changes
+`most_specific` on 2,550 pairs and `needs_review` on 36 pairs (22 pairs change both fields).
+Consequently `mechanical_status` is `incomplete`, current content authorization is pending, and
+publication is blocked
 (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
 2026-09-10). The tracked gzip SHA-256 is
-`cc58be68ca3a03e0b9fd37ead95fd467068a115d7972a30f3e6bca7699fe5386`
+`f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f`
 (`shasum -a 256 ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-10). This mechanical evidence does not replace the historical v3→v4 review packet: v5
+2026-09-10). The comparator qualification identity is
+`754e532097f81302a6c707f219bd594144ae551a5671a1bc0533e7e2cd8e4fe7`; its file SHA-256 is
+`9125f7ab4127fe5a759919db5a58f99507fb58f213eb6df42d63cc70d995e77b`
+(`pdm run agent-replay qualify-current-r101-comparator && shasum -a 256 tmp/m1-6-r101-v5-comparator-qualification.json`,
+2026-09-10). This diagnostic does not replace the historical v3→v4 review packet: v5
 routes source R101 directly before R82 collapse, so it has no `covered-by-retained-r82` patterns
 from which to regenerate that historical 162-pattern review boundary.
 

@@ -23,7 +23,7 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome
+from ontolib.decomposition.models import ConceptOutcome, SemanticRoute
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -172,7 +172,7 @@ class CurrentOccurrenceDisposition(_StrictModel):
     ]
     source_occurrence: CurrentSourceOccurrence
     normalized_axis: str
-    semantic_route: str
+    semantic_route: SemanticRoute
     semantic_type: str | None
     retained_pair: tuple[str, str]
     r82_part: str | None
@@ -181,10 +181,20 @@ class CurrentOccurrenceDisposition(_StrictModel):
 
     @model_validator(mode="after")
     def _evidence_matches_kind(self) -> Self:
+        if self.retained_pair[0] != self.normalized_axis:
+            raise ValueError("retained pair axis differs from normalized axis")
+        retained = self.kind.startswith("retained-")
+        if retained != (self.retained_pair[1] == self.source_occurrence.filler_code):
+            raise ValueError("retained pair filler equality differs from disposition")
         if (self.kind == "collapsed-r82") != (
             self.r82_part is not None and self.r82_whole is not None
         ):
             raise ValueError("R82 evidence presence differs from disposition")
+        if self.kind == "collapsed-r82" and (
+            self.r82_part,
+            self.r82_whole,
+        ) != (self.retained_pair[1], self.source_occurrence.filler_code):
+            raise ValueError("R82 endpoints differ from disposition")
         if (self.kind == "retained-policy-veto") != (
             self.policy_decision_identity is not None
         ):

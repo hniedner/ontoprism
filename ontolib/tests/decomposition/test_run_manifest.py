@@ -66,14 +66,19 @@ def test_routing_identity_binds_declared_semantic_bytes_but_not_unrelated_files(
 
 @pytest.mark.unit
 def test_routing_identity_inventory_is_versioned_and_covers_route_semantics() -> None:
-    required = {
+    required = (
         Path("ontolib/src/ontolib/decomposition/axes.py"),
         Path("ontolib/src/ontolib/decomposition/axis_contracts.py"),
+        Path("ontolib/src/ontolib/decomposition/branches.py"),
         Path("ontolib/src/ontolib/decomposition/collapse_policy.py"),
+        Path("ontolib/src/ontolib/decomposition/complete_definition.py"),
         Path("ontolib/src/ontolib/decomposition/detector.py"),
         Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
-    }
-    assert required <= set(ROUTING_IMPLEMENTATION_FILES)
+        Path("ontolib/src/ontolib/decomposition/models.py"),
+        Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
+        Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
+    )
+    assert required == ROUTING_IMPLEMENTATION_FILES
     assert len(routing_implementation_identity()) == 64
 
 

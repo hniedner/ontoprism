@@ -137,6 +137,15 @@ class ComparatorRunBinding(_StrictModel):
         pattern=r"^(?:[0-9a-f]{64}|not-recorded)$"
     )
 
+    @model_validator(mode="after")
+    def _routing_identity_matches_algorithm(self) -> Self:
+        if (
+            self.algorithm_version == "decomposition-v5"
+            and self.routing_implementation_identity == "not-recorded"
+        ):
+            raise ValueError("v5 routing implementation identity is not recorded")
+        return self
+
 
 class ArtifactConstituentTriple(_StrictModel):
     concept_code: str = Field(pattern=r"^C[0-9]+$")
@@ -156,10 +165,40 @@ class R101ComparatorQualification(_StrictModel):
 
     @model_validator(mode="after")
     def _identity_matches(self) -> Self:
-        payload = self.model_dump(mode="json", exclude={"qualification_identity"})
-        if self.qualification_identity != _identity(payload):
-            raise ValueError("comparator qualification identity differs")
+        _validate_qualification(self)
         return self
+
+
+def _validate_qualification(qualification: R101ComparatorQualification) -> None:
+    canary_concepts = tuple(
+        sorted({row.concept_code for row in qualification.shared_canary_constituents})
+    )
+    payload = qualification.model_dump(mode="json", exclude={"qualification_identity"})
+    requirements = (
+        (
+            qualification.old.algorithm_version == "decomposition-v4",
+            "old comparator algorithm must be decomposition-v4",
+        ),
+        (
+            qualification.new.algorithm_version == "decomposition-v5",
+            "new comparator algorithm must be decomposition-v5",
+        ),
+        (
+            qualification.old.run_id != qualification.new.run_id,
+            "comparator runs must be distinct",
+        ),
+        (
+            canary_concepts == tuple(sorted(_CANARY_CONCEPTS)),
+            "comparator canary inventory is incomplete",
+        ),
+        (
+            qualification.qualification_identity == _identity(payload),
+            "comparator qualification identity differs",
+        ),
+    )
+    for valid, message in requirements:
+        if not valid:
+            raise ValueError(message)
 
 
 def _artifact_identity(path: Path) -> str:
@@ -199,18 +238,26 @@ def _shared_canary_constituents(
 ) -> tuple[ArtifactConstituentTriple, ...]:
     old_rows = _canary_constituents(old_artifact)
     new_rows = _canary_constituents(new_artifact)
-    old_concepts = {row.concept_code for row in old_rows}
-    new_concepts = {row.concept_code for row in new_rows}
-    for concept in _CANARY_CONCEPTS:
-        if concept not in old_concepts or concept not in new_concepts:
-            raise R101ComparatorValidationError(
-                f"artifact constituent proof is missing {concept}"
-            )
+    missing = _missing_canary_concepts(old_rows, new_rows)
+    if missing:
+        raise R101ComparatorValidationError(
+            "artifact constituent proof requires canaries C187445, C187447, C53558; "
+            f"missing {', '.join(missing)}"
+        )
     if old_rows != new_rows:
         raise R101ComparatorValidationError(
             "alleged non-R101 artifact additions differ between full artifacts"
         )
     return old_rows
+
+
+def _missing_canary_concepts(
+    old_rows: tuple[ArtifactConstituentTriple, ...],
+    new_rows: tuple[ArtifactConstituentTriple, ...],
+) -> tuple[str, ...]:
+    old_concepts = {row.concept_code for row in old_rows}
+    new_concepts = {row.concept_code for row in new_rows}
+    return tuple(sorted(set(_CANARY_CONCEPTS).difference(old_concepts & new_concepts)))
 
 
 def _require_equal(label: str, old: object, new: object) -> None:
@@ -428,3 +475,12 @@ def write_r101_comparator_qualification(
         with suppress(FileNotFoundError):
             os.unlink(staging)
         raise
+
+
+def load_r101_comparator_qualification(path: Path) -> R101ComparatorQualification:
+    """Load and validate one exact comparator qualification document."""
+    if path.is_symlink() or not path.is_file():
+        raise R101ComparatorValidationError(
+            "comparator qualification must be a regular file"
+        )
+    return R101ComparatorQualification.model_validate_json(path.read_bytes())

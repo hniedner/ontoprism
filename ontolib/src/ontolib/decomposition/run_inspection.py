@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import RowMapping
 
@@ -31,6 +32,50 @@ _STAGE_SQL = text(
     "output_payload,started_at,finished_at,failed_at,error_type,error_message "
     "FROM decomp_run_stage WHERE run_id IN :run_ids ORDER BY run_id,ordinal"
 ).bindparams(bindparam("run_ids", expanding=True))
+
+
+class RunStageInspection(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    stage: str
+    ordinal: int | None = None
+    state: str | None = None
+    attempt_count: int | None = None
+    input_identity: str | None = None
+    output_identity: str | None = None
+    output_payload: dict[str, object] | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    failed_at: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+class RunInspection(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str
+    status: str
+    started_at: str
+    finished_at: str | None
+    source_identity: str
+    fingerprint: dict[str, object]
+    fingerprint_sha256: str
+    fingerprint_content_valid: bool
+    persisted_routing_implementation_identity: str | None
+    current_routing_implementation_identity: str
+    routing_state: Literal["match", "differs", "not-recorded"]
+    publication_state: str
+    representation_identity: str | None
+    publication_artifact_path: str | None
+    error_type: str | None
+    error_message: str | None
+    work_item_states: dict[str, int]
+    stages: tuple[RunStageInspection, ...]
+    all_work_items_complete: bool
+    stage_inventory_complete: bool
+    stage_state: Literal["missing", "incomplete", "complete"]
+    resume_compatible: bool
 
 
 def _json_identity(payload: object) -> str:
@@ -118,19 +163,49 @@ def _run_summary(row: RowMapping, current_routing_identity: str) -> dict[str, ob
     }
 
 
-def _finalize_summary(item: dict[str, object], current_routing_identity: str) -> None:
+def _finalize_summary(
+    item: dict[str, object], current_routing_identity: str
+) -> RunInspection:
     states = cast("dict[str, int]", item["work_item_states"])
     stages = cast("list[dict[str, object]]", item["stages"])
     item["all_work_items_complete"] = bool(states) and set(states) == {"complete"}
-    item["stage_inventory_complete"] = (
-        tuple(row["stage"] for row in stages) == RUN_STAGE_SEQUENCE
+    stage_inventory_complete = _stage_inventory_complete(stages)
+    item["stage_inventory_complete"] = stage_inventory_complete
+    item["routing_state"] = _routing_state(
+        item["persisted_routing_implementation_identity"], current_routing_identity
     )
+    item["stage_state"] = _stage_state(stages, stage_inventory_complete)
     item["resume_compatible"] = bool(
         item["fingerprint_content_valid"]
-        and item["stage_inventory_complete"]
-        and item["persisted_routing_implementation_identity"]
-        == current_routing_identity
+        and stage_inventory_complete
+        and item["routing_state"] == "match"
     )
+    item["stages"] = tuple(stages)
+    return RunInspection.model_validate(item)
+
+
+def _stage_inventory_complete(stages: list[dict[str, object]]) -> bool:
+    return tuple(row["stage"] for row in stages) == RUN_STAGE_SEQUENCE
+
+
+def _routing_state(
+    persisted_routing: object, current_routing_identity: str
+) -> Literal["match", "differs", "not-recorded"]:
+    if persisted_routing is None:
+        return "not-recorded"
+    if persisted_routing == current_routing_identity:
+        return "match"
+    return "differs"
+
+
+def _stage_state(
+    stages: list[dict[str, object]], inventory_complete: bool
+) -> Literal["missing", "incomplete", "complete"]:
+    if not stages:
+        return "missing"
+    if inventory_complete and all(row.get("state") == "complete" for row in stages):
+        return "complete"
+    return "incomplete"
 
 
 def _summaries_by_run(
@@ -163,15 +238,17 @@ def _attach_stages(
 
 async def inspect_decomposition_runs(
     engine: AsyncEngine, run_ids: tuple[str, ...]
-) -> list[dict[str, object]]:
+) -> list[RunInspection]:
     """Inspect exact requested runs in one read-only repeatable-read snapshot."""
     current_routing_identity = routing_implementation_identity()
     rows, stage_rows = await _read_run_rows(engine, run_ids)
     by_run = _summaries_by_run(rows, current_routing_identity)
     _attach_stages(by_run, stage_rows)
-    for item in by_run.values():
-        _finalize_summary(item, current_routing_identity)
+    inspected = {
+        run_id: _finalize_summary(item, current_routing_identity)
+        for run_id, item in by_run.items()
+    }
     missing = set(run_ids) - by_run.keys()
     if missing:
         raise ValueError("decomposition runs not found: " + ", ".join(sorted(missing)))
-    return [by_run[run_id] for run_id in run_ids]
+    return list(map(inspected.__getitem__, run_ids))

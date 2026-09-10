@@ -8,7 +8,7 @@ import pytest
 
 from ontolib.decomposition import run_inspection
 from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE
-from ontolib.decomposition.run_inspection import summarize_fingerprint
+from ontolib.decomposition.run_inspection import RunInspection, summarize_fingerprint
 
 
 @pytest.mark.unit
@@ -71,12 +71,15 @@ def test_inspection_finalization_requires_complete_work_stages_and_identity() ->
         "a" * 64,
     )
     item["work_item_states"] = {"complete": 1}
-    item["stages"] = [{"stage": stage} for stage in RUN_STAGE_SEQUENCE]
+    item["stages"] = [
+        {"stage": stage, "state": "complete"} for stage in RUN_STAGE_SEQUENCE
+    ]
 
     run_inspection._finalize_summary(item, "a" * 64)
 
     assert item["all_work_items_complete"] is True
     assert item["stage_inventory_complete"] is True
+    assert item["stage_state"] == "complete"
     assert item["resume_compatible"] is True
     assert item["finished_at"] == "2026-09-10T00:00:00+00:00"
 
@@ -129,3 +132,31 @@ async def test_inspection_fails_closed_when_any_requested_run_is_missing(
         await run_inspection.inspect_decomposition_runs(
             cast("Any", object()), ("run-1",)
         )
+
+
+@pytest.mark.unit
+def test_inspection_exposes_closed_routing_and_stage_states() -> None:
+    item = run_inspection._run_summary(
+        cast("Any", _run_row("run-1", finished_at=datetime(2026, 9, 10, tzinfo=UTC))),
+        "different",
+    )
+    item["work_item_states"] = {"complete": 1}
+    item["stages"] = []
+
+    inspected = run_inspection._finalize_summary(item, "different")
+
+    assert isinstance(inspected, RunInspection)
+    assert inspected.routing_state == "differs"
+    assert inspected.stage_state == "missing"
+    assert inspected.resume_compatible is False
+
+    item["persisted_routing_implementation_identity"] = None
+    item["stages"] = [
+        {"stage": stage, "state": "failed" if stage == "publication" else "complete"}
+        for stage in RUN_STAGE_SEQUENCE
+    ]
+    inspected = run_inspection._finalize_summary(item, "different")
+
+    assert inspected.routing_state == "not-recorded"
+    assert inspected.stage_state == "incomplete"
+    assert inspected.resume_compatible is False

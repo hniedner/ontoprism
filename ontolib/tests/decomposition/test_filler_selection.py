@@ -16,6 +16,8 @@ from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
     STAGE_CLASSIFICATION_VERSION,
     STAGE_SYSTEM_CODES,
+    RoutedOccurrence,
+    _disposition,
     comparison_filler_codes,
     filter_excluded,
     most_specific,
@@ -24,7 +26,7 @@ from ontolib.decomposition.filler_selection import (
 from ontolib.decomposition.filler_selection import (
     select_constituents as _select_constituents,
 )
-from ontolib.decomposition.models import RoleRestriction
+from ontolib.decomposition.models import OccurrenceDisposition, RoleRestriction
 from ontolib.decomposition.site_resolution import (
     MORPHOLOGY_TO_ORGAN,
     MORPHOLOGY_TO_PRIMARY_SUBSITES,
@@ -39,6 +41,57 @@ def select_constituents(*args: Any, **kwargs: Any):
         source_identity=None,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {
+                "kind": "retained-routed",
+                "retained_filler": "C20",
+                "r82_part": None,
+                "r82_whole": None,
+            },
+            "retained filler equality",
+        ),
+        (
+            {"r82_part": "C21"},
+            "directed endpoints",
+        ),
+        (
+            {
+                "kind": "retained-routed",
+                "retained_filler": "C30",
+                "r82_part": None,
+                "r82_whole": None,
+                "policy_decision_identity": "3" * 64,
+            },
+            "policy decision identity presence",
+        ),
+    ],
+)
+def test_occurrence_disposition_rejects_impossible_domain_states(
+    changes: dict[str, object], message: str
+) -> None:
+    payload: dict[str, object] = {
+        "kind": "collapsed-r82",
+        "source_occurrence_id": "1" * 64,
+        "source_fact_id": "2" * 64,
+        "normalized_axis": "op:PrimarySite",
+        "source_filler": "C30",
+        "retained_filler": "C20",
+        "semantic_route": "p106-organ",
+        "semantic_type": "Body Part, Organ, or Organ Component",
+        "r82_part": "C20",
+        "r82_whole": "C30",
+        "policy_decision_identity": None,
+    }
+    payload.update(changes)
+
+    with pytest.raises(ValueError, match=message):
+        OccurrenceDisposition(**payload)  # type: ignore[arg-type]
 
 
 # A tiny fake hierarchy: (ancestor, descendant) pairs. Endocrine Gland and Neck are
@@ -60,6 +113,21 @@ def _is_ancestor(a: str, b: str) -> bool:
 
 def _roles(*pairs: tuple[str, str, str]) -> list[RoleRestriction]:
     return [RoleRestriction(code, filler, label) for code, filler, label in pairs]
+
+
+@pytest.mark.unit
+def test_projectable_occurrence_without_source_identities_fails_closed() -> None:
+    occurrence = RoutedOccurrence(
+        restriction=RoleRestriction("R101", "C12400", source_kind="stated"),
+        normalized_axis=PRIMARY_SITE_AXIS,
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        source_fact_id=None,
+        source_occurrence_id=None,
+    )
+
+    with pytest.raises(ValueError, match="source occurrence and fact identities"):
+        _disposition(occurrence, {}, {})
 
 
 @pytest.mark.unit

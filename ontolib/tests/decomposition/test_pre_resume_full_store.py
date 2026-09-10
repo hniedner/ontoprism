@@ -7,6 +7,7 @@ import pytest
 from scripts.adjudication import main as adjudication_main
 from scripts.decompose import _make_label_lookup
 from scripts.research.current_evidence import CurrentEngineEvidence, _concepts
+from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -50,7 +51,30 @@ COMPLETED_FULL_RUN = "completed-full-run"
 
 @pytest.mark.integration
 @pytest.mark.full_store
-async def test_exact_full_v4_v5_pair_has_no_typed_non_r101_delta() -> None:
+async def test_comparator_transport_uses_six_postgres_queries() -> None:
+    engine = make_engine(get_settings().database_url)
+    query_count = 0
+
+    def count_query(*_args: object) -> None:
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count_query)
+    try:
+        store = ProvenanceStore(make_sessionmaker(engine))
+        await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
+        await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
+        await store.r101_occurrence_ledger(PRECHANGE_FULL_RUN, CURRENT_FULL_RUN)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count_query)
+        await dispose_engine(engine)
+
+    assert query_count == 6
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_exact_full_v4_v5_pair_preserves_unexplained_non_r101_deltas() -> None:
     engine = make_engine(get_settings().database_url)
     try:
         ledger = await ProvenanceStore(
@@ -58,7 +82,6 @@ async def test_exact_full_v4_v5_pair_has_no_typed_non_r101_delta() -> None:
         ).r101_occurrence_ledger(
             PRECHANGE_FULL_RUN,
             CURRENT_FULL_RUN,
-            allow_algorithm_variable=True,
         )
     finally:
         await dispose_engine(engine)
@@ -67,15 +90,15 @@ async def test_exact_full_v4_v5_pair_has_no_typed_non_r101_delta() -> None:
     assert ledger.non_r101_delta_evidence.old_run_id == PRECHANGE_FULL_RUN
     assert ledger.non_r101_delta_evidence.new_run_id == CURRENT_FULL_RUN
     evidence = ledger.non_r101_delta_evidence
-    assert evidence.rows == ()
-    assert evidence.classified_rows
+    assert len(evidence.rows) == 39
+    assert len(evidence.metadata_deltas) == 2_564
+    assert evidence.classified_rows == ()
+    assert evidence.raw_typed_delta_count == 5_167
     assert evidence.raw_typed_delta_count == (
-        len(evidence.classified_rows) + 2 * len(evidence.metadata_deltas)
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
     )
-    assert {item.classification for item in evidence.classified_rows} == {
-        "r101-bearing-cohort-output-delta",
-        "algorithm-variable-output-delta",
-    }
 
 
 @pytest.mark.integration

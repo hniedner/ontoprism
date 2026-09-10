@@ -620,8 +620,11 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                 or qualification.control.ontology_release != manifest.ontology_version
             ):
                 raise ValueError("source-identity-mismatch")
+            write_r101_comparator_qualification(
+                args.qualification_output, qualification
+            )
             source_rows = await store.r101_occurrence_ledger(
-                args.run_id, args.new_run_id, allow_algorithm_variable=True
+                args.run_id, args.new_run_id
             )
             candidate_pairs = tuple(
                 sorted(
@@ -669,7 +672,7 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                     proof_identity=proof_identity,
                     adapter_id="ncit-stated-r82-v1",
                     query_metrics=QueryMetrics(
-                        postgres_query_count=4,
+                        postgres_query_count=6,
                         qlever_query_count=path_result.query_count + 1,
                         max_pair_batch_size=path_result.max_pair_batch_size,
                         max_r82_hops=8,
@@ -682,9 +685,6 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                 ),
             )
             write_r101_occurrence_ledger(args.output, report)
-            write_r101_comparator_qualification(
-                args.qualification_output, qualification
-            )
             print(
                 f"json_identity={report.json_identity} "
                 f"tsv_identity={report.tsv_identity} "
