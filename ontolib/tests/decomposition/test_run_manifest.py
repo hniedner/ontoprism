@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
     PersistedRunMetrics,
     RunFingerprint,
@@ -29,6 +30,8 @@ def _fingerprint(**updates: object) -> RunFingerprint:
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
         "routing_implementation_identity": "1" * 64,
+        "mixed_chain_inventory_identity": "2" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -187,7 +190,7 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     assert equivalent.identity == original.identity
     assert (
         original.identity
-        == "464474a6faa3e6b7df93e4914bf347a0e9a889691761c2284065733512846fcf"
+        == "16b596795b1af283dfe300c08a50554c5458b32ce38c84414367f688e62a1736"
     )
     assert len(original.identity) == 64
 

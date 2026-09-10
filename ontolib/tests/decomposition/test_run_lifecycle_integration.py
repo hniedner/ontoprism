@@ -35,7 +35,11 @@ from ontolib.decomposition.provenance import (
     RunStateError,
 )
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    FreshAdmitted,
+    FullRunExecutionIdentity,
     NcitSourceSnapshot,
+    RunAdmission,
     RunFingerprint,
     RunResumeIdentity,
 )
@@ -64,6 +68,8 @@ def _fingerprint(*, source: str = "a" * 64) -> RunFingerprint:
         source_identity=source,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -375,6 +381,26 @@ class _RecordingStore(ProvenanceStore):
     ) -> None:
         self.created.append(run_id)
         await super().create_run(run_id, ncit_version, fingerprint)
+
+    async def admit_run(
+        self,
+        run_id: str,
+        ncit_version: str,
+        fingerprint: RunFingerprint,
+        execution: FullRunExecutionIdentity,
+        *,
+        resume_run_id: str | None = None,
+    ) -> RunAdmission:
+        outcome = await super().admit_run(
+            run_id,
+            ncit_version,
+            fingerprint,
+            execution,
+            resume_run_id=resume_run_id,
+        )
+        if isinstance(outcome, FreshAdmitted):
+            self.created.append(outcome.run_id)
+        return outcome
 
 
 def _filler_for(code: str) -> str:
@@ -1586,7 +1612,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
         )
         fresh = await run_pipeline(
-            RunConfig(branch="neoplasm", out=fresh_out),
+            RunConfig(branch="neoplasm", out=fresh_out, walker_max_depth=6),
             _LifecycleClient(),
             store,
             get_source_snapshot=_source,

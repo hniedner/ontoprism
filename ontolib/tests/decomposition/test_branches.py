@@ -13,7 +13,11 @@ from ontolib.decomposition.branches import (
     branch_spec,
     parse_branch,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -44,6 +48,8 @@ def test_fingerprint_separates_hierarchy_scope_from_shared_algorithm() -> None:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="disease",
         scope_root="C2991",
         scope_version="stated-genus-subclass-v1",

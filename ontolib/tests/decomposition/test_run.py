@@ -24,8 +24,14 @@ from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    FreshAdmitted,
     NcitSourceSnapshot,
+    RefusalReason,
+    Refused,
     ResidualFillerClassification,
+    ResumeAdmitted,
+    ResumeKind,
     RunFingerprint,
     RunOutcomeCounts,
     RunStageCheckpoint,
@@ -34,6 +40,7 @@ from ontolib.decomposition.provenance_models import (
 )
 from ontolib.decomposition.publication import PublicationPreflightError
 from ontolib.decomposition.run import (
+    RunAdmissionRefusedError,
     RunConfig,
     RunMetrics,
     RunPublicationError,
@@ -41,7 +48,9 @@ from ontolib.decomposition.run import (
     SourcePreflightRejectedError,
     _CandidateResult,
     _new_run_id,
+    _prepare_run,
     _residual_count,
+    _resume_preflight,
     _store_resident_constituent_fillers,
     enumerate_in_scope_codes,
 )
@@ -385,6 +394,8 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
                 routing_implementation_identity="1" * 64,
+                mixed_chain_inventory_identity="2" * 64,
+                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",
@@ -447,6 +458,53 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         side_effect=lambda _run_id: state["decompositions"]
     )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
+
+
+def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def fingerprint_for_run(_run_id: str) -> RunFingerprint:
+        fingerprint = state["fingerprint"]
+        if fingerprint is None:
+            fingerprint = RunFingerprint(
+                source_identity="a" * 64,
+                collapse_policy_identity="0" * 64,
+                routing_implementation_identity="1" * 64,
+                mixed_chain_inventory_identity="2" * 64,
+                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+                branch="neoplasm",
+                scope_root="C3262",
+                scope_version="stated-genus-subclass-v1",
+                semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+                worklist=(),
+                algorithm_version="decomposition-v1",
+                config_version="axes-v1",
+                walker_max_depth=5,
+                output_mode="none",
+                load_mode="none",
+                emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+            )
+            state["fingerprint"] = fingerprint
+        return fingerprint
+
+    async def admit_run(
+        run_id: str,
+        _ncit_version: str,
+        fingerprint: RunFingerprint,
+        _execution: object,
+        *,
+        resume_run_id: str | None = None,
+    ) -> FreshAdmitted | ResumeAdmitted:
+        if resume_run_id is not None:
+            state["fingerprint"] = await fingerprint_for_run(resume_run_id)
+            return ResumeAdmitted(
+                run_id=resume_run_id,
+                resume_kind=ResumeKind.SEMANTIC,
+            )
+        state["fingerprint"] = fingerprint
+        state["pending"] = list(fingerprint.worklist)
+        return FreshAdmitted(run_id=run_id)
+
+    store.fingerprint_for_run = AsyncMock(side_effect=fingerprint_for_run)
+    store.admit_run = AsyncMock(side_effect=admit_run)
 
 
 def _install_stage_doubles(store: Any, state: dict[str, Any]) -> None:
@@ -574,6 +632,7 @@ def _mock_provenance() -> Any:
     _install_lifecycle_doubles(store, state)
     _install_publication_doubles(store, state)
     _install_work_doubles(store, state)
+    _install_admission_doubles(store, state)
     _install_stage_doubles(store, state)
     _install_residual_doubles(store, state)
     store._test_state = state
@@ -627,6 +686,8 @@ def _set_resume_worklist(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -665,6 +726,95 @@ async def run_pipeline(
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         **kwargs,
     )
+
+
+@pytest.mark.unit
+async def test_resume_preflight_requires_an_explicit_run_identity() -> None:
+    with pytest.raises(RuntimeError, match="requires an explicit run id"):
+        await _resume_preflight(
+            RunConfig(branch="neoplasm"),
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            _source_snapshot(),
+        )
+
+
+@pytest.mark.unit
+async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) -> None:
+    config = RunConfig(
+        branch="neoplasm",
+        resume_from="run-1",
+        sample_manifest=_sample_manifest("C1"),
+        out=tmp_path / "review.ttl",
+    )
+
+    with pytest.raises(
+        SourcePreflightRejectedError,
+        match="sample manifest worklist does not match the persisted run",
+    ):
+        await _resume_preflight(
+            config,
+            cast("Any", _FakeClient(pages=[["C1"]])),
+            _mock_provenance(),
+            _source_snapshot(),
+        )
+
+
+@pytest.mark.unit
+async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> None:
+    config = RunConfig(
+        branch="neoplasm",
+        sample_manifest=_sample_manifest("C1"),
+        out=tmp_path / "review.ttl",
+    )
+
+    with pytest.raises(
+        ValueError, match="sample manifest and total_limit are mutually exclusive"
+    ):
+        await _prepare_run(
+            config,
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=None,
+            total_limit=1,
+            snapshot=_source_snapshot(),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            fresh_worklist=("C1",),
+        )
+
+
+@pytest.mark.unit
+async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
+    with pytest.raises(RuntimeError, match="run worklist was not preflighted"):
+        await _prepare_run(
+            RunConfig(branch="neoplasm"),
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=None,
+            total_limit=None,
+            snapshot=_source_snapshot(),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            fresh_worklist=None,
+        )
+
+
+@pytest.mark.unit
+async def test_pipeline_reports_typed_database_admission_refusal() -> None:
+    provenance = _mock_provenance()
+    provenance.admit_run = AsyncMock(
+        return_value=Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+    )
+
+    with pytest.raises(
+        RunAdmissionRefusedError, match="admission refused: active_run_exists"
+    ):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
 
 
 @pytest.mark.unit
@@ -901,7 +1051,7 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
         "artifact",
         "publication",
     ]
-    provenance.create_run.assert_awaited_once()
+    provenance.admit_run.assert_awaited_once()
     provenance.complete_work_item.assert_awaited_once()
     provenance.finish_run.assert_called_once()
     # dataclasses.asdict() doesn't serialize @property fields — pct_decomposed is a
@@ -1301,7 +1451,7 @@ async def test_run_pipeline_resume_skips_already_processed_codes() -> None:
     # Only C2 is newly processed; C1 is skipped. Neither is in scope here (no roles),
     # so this exercises the skip path rather than the extraction path.
     assert metrics.total_in_scope == 2
-    provenance.resume_run.assert_awaited_once()
+    provenance.admit_run.assert_awaited_once()
     provenance.create_run.assert_not_awaited()
 
 
@@ -1312,7 +1462,7 @@ async def test_run_pipeline_resume_with_matching_version_proceeds() -> None:
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 0
-    provenance.resume_run.assert_awaited_once()
+    provenance.admit_run.assert_awaited_once()
 
 
 @pytest.mark.unit
@@ -1340,6 +1490,8 @@ def _checkpoint_setup() -> run_module._RunSetup:
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
+            mixed_chain_inventory_identity="2" * 64,
+            stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
             scope_version="stated-genus-subclass-v1",
@@ -1825,7 +1977,7 @@ async def test_publication_checkpoint_failure_is_persisted(
 async def test_run_pipeline_resume_with_no_prior_manifest_is_rejected() -> None:
     client = _FakeClient(pages=[[]], version="26.02d")
     provenance = _mock_provenance()
-    provenance.resume_run = AsyncMock(
+    provenance.fingerprint_for_run = AsyncMock(
         side_effect=RunStateError("decomposition run does not exist")
     )
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
@@ -2178,6 +2330,8 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
+            mixed_chain_inventory_identity="2" * 64,
+            stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
             scope_version="stated-genus-subclass-v1",
@@ -2269,7 +2423,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
         get_source_snapshot=source,
     )
 
-    fingerprint = provenance.create_run.await_args.args[2]
+    fingerprint = provenance.admit_run.await_args.args[2]
     assert isinstance(fingerprint, RunFingerprint)
     assert fingerprint.worklist == ("C0",)
     assert fingerprint.source_identity == "a" * 64
@@ -2290,6 +2444,8 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -2343,6 +2499,8 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -2375,9 +2533,9 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
         provenance,
     )
 
-    expected = provenance.resume_run.await_args.args[1]
+    expected = provenance.admit_run.await_args.args[3]
     assert metrics.total_in_scope == 2
-    assert expected.schema_version == 5
+    assert expected.schema_version == 1
     assert expected.sample_manifest_identity == sample.identity
     assert expected.config_version == "nested-definition-v2"
     assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)

@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 if TYPE_CHECKING:
@@ -52,10 +53,17 @@ from ontolib.decomposition.provenance_models import (
     CompletedRunForEvidence,
     CompletionRunMetrics,
     CorpusBaselineAggregate,
+    FreshAdmitted,
+    FullRunExecutionIdentity,
     MintedConcept,
     PersistedRunMetrics,
     PublicationMarkerSnapshot,
+    RefusalReason,
+    Refused,
     ResidualFillerClassification,
+    ResumeAdmitted,
+    ResumeKind,
+    RunAdmission,
     RunFingerprint,
     RunOutcomeCounts,
     RunResumeIdentity,
@@ -72,6 +80,24 @@ _MAX_BOUNDED_SELECTOR_CODES = 100
 
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
 _SHA256_HEX_LENGTH = 64
+_ADMISSION_STATE_KIND = {
+    ("running", "not_requested"): "semantic",
+    ("running", "pending"): "semantic",
+    ("running", "publishing"): "publication",
+    ("running", "failed"): "publication",
+    ("failed", "not_requested"): "semantic",
+    ("failed", "pending"): "semantic",
+    ("failed", "failed"): "publication",
+    ("complete", "legacy"): "complete",
+    ("complete", "not_requested"): "complete",
+    ("complete", "published"): "complete",
+}
+
+
+def _existing_run_refusal(kind: str) -> RefusalReason:
+    if kind == "publication":
+        return RefusalReason.PUBLICATION_RETRY_REQUIRED
+    return RefusalReason.ACTIVE_RUN_EXISTS
 
 
 class RunStateError(RuntimeError):
@@ -1398,60 +1424,243 @@ class ProvenanceStore:
         fingerprint: RunFingerprint,
     ) -> None:
         """Atomically create one immutable run and its exact ordered worklist."""
-        now = datetime.datetime.now(datetime.UTC)
         async with self._sf() as session, session.begin():
-            await session.execute(
-                text(
-                    "INSERT INTO decomp_run "
-                    "(id, branch, status, ncit_version, started_at, "
-                    "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
-                    "publication_state) "
-                    "VALUES (:id, :branch, 'running', :ncit_version, :started_at, "
-                    ":source_identity, CAST(:fingerprint AS jsonb), "
-                    ":fingerprint_sha256, :emitted_at, :publication_state)"
-                ),
-                {
-                    "id": run_id,
-                    "branch": fingerprint.branch,
-                    "ncit_version": ncit_version,
-                    "started_at": now,
-                    "source_identity": fingerprint.source_identity,
-                    "fingerprint": fingerprint.model_dump_json(),
-                    "fingerprint_sha256": fingerprint.identity,
-                    "emitted_at": fingerprint.emitted_at,
-                    "publication_state": (
-                        "not_requested"
-                        if fingerprint.output_mode == "none"
-                        else "pending"
-                    ),
-                },
+            await self._insert_run(
+                session, run_id, ncit_version, fingerprint, execution_identity=None
             )
-            if fingerprint.worklist:
-                await session.execute(
-                    text(
-                        "INSERT INTO decomp_work_item "
-                        "(run_id, concept_code, ordinal) "
-                        "VALUES (:run_id, :concept_code, :ordinal)"
-                    ),
-                    [
-                        {
-                            "run_id": run_id,
-                            "concept_code": code,
-                            "ordinal": ordinal,
-                        }
-                        for ordinal, code in enumerate(fingerprint.worklist)
-                    ],
-                )
+
+    @staticmethod
+    async def _insert_run(
+        session: AsyncSession,
+        run_id: str,
+        ncit_version: str,
+        fingerprint: RunFingerprint,
+        *,
+        execution_identity: str | None,
+    ) -> None:
+        now = datetime.datetime.now(datetime.UTC)
+        await session.execute(
+            text(
+                "INSERT INTO decomp_run "
+                "(id, branch, status, ncit_version, started_at, "
+                "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+                "publication_state, execution_identity) "
+                "VALUES (:id, :branch, 'running', :ncit_version, :started_at, "
+                ":source_identity, CAST(:fingerprint AS jsonb), "
+                ":fingerprint_sha256, :emitted_at, :publication_state, "
+                ":execution_identity)"
+            ),
+            {
+                "id": run_id,
+                "branch": fingerprint.branch,
+                "ncit_version": ncit_version,
+                "started_at": now,
+                "source_identity": fingerprint.source_identity,
+                "fingerprint": fingerprint.model_dump_json(),
+                "fingerprint_sha256": fingerprint.identity,
+                "emitted_at": fingerprint.emitted_at,
+                "publication_state": (
+                    "not_requested" if fingerprint.output_mode == "none" else "pending"
+                ),
+                "execution_identity": execution_identity,
+            },
+        )
+        if fingerprint.worklist:
             await session.execute(
                 text(
-                    "INSERT INTO decomp_run_stage (run_id,stage,ordinal) "
-                    "VALUES (:run_id,:stage,:ordinal)"
+                    "INSERT INTO decomp_work_item "
+                    "(run_id, concept_code, ordinal) "
+                    "VALUES (:run_id, :concept_code, :ordinal)"
                 ),
                 [
-                    {"run_id": run_id, "stage": stage, "ordinal": ordinal}
-                    for ordinal, stage in enumerate(RUN_STAGE_SEQUENCE)
+                    {
+                        "run_id": run_id,
+                        "concept_code": code,
+                        "ordinal": ordinal,
+                    }
+                    for ordinal, code in enumerate(fingerprint.worklist)
                 ],
             )
+        await session.execute(
+            text(
+                "INSERT INTO decomp_run_stage (run_id,stage,ordinal) "
+                "VALUES (:run_id,:stage,:ordinal)"
+            ),
+            [
+                {"run_id": run_id, "stage": stage, "ordinal": ordinal}
+                for ordinal, stage in enumerate(RUN_STAGE_SEQUENCE)
+            ],
+        )
+
+    async def admit_run(
+        self,
+        run_id: str,
+        ncit_version: str,
+        fingerprint: RunFingerprint,
+        execution: FullRunExecutionIdentity,
+        *,
+        resume_run_id: str | None = None,
+    ) -> RunAdmission:
+        """Validate or create one exact run under the database uniqueness authority."""
+        if FullRunExecutionIdentity.from_fingerprint(fingerprint) != execution:
+            return Refused(reason=RefusalReason.IDENTITY_MISMATCH)
+        try:
+            async with self._sf() as session, session.begin():
+                rows = await self._admission_candidates(
+                    session,
+                    resume_run_id=resume_run_id,
+                    execution_identity=execution.identity,
+                )
+                if resume_run_id is None and len(rows) > 1:
+                    return Refused(reason=RefusalReason.AMBIGUOUS_COMPATIBLE_RUNS)
+                if rows:
+                    return await self._admit_existing(
+                        session,
+                        rows[0],
+                        execution,
+                        explicit_resume=resume_run_id is not None,
+                    )
+                if resume_run_id is not None:
+                    return Refused(reason=RefusalReason.IDENTITY_MISMATCH)
+                await self._insert_run(
+                    session,
+                    run_id,
+                    ncit_version,
+                    fingerprint,
+                    execution_identity=execution.identity,
+                )
+                return FreshAdmitted(run_id=run_id)
+        except IntegrityError:
+            return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+
+    @staticmethod
+    async def _admission_candidates(
+        session: AsyncSession,
+        *,
+        resume_run_id: str | None,
+        execution_identity: str,
+    ) -> Sequence[RowMapping]:
+        query = (
+            "SELECT id,status,publication_state,source_identity,fingerprint,"
+            "fingerprint_sha256,execution_identity FROM decomp_run "
+            "WHERE id=:candidate FOR UPDATE"
+            if resume_run_id is not None
+            else "SELECT id,status,publication_state,source_identity,fingerprint,"
+            "fingerprint_sha256,execution_identity FROM decomp_run "
+            "WHERE execution_identity=:candidate ORDER BY started_at FOR UPDATE"
+        )
+        candidate = resume_run_id or execution_identity
+        return (
+            (await session.execute(text(query), {"candidate": candidate}))
+            .mappings()
+            .all()
+        )
+
+    async def _admit_existing(
+        self,
+        session: AsyncSession,
+        row: RowMapping,
+        execution: FullRunExecutionIdentity,
+        *,
+        explicit_resume: bool,
+    ) -> RunAdmission:
+        run_id = cast("str", row["id"])
+        if row["source_identity"] != execution.source_identity:
+            return Refused(reason=RefusalReason.SOURCE_DRIFT)
+        if row["execution_identity"] != execution.identity:
+            return Refused(reason=RefusalReason.IDENTITY_MISMATCH)
+        fingerprint, refusal = await self._validate_admission_artifacts(
+            session, row, execution, run_id
+        )
+        if refusal is not None or fingerprint is None:
+            return Refused(reason=refusal or RefusalReason.IDENTITY_MISMATCH)
+        return await self._admission_for_state(
+            session,
+            run_id,
+            cast("str", row["status"]),
+            cast("str", row["publication_state"]),
+            fingerprint,
+            explicit_resume=explicit_resume,
+        )
+
+    async def _validate_admission_artifacts(
+        self,
+        session: AsyncSession,
+        row: RowMapping,
+        execution: FullRunExecutionIdentity,
+        run_id: str,
+    ) -> tuple[RunFingerprint | None, RefusalReason | None]:
+        try:
+            fingerprint = self._validated_fingerprint(
+                row["fingerprint"], row["fingerprint_sha256"]
+            )
+        except RunIdentityMismatchError, ValidationError:
+            return None, RefusalReason.IDENTITY_MISMATCH
+        if FullRunExecutionIdentity.from_fingerprint(fingerprint) != execution:
+            return None, RefusalReason.IDENTITY_MISMATCH
+        try:
+            await self._require_materialized_worklist(session, run_id, fingerprint)
+        except RunIdentityMismatchError:
+            return None, RefusalReason.IDENTITY_MISMATCH
+        stages = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT stage,ordinal FROM decomp_run_stage "
+                        "WHERE run_id=:run_id ORDER BY ordinal"
+                    ),
+                    {"run_id": run_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        try:
+            _require_stage_inventory(stages)
+        except RunIdentityMismatchError:
+            return None, RefusalReason.STAGE_SCHEMA_MISMATCH
+        return fingerprint, None
+
+    async def _admission_for_state(
+        self,
+        session: AsyncSession,
+        run_id: str,
+        status: str,
+        publication_state: str,
+        fingerprint: RunFingerprint,
+        *,
+        explicit_resume: bool,
+    ) -> RunAdmission:
+        kind = _ADMISSION_STATE_KIND.get((status, publication_state))
+        if kind is None:
+            return Refused(reason=RefusalReason.IDENTITY_MISMATCH)
+        if kind == "complete":
+            return Refused(reason=RefusalReason.COMPLETED_RUN_EXISTS)
+        if not explicit_resume:
+            return Refused(reason=_existing_run_refusal(kind))
+        if status == "failed":
+            await session.execute(
+                text(
+                    "UPDATE decomp_run SET status='running',error_type=NULL,"
+                    "error_message=NULL WHERE id=:id"
+                ),
+                {"id": run_id},
+            )
+            await session.execute(
+                text(
+                    "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
+                    "claimed_at=NULL,error_type='InterruptedRun',"
+                    "error_message='Prior worker did not finish its claim',"
+                    "failed_at=:failed_at WHERE run_id=:id AND state='running'"
+                ),
+                {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
+            )
+        return ResumeAdmitted(
+            run_id=run_id,
+            resume_kind=(
+                ResumeKind.PUBLICATION if kind == "publication" else ResumeKind.SEMANTIC
+            ),
+        )
 
     async def run_stages(self, run_id: str) -> tuple[RunStageCheckpoint, ...]:
         """Read the exact stage inventory; legacy/missing inventories fail closed."""
@@ -1477,6 +1686,28 @@ class ProvenanceStore:
                 "persisted run has no complete stage checkpoint inventory"
             )
         return tuple(RunStageCheckpoint.model_validate(dict(row)) for row in rows)
+
+    async def fingerprint_for_run(self, run_id: str) -> RunFingerprint:
+        """Read a fingerprint only after its persisted digest has been verified."""
+        async with self._sf() as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT fingerprint,fingerprint_sha256 FROM decomp_run "
+                            "WHERE id=:run_id"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise RunStateError(f"decomposition run {run_id!r} does not exist")
+        return self._validated_fingerprint(
+            row["fingerprint"], row["fingerprint_sha256"]
+        )
 
     async def claim_stage(
         self, run_id: str, stage: RunStageName, input_identity: str
