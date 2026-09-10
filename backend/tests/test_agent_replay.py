@@ -8,6 +8,7 @@ import json
 import os
 import socket
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,55 +32,129 @@ class _Runner:
         return subprocess.CompletedProcess(arguments, 0)
 
 
-@pytest.mark.unit
-def test_inspect_r101_report_reads_invalidated_binding_without_rewriting(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+_ROOT = Path(__file__).resolve().parents[2]
+_R101_REPORT = (
+    _ROOT / "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz"
+)
+
+
+def _copy_r101_report(tmp_path: Path) -> tuple[Path, Path]:
     relative = Path("evidence/report.json.gz")
     path = tmp_path / relative
     path.parent.mkdir(parents=True)
-    payload = {
-        "schema_version": 3,
-        "old_run_id": "old-run",
-        "new_run_id": "new-run",
-        "old_run_fingerprint_identity": "a" * 64,
-        "new_run_fingerprint_identity": "b" * 64,
-        "detector_identity": "c" * 64,
-        "non_r101_delta_evidence": {
-            "old_run_id": "old-run",
-            "new_run_id": "new-run",
-            "query_identity": "d" * 64,
-            "rows": [],
-        },
-        "report_identity": "e" * 64,
-    }
-    path.write_bytes(gzip.compress(json.dumps(payload).encode(), mtime=0))
+    path.write_bytes(_R101_REPORT.read_bytes())
+    return relative, path
+
+
+@pytest.mark.unit
+def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    relative, path = _copy_r101_report(tmp_path)
 
     assert run_agent_replay(["inspect-r101-report", str(relative)], tmp_path) == 0
 
     observed = json.loads(capsys.readouterr().out)
-    assert observed == {
-        "detector_identity": "c" * 64,
-        "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "new_run_fingerprint_identity": "b" * 64,
-        "new_run_id": "new-run",
-        "non_r101_delta_new_run_id": "new-run",
-        "non_r101_delta_old_run_id": "old-run",
-        "non_r101_delta_query_identity": "d" * 64,
-        "non_r101_delta_row_count": 0,
-        "non_r101_metadata_delta_count": 0,
-        "non_r101_metadata_changed_fields": {},
-        "non_r101_classified_delta_count": 0,
-        "non_r101_raw_typed_delta_count": None,
-        "non_r101_classifications": {},
-        "comparator_qualification_identity": None,
-        "mechanical_status": None,
-        "counts": None,
-        "old_run_fingerprint_identity": "a" * 64,
-        "old_run_id": "old-run",
-        "report_identity": "e" * 64,
-        "schema_version": 3,
+    structural_rows = observed["unclassified_structural_rows"]
+    assert len(structural_rows) == 39
+    assert all(
+        set(row)
+        == {
+            "axis",
+            "axis_source",
+            "concept_code",
+            "direction",
+            "filler_code",
+            "most_specific",
+            "needs_review",
+            "relationship_group",
+            "source_definition_ids",
+            "source_occurrence_ids",
+            "source_roles",
+        }
+        for row in structural_rows
+    )
+    assert structural_rows == sorted(
+        structural_rows,
+        key=lambda row: (
+            row["direction"],
+            row["concept_code"],
+            row["axis"],
+            row["filler_code"],
+            json.dumps(row, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+    metadata = observed["metadata_pairs"]
+    assert metadata["pair_count"] == 2_564
+    assert sum(item["pair_count"] for item in metadata["per_concept_counts"]) == 2_564
+    assert sum(item["pair_count"] for item in metadata["transition_cross_tab"]) == 2_586
+    assert {item["changed_field"] for item in metadata["transition_cross_tab"]} == {
+        "most_specific",
+        "needs_review",
     }
+    assert observed["count_reconciliation"] == {
+        "classified_row_count": 0,
+        "metadata_pair_count": 2_564,
+        "raw_typed_delta_count": 5_167,
+        "recomputed_raw_typed_delta_count": 5_167,
+        "unclassified_structural_row_count": 39,
+        "verified": True,
+    }
+    json_identity = "28ef430877da83d54fece6f28e6e77e44a2ed3db62e8674ef1e015472dca2009"
+    report_identity = "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
+    tsv_identity = "23653bc37f4a43e69455dee7380e5928cb4258294520609fde78bb31310b14b1"
+    assert observed["identity_verification"] == {
+        "json_identity": {
+            "recorded": json_identity,
+            "recomputed": json_identity,
+            "verified": True,
+        },
+        "model_validation": "verified",
+        "report_identity": {
+            "recorded": report_identity,
+            "recomputed": report_identity,
+            "verified": True,
+        },
+        "status": "verified",
+        "tsv_identity": {
+            "recorded": tsv_identity,
+            "recomputed": tsv_identity,
+            "verified": True,
+        },
+    }
+    query_identity = "04c4e950a0402e2bed8f13e8e2231b01d0fb430df0707d2e3de6831dc177383a"
+    assert observed["report_binding"] == {
+        "new_run_id": "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+        "old_run_id": "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+        "query_identity": query_identity,
+        "report_identity": report_identity,
+    }
+    assert observed["file_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mutation", ["duplicate", "missing", "inconsistent", "count"])
+def test_inspect_r101_report_refuses_invalid_report_rows(
+    tmp_path: Path, mutation: str
+) -> None:
+    relative, path = _copy_r101_report(tmp_path)
+    payload = json.loads(gzip.decompress(path.read_bytes()))
+    changed = deepcopy(payload)
+    evidence = changed["non_r101_delta_evidence"]
+    if mutation == "duplicate":
+        evidence["rows"].append(deepcopy(evidence["rows"][0]))
+    elif mutation == "missing":
+        evidence["rows"].pop()
+    elif mutation == "inconsistent":
+        evidence["metadata_deltas"][0]["changed_fields"] = []
+    else:
+        changed["counts"]["non_r101_delta"] += 1
+    path.write_bytes(gzip.compress(json.dumps(changed).encode(), mtime=0))
+
+    with pytest.raises(
+        AgentReplayInputError, match="R101 report failed strict validation"
+    ):
+        run_agent_replay(["inspect-r101-report", str(relative)], tmp_path)
 
 
 @pytest.mark.unit

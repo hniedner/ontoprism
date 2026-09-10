@@ -919,6 +919,17 @@ def _validate_report_identities(report: R101ConservationReport) -> None:
         raise ValueError("source-identity-mismatch: report identity differs")
 
 
+def recompute_r101_report_identities(
+    report: R101ConservationReport,
+) -> tuple[str, str, str]:
+    """Recompute the JSON, TSV, and complete report identities in that order."""
+    return (
+        _json_identity(report),
+        _sha256(_tsv_content(report.occurrences)),
+        _report_identity(report),
+    )
+
+
 def _canonical(value: object) -> bytes:
     return json.dumps(
         to_jsonable_python(value),

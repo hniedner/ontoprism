@@ -10,7 +10,6 @@ operation failure.
 from __future__ import annotations
 
 import asyncio
-import gzip
 import hashlib
 import importlib
 import json
@@ -47,6 +46,11 @@ _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
+_MAX_R101_STRUCTURAL_ROWS = 100
+_MAX_R101_METADATA_PAIRS = 5_000
+_MAX_R101_METADATA_TRANSITIONS = 100
+_MAX_R101_METADATA_CONCEPTS = 5_000
+_MAX_R101_INSPECTION_BYTES = 1_000_000
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = "ontoprism-podman-poc"
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
@@ -429,6 +433,116 @@ def _record_current_r101_diagnostic(
     return 0
 
 
+def _r101_structural_rows(evidence: Any) -> list[dict[str, Any]]:
+    if len(evidence.rows) > _MAX_R101_STRUCTURAL_ROWS:
+        raise AgentReplayInputError("R101 structural row output exceeds bounded limit")
+    result: list[dict[str, Any]] = []
+    for row in evidence.rows:
+        item = row.model_dump(mode="json")
+        item["direction"] = item.pop("change")
+        result.append(item)
+    result.sort(
+        key=lambda item: (
+            item["direction"],
+            item["concept_code"],
+            item["axis"],
+            item["filler_code"],
+            json.dumps(item, sort_keys=True, separators=(",", ":")),
+        )
+    )
+    return result
+
+
+def _r101_metadata_summary(evidence: Any) -> dict[str, object]:
+    if len(evidence.metadata_deltas) > _MAX_R101_METADATA_PAIRS:
+        raise AgentReplayInputError("R101 metadata pair output exceeds bounded limit")
+    transitions: Counter[tuple[str, str, str]] = Counter()
+    per_concept: Counter[str] = Counter()
+    for delta in evidence.metadata_deltas:
+        old = delta.old.model_dump(mode="json")
+        new = delta.new.model_dump(mode="json")
+        per_concept[delta.old.concept_code] += 1
+        for field in delta.changed_fields:
+            old_value = json.dumps(old[field], sort_keys=True, separators=(",", ":"))
+            new_value = json.dumps(new[field], sort_keys=True, separators=(",", ":"))
+            transitions[(field, old_value, new_value)] += 1
+    if len(transitions) > _MAX_R101_METADATA_TRANSITIONS:
+        raise AgentReplayInputError(
+            "R101 metadata transition output exceeds bounded limit"
+        )
+    if len(per_concept) > _MAX_R101_METADATA_CONCEPTS:
+        raise AgentReplayInputError(
+            "R101 metadata concept output exceeds bounded limit"
+        )
+    return {
+        "pair_count": len(evidence.metadata_deltas),
+        "transition_cross_tab": [
+            {
+                "changed_field": field,
+                "old_value": json.loads(old),
+                "new_value": json.loads(new),
+                "pair_count": count,
+            }
+            for (field, old, new), count in sorted(transitions.items())
+        ],
+        "per_concept_counts": [
+            {"concept_code": concept, "pair_count": count}
+            for concept, count in sorted(per_concept.items())
+        ],
+    }
+
+
+def _r101_verification(report: Any, conservation: Any) -> dict[str, object]:
+    evidence = report.non_r101_delta_evidence
+    raw_recomputed = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    raw_verified = evidence.raw_typed_delta_count == raw_recomputed
+    recomputed_json, recomputed_tsv, recomputed_report = (
+        conservation.recompute_r101_report_identities(report)
+    )
+    identities_verified = (
+        recomputed_json == report.json_identity
+        and recomputed_tsv == report.tsv_identity
+        and recomputed_report == report.report_identity
+    )
+    if not identities_verified or not raw_verified:
+        raise AgentReplayInputError(
+            "R101 report recomputation differs from recorded evidence"
+        )
+    return {
+        "count_reconciliation": {
+            "unclassified_structural_row_count": len(evidence.rows),
+            "metadata_pair_count": len(evidence.metadata_deltas),
+            "classified_row_count": len(evidence.classified_rows),
+            "raw_typed_delta_count": evidence.raw_typed_delta_count,
+            "recomputed_raw_typed_delta_count": raw_recomputed,
+            "verified": raw_verified,
+        },
+        "identity_verification": {
+            "status": "verified",
+            "model_validation": "verified",
+            "json_identity": {
+                "recorded": report.json_identity,
+                "recomputed": recomputed_json,
+                "verified": recomputed_json == report.json_identity,
+            },
+            "tsv_identity": {
+                "recorded": report.tsv_identity,
+                "recomputed": recomputed_tsv,
+                "verified": recomputed_tsv == report.tsv_identity,
+            },
+            "report_identity": {
+                "recorded": report.report_identity,
+                "recomputed": recomputed_report,
+                "verified": recomputed_report == report.report_identity,
+            },
+        },
+    }
+
+
 def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -> int:
     del runner
     if len(values) != 1:
@@ -438,65 +552,30 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
     _require_no_symlink_components(path, root=root, label="R101 report")
     if not path.is_file() or not path.name.endswith(".json.gz"):
         raise AgentReplayInputError("R101 report must be an existing .json.gz file")
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
     try:
-        content = gzip.decompress(path.read_bytes())
-    except (OSError, EOFError) as exc:
-        raise AgentReplayInputError("R101 report is not valid gzip") from exc
-    payload = _load_strict_json(content, label="R101 report")
-    delta = payload.get("non_r101_delta_evidence")
-    if not isinstance(delta, dict) or not isinstance(delta.get("rows"), list):
-        raise AgentReplayInputError("R101 report delta evidence has an invalid shape")
-    metadata_deltas = delta.get("metadata_deltas", [])
-    classified_rows = delta.get("classified_rows", [])
-    if not isinstance(metadata_deltas, list) or not isinstance(classified_rows, list):
+        report = conservation.load_r101_conservation_report(path)
+    except (OSError, ValueError) as exc:
         raise AgentReplayInputError(
-            "R101 report typed delta evidence has an invalid shape"
-        )
-    classifications = Counter(
-        item.get("classification")
-        for item in classified_rows
-        if isinstance(item, dict) and isinstance(item.get("classification"), str)
-    )
-    if sum(classifications.values()) != len(classified_rows):
-        raise AgentReplayInputError("R101 report delta classification is malformed")
-    metadata_changed_fields: Counter[str] = Counter()
-    for item in metadata_deltas:
-        if (
-            not isinstance(item, dict)
-            or not isinstance(item.get("changed_fields"), list)
-            or not all(isinstance(field, str) for field in item["changed_fields"])
-        ):
-            raise AgentReplayInputError(
-                "R101 report metadata delta evidence is malformed"
-            )
-        metadata_changed_fields.update(item["changed_fields"])
+            f"R101 report failed strict validation: {exc}"
+        ) from exc
+    evidence = report.non_r101_delta_evidence
     result = {
-        "schema_version": payload.get("schema_version"),
-        "old_run_id": payload.get("old_run_id"),
-        "new_run_id": payload.get("new_run_id"),
-        "old_run_fingerprint_identity": payload.get("old_run_fingerprint_identity"),
-        "new_run_fingerprint_identity": payload.get("new_run_fingerprint_identity"),
-        "detector_identity": payload.get("detector_identity"),
-        "non_r101_delta_old_run_id": delta.get("old_run_id"),
-        "non_r101_delta_new_run_id": delta.get("new_run_id"),
-        "non_r101_delta_query_identity": delta.get("query_identity"),
-        "non_r101_delta_row_count": len(delta["rows"]),
-        "non_r101_metadata_delta_count": len(metadata_deltas),
-        "non_r101_metadata_changed_fields": dict(
-            sorted(metadata_changed_fields.items())
-        ),
-        "non_r101_classified_delta_count": len(classified_rows),
-        "non_r101_raw_typed_delta_count": delta.get("raw_typed_delta_count"),
-        "non_r101_classifications": dict(sorted(classifications.items())),
-        "comparator_qualification_identity": payload.get(
-            "comparator_qualification_identity"
-        ),
-        "mechanical_status": payload.get("mechanical_status"),
-        "counts": payload.get("counts"),
-        "report_identity": payload.get("report_identity"),
+        "report_binding": {
+            "old_run_id": report.old_run_id,
+            "new_run_id": report.new_run_id,
+            "query_identity": evidence.query_identity,
+            "report_identity": report.report_identity,
+        },
+        **_r101_verification(report, conservation),
+        "unclassified_structural_rows": _r101_structural_rows(evidence),
+        "metadata_pairs": _r101_metadata_summary(evidence),
         "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
-    print(json.dumps(result, sort_keys=True, indent=2))
+    output = json.dumps(result, sort_keys=True, indent=2)
+    if len(output.encode()) > _MAX_R101_INSPECTION_BYTES:
+        raise AgentReplayInputError("R101 inspection output exceeds bounded byte limit")
+    print(output)
     return 0
 
 
