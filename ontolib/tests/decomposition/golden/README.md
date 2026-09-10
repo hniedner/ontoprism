@@ -717,6 +717,21 @@ publication is blocked
 routes source R101 directly before R82 collapse, so it has no `covered-by-retained-r82` patterns
 from which to regenerate that historical 162-pattern review boundary.
 
+The separately identified #267 corrected projection is
+`neoplasm-r101-v5-corrected-projection.json`. It is explicitly typed
+`corrected-projection-not-a-run`: it does not mutate, resume, or replace the completed v5 run or
+its diagnostic. The bounded generator reads persisted source occurrences, complete constituent
+rows, occurrence links, and engine dispositions for exactly the 39 candidate codes, then applies
+the exact source-bound mixed paths without QLever traversal or `_decompose_one`. It projects 39
+structural removals, zero additions, 42 metadata-row changes, and 39 disposition changes; the
+metadata classification is 36 `needs_review` true→false transitions, six relationship-group
+changes, and no `most_specific` transitions. Its projection identity is
+`9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6`
+(`pdm run agent-replay generate-mixed-chain-corrected-projection`, 2026-09-11). Record the generated
+artifact only through `pdm run agent-replay record-mixed-chain-corrected-projection`. A corrected
+published run still requires #332 database-backed admission before execution; this projection is
+bounded evidence, not authorization to promote the incomplete v5 diagnostic.
+
 ### Prepare the #267 human review packet
 
 The exact tracked inputs and configured read-only label endpoint are:

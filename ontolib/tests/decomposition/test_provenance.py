@@ -1511,3 +1511,59 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             ),
         )
     ]
+
+
+@pytest.mark.unit
+async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
+    sf = _make_mock_sf()
+    constituent_rows = MagicMock()
+    constituent_rows.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C2",
+            "axis_source": "role",
+            "source_roles": ["R100"],
+            "most_specific": False,
+            "needs_review": False,
+            "relationship_group": None,
+            "source_definition_ids": ["d" * 64],
+        }
+    ]
+    links = MagicMock()
+    links.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C2",
+            "occurrence_id": "c" * 64,
+        }
+    ]
+    dispositions = MagicMock()
+    dispositions.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "occurrence_id": "c" * 64,
+            "source_fact_id": "d" * 64,
+            "disposition": "retained-routed",
+            "normalized_axis": "op:PrimarySite",
+            "source_filler": "C2",
+            "retained_filler": "C2",
+            "semantic_route": "p106-organ",
+            "semantic_type": "Neoplastic Process",
+            "r82_part": None,
+            "r82_whole": None,
+            "specificity_path": [],
+            "policy_decision_identity": None,
+        }
+    ]
+    sf().execute.side_effect = [constituent_rows, links, dispositions]
+
+    states = await ProvenanceStore(sf).projection_state_for_codes("run-1", ("C1",))
+
+    assert states[0].concept_code == "C1"
+    assert states[0].constituents[0].source_occurrence_ids == ("c" * 64,)
+    assert states[0].dispositions[0].source_fact_id == "d" * 64
+    assert sf().execute.call_count == 3
+    for call in sf().execute.call_args_list:
+        assert call.args[1] == {"run_id": "run-1", "codes": ["C1"]}

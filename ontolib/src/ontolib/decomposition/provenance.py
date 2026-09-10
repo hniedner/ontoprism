@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from ontolib.decomposition.minting import MintedConcept as MintedProposal
     from ontolib.decomposition.mixed_chain_inventory import PersistedSelectorOccurrence
+    from ontolib.decomposition.mixed_chain_projection import PersistedProjectionState
     from ontolib.decomposition.models import (
         CompleteDefinition,
         Constituent,
@@ -2302,6 +2303,63 @@ class ProvenanceStore:
             rows = result.mappings().all()
         return tuple(
             PersistedSelectorOccurrence.model_validate(dict(row)) for row in rows
+        )
+
+    async def projection_state_for_codes(
+        self, run_id: str, concept_codes: tuple[str, ...]
+    ) -> tuple[PersistedProjectionState, ...]:
+        """Load complete output and disposition state for 1-100 exact codes."""
+        from ontolib.decomposition.mixed_chain_projection import (  # noqa: PLC0415
+            PersistedProjectionState,
+        )
+
+        if not concept_codes or len(concept_codes) > _MAX_BOUNDED_SELECTOR_CODES:
+            raise ValueError("projection state request must contain 1-100 codes")
+        if tuple(sorted(set(concept_codes))) != concept_codes:
+            raise ValueError("projection state codes must be canonical and unique")
+        params = {"run_id": run_id, "codes": list(concept_codes)}
+        async with self._sf() as session:
+            constituent_result = await session.execute(
+                text(
+                    "SELECT concept_code, axis, filler_code, axis_source, "
+                    "source_roles, most_specific, needs_review, relationship_group, "
+                    "source_definition_ids FROM decomp_constituent WHERE "
+                    "run_id = :run_id AND concept_code = ANY(CAST(:codes AS text[])) "
+                    "ORDER BY concept_code, axis, filler_code"
+                ),
+                params,
+            )
+            link_result = await session.execute(
+                text(
+                    "SELECT concept_code, axis, filler_code, occurrence_id FROM "
+                    "decomp_constituent_occurrence WHERE run_id = :run_id AND "
+                    "concept_code = ANY(CAST(:codes AS text[])) ORDER BY "
+                    "concept_code, axis, filler_code, occurrence_id"
+                ),
+                params,
+            )
+            disposition_result = await session.execute(
+                text(
+                    "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
+                    "normalized_axis, source_filler, retained_filler, semantic_route, "
+                    "semantic_type, r82_part, r82_whole, specificity_path, "
+                    "policy_decision_identity FROM decomp_occurrence_disposition "
+                    "WHERE run_id = :run_id AND concept_code = ANY(CAST(:codes AS "
+                    "text[])) ORDER BY concept_code, occurrence_id"
+                ),
+                params,
+            )
+        constituents = _constituents_by_code(
+            constituent_result.mappings().all(), link_result.mappings().all()
+        )
+        dispositions = _dispositions_by_code(disposition_result.mappings().all())
+        return tuple(
+            PersistedProjectionState(
+                concept_code=code,
+                constituents=tuple(constituents.get(code, ())),
+                dispositions=tuple(dispositions.get(code, ())),
+            )
+            for code in concept_codes
         )
 
     async def corpus_baseline_aggregate(self, run_id: str) -> CorpusBaselineAggregate:

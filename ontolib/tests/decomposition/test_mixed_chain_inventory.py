@@ -12,6 +12,7 @@ from ontolib.decomposition.mixed_chain_inventory import (
     write_mixed_chain_inventory,
 )
 from ontolib.decomposition.models import SpecificityPathEdge
+from ontolib.decomposition.semantic_identity import routing_implementation_identity
 
 
 def _candidate(code: str, broad: str, terminal: str) -> MixedChainCandidate:
@@ -242,7 +243,7 @@ def test_packaged_mixed_chain_inventory_is_exact_and_complete() -> None:
     )
 
     assert inventory.identity == (
-        "b95c41ca8d91dce332caa8618c3292de464e806c4d7811bf0a667fbc187ecb83"
+        "3fc473e9ce049c2c619be8b714f5bfb4cbf2dd7297a10ff8e1bfa00feb1ba0cd"
     )
     assert inventory.candidate_count == 39
     assert inventory.unclassified_codes == ()
@@ -250,4 +251,11 @@ def test_packaged_mixed_chain_inventory_is_exact_and_complete() -> None:
     assert all(
         tuple(edge.kind for edge in candidate.specificity_path) == ("is-a", "r82")
         for candidate in inventory.candidates
+    )
+    require_mixed_chain_preflight(
+        inventory,
+        source_identity=inventory.source_identity,
+        worklist_identity=inventory.worklist_identity,
+        worklist_count=inventory.worklist_count,
+        selector_identity=routing_implementation_identity(),
     )

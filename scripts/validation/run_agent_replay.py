@@ -788,6 +788,131 @@ def _record_mixed_chain_inventory(
     return 0
 
 
+async def _generate_mixed_chain_corrected_projection_async(
+    report_path: Path, inventory_path: Path, output: Path
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    projection_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_projection"
+    )
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    semantic_identity = importlib.import_module(
+        "ontolib.decomposition.semantic_identity"
+    )
+    report = conservation.load_r101_conservation_report(report_path)
+    inventory = inventory_module.load_mixed_chain_inventory(inventory_path)
+    if inventory.source_report_identity != report.report_identity:
+        raise AgentReplayInputError("projection inventory report identity differs")
+    selector_identity = semantic_identity.routing_implementation_identity()
+    if inventory.selector_identity != selector_identity:
+        raise AgentReplayInputError("projection inventory selector identity differs")
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        run = await store.completed_comparator_run_for_evidence(inventory.source_run_id)
+        occurrences = await store.selector_occurrences_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+        states = await store.projection_state_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+    finally:
+        await database.dispose_engine(engine)
+    if run.fingerprint.source_identity != inventory.source_identity:
+        raise AgentReplayInputError("projection run source identity differs")
+    occurrences_by_code: dict[str, list[Any]] = defaultdict(list)
+    for row in occurrences:
+        occurrences_by_code[row.concept_code].append(row)
+    states_by_code = {row.concept_code: row for row in states}
+    projections = tuple(
+        projection_module.project_mixed_chain_candidate(
+            candidate=candidate,
+            occurrences=tuple(occurrences_by_code[candidate.concept_code]),
+            before_constituents=states_by_code[candidate.concept_code].constituents,
+            before_dispositions=states_by_code[candidate.concept_code].dispositions,
+            source_identity=inventory.source_identity,
+        )
+        for candidate in inventory.candidates
+    )
+    artifact = projection_module.create_corrected_projection(
+        source_run_id=inventory.source_run_id,
+        source_report_identity=report.report_identity,
+        source_identity=inventory.source_identity,
+        selector_identity=selector_identity,
+        inventory_identity=inventory.identity,
+        expected_candidate_codes=inventory.candidate_codes,
+        projections=projections,
+    )
+    projection_module.write_corrected_projection(output, artifact)
+    print(
+        json.dumps(
+            {
+                "projection_identity": artifact.projection_identity,
+                "candidate_count": artifact.candidate_count,
+                "constituent_transition_counts": (
+                    artifact.constituent_transition_counts.model_dump(mode="json")
+                ),
+                "metadata_transition_counts": (
+                    artifact.metadata_transition_counts.model_dump(mode="json")
+                ),
+                "disposition_transition_count": (artifact.disposition_transition_count),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def _generate_mixed_chain_corrected_projection(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-mixed-chain-corrected-projection accepts no arguments"
+        )
+    output = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
+    output.unlink(missing_ok=True)
+    asyncio.run(
+        _generate_mixed_chain_corrected_projection_async(
+            root / "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-conservation.json.gz",
+            root / "ontolib/src/ontolib/decomposition/data/"
+            "neoplasm_mixed_chain_inventory.json",
+            output,
+        )
+    )
+    return 0
+
+
+def _record_mixed_chain_corrected_projection(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "record-mixed-chain-corrected-projection accepts no arguments"
+        )
+    projection_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_projection"
+    )
+    generated = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
+    if not generated.is_file():
+        raise AgentReplayInputError("generated corrected projection does not exist")
+    artifact = projection_module.load_corrected_projection(generated)
+    destination = (
+        root / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-corrected-projection.json"
+    )
+    projection_module.write_corrected_projection(destination, artifact)
+    print(f"recorded {artifact.projection_identity} at {destination.relative_to(root)}")
+    return 0
+
+
 def _subprocess_runner(
     arguments: list[str],
     *,
@@ -3365,6 +3490,12 @@ _OPERATIONS: dict[str, Operation] = {
     "inspect-r101-report": _inspect_r101_report,
     "generate-mixed-chain-inventory": _generate_mixed_chain_inventory,
     "record-mixed-chain-inventory": _record_mixed_chain_inventory,
+    "generate-mixed-chain-corrected-projection": (
+        _generate_mixed_chain_corrected_projection
+    ),
+    "record-mixed-chain-corrected-projection": (
+        _record_mixed_chain_corrected_projection
+    ),
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,

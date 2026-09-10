@@ -3,10 +3,20 @@ from typing import Any, cast
 
 import pytest
 
+from backend.config import get_settings
+from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.mixed_chain_inventory import load_mixed_chain_inventory
+from ontolib.decomposition.mixed_chain_projection import (
+    create_corrected_projection,
+    load_corrected_projection,
+    project_mixed_chain_candidate,
+)
+from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.run import _decompose_one
+from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 
@@ -58,3 +68,60 @@ async def test_mixed_chain_canaries_collapse_with_real_source_paths() -> None:
 
     assert observed == expected
     assert query_counts["C27381"] == max(query_counts.values()) == 46
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_corrected_projection_replays_from_bounded_persisted_state() -> None:
+    inventory = load_mixed_chain_inventory(
+        Path(
+            "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+        )
+    )
+    report = load_r101_conservation_report(
+        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
+    )
+    expected = load_corrected_projection(
+        Path(
+            "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-corrected-projection.json"
+        )
+    )
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        store = ProvenanceStore(make_sessionmaker(engine))
+        occurrences = await store.selector_occurrences_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+        states = await store.projection_state_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+    finally:
+        await dispose_engine(engine)
+    occurrences_by_code: dict[str, list[Any]] = {}
+    for row in occurrences:
+        occurrences_by_code.setdefault(row.concept_code, []).append(row)
+    states_by_code = {row.concept_code: row for row in states}
+    projections = tuple(
+        project_mixed_chain_candidate(
+            candidate=candidate,
+            occurrences=tuple(occurrences_by_code[candidate.concept_code]),
+            before_constituents=states_by_code[candidate.concept_code].constituents,
+            before_dispositions=states_by_code[candidate.concept_code].dispositions,
+            source_identity=inventory.source_identity,
+        )
+        for candidate in inventory.candidates
+    )
+
+    actual = create_corrected_projection(
+        source_run_id=inventory.source_run_id,
+        source_report_identity=report.report_identity,
+        source_identity=inventory.source_identity,
+        selector_identity=routing_implementation_identity(),
+        inventory_identity=inventory.identity,
+        expected_candidate_codes=inventory.candidate_codes,
+        projections=projections,
+    )
+
+    assert actual == expected
