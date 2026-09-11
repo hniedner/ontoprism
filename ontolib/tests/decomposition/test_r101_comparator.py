@@ -12,6 +12,7 @@ from ontolib.decomposition.corpus_baseline import (
     CorpusBaseline,
     corpus_baseline_identity,
 )
+from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE_IDENTITY
 from ontolib.decomposition.r101_comparator import (
     ComparatorFingerprint,
     ComparatorRun,
@@ -29,6 +30,8 @@ def _fingerprint(**changes: object) -> dict[str, object]:
         "schema_version": 4,
         "source_identity": "a" * 64,
         "collapse_policy_identity": "b" * 64,
+        "mixed_chain_inventory_identity": "d" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -71,12 +74,17 @@ def _run(
     routing_identity: str | None,
     **fingerprint_changes: object,
 ) -> ComparatorRun:
+    omit_control_identities = fingerprint_changes.pop("_omit_control_identities", False)
+    assert isinstance(omit_control_identities, bool)
     fingerprint = _fingerprint(
         algorithm_version=algorithm,
         **fingerprint_changes,
     )
     if routing_identity is not None:
         fingerprint["routing_implementation_identity"] = routing_identity
+    if omit_control_identities:
+        del fingerprint["mixed_chain_inventory_identity"]
+        del fingerprint["stage_sequence_identity"]
     artifact.write_text(
         "".join(
             f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
@@ -184,6 +192,8 @@ def test_qualifies_exact_full_v4_v5_pair_and_binds_both_artifacts(
     assert qualification.control.worklist == ("C1", "C2")
     assert qualification.control.total_limit is None
     assert qualification.control.sample_manifest_identity is None
+    assert qualification.control.mixed_chain_inventory_identity == "d" * 64
+    assert qualification.control.stage_sequence_identity == RUN_STAGE_SEQUENCE_IDENTITY
     assert qualification.old.algorithm_version == "decomposition-v4"
     assert qualification.old.routing_implementation_identity == "not-recorded"
     assert qualification.new.algorithm_version == "decomposition-v5"
@@ -209,6 +219,12 @@ def test_qualifies_exact_full_v4_v5_pair_and_binds_both_artifacts(
     [
         ("new", {"source_identity": "f" * 64}, "source identity"),
         ("new", {"collapse_policy_identity": "f" * 64}, "collapse policy"),
+        (
+            "new",
+            {"mixed_chain_inventory_identity": "f" * 64},
+            "mixed-chain inventory",
+        ),
+        ("new", {"stage_sequence_identity": "f" * 64}, "stage sequence"),
         ("new", {"branch": "disease", "scope_root": "C2991"}, "branch"),
         ("new", {"scope_version": "other"}, "scope version"),
         ("new", {"semantic_types": ("Disease or Syndrome",)}, "semantic types"),
@@ -402,6 +418,56 @@ def test_comparator_fingerprint_rejects_noncanonical_scope_and_collections(
 ) -> None:
     with pytest.raises(ValidationError, match=message):
         ComparatorFingerprint.model_validate(_fingerprint(**changes))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "missing_field",
+    ["mixed_chain_inventory_identity", "stage_sequence_identity"],
+)
+def test_comparator_fingerprint_requires_each_execution_control_identity(
+    missing_field: str,
+) -> None:
+    fingerprint = _fingerprint(algorithm_version="decomposition-v5")
+    del fingerprint[missing_field]
+
+    with pytest.raises(ValidationError, match=missing_field):
+        ComparatorFingerprint.model_validate(fingerprint)
+
+
+@pytest.mark.unit
+def test_comparator_states_uncertifiable_historical_control_identity(
+    tmp_path: Path,
+) -> None:
+    old_artifact = tmp_path / "old.ttl"
+    new_artifact = tmp_path / "new.ttl"
+    old = _run(
+        "old-full",
+        old_artifact,
+        algorithm="decomposition-v4",
+        routing_identity=None,
+        _omit_control_identities=True,
+    )
+    new = _run(
+        "new-full",
+        new_artifact,
+        algorithm="decomposition-v5",
+        routing_identity="c" * 64,
+    )
+
+    assert old.fingerprint.mixed_chain_inventory_identity is None
+    assert old.fingerprint.stage_sequence_identity is None
+    with pytest.raises(
+        R101ComparatorValidationError,
+        match="old comparator mixed-chain inventory identity is missing",
+    ):
+        qualify_r101_comparator(
+            old_run=old,
+            new_run=new,
+            old_baseline=_baseline(old),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
 
 
 @pytest.mark.unit

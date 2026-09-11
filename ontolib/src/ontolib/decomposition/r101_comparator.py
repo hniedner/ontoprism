@@ -58,6 +58,8 @@ class ComparatorFingerprint(_StrictModel):
     source_identity: str = Field(pattern=_SHA256)
     collapse_policy_identity: str = Field(pattern=_SHA256)
     routing_implementation_identity: str | None = Field(default=None, pattern=_SHA256)
+    mixed_chain_inventory_identity: str | None = Field(default=None, pattern=_SHA256)
+    stage_sequence_identity: str | None = Field(default=None, pattern=_SHA256)
     branch: Literal["neoplasm", "disease"]
     scope_root: str = Field(pattern=r"^C[0-9]+$")
     scope_version: str = Field(min_length=1)
@@ -81,6 +83,26 @@ class ComparatorFingerprint(_StrictModel):
         expected_root = "C3262" if self.branch == "neoplasm" else "C2991"
         if self.scope_root != expected_root:
             raise ValueError("scope root does not match branch")
+        return self
+
+    @model_validator(mode="after")
+    def _current_execution_controls_are_present(self) -> Self:
+        missing_controls = tuple(
+            field
+            for field, value in (
+                (
+                    "mixed_chain_inventory_identity",
+                    self.mixed_chain_inventory_identity,
+                ),
+                ("stage_sequence_identity", self.stage_sequence_identity),
+            )
+            if value is None
+        )
+        if self.algorithm_version != "decomposition-v4" and missing_controls:
+            raise ValueError(
+                "current comparator fingerprint lacks required "
+                + ", ".join(missing_controls)
+            )
         return self
 
     @property
@@ -119,6 +141,8 @@ class ComparatorControl(_StrictModel):
     total_limit: None
     sample_manifest_identity: None
     collapse_policy_identity: str = Field(pattern=_SHA256)
+    mixed_chain_inventory_identity: str = Field(pattern=_SHA256)
+    stage_sequence_identity: str = Field(pattern=_SHA256)
     config_version: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
     output_mode: Literal["file"]
@@ -265,9 +289,29 @@ def _require_equal(label: str, old: object, new: object) -> None:
         raise R101ComparatorValidationError(f"comparator {label} differs")
 
 
+def _required_identity_pair(
+    label: str, old: str | None, new: str | None
+) -> tuple[str, str]:
+    if old is None:
+        raise R101ComparatorValidationError(f"old comparator {label} is missing")
+    if new is None:
+        raise R101ComparatorValidationError(f"new comparator {label} is missing")
+    return old, new
+
+
 def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorControl:
     old_fingerprint = old.fingerprint
     new_fingerprint = new.fingerprint
+    old_mixed_chain_identity, new_mixed_chain_identity = _required_identity_pair(
+        "mixed-chain inventory identity",
+        old_fingerprint.mixed_chain_inventory_identity,
+        new_fingerprint.mixed_chain_inventory_identity,
+    )
+    old_stage_identity, new_stage_identity = _required_identity_pair(
+        "stage sequence identity",
+        old_fingerprint.stage_sequence_identity,
+        new_fingerprint.stage_sequence_identity,
+    )
     controls = (
         (
             "source identity",
@@ -299,6 +343,16 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
             "collapse policy",
             old_fingerprint.collapse_policy_identity,
             new_fingerprint.collapse_policy_identity,
+        ),
+        (
+            "mixed-chain inventory",
+            old_mixed_chain_identity,
+            new_mixed_chain_identity,
+        ),
+        (
+            "stage sequence",
+            old_stage_identity,
+            new_stage_identity,
         ),
         (
             "configuration",
@@ -343,6 +397,8 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
         total_limit=None,
         sample_manifest_identity=None,
         collapse_policy_identity=old_fingerprint.collapse_policy_identity,
+        mixed_chain_inventory_identity=old_mixed_chain_identity,
+        stage_sequence_identity=old_stage_identity,
         config_version=old_fingerprint.config_version,
         walker_max_depth=old_fingerprint.walker_max_depth,
         output_mode="file",

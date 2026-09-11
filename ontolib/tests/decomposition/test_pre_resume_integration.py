@@ -117,6 +117,8 @@ async def test_comparator_reader_accepts_exact_historical_fingerprint_without_mu
 
     assert isinstance(observed, ComparatorRun)
     assert observed.fingerprint.routing_implementation_identity is None
+    assert observed.fingerprint.mixed_chain_inventory_identity is None
+    assert observed.fingerprint.stage_sequence_identity is None
     assert observed.fingerprint_identity == fingerprint_identity
     assert json.loads(before) == json.loads(after)
 
