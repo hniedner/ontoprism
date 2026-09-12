@@ -466,7 +466,7 @@ class MachineReadinessInputs(_StrictModel):
     r101_non_r101_delta: int = Field(ge=0)
     r101_metadata_delta: int = Field(ge=0)
     r101_occurrence_certification: Literal["complete", "blocked"]
-    r101_non_r101_enumeration: Literal["complete", "blocked"]
+    r101_non_r101_enumeration: Literal["complete"]
     r101_explanation: Literal["complete", "incomplete", "blocked"]
     r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
     r101_execution_comparability: Literal["unqualified"]
@@ -974,7 +974,7 @@ class MachineReadinessReport(_StrictModel):
     r101_non_r101_delta: int = Field(ge=0)
     r101_metadata_delta: int = Field(ge=0)
     r101_occurrence_certification: Literal["complete", "blocked"]
-    r101_non_r101_enumeration: Literal["complete", "blocked"]
+    r101_non_r101_enumeration: Literal["complete"]
     r101_explanation: Literal["complete", "incomplete", "blocked"]
     r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
     r101_execution_comparability: Literal["unqualified"]

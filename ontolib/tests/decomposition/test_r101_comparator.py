@@ -596,7 +596,7 @@ def test_comparator_refuses_different_canary_constituents(tmp_path: Path) -> Non
         }
     )
 
-    with pytest.raises(R101ComparatorValidationError, match="additions differ"):
+    with pytest.raises(R101ComparatorValidationError, match="canary constituent scope"):
         qualify_r101_comparator(
             old_run=old,
             new_run=changed_new,

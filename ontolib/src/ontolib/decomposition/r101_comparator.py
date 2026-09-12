@@ -284,7 +284,7 @@ def _shared_canary_constituents(
         )
     if old_rows != new_rows:
         raise R101ComparatorValidationError(
-            "alleged non-R101 artifact additions differ between full artifacts"
+            "canary constituent scope differs between comparator artifacts"
         )
     return old_rows
 

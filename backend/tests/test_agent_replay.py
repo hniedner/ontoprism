@@ -98,8 +98,8 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
         "structural_row_count": 2_097,
         "verified": True,
     }
-    json_identity = "8f4a9ab204b1f685d1018a5db49bdeb87066b80fb2ce2d4486215d05a63dd966"
-    report_identity = "b25e1fe14294637ce221b1a9e3fcb69ab2e3d5990f38a92cb3e71b960796f6a8"
+    json_identity = "116a52d2ce9ceaa93c3d65398490df9f68d8119dd040a2632c364e6e902f6325"
+    report_identity = "23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b"
     tsv_identity = "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"
     assert observed["identity_verification"] == {
         "json_identity": {
@@ -320,7 +320,7 @@ def test_current_corpus_baseline_generation_uses_fixed_published_run(
 
 
 @pytest.mark.unit
-def test_corrected_projection_generator_uses_historical_inventory_binding_only(
+def test_corrected_projection_generator_uses_historical_inventory_and_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inventory = (
@@ -329,10 +329,16 @@ def test_corrected_projection_generator_uses_historical_inventory_binding_only(
     )
     inventory.parent.mkdir(parents=True)
     inventory.touch()
-    calls: list[tuple[Path, Path]] = []
+    report = (
+        tmp_path / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+    )
+    report.parent.mkdir(parents=True)
+    report.touch()
+    calls: list[tuple[Path, Path, Path]] = []
 
-    async def generate(inventory_path: Path, output: Path) -> None:
-        calls.append((inventory_path, output))
+    async def generate(inventory_path: Path, report_path: Path, output: Path) -> None:
+        calls.append((inventory_path, report_path, output))
 
     monkeypatch.setattr(
         replay, "_generate_mixed_chain_corrected_projection_async", generate
@@ -342,7 +348,11 @@ def test_corrected_projection_generator_uses_historical_inventory_binding_only(
         run_agent_replay(["generate-mixed-chain-corrected-projection"], tmp_path) == 0
     )
     assert calls == [
-        (inventory, tmp_path / "tmp/m1-6-mixed-chain-corrected-projection.json")
+        (
+            inventory,
+            report,
+            tmp_path / "tmp/m1-6-mixed-chain-corrected-projection.json",
+        )
     ]
 
 

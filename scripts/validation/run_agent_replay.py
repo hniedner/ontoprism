@@ -722,13 +722,9 @@ async def _generate_mixed_chain_inventory_async(
     )
     models = importlib.import_module("ontolib.decomposition.models")
     provenance = importlib.import_module("ontolib.decomposition.provenance")
-    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
-    semantic_identity = importlib.import_module(
-        "ontolib.decomposition.semantic_identity"
-    )
     stated = importlib.import_module("ontolib.decomposition.stated_queries")
     ncit_client = importlib.import_module("ontolib.terminologies.ncit.client")
-    report = conservation.load_r101_conservation_report(report_path)
+    report = inventory_module.load_historical_mixed_chain_source_report(report_path)
     structural = report.non_r101_delta_evidence.rows
     if len(structural) != _EXPECTED_R101_STRUCTURAL_ADDITIONS or any(
         row.change != "added" for row in structural
@@ -738,7 +734,7 @@ async def _generate_mixed_chain_inventory_async(
     engine = database.make_engine(settings.database_url)
     try:
         store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
-        run = await store.completed_comparator_run_for_evidence(report.new_run_id)
+        run = await store.historical_mixed_chain_run_for_evidence(report.new_run_id)
         persisted = await store.selector_occurrences_for_codes(report.new_run_id, codes)
     finally:
         await database.dispose_engine(engine)
@@ -771,7 +767,7 @@ async def _generate_mixed_chain_inventory_async(
             run.fingerprint.worklist
         ),
         worklist_count=len(run.fingerprint.worklist),
-        selector_identity=semantic_identity.routing_implementation_identity(),
+        selector_identity=inventory_module.HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
         source_run_id=run.run_id,
         source_report_identity=report.report_identity,
         candidates=tuple(candidates),
@@ -791,7 +787,7 @@ def _generate_mixed_chain_inventory(
         )
     report = (
         root / "ontolib/tests/decomposition/golden/"
-        "neoplasm-r101-v5-conservation.json.gz"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
     )
     output = root / "tmp/m1-6-mixed-chain-inventory.json"
     output.unlink(missing_ok=True)
@@ -825,7 +821,7 @@ def _record_mixed_chain_inventory(
 
 
 async def _generate_mixed_chain_corrected_projection_async(
-    inventory_path: Path, output: Path
+    inventory_path: Path, report_path: Path, output: Path
 ) -> None:
     settings = importlib.import_module("backend.config").get_settings()
     database = importlib.import_module("backend.db")
@@ -836,13 +832,14 @@ async def _generate_mixed_chain_corrected_projection_async(
         "ontolib.decomposition.mixed_chain_projection"
     )
     provenance = importlib.import_module("ontolib.decomposition.provenance")
-    semantic_identity = importlib.import_module(
-        "ontolib.decomposition.semantic_identity"
-    )
     inventory = inventory_module.load_mixed_chain_inventory(inventory_path)
-    selector_identity = semantic_identity.routing_implementation_identity()
-    if inventory.selector_identity != selector_identity:
-        raise AgentReplayInputError("projection inventory selector identity differs")
+    report = inventory_module.load_historical_mixed_chain_source_report(report_path)
+    if (
+        inventory.source_run_id != report.new_run_id
+        or inventory.source_report_identity != report.report_identity
+    ):
+        raise AgentReplayInputError("projection inventory source report differs")
+    selector_identity = inventory.selector_identity
     engine = database.make_engine(settings.database_url)
     try:
         store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
@@ -910,6 +907,8 @@ def _generate_mixed_chain_corrected_projection(
         _generate_mixed_chain_corrected_projection_async(
             root / "ontolib/src/ontolib/decomposition/data/"
             "neoplasm_mixed_chain_inventory.json",
+            root / "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-2b39-historical-conservation.json.gz",
             output,
         )
     )

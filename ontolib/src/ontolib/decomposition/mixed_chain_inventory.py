@@ -9,13 +9,32 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
+from ontolib.decomposition.atomic_write import atomic_write_bytes
 from ontolib.decomposition.models import SemanticRoute
+from ontolib.decomposition.r101_conservation import (
+    NonR101DeltaRow,
+    _decompress_report,
+    _unique_json_object,
+)
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _RUN_ID = r"^neoplasm-[0-9a-f-]+$"
 _REQUIRED_CANARIES = frozenset({"C102570", "C161649", "C175329", "C27381"})
+_HISTORICAL_REPORT_FILE_IDENTITY = (
+    "f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f"
+)
+HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY = (
+    "aa777510e0ffc0a7cfc8c3682506c046300ed6749598b78504eb1ce8a3888608"
+)
 
 
 class _StrictModel(BaseModel):
@@ -108,10 +127,84 @@ class PersistedSelectorOccurrence(_StrictModel):
     policy_decision_identity: str | None = Field(default=None, pattern=_SHA256)
 
 
+class HistoricalMixedChainDeltaEvidence(_StrictModel):
+    rows: tuple[NonR101DeltaRow, ...]
+
+
+class HistoricalMixedChainSourceReport(_StrictModel):
+    """Immutable schema-3 diagnostic used only for the historical projection era."""
+
+    schema_version: Literal[3]
+    source_identity: str = Field(pattern=_SHA256)
+    new_run_id: Literal["neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"]
+    report_identity: Literal[
+        "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
+    ]
+    non_r101_delta_evidence: HistoricalMixedChainDeltaEvidence
+
+
+class HistoricalMixedChainRunFingerprint(_StrictModel):
+    """Exact persisted fingerprint schema of the historical 2b39 run."""
+
+    schema_version: Literal[4]
+    source_identity: str = Field(pattern=_SHA256)
+    collapse_policy_identity: str = Field(pattern=_SHA256)
+    routing_implementation_identity: str = Field(pattern=_SHA256)
+    branch: Literal["neoplasm"]
+    scope_root: Literal["C3262"]
+    scope_version: str = Field(min_length=1)
+    semantic_types: tuple[str, ...]
+    worklist: tuple[str, ...] = Field(min_length=1)
+    total_limit: None
+    sample_manifest_identity: None
+    algorithm_version: Literal["decomposition-v5"]
+    config_version: str = Field(min_length=1)
+    walker_max_depth: int = Field(gt=0)
+    output_mode: Literal["file"]
+    load_mode: Literal["none"]
+    emitted_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def _collections_are_canonical(self) -> Self:
+        if self.semantic_types != tuple(sorted(set(self.semantic_types))):
+            raise ValueError("semantic types are not canonical")
+        if len(self.worklist) != len(set(self.worklist)):
+            raise ValueError("worklist is not unique")
+        return self
+
+    @property
+    def identity(self) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                self.model_dump(mode="json"),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode()
+        ).hexdigest()
+
+
+class HistoricalMixedChainRunBinding(_StrictModel):
+    """Validated persisted inputs required to replay the historical inventory."""
+
+    run_id: Literal["neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"]
+    fingerprint: HistoricalMixedChainRunFingerprint
+    fingerprint_identity: str = Field(pattern=_SHA256)
+    materialized_worklist: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _identities_match(self) -> Self:
+        if self.fingerprint_identity != self.fingerprint.identity:
+            raise ValueError("historical fingerprint identity differs")
+        if self.materialized_worklist != self.fingerprint.worklist:
+            raise ValueError("historical materialized worklist differs")
+        return self
+
+
 class MixedChainInventory(_StrictModel):
     """Exact candidate inventory bound to one source, worklist, and selector."""
 
-    schema_version: int = 1
+    schema_version: Literal[1] = 1
     source_identity: str = Field(pattern=_SHA256)
     worklist_identity: str = Field(pattern=_SHA256)
     worklist_count: int = Field(gt=0)
@@ -231,8 +324,12 @@ def mixed_chain_worklist_identity(worklist: tuple[str, ...]) -> str:
 def write_mixed_chain_inventory(path: Path, inventory: MixedChainInventory) -> None:
     """Write one canonical inventory after full model and identity validation."""
     validated = MixedChainInventory.model_validate(inventory.model_dump())
-    path.write_text(
-        json.dumps(validated.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    atomic_write_bytes(
+        path,
+        (
+            json.dumps(validated.model_dump(mode="json"), sort_keys=True, indent=2)
+            + "\n"
+        ).encode(),
     )
 
 
@@ -241,20 +338,53 @@ def load_mixed_chain_inventory(path: Path) -> MixedChainInventory:
     return MixedChainInventory.model_validate_json(path.read_bytes())
 
 
+def load_historical_mixed_chain_source_report(
+    path: Path,
+) -> HistoricalMixedChainSourceReport:
+    """Load the exact immutable source report for the 2b39 projection evidence."""
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != _HISTORICAL_REPORT_FILE_IDENTITY:
+        raise ValueError("historical mixed-chain report file identity differs")
+    decompressed = _decompress_report(content)
+    payload = json.loads(decompressed, object_pairs_hook=_unique_json_object)
+    identified = dict(payload)
+    identified.pop("report_identity", None)
+    report_identity = hashlib.sha256(
+        json.dumps(identified, sort_keys=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+    if payload.get("report_identity") != report_identity:
+        raise ValueError("historical mixed-chain report identity differs")
+    return HistoricalMixedChainSourceReport.model_validate_json(
+        json.dumps(
+            {
+                "schema_version": payload.get("schema_version"),
+                "source_identity": payload.get("source_identity"),
+                "new_run_id": payload.get("new_run_id"),
+                "report_identity": payload.get("report_identity"),
+                "non_r101_delta_evidence": {
+                    "rows": payload.get("non_r101_delta_evidence", {}).get("rows")
+                },
+            }
+        )
+    )
+
+
 def require_mixed_chain_preflight(
     inventory: MixedChainInventory,
     *,
     source_identity: str,
     worklist_identity: str,
     worklist_count: int,
-    selector_identity: str,
 ) -> None:
     """Reject a run unless its mixed-chain inventory is exact and classified."""
     checks = (
         (inventory.source_identity == source_identity, "source identity"),
         (inventory.worklist_identity == worklist_identity, "worklist identity"),
         (inventory.worklist_count == worklist_count, "worklist count"),
-        (inventory.selector_identity == selector_identity, "selector identity"),
+        (
+            inventory.selector_identity == HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
+            "historical selector identity",
+        ),
         (not inventory.unclassified_codes, "unclassified mixed-chain candidates"),
         (set(inventory.candidate_codes) >= _REQUIRED_CANARIES, "required canaries"),
     )

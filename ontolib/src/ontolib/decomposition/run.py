@@ -630,8 +630,7 @@ async def _decompose_one(
         return detected
     result, roles, morphology_fillers, definition, semantic_types = detected
 
-    # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
-    # by select_constituents for D20 axis routing).
+    # Phase 1a: batch-resolve semantic_type_of for D20 axis routing.
     filler_codes = _candidate_filler_codes(roles, morphology_fillers)
     semantic_type_of = await _filler_semantic_types(client, filler_codes)
 
@@ -798,7 +797,6 @@ def build_resume_identity(
                     config,
                     source_identity=snapshot.source_identity,
                     worklist=(),
-                    routing_identity=routing_implementation_identity(),
                 )
                 if config.mixed_chain_inventory_path is not None
                 else None
@@ -839,7 +837,6 @@ def _requested_fingerprint(
                 config,
                 source_identity=snapshot.source_identity,
                 worklist=worklist,
-                routing_identity=routing_implementation_identity(),
             )
             or NO_MIXED_CHAIN_INVENTORY_IDENTITY
         ),
@@ -1491,7 +1488,6 @@ async def _preflight_stage(
         config,
         source_identity=setup.fingerprint.source_identity,
         worklist=setup.fingerprint.worklist,
-        routing_identity=setup.fingerprint.routing_implementation_identity,
     )
     if (
         required_inventory is not None
@@ -1521,7 +1517,6 @@ async def _source_preflight_result(
         config,
         source_identity=source_identity,
         worklist=worklist,
-        routing_identity=routing_identity,
     )
     kwargs = (
         {"mixed_chain_inventory_identity": inventory_identity}
@@ -1546,7 +1541,6 @@ def _required_mixed_chain_inventory_identity(
     *,
     source_identity: str,
     worklist: tuple[str, ...],
-    routing_identity: str,
 ) -> str | None:
     if config.mixed_chain_inventory_path is None:
         return None
@@ -1557,7 +1551,6 @@ def _required_mixed_chain_inventory_identity(
             source_identity=source_identity,
             worklist_identity=mixed_chain_worklist_identity(worklist),
             worklist_count=len(worklist),
-            selector_identity=routing_identity,
         )
     except (OSError, ValueError) as exc:
         raise SourcePreflightRejectedError(

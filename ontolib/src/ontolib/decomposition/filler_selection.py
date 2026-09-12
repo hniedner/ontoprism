@@ -126,13 +126,6 @@ def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
     }
 
 
-def _location_broader(is_ancestor: IsAncestor, is_part_of: IsPartOf) -> IsAncestor:
-    def broader(ancestor: str, descendant: str) -> bool:
-        return is_ancestor(ancestor, descendant) or is_part_of(descendant, ancestor)
-
-    return broader
-
-
 def _r101_axis(r: RoleRestriction, parent_morphology: str | None) -> str | None:
     if r.role_code != axes.PRIMARY_SITE_ROLE:
         return None
@@ -855,61 +848,6 @@ STAGE_SYSTEM_CLASSIFICATIONS = MappingProxyType(
 STAGE_SYSTEM_CODES: frozenset[str] = frozenset(STAGE_SYSTEM_CLASSIFICATIONS)
 
 
-def _group_by_routed_axis(
-    restrictions: Iterable[RoleRestriction],
-    parent_morphology: str | None = None,
-    concept_code: str | None = None,
-    *,
-    source_identity: str | None = None,
-    collapse_policy: CollapseVetoPolicy | None = None,
-) -> tuple[
-    dict[str, set[str]],
-    dict[tuple[str, str], tuple[str, ...]],
-    set[tuple[str, str]],
-]:
-    by_axis: dict[str, set[str]] = defaultdict(set)
-    source_role_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
-    included = tuple(filter_excluded(restrictions, concept_code=concept_code))
-    protected = (
-        {
-            (entry.normalized_axis, entry.broader_code)
-            for entry in collapse_policy.applicable_vetoes(
-                included,
-                source_identity=source_identity,
-                concept_code=concept_code,
-                route_axis=lambda row: route_axis(row, parent_morphology),
-            )
-        }
-        if collapse_policy is not None
-        else set()
-    )
-    for r in included:
-        axis_name = route_axis(r, parent_morphology)
-        by_axis[axis_name].add(r.filler_code)
-        key = (axis_name, r.filler_code)
-        source_role_sets[key].add(r.role_code)
-    source_roles = {
-        key: tuple(sorted(roles)) for key, roles in source_role_sets.items()
-    }
-    return by_axis, source_roles, protected
-
-
-def comparison_filler_codes(
-    restrictions: Iterable[RoleRestriction], *, concept_code: str | None = None
-) -> list[str]:
-    """Return fillers from routed-axis groups that use specificity comparison."""
-    return sorted(
-        {
-            filler
-            for axis_name, fillers in _group_by_routed_axis(
-                restrictions, concept_code=concept_code
-            )[0].items()
-            if axis_name != axes.ASSOCIATED_LINEAGE_AXIS and len(fillers) > 1
-            for filler in fillers
-        }
-    )
-
-
 def _append_morphology(
     constituents: list[Constituent], parent_morphologies: Iterable[str]
 ) -> None:
@@ -921,54 +859,3 @@ def _append_morphology(
                 axis_source="parent",
             )
         )
-
-
-def select_constituents(
-    restrictions: Iterable[RoleRestriction],
-    is_ancestor: IsAncestor,
-    *,
-    parent_morphologies: Iterable[str] = (),
-    semantic_type_of: Callable[[str], str | None] | None = None,
-    is_part_of: IsPartOf | None = None,
-    concept_code: str | None = None,
-    source_identity: str | None,
-    collapse_policy: CollapseVetoPolicy,
-) -> list[Constituent]:
-    """Turn a concept's stated role restrictions into its selected constituents.
-
-    Three independent suppressions drop restrictions before routing, and all three
-    delete would-be constituents silently:
-
-    * non-defining restrictions — ``Excludes_*`` negative axioms and the
-      probabilistic ``May_Have_*`` roles (``axes.DROPPED_ROLES``). Neither is gated
-      by a caller flag, but the ``Excludes_*`` test keys on ``role_label`` and so
-      misses a restriction whose label did not resolve
-    * generic fillers — ``axes.GENERIC_FILLERS_BY_ROLE``, the
-      ``contracted-role-generic-v2`` audit set (D59)
-    * concept-role fillers the projection does not support —
-      ``axes.UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE``,
-      the ``ncit-26.07d-unsupported-filler-v1`` set
-
-    The survivors undergo normal axis routing and semantic resolution (D20 refinements
-    1 and 2), including most-specific collapse on hierarchy-comparable axes and
-    preservation of all associated-lineage fillers. Exact policy-protected
-    ``(axis, broader)`` fillers are then restored additively. Restored PrimarySite
-    values are marked review-required and grouped only when their resulting axis is
-    ambiguous.
-    Output is sorted (axis, filler) for deterministic, diffable results.
-    """
-    morphology_fillers = tuple(dict.fromkeys(parent_morphologies))
-    plan = build_routed_plan(
-        restrictions,
-        semantic_type_of=semantic_type_of,
-        parent_morphologies=morphology_fillers,
-        concept_code=concept_code,
-        source_identity=source_identity,
-        collapse_policy=collapse_policy,
-    )
-    selected = select_routed_plan(
-        plan,
-        is_ancestor,
-        is_part_of=is_part_of,
-    )
-    return list(selected.constituents)

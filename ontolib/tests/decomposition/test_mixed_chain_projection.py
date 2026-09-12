@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
+from ontolib.decomposition import atomic_write
 from ontolib.decomposition.mixed_chain_inventory import (
     MixedChainCandidate,
     MixedChainPathEdge,
@@ -17,6 +19,7 @@ from ontolib.decomposition.mixed_chain_projection import (
     create_corrected_projection,
     load_corrected_projection,
     project_mixed_chain_candidate,
+    write_corrected_projection,
 )
 from ontolib.decomposition.models import (
     Constituent,
@@ -361,6 +364,144 @@ def test_projection_classifies_an_added_constituent() -> None:
         "removed": 0,
         "metadata_changed": 0,
     }
+
+
+@pytest.mark.unit
+def test_corrected_projection_write_failure_preserves_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "projection.json"
+    target.write_text("historical evidence\n")
+    artifact = load_corrected_projection(
+        Path(
+            "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-corrected-projection.json"
+        )
+    )
+
+    def interrupted_replace(source: object, destination: object) -> None:
+        del source, destination
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(atomic_write.os, "replace", interrupted_replace)
+
+    with pytest.raises(OSError, match="interrupted"):
+        write_corrected_projection(target, artifact)
+
+    assert target.read_bytes() == b"historical evidence\n"
+
+
+def _identified_projection_payload() -> dict[str, object]:
+    path = Path(
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-corrected-projection.json"
+    )
+    return json.loads(path.read_text())
+
+
+def _reidentify(payload: dict[str, object]) -> None:
+    identified = {
+        key: value for key, value in payload.items() if key != "projection_identity"
+    }
+    payload["projection_identity"] = hashlib.sha256(
+        json.dumps(identified, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+@pytest.mark.unit
+def test_projection_rejects_invalid_transition_states_with_consistent_identity() -> (
+    None
+):
+    mutations = (
+        ("added carries before", lambda row: row.__setitem__("before", row["after"])),
+        ("removed carries after", lambda row: row.__setitem__("after", row["before"])),
+        ("metadata lacks before", lambda row: row.__setitem__("before", None)),
+        ("metadata empty fields", lambda row: row.__setitem__("changed_fields", [])),
+        (
+            "metadata false fields",
+            lambda row: row.__setitem__("changed_fields", ["group"]),
+        ),
+    )
+    for label, mutate in mutations:
+        payload = _identified_projection_payload()
+        projections = payload["projections"]
+        assert isinstance(projections, list)
+        transitions = [
+            transition
+            for projection in projections
+            for transition in projection["constituent_transitions"]
+        ]
+        if label.startswith("added"):
+            row = next(item for item in transitions if item["kind"] == "removed")
+            row["kind"] = "added"
+            row["after"] = row["before"]
+            row["before"] = None
+        elif label.startswith("removed"):
+            row = next(item for item in transitions if item["kind"] == "removed")
+        else:
+            row = next(
+                item for item in transitions if item["kind"] == "metadata-changed"
+            )
+        mutate(row)
+        _reidentify(payload)
+
+        with pytest.raises(ValueError, match=r".+"):
+            MixedChainCorrectedProjection.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.unit
+def test_projection_rejects_invalid_disposition_transition_and_snapshot() -> None:
+    for mutate in (
+        lambda row: row.__setitem__("changed_fields", ["semantic_type"]),
+        lambda row: row["after"].__setitem__("kind", "invented"),
+        lambda row: row["after"].__setitem__("retained_filler", "bad"),
+        lambda row: row["after"].__setitem__("specificity_path", []),
+    ):
+        payload = _identified_projection_payload()
+        projections = payload["projections"]
+        assert isinstance(projections, list)
+        row = next(
+            transition
+            for projection in projections
+            for transition in projection["disposition_transitions"]
+        )
+        mutate(row)
+        _reidentify(payload)
+
+        with pytest.raises(ValueError, match=r".+"):
+            MixedChainCorrectedProjection.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        (
+            "constituent_transition_counts",
+            {"added": 1, "removed": 39, "metadata_changed": 42},
+        ),
+        (
+            "metadata_transition_counts",
+            {
+                "most_specific_false_to_true": 1,
+                "most_specific_true_to_false": 0,
+                "needs_review_false_to_true": 0,
+                "needs_review_true_to_false": 36,
+                "group_changed": 6,
+            },
+        ),
+        ("disposition_transition_count", 38),
+        ("schema_version", 2),
+    ],
+)
+def test_projection_rejects_reidentified_count_or_schema_drift(
+    field: str, replacement: object
+) -> None:
+    payload = _identified_projection_payload()
+    payload[field] = replacement
+    _reidentify(payload)
+
+    with pytest.raises(ValueError, match=r".+"):
+        MixedChainCorrectedProjection.model_validate_json(json.dumps(payload))
 
 
 @pytest.mark.unit

@@ -10,6 +10,7 @@ from typing import Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ontolib.decomposition.atomic_write import atomic_write_bytes
 from ontolib.decomposition.filler_selection import (
     CollapseDecision,
     RoutedOccurrence,
@@ -24,11 +25,14 @@ from ontolib.decomposition.mixed_chain_inventory import (
 from ontolib.decomposition.models import (
     Constituent,
     OccurrenceDisposition,
+    R101DispositionKind,
     RoleRestriction,
+    SemanticRoute,
     SpecificityPathEdge,
 )
 
 _SHA256 = r"^[0-9a-f]{64}$"
+_SHA256_LENGTH = 64
 
 
 def _require(condition: bool, message: str) -> None:
@@ -41,15 +45,36 @@ class _StrictModel(BaseModel):
 
 
 class ConstituentSnapshot(_StrictModel):
-    axis: str
-    filler_code: str
+    axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
+    filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
     axis_source: Literal["role", "parent", "nlp"]
     source_roles: tuple[str, ...]
     most_specific: bool
     needs_review: bool
-    group: str | None
+    group: str | None = Field(
+        default=None, pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$"
+    )
     source_definition_ids: tuple[str, ...]
     source_occurrence_ids: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _source_bindings_are_typed(self) -> Self:
+        _require(
+            all(
+                role.startswith("R") and role[1:].isdigit()
+                for role in self.source_roles
+            ),
+            "constituent source role is invalid",
+        )
+        _require(
+            all(
+                len(value) == _SHA256_LENGTH
+                and all(c in "0123456789abcdef" for c in value)
+                for value in (*self.source_definition_ids, *self.source_occurrence_ids)
+            ),
+            "constituent source identity is invalid",
+        )
+        return self
 
     @classmethod
     def from_constituent(cls, row: Constituent) -> ConstituentSnapshot:
@@ -67,18 +92,44 @@ class ConstituentSnapshot(_StrictModel):
 
 
 class DispositionSnapshot(_StrictModel):
-    kind: str
+    kind: R101DispositionKind
     source_occurrence_id: str = Field(pattern=_SHA256)
     source_fact_id: str = Field(pattern=_SHA256)
-    normalized_axis: str
-    source_filler: str
-    retained_filler: str
-    semantic_route: str
+    normalized_axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
+    source_filler: str = Field(pattern=r"^C[0-9]+$")
+    retained_filler: str = Field(pattern=r"^C[0-9]+$")
+    semantic_route: SemanticRoute
     semantic_type: str | None
-    r82_part: str | None
-    r82_whole: str | None
+    r82_part: str | None = Field(default=None, pattern=r"^C[0-9]+$")
+    r82_whole: str | None = Field(default=None, pattern=r"^C[0-9]+$")
     specificity_path: tuple[MixedChainPathEdge, ...]
-    policy_decision_identity: str | None
+    policy_decision_identity: str | None = Field(default=None, pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _kind_evidence_matches(self) -> Self:
+        OccurrenceDisposition(
+            kind=self.kind,
+            source_occurrence_id=self.source_occurrence_id,
+            source_fact_id=self.source_fact_id,
+            normalized_axis=self.normalized_axis,
+            source_filler=self.source_filler,
+            retained_filler=self.retained_filler,
+            semantic_route=self.semantic_route,
+            semantic_type=self.semantic_type,
+            r82_part=self.r82_part,
+            r82_whole=self.r82_whole,
+            specificity_path=tuple(
+                SpecificityPathEdge(
+                    kind=edge.kind,
+                    broader_code=edge.broader_code,
+                    narrower_code=edge.narrower_code,
+                    source_identity=edge.source_identity,
+                )
+                for edge in self.specificity_path
+            ),
+            policy_decision_identity=self.policy_decision_identity,
+        )
+        return self
 
     @classmethod
     def from_disposition(cls, row: OccurrenceDisposition) -> DispositionSnapshot:
@@ -106,6 +157,74 @@ class DispositionSnapshot(_StrictModel):
         )
 
 
+def _added_constituent_state(
+    before: ConstituentSnapshot | None, after: ConstituentSnapshot | None
+) -> tuple[None, ConstituentSnapshot, tuple[str, ...]]:
+    _require(
+        before is None and after is not None,
+        "added constituent transition has invalid state",
+    )
+    return (
+        None,
+        cast("ConstituentSnapshot", after),
+        tuple(ConstituentSnapshot.model_fields),
+    )
+
+
+def _removed_constituent_state(
+    before: ConstituentSnapshot | None, after: ConstituentSnapshot | None
+) -> tuple[ConstituentSnapshot, None, tuple[str, ...]]:
+    _require(
+        before is not None and after is None,
+        "removed constituent transition has invalid state",
+    )
+    return (
+        cast("ConstituentSnapshot", before),
+        None,
+        tuple(ConstituentSnapshot.model_fields),
+    )
+
+
+def _metadata_constituent_state(
+    before: ConstituentSnapshot | None, after: ConstituentSnapshot | None
+) -> tuple[ConstituentSnapshot, ConstituentSnapshot, tuple[str, ...]]:
+    _require(
+        before is not None and after is not None,
+        "metadata constituent transition has invalid state",
+    )
+    present_before = cast("ConstituentSnapshot", before)
+    present_after = cast("ConstituentSnapshot", after)
+    expected_fields = _changed_fields(present_before, present_after)
+    _require(bool(expected_fields), "metadata constituent transition is empty")
+    return present_before, present_after, expected_fields
+
+
+def _require_constituent_transition_keys(
+    *,
+    axis: str,
+    filler_code: str,
+    changed_fields: tuple[str, ...],
+    before: ConstituentSnapshot | None,
+    after: ConstituentSnapshot | None,
+    expected_fields: tuple[str, ...],
+) -> None:
+    snapshot = after or before
+    _require(
+        snapshot is not None
+        and (snapshot.axis, snapshot.filler_code) == (axis, filler_code),
+        "constituent transition key differs",
+    )
+    if before is not None and after is not None:
+        _require(
+            (before.axis, before.filler_code) == (after.axis, after.filler_code),
+            "metadata constituent transition key differs",
+        )
+    _require(
+        changed_fields == expected_fields,
+        "constituent transition changed fields differ",
+    )
+
+
 class ConstituentTransition(_StrictModel):
     kind: Literal["added", "removed", "metadata-changed"]
     axis: str
@@ -114,6 +233,30 @@ class ConstituentTransition(_StrictModel):
     before: ConstituentSnapshot | None
     after: ConstituentSnapshot | None
 
+    @model_validator(mode="after")
+    def _state_matches_kind(self) -> Self:
+        if self.kind == "added":
+            before, after, expected_fields = _added_constituent_state(
+                self.before, self.after
+            )
+        elif self.kind == "removed":
+            before, after, expected_fields = _removed_constituent_state(
+                self.before, self.after
+            )
+        else:
+            before, after, expected_fields = _metadata_constituent_state(
+                self.before, self.after
+            )
+        _require_constituent_transition_keys(
+            axis=self.axis,
+            filler_code=self.filler_code,
+            changed_fields=self.changed_fields,
+            before=before,
+            after=after,
+            expected_fields=expected_fields,
+        )
+        return self
+
 
 class DispositionTransition(_StrictModel):
     source_occurrence_id: str = Field(pattern=_SHA256)
@@ -121,15 +264,49 @@ class DispositionTransition(_StrictModel):
     before: DispositionSnapshot
     after: DispositionSnapshot
 
+    @model_validator(mode="after")
+    def _is_exact_change(self) -> Self:
+        _require(
+            self.before.source_occurrence_id
+            == self.after.source_occurrence_id
+            == self.source_occurrence_id,
+            "disposition transition occurrence differs",
+        )
+        changed = _changed_fields(self.before, self.after)
+        _require(bool(changed), "disposition transition is empty")
+        _require(
+            self.changed_fields == changed,
+            "disposition transition changed fields differ",
+        )
+        return self
+
 
 class CandidateProjectionSnapshot(_StrictModel):
-    concept_code: str
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
     before_constituents: tuple[ConstituentSnapshot, ...]
     after_constituents: tuple[ConstituentSnapshot, ...]
     before_dispositions: tuple[DispositionSnapshot, ...]
     after_dispositions: tuple[DispositionSnapshot, ...]
     constituent_transitions: tuple[ConstituentTransition, ...]
     disposition_transitions: tuple[DispositionTransition, ...]
+
+    @model_validator(mode="after")
+    def _transitions_match_snapshots(self) -> Self:
+        _require(
+            self.constituent_transitions
+            == _constituent_transitions(
+                self.before_constituents, self.after_constituents
+            ),
+            "projection constituent transitions differ from snapshots",
+        )
+        _require(
+            self.disposition_transitions
+            == _disposition_transitions(
+                self.before_dispositions, self.after_dispositions
+            ),
+            "projection disposition transitions differ from snapshots",
+        )
+        return self
 
 
 class TransitionCounts(_StrictModel):
@@ -149,7 +326,7 @@ class MetadataTransitionCounts(_StrictModel):
 class MixedChainCorrectedProjection(_StrictModel):
     """Content-addressed evidence; deliberately not a decomposition run."""
 
-    schema_version: int = 1
+    schema_version: Literal[1] = 1
     evidence_kind: Literal["corrected-projection-not-a-run"] = (
         "corrected-projection-not-a-run"
     )
@@ -180,6 +357,20 @@ class MixedChainCorrectedProjection(_StrictModel):
         _require(
             self.candidate_count == len(self.candidate_codes),
             "projection candidate count differs",
+        )
+        transitions = _all_constituent_transitions(self.projections)
+        _require(
+            self.constituent_transition_counts == _transition_counts(transitions),
+            "projection constituent transition counts differ",
+        )
+        _require(
+            self.metadata_transition_counts == _metadata_transition_counts(transitions),
+            "projection metadata transition counts differ",
+        )
+        _require(
+            self.disposition_transition_count
+            == sum(len(row.disposition_transitions) for row in self.projections),
+            "projection disposition transition count differs",
         )
         payload = self.model_dump(mode="json", exclude={"projection_identity"})
         expected = hashlib.sha256(
@@ -757,8 +948,12 @@ def write_corrected_projection(
 ) -> None:
     """Write canonical corrected-projection evidence after strict validation."""
     validated = MixedChainCorrectedProjection.model_validate(projection.model_dump())
-    path.write_text(
-        json.dumps(validated.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    atomic_write_bytes(
+        path,
+        (
+            json.dumps(validated.model_dump(mode="json"), sort_keys=True, indent=2)
+            + "\n"
+        ).encode(),
     )
 
 

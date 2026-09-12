@@ -551,7 +551,7 @@ class NonR101DeltaEvidence(_StrictModel):
     rows: tuple[NonR101DeltaRow, ...]
     metadata_deltas: tuple[NonR101MetadataDelta, ...] = ()
     classified_rows: tuple[ClassifiedNonR101Delta, ...] = ()
-    raw_typed_delta_count: int | None = Field(default=None, ge=0)
+    raw_typed_delta_count: int = Field(ge=0)
 
     @property
     def unexplained_structural_delta_count(self) -> int:
@@ -708,7 +708,7 @@ class LedgerBuildContext(_StrictModel):
     adapter_id: str = Field(min_length=1)
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
-    comparator_qualification_identity: str | None = Field(default=None, pattern=_SHA256)
+    comparator_qualification_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _proof_binds_prerequisites(self) -> Self:
@@ -719,8 +719,6 @@ class LedgerBuildContext(_StrictModel):
 def _validate_ledger_build_context(context: LedgerBuildContext) -> None:
     if context.non_r101_delta_evidence.query_identity != r101_ledger_query_identity():
         raise ValueError("current ledger query identity differs")
-    if context.comparator_qualification_identity is None:
-        raise ValueError("current comparator qualification identity is missing")
     if context.detector_identity != r101_detector_identity():
         raise ValueError("detector identity does not match current ledger semantics")
     expected_proof = r101_proof_identity(
@@ -856,7 +854,7 @@ class R101ConservationReport(_StrictModel):
     r101_occurrence_inventory_identity: str = Field(pattern=_SHA256)
     non_r101_typed_inventory_identity: str = Field(pattern=_SHA256)
     r101_occurrence_certification: Literal["complete", "blocked"]
-    non_r101_enumeration: Literal["complete", "blocked"]
+    non_r101_enumeration: Literal["complete"]
     explanation: Literal["complete", "incomplete", "blocked"]
     semantic_isolation: Literal["partial-unqualified", "blocked"]
     execution_comparability: Literal["unqualified"]
@@ -868,7 +866,7 @@ class R101ConservationReport(_StrictModel):
     counts: LedgerCounts
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
-    comparator_qualification_identity: str | None = Field(default=None, pattern=_SHA256)
+    comparator_qualification_identity: str = Field(pattern=_SHA256)
     grouping_presentation: tuple[GroupingPattern, ...]
     occurrences: tuple[LedgerOccurrence, ...]
     json_identity: str = Field(pattern=_SHA256)
@@ -904,8 +902,6 @@ def _validate_report_bindings(report: R101ConservationReport) -> None:
 
 
 def _validate_current_report_binding(report: R101ConservationReport) -> None:
-    if report.comparator_qualification_identity is None:
-        raise ValueError("current comparator qualification identity is missing")
     if report.detector_identity != r101_detector_identity():
         raise ValueError("detector identity does not match current ledger semantics")
 
@@ -984,8 +980,6 @@ def _validate_report_conclusions(report: R101ConservationReport) -> None:
     expected_occurrence = "complete" if occurrence_complete else "blocked"
     if report.r101_occurrence_certification != expected_occurrence:
         raise ValueError("R101 occurrence certification differs from counts")
-    if report.non_r101_enumeration != "complete":
-        raise ValueError("complete typed inventory must certify enumeration")
     expected_explanation = _expected_explanation(report, occurrence_complete)
     if report.explanation != expected_explanation:
         raise ValueError("explanation status differs from replay evidence")

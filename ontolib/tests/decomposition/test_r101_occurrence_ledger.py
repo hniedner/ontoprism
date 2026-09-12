@@ -982,7 +982,7 @@ def test_current_report_binds_comparator_qualification_identity() -> None:
     assert report.comparator_qualification_identity == "7" * 64
     payload = _context().model_dump()
     payload.pop("comparator_qualification_identity")
-    with pytest.raises(ValidationError, match="comparator qualification"):
+    with pytest.raises(ValidationError, match="comparator_qualification_identity"):
         LedgerBuildContext.model_validate(payload)
 
 
@@ -1047,7 +1047,11 @@ def test_report_rejects_each_independent_top_level_corruption() -> None:
     report = build_r101_occurrence_ledger((_input(),), paths={}, context=_context())
     cases = (
         ("detector_identity", "0" * 64, "detector identity"),
-        ("comparator_qualification_identity", None, "qualification identity"),
+        (
+            "comparator_qualification_identity",
+            None,
+            "comparator_qualification_identity",
+        ),
         ("structural_key_fields", ("concept_code",), "structural-key-mismatch"),
         (
             "r101_occurrence_inventory_identity",
@@ -1380,10 +1384,10 @@ def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
         "b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a"
     )
     assert report.report_identity == (
-        "b25e1fe14294637ce221b1a9e3fcb69ab2e3d5990f38a92cb3e71b960796f6a8"
+        "23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b"
     )
     assert report.json_identity == (
-        "8f4a9ab204b1f685d1018a5db49bdeb87066b80fb2ce2d4486215d05a63dd966"
+        "116a52d2ce9ceaa93c3d65398490df9f68d8119dd040a2632c364e6e902f6325"
     )
     assert report.tsv_identity == (
         "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"

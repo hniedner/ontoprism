@@ -18,13 +18,11 @@ from ontolib.decomposition.filler_selection import (
     STAGE_SYSTEM_CODES,
     RoutedOccurrence,
     _disposition,
-    comparison_filler_codes,
+    build_routed_plan,
     filter_excluded,
     most_specific,
     route_axis,
-)
-from ontolib.decomposition.filler_selection import (
-    select_constituents as _select_constituents,
+    select_routed_plan,
 )
 from ontolib.decomposition.models import (
     OccurrenceDisposition,
@@ -39,11 +37,21 @@ from ontolib.decomposition.site_resolution import (
 
 def select_constituents(*args: Any, **kwargs: Any):
     """Exercise ordinary selection with the explicit no-veto policy."""
-    return _select_constituents(
-        *args,
-        **kwargs,
+    restrictions, is_ancestor = args
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
         source_identity=None,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    return list(
+        select_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
     )
 
 
@@ -411,7 +419,13 @@ def test_comparison_fillers_respect_routing_and_lineage_exemption() -> None:
         RoleRestriction("R101", "C12705", anchoring_genus="C3010"),
     ]
 
-    assert comparison_filler_codes(restrictions) == ["C12400", "C12401"]
+    plan = build_routed_plan(
+        restrictions,
+        concept_code=None,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    assert plan.specificity_groups == ((PRIMARY_SITE_AXIS, ("C12400", "C12401")),)
 
 
 @pytest.mark.unit

@@ -18,7 +18,7 @@ from ontolib.decomposition.collapse_policy_generation import (
     _entry,
     _validate_authorized_accounting,
 )
-from ontolib.decomposition.filler_selection import select_constituents
+from ontolib.decomposition.filler_selection import build_routed_plan, select_routed_plan
 from ontolib.decomposition.models import RoleRestriction
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -87,9 +87,31 @@ def _policy(source_identity: str = _SOURCE):
     )
 
 
+def select_constituents(
+    restrictions: list[RoleRestriction],
+    is_ancestor: Any,
+    **kwargs: Any,
+) -> list[Any]:
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
+        source_identity=kwargs.pop("source_identity"),
+        collapse_policy=kwargs.pop("collapse_policy"),
+    )
+    return list(
+        select_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
+    )
+
+
 @pytest.mark.unit
 def test_selector_requires_an_explicit_typed_policy() -> None:
-    parameter = inspect.signature(select_constituents).parameters["collapse_policy"]
+    parameter = inspect.signature(build_routed_plan).parameters["collapse_policy"]
     assert parameter.default is inspect.Parameter.empty
 
 

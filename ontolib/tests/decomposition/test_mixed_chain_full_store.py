@@ -2,6 +2,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from scripts.validation.run_agent_replay import (
+    _generate_mixed_chain_corrected_projection_async,
+    _generate_mixed_chain_inventory_async,
+)
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -15,7 +19,6 @@ from ontolib.decomposition.mixed_chain_projection import (
 )
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.run import _decompose_one
-from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 
@@ -114,7 +117,7 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
         source_run_id=inventory.source_run_id,
         source_report_identity=inventory.source_report_identity,
         source_identity=inventory.source_identity,
-        selector_identity=routing_implementation_identity(),
+        selector_identity=inventory.selector_identity,
         inventory_identity=inventory.identity,
         expected_candidate_codes=inventory.candidate_codes,
         projections=projections,
@@ -124,4 +127,48 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
     assert actual.source_report_identity == inventory.source_report_identity
     assert actual.projection_identity == (
         "9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_corrected_projection_generator_binds_exact_historical_report(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "projection.json"
+    inventory = Path(
+        "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+    )
+    report = Path(
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+    )
+
+    await _generate_mixed_chain_corrected_projection_async(inventory, report, output)
+
+    assert load_corrected_projection(output) == load_corrected_projection(
+        Path(
+            "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-corrected-projection.json"
+        )
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_historical_inventory_generator_replays_from_exact_report(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "inventory.json"
+    report = Path(
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+    )
+
+    await _generate_mixed_chain_inventory_async(report, output)
+
+    assert load_mixed_chain_inventory(output) == load_mixed_chain_inventory(
+        Path(
+            "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+        )
     )

@@ -23,7 +23,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
     from ontolib.decomposition.minting import MintedConcept as MintedProposal
-    from ontolib.decomposition.mixed_chain_inventory import PersistedSelectorOccurrence
+    from ontolib.decomposition.mixed_chain_inventory import (
+        HistoricalMixedChainRunBinding,
+        PersistedSelectorOccurrence,
+    )
     from ontolib.decomposition.mixed_chain_projection import PersistedProjectionState
     from ontolib.decomposition.models import (
         CompleteDefinition,
@@ -2499,6 +2502,64 @@ class ProvenanceStore:
             return _comparator_run_from_row(
                 run_id, row, worklist_result.scalars().all()
             )
+
+    async def historical_mixed_chain_run_for_evidence(
+        self, run_id: str
+    ) -> HistoricalMixedChainRunBinding:
+        """Read the exact completed 2b39 run inputs used by historical replay."""
+        from ontolib.decomposition.mixed_chain_inventory import (  # noqa: PLC0415
+            HistoricalMixedChainRunBinding,
+        )
+
+        async with self._sf() as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT status,fingerprint,fingerprint_sha256,"
+                            "publication_state FROM decomp_run WHERE id=:run_id"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            if row["status"] != "complete" or row["publication_state"] != "published":
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is not complete and published"
+                )
+            worklist = tuple(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT concept_code FROM decomp_work_item "
+                            "WHERE run_id=:run_id ORDER BY ordinal"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        try:
+            return HistoricalMixedChainRunBinding.model_validate_json(
+                _json.dumps(
+                    {
+                        "run_id": run_id,
+                        "fingerprint": row["fingerprint"],
+                        "fingerprint_identity": row["fingerprint_sha256"],
+                        "materialized_worklist": worklist,
+                    },
+                    sort_keys=True,
+                )
+            )
+        except ValidationError as exc:
+            raise RunIdentityMismatchError(
+                "persisted historical mixed-chain run violates its exact schema"
+            ) from exc
 
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""

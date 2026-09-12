@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
+from ontolib.decomposition import atomic_write
 from ontolib.decomposition.mixed_chain_inventory import (
+    HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
+    HistoricalMixedChainRunBinding,
     MixedChainCandidate,
     MixedChainInventory,
+    load_historical_mixed_chain_source_report,
     load_mixed_chain_inventory,
     require_mixed_chain_preflight,
     write_mixed_chain_inventory,
 )
 from ontolib.decomposition.models import SpecificityPathEdge
-from ontolib.decomposition.semantic_identity import routing_implementation_identity
 
 
 def _candidate(code: str, broad: str, terminal: str) -> MixedChainCandidate:
@@ -45,7 +50,7 @@ def _inventory() -> MixedChainInventory:
         source_identity="a" * 64,
         worklist_identity="b" * 64,
         worklist_count=15_633,
-        selector_identity="c" * 64,
+        selector_identity=HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
         source_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
         source_report_identity="d" * 64,
         candidates=tuple(
@@ -69,7 +74,6 @@ def test_mixed_chain_inventory_is_content_addressed_and_preflight_bound() -> Non
         source_identity="a" * 64,
         worklist_identity="b" * 64,
         worklist_count=15_633,
-        selector_identity="c" * 64,
     )
     assert inventory.candidate_count == 4
     assert inventory.candidate_codes == (
@@ -86,7 +90,6 @@ def test_mixed_chain_inventory_is_content_addressed_and_preflight_bound() -> Non
             source_identity="a" * 64,
             worklist_identity="e" * 64,
             worklist_count=15_633,
-            selector_identity="c" * 64,
         )
 
 
@@ -96,7 +99,6 @@ def test_mixed_chain_inventory_is_content_addressed_and_preflight_bound() -> Non
     [
         ("source_identity", "e" * 64, "source identity"),
         ("worklist_count", 15_632, "worklist count"),
-        ("selector_identity", "e" * 64, "selector identity"),
     ],
 )
 def test_mixed_chain_preflight_rejects_each_run_binding_drift(
@@ -106,7 +108,6 @@ def test_mixed_chain_preflight_rejects_each_run_binding_drift(
         "source_identity": "a" * 64,
         "worklist_identity": "b" * 64,
         "worklist_count": 15_633,
-        "selector_identity": "c" * 64,
     }
     arguments[field] = value
 
@@ -120,7 +121,7 @@ def test_mixed_chain_preflight_rejects_unclassified_or_missing_canaries() -> Non
         source_identity="a" * 64,
         worklist_identity="b" * 64,
         worklist_count=15_633,
-        selector_identity="c" * 64,
+        selector_identity=HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
         source_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
         source_report_identity="d" * 64,
         candidates=_inventory().candidates,
@@ -130,7 +131,7 @@ def test_mixed_chain_preflight_rejects_unclassified_or_missing_canaries() -> Non
         source_identity="a" * 64,
         worklist_identity="b" * 64,
         worklist_count=15_633,
-        selector_identity="c" * 64,
+        selector_identity=HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
         source_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
         source_report_identity="d" * 64,
         candidates=(_candidate("C102570", "C137974", "C1"),),
@@ -139,13 +140,33 @@ def test_mixed_chain_preflight_rejects_unclassified_or_missing_canaries() -> Non
         "source_identity": "a" * 64,
         "worklist_identity": "b" * 64,
         "worklist_count": 15_633,
-        "selector_identity": "c" * 64,
     }
 
     with pytest.raises(ValueError, match="unclassified mixed-chain candidates"):
         require_mixed_chain_preflight(unclassified, **expected)
     with pytest.raises(ValueError, match="required canaries"):
         require_mixed_chain_preflight(missing_canaries, **expected)
+
+
+@pytest.mark.unit
+def test_mixed_chain_preflight_rejects_foreign_historical_selector() -> None:
+    inventory = MixedChainInventory.create(
+        source_identity="a" * 64,
+        worklist_identity="b" * 64,
+        worklist_count=15_633,
+        selector_identity="e" * 64,
+        source_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+        source_report_identity="d" * 64,
+        candidates=_inventory().candidates,
+    )
+
+    with pytest.raises(ValueError, match="historical selector identity"):
+        require_mixed_chain_preflight(
+            inventory,
+            source_identity="a" * 64,
+            worklist_identity="b" * 64,
+            worklist_count=15_633,
+        )
 
 
 @pytest.mark.unit
@@ -235,6 +256,25 @@ def test_mixed_chain_inventory_round_trips_canonical_json(tmp_path: Path) -> Non
 
 
 @pytest.mark.unit
+def test_mixed_chain_inventory_write_failure_preserves_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "inventory.json"
+    target.write_text("historical evidence\n")
+
+    def interrupted_replace(source: object, destination: object) -> None:
+        del source, destination
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(atomic_write.os, "replace", interrupted_replace)
+
+    with pytest.raises(OSError, match="interrupted"):
+        write_mixed_chain_inventory(target, _inventory())
+
+    assert target.read_bytes() == b"historical evidence\n"
+
+
+@pytest.mark.unit
 def test_packaged_mixed_chain_inventory_is_exact_and_complete() -> None:
     inventory = load_mixed_chain_inventory(
         Path(
@@ -257,5 +297,92 @@ def test_packaged_mixed_chain_inventory_is_exact_and_complete() -> None:
         source_identity=inventory.source_identity,
         worklist_identity=inventory.worklist_identity,
         worklist_count=inventory.worklist_count,
-        selector_identity=routing_implementation_identity(),
     )
+    assert inventory.selector_identity == HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY
+
+
+@pytest.mark.unit
+def test_historical_mixed_chain_inventory_binds_available_report_evidence() -> None:
+    inventory = load_mixed_chain_inventory(
+        Path(
+            "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+        )
+    )
+    report = load_historical_mixed_chain_source_report(
+        Path(
+            "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+        )
+    )
+
+    assert report.new_run_id == inventory.source_run_id
+    assert report.report_identity == inventory.source_report_identity
+    assert report.report_identity == (
+        "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
+    )
+
+
+@pytest.mark.unit
+def test_historical_mixed_chain_run_binding_rejects_noncanonical_source_rows() -> None:
+    fingerprint = {
+        "schema_version": 4,
+        "source_identity": "a" * 64,
+        "collapse_policy_identity": "b" * 64,
+        "routing_implementation_identity": "c" * 64,
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
+        "semantic_types": ["Neoplastic Process"],
+        "worklist": ["C1"],
+        "total_limit": None,
+        "sample_manifest_identity": None,
+        "algorithm_version": "decomposition-v5",
+        "config_version": "nested-definition-v2",
+        "walker_max_depth": 7,
+        "output_mode": "file",
+        "load_mode": "none",
+        "emitted_at": "2026-09-08T00:00:00Z",
+    }
+    binding = {
+        "run_id": "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+        "fingerprint": fingerprint,
+        "fingerprint_identity": "d" * 64,
+        "materialized_worklist": ["C1"],
+    }
+
+    with pytest.raises(ValueError, match="semantic types are not canonical"):
+        HistoricalMixedChainRunBinding.model_validate_json(
+            json.dumps(
+                {
+                    **binding,
+                    "fingerprint": {
+                        **fingerprint,
+                        "semantic_types": ["Z", "A"],
+                    },
+                }
+            )
+        )
+    with pytest.raises(ValueError, match="worklist is not unique"):
+        HistoricalMixedChainRunBinding.model_validate_json(
+            json.dumps(
+                {
+                    **binding,
+                    "fingerprint": {**fingerprint, "worklist": ["C1", "C1"]},
+                }
+            )
+        )
+    with pytest.raises(ValueError, match="historical fingerprint identity differs"):
+        HistoricalMixedChainRunBinding.model_validate_json(json.dumps(binding))
+    fingerprint_identity = hashlib.sha256(
+        json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    with pytest.raises(ValueError, match="historical materialized worklist differs"):
+        HistoricalMixedChainRunBinding.model_validate_json(
+            json.dumps(
+                {
+                    **binding,
+                    "fingerprint_identity": fingerprint_identity,
+                    "materialized_worklist": ["C2"],
+                }
+            )
+        )
