@@ -421,12 +421,12 @@ def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
         Path(__file__).with_name("golden") / "neoplasm-current-corpus-baseline.json"
     )
 
-    assert baseline.run_id == "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
+    assert baseline.run_id == "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
     assert baseline.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
     assert baseline.representation_identity == (
-        "1e5f04fefa9b817d8a86f8279e732bc6ea0a886e4a2cad7fe0b66ec1fc2f6752"
+        "8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2"
     )
     assert baseline.worklist_count == 15_633
     assert baseline.outcome_counts.model_dump() == {
@@ -436,8 +436,8 @@ def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
         "atomic_noop": 606,
         "unknown": 139,
     }
-    assert baseline.emitted_constituent_pair_count == 141_965
+    assert baseline.emitted_constituent_pair_count == 144_231
     assert baseline.complete_semantic_fact_count == 845_825
     assert baseline.source_occurrence_count == 370_253
-    assert baseline.selected_occurrence_count == 105_770
+    assert baseline.selected_occurrence_count == 108_217
     assert baseline.minted_count == 2_649

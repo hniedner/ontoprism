@@ -9,13 +9,19 @@ import pytest
 
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.pre_resume import PRE_RESUME_SQL, acquire_candidate_evidence
-from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.provenance import (
+    ProvenanceStore,
+    RunIdentityMismatchError,
+)
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     RunFingerprint,
     RunResumeIdentity,
 )
-from ontolib.decomposition.r101_comparator import ComparatorRun
+from ontolib.decomposition.r101_comparator import (
+    ComparatorRun,
+    HistoricalV4ComparatorFingerprint,
+)
 from ontolib.decomposition.r101_conservation import (
     STRUCTURAL_KEY_FIELDS,
     LedgerBuildContext,
@@ -116,11 +122,55 @@ async def test_comparator_reader_accepts_exact_historical_fingerprint_without_mu
         await connection.close()
 
     assert isinstance(observed, ComparatorRun)
-    assert observed.fingerprint.routing_implementation_identity is None
-    assert observed.fingerprint.mixed_chain_inventory_identity is None
-    assert observed.fingerprint.stage_sequence_identity is None
+    assert isinstance(observed.fingerprint, HistoricalV4ComparatorFingerprint)
+    assert (
+        "routing_implementation_identity" not in observed.fingerprint.model_fields_set
+    )
+    assert "mixed_chain_inventory_identity" not in observed.fingerprint.model_fields_set
+    assert "stage_sequence_identity" not in observed.fingerprint.model_fields_set
+    assert observed.worklist == ("C1",)
     assert observed.fingerprint_identity == fingerprint_identity
     assert json.loads(before) == json.loads(after)
+
+    malformed = {**fingerprint, "routing_implementation_identity": None}
+    malformed_identity = hashlib.sha256(
+        json.dumps(malformed, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    connection = await asyncpg.connect(dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
+            "finished_at, source_identity, fingerprint, fingerprint_sha256, "
+            "emitted_at, "
+            "publication_state, publication_attempt_count, representation_identity, "
+            "publication_artifact_path, publication_built_at, publication_started_at, "
+            "publication_finished_at) VALUES ('malformed-full', 'neoplasm', "
+            "'complete', "
+            "'26.07d', now(), now(), $1, $2::jsonb, $3, now(), 'published', 1, $4, "
+            "'tmp/malformed.ttl', now(), now(), now())",
+            "a" * 64,
+            json.dumps(malformed),
+            malformed_identity,
+            "d" * 64,
+        )
+        await connection.execute(
+            "INSERT INTO decomp_work_item (run_id, concept_code, ordinal, state, "
+            "attempt_count, semantic_type, semantic_types, outcome, is_decomposed, "
+            "is_residual, has_complete_definition, constituent_count, minted_count, "
+            "completed_at) VALUES ('malformed-full', 'C1', 0, 'complete', 1, "
+            "'Neoplastic Process', '[\"Neoplastic Process\"]'::jsonb, 'atomic-no-op', "
+            "false, false, false, 0, 0, now())"
+        )
+    finally:
+        await connection.close()
+    engine = make_engine(isolated_postgres_url)
+    try:
+        with pytest.raises(RunIdentityMismatchError, match="source schema"):
+            await ProvenanceStore(
+                make_sessionmaker(engine)
+            ).completed_comparator_run_for_evidence("malformed-full")
+    finally:
+        await dispose_engine(engine)
 
 
 @pytest.mark.integration

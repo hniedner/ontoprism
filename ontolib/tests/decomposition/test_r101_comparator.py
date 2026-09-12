@@ -14,9 +14,9 @@ from ontolib.decomposition.corpus_baseline import (
 )
 from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE_IDENTITY
 from ontolib.decomposition.r101_comparator import (
-    ComparatorFingerprint,
     ComparatorRun,
-    ComparatorRunBinding,
+    CurrentV5ComparatorFingerprint,
+    HistoricalV4ComparatorFingerprint,
     R101ComparatorQualification,
     R101ComparatorValidationError,
     qualify_r101_comparator,
@@ -30,8 +30,6 @@ def _fingerprint(**changes: object) -> dict[str, object]:
         "schema_version": 4,
         "source_identity": "a" * 64,
         "collapse_policy_identity": "b" * 64,
-        "mixed_chain_inventory_identity": "d" * 64,
-        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -66,6 +64,49 @@ def _identity(payload: object) -> str:
     ).hexdigest()
 
 
+@pytest.mark.unit
+def test_comparator_fingerprint_variants_are_closed_and_hash_the_discriminator() -> (
+    None
+):
+    historical_payload = _fingerprint()
+    current_payload = {
+        **historical_payload,
+        "algorithm_version": "decomposition-v5",
+        "routing_implementation_identity": "c" * 64,
+        "mixed_chain_inventory_identity": "d" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
+    }
+
+    historical = HistoricalV4ComparatorFingerprint.model_validate(historical_payload)
+    current = CurrentV5ComparatorFingerprint.model_validate(current_payload)
+
+    assert historical.identity == _identity(historical_payload)
+    assert current.identity == _identity(current_payload)
+    assert historical.identity != current.identity
+    assert "algorithm_version" in historical.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        HistoricalV4ComparatorFingerprint.model_validate(
+            {**historical_payload, "routing_implementation_identity": None}
+        )
+    with pytest.raises(ValidationError):
+        HistoricalV4ComparatorFingerprint.model_validate(
+            {**historical_payload, "mixed_chain_inventory_identity": "d" * 64}
+        )
+    for field in (
+        "routing_implementation_identity",
+        "mixed_chain_inventory_identity",
+        "stage_sequence_identity",
+    ):
+        missing = dict(current_payload)
+        missing.pop(field)
+        with pytest.raises(ValidationError):
+            CurrentV5ComparatorFingerprint.model_validate(missing)
+        with pytest.raises(ValidationError):
+            CurrentV5ComparatorFingerprint.model_validate(
+                {**current_payload, field: None}
+            )
+
+
 def _run(
     run_id: str,
     artifact: Path,
@@ -74,17 +115,17 @@ def _run(
     routing_identity: str | None,
     **fingerprint_changes: object,
 ) -> ComparatorRun:
-    omit_control_identities = fingerprint_changes.pop("_omit_control_identities", False)
-    assert isinstance(omit_control_identities, bool)
+    worklist = fingerprint_changes.pop("_worklist", ("C1", "C2"))
+    assert isinstance(worklist, tuple)
     fingerprint = _fingerprint(
         algorithm_version=algorithm,
         **fingerprint_changes,
     )
-    if routing_identity is not None:
+    fingerprint["worklist"] = worklist
+    if algorithm == "decomposition-v5":
         fingerprint["routing_implementation_identity"] = routing_identity
-    if omit_control_identities:
-        del fingerprint["mixed_chain_inventory_identity"]
-        del fingerprint["stage_sequence_identity"]
+        fingerprint["mixed_chain_inventory_identity"] = "d" * 64
+        fingerprint["stage_sequence_identity"] = RUN_STAGE_SEQUENCE_IDENTITY
     artifact.write_text(
         "".join(
             f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
@@ -105,6 +146,7 @@ def _run(
             "ncit_version": "26.07d",
             "fingerprint": fingerprint,
             "fingerprint_identity": _identity(fingerprint),
+            "worklist": worklist,
             "representation_identity": representation_identity,
             "publication_artifact_path": str(artifact),
         }
@@ -124,7 +166,7 @@ def _baseline(run: ComparatorRun) -> CorpusBaseline:
         "representation_identity": run.representation_identity,
         "artifact_identity": run.representation_identity,
         "detector_identity": "d" * 64,
-        "worklist_count": len(run.fingerprint.worklist),
+        "worklist_count": len(run.worklist),
         "outcome_counts": {
             "decomposed": 2,
             "residual": 0,
@@ -141,25 +183,6 @@ def _baseline(run: ComparatorRun) -> CorpusBaseline:
     return CorpusBaseline.model_validate(
         {**payload, "baseline_identity": corpus_baseline_identity(payload)}
     )
-
-
-@pytest.mark.unit
-def test_comparator_binding_model_rejects_v5_without_recorded_routing_identity() -> (
-    None
-):
-    with pytest.raises(ValidationError, match="routing"):
-        ComparatorRunBinding.model_validate(
-            {
-                "run_id": "run",
-                "fingerprint_identity": "a" * 64,
-                "representation_identity": "b" * 64,
-                "publication_artifact_path": "published.ttl",
-                "artifact_path": "artifact.ttl",
-                "artifact_identity": "b" * 64,
-                "algorithm_version": "decomposition-v5",
-                "routing_implementation_identity": "not-recorded",
-            }
-        )
 
 
 @pytest.mark.unit
@@ -189,15 +212,30 @@ def test_qualifies_exact_full_v4_v5_pair_and_binds_both_artifacts(
         new_artifact=new_artifact,
     )
 
-    assert qualification.control.worklist == ("C1", "C2")
-    assert qualification.control.total_limit is None
-    assert qualification.control.sample_manifest_identity is None
-    assert qualification.control.mixed_chain_inventory_identity == "d" * 64
-    assert qualification.control.stage_sequence_identity == RUN_STAGE_SEQUENCE_IDENTITY
+    assert qualification.shared_controls.worklist_identity == _identity(("C1", "C2"))
+    assert qualification.shared_controls.worklist_count == 2
+    assert qualification.shared_controls.total_limit is None
+    assert qualification.shared_controls.sample_manifest_identity is None
     assert qualification.old.algorithm_version == "decomposition-v4"
-    assert qualification.old.routing_implementation_identity == "not-recorded"
     assert qualification.new.algorithm_version == "decomposition-v5"
-    assert qualification.new.routing_implementation_identity == "c" * 64
+    assert qualification.observed_treatment.model_dump(mode="json") == {
+        "historical_routing_implementation": "absent",
+        "current_routing_implementation_identity": "c" * 64,
+        "historical_mixed_chain_inventory": "absent",
+        "current_mixed_chain_inventory_identity": "d" * 64,
+        "historical_stage_sequence": "absent",
+        "current_stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
+    }
+    assert qualification.conclusions.model_dump(mode="json") == {
+        "persisted_occurrence_output_comparison": "permitted",
+        "semantic_isolation": "partial-unqualified",
+        "execution_comparability": "unqualified",
+        "fully_controlled": False,
+        "all_controls_equal": False,
+        "causal_attribution": "prohibited",
+        "authorization": "pending",
+        "publication": "blocked",
+    }
     assert qualification.old.artifact_identity == old.representation_identity
     assert qualification.new.artifact_identity == new.representation_identity
     assert {row.concept_code for row in qualification.shared_canary_constituents} == {
@@ -219,22 +257,12 @@ def test_qualifies_exact_full_v4_v5_pair_and_binds_both_artifacts(
     [
         ("new", {"source_identity": "f" * 64}, "source identity"),
         ("new", {"collapse_policy_identity": "f" * 64}, "collapse policy"),
-        (
-            "new",
-            {"mixed_chain_inventory_identity": "f" * 64},
-            "mixed-chain inventory",
-        ),
-        ("new", {"stage_sequence_identity": "f" * 64}, "stage sequence"),
         ("new", {"branch": "disease", "scope_root": "C2991"}, "branch"),
         ("new", {"scope_version": "other"}, "scope version"),
         ("new", {"semantic_types": ("Disease or Syndrome",)}, "semantic types"),
-        ("new", {"worklist": ("C1",)}, "worklist"),
+        ("new", {"_worklist": ("C1",)}, "worklist"),
         ("new", {"total_limit": 2}, "total limit"),
-        (
-            "new",
-            {"schema_version": 5, "sample_manifest_identity": "e" * 64},
-            "sample manifest",
-        ),
+        ("new", {"sample_manifest_identity": "e" * 64}, "sample manifest"),
         ("new", {"config_version": "other"}, "configuration"),
         ("new", {"walker_max_depth": 8}, "walker depth"),
         ("new", {"output_mode": "none"}, "output mode"),
@@ -417,7 +445,7 @@ def test_comparator_fingerprint_rejects_noncanonical_scope_and_collections(
     changes: dict[str, object], message: str
 ) -> None:
     with pytest.raises(ValidationError, match=message):
-        ComparatorFingerprint.model_validate(_fingerprint(**changes))
+        HistoricalV4ComparatorFingerprint.model_validate(_fingerprint(**changes))
 
 
 @pytest.mark.unit
@@ -428,15 +456,20 @@ def test_comparator_fingerprint_rejects_noncanonical_scope_and_collections(
 def test_comparator_fingerprint_requires_each_execution_control_identity(
     missing_field: str,
 ) -> None:
-    fingerprint = _fingerprint(algorithm_version="decomposition-v5")
+    fingerprint = _fingerprint(
+        algorithm_version="decomposition-v5",
+        routing_implementation_identity="c" * 64,
+        mixed_chain_inventory_identity="d" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+    )
     del fingerprint[missing_field]
 
     with pytest.raises(ValidationError, match=missing_field):
-        ComparatorFingerprint.model_validate(fingerprint)
+        CurrentV5ComparatorFingerprint.model_validate(fingerprint)
 
 
 @pytest.mark.unit
-def test_comparator_states_uncertifiable_historical_control_identity(
+def test_comparator_records_observed_historical_control_absence(
     tmp_path: Path,
 ) -> None:
     old_artifact = tmp_path / "old.ttl"
@@ -446,7 +479,6 @@ def test_comparator_states_uncertifiable_historical_control_identity(
         old_artifact,
         algorithm="decomposition-v4",
         routing_identity=None,
-        _omit_control_identities=True,
     )
     new = _run(
         "new-full",
@@ -455,26 +487,24 @@ def test_comparator_states_uncertifiable_historical_control_identity(
         routing_identity="c" * 64,
     )
 
-    assert old.fingerprint.mixed_chain_inventory_identity is None
-    assert old.fingerprint.stage_sequence_identity is None
-    with pytest.raises(
-        R101ComparatorValidationError,
-        match="old comparator mixed-chain inventory identity is missing",
-    ):
-        qualify_r101_comparator(
-            old_run=old,
-            new_run=new,
-            old_baseline=_baseline(old),
-            old_artifact=old_artifact,
-            new_artifact=new_artifact,
-        )
+    qualification = qualify_r101_comparator(
+        old_run=old,
+        new_run=new,
+        old_baseline=_baseline(old),
+        old_artifact=old_artifact,
+        new_artifact=new_artifact,
+    )
+    assert (
+        qualification.observed_treatment.historical_routing_implementation == "absent"
+    )
+    assert qualification.observed_treatment.historical_mixed_chain_inventory == "absent"
+    assert qualification.observed_treatment.historical_stage_sequence == "absent"
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "changes",
     [
-        {"schema_version": 5},
         {"branch": "disease", "scope_root": "C2991"},
         {"total_limit": 2},
         {"sample_manifest_identity": "e" * 64},
@@ -544,41 +574,6 @@ def test_comparator_refuses_non_regular_artifacts(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("old_routing_identity", "new_routing_identity", "message"),
-    [(None, None, "v5 routing"), ("c" * 64, "c" * 64, "independent variables")],
-)
-def test_comparator_requires_distinct_recorded_v5_routing_identity(
-    tmp_path: Path,
-    old_routing_identity: str | None,
-    new_routing_identity: str | None,
-    message: str,
-) -> None:
-    old_artifact = tmp_path / "old.ttl"
-    new_artifact = tmp_path / "new.ttl"
-    old = _run(
-        "old-full",
-        old_artifact,
-        algorithm="decomposition-v4",
-        routing_identity=old_routing_identity,
-    )
-    new = _run(
-        "new-full",
-        new_artifact,
-        algorithm="decomposition-v5",
-        routing_identity=new_routing_identity,
-    )
-
-    with pytest.raises(R101ComparatorValidationError, match=message):
-        qualify_r101_comparator(
-            old_run=old,
-            new_run=new,
-            old_baseline=_baseline(old),
-            old_artifact=old_artifact,
-            new_artifact=new_artifact,
-        )
-
-
 @pytest.mark.unit
 def test_comparator_refuses_different_canary_constituents(tmp_path: Path) -> None:
     old_artifact = tmp_path / "old.ttl"
@@ -640,7 +635,6 @@ def test_qualification_identity_and_atomic_writer_fail_closed(
 
     rebound = qualification.model_dump(mode="json")
     rebound["old"]["algorithm_version"] = "decomposition-v5"
-    rebound["old"]["routing_implementation_identity"] = "d" * 64
     rebound["qualification_identity"] = _identity(
         {
             key: value

@@ -17,7 +17,7 @@ import ontolib.decomposition.r101_conservation as r101_module
 import ontolib.decomposition.stated_queries as stated_queries_module
 from ontolib.decomposition.r101_conservation import (
     STRUCTURAL_KEY_FIELDS,
-    ContentAuthorization,
+    ClassifiedNonR101Delta,
     EngineOccurrenceDisposition,
     LedgerBuildContext,
     LedgerCounts,
@@ -33,6 +33,7 @@ from ontolib.decomposition.r101_conservation import (
     StructuralOccurrence,
     build_r101_occurrence_ledger,
     classify_non_r101_delta_rows,
+    load_historical_r101_review_report,
     load_r101_conservation_report,
     r101_detector_identity,
     r101_ledger_query_identity,
@@ -270,6 +271,26 @@ def test_r101_cohort_membership_without_occurrence_evidence_remains_unexplained(
 
 
 @pytest.mark.unit
+def test_typed_delta_inventory_rejects_a_row_represented_in_two_categories() -> None:
+    row = _delta_row()
+    classified = ClassifiedNonR101Delta(
+        row=row,
+        classification="r101-occurrence-linked-output-delta",
+        r101_occurrence_ids=("2" * 64,),
+    )
+
+    with pytest.raises(ValidationError, match="represented exactly once"):
+        NonR101DeltaEvidence(
+            old_run_id="old",
+            new_run_id="new",
+            query_identity=r101_ledger_query_identity(),
+            rows=(row,),
+            classified_rows=(classified,),
+            raw_typed_delta_count=2,
+        )
+
+
+@pytest.mark.unit
 def test_semantic_metadata_changes_block_mechanical_completion() -> None:
     removed = _delta_row(change="removed", most_specific=False)
     added = _delta_row(change="added", most_specific=True)
@@ -291,8 +312,18 @@ def test_semantic_metadata_changes_block_mechanical_completion() -> None:
         context=_context(non_r101_delta_evidence=evidence),
     )
 
-    assert report.mechanical_status == "incomplete"
+    assert report.r101_occurrence_certification == "complete"
+    assert report.non_r101_enumeration == "complete"
+    assert report.explanation == "incomplete"
+    assert report.semantic_isolation == "partial-unqualified"
+    assert report.execution_comparability == "unqualified"
+    assert report.fully_controlled is False
+    assert report.all_controls_equal is False
+    assert report.causal_attribution == "prohibited"
+    assert report.authorization == "pending"
     assert report.publication_gate == "blocked"
+    assert report.r101_occurrence_inventory_identity
+    assert report.non_r101_typed_inventory_identity
 
 
 @pytest.mark.unit
@@ -761,33 +792,20 @@ def test_partition_identities_and_tsv_are_deterministic_and_lossless() -> None:
 @pytest.mark.unit
 def test_mechanical_content_and_publication_statuses_are_independent() -> None:
     report = build_r101_occurrence_ledger((_input(),), paths={}, context=_context())
-    assert report.mechanical_status == "complete"
-    assert report.content_authorization == ContentAuthorization(
-        status="pending", authorized_digest=None
-    )
+    assert report.r101_occurrence_certification == "complete"
+    assert report.non_r101_enumeration == "complete"
+    assert report.explanation == "complete"
+    assert report.authorization == "pending"
     assert report.publication_gate == "blocked"
     with pytest.raises(
         R101ConservationValidationError, match="content-authorization-missing"
     ):
         validate_r101_publication(report)
 
-    mismatch = report.model_copy(
-        update={
-            "content_authorization": ContentAuthorization(
-                status="digest-mismatch", authorized_digest="0" * 64
-            )
-        }
-    )
-    assert mismatch.content_authorization.status == "digest-mismatch"
-    with pytest.raises(
-        R101ConservationValidationError,
-        match="content-authorization-digest-mismatch",
-    ):
-        validate_r101_publication(mismatch)
-
-    for status in ("authorized", "digest-mismatch"):
-        with pytest.raises(ValidationError, match="requires a digest"):
-            ContentAuthorization(status=status, authorized_digest=None)
+    payload = report.model_dump(mode="json")
+    payload["authorization"] = "authorized"
+    with pytest.raises(ValidationError, match="authorization"):
+        type(report).model_validate(payload)
 
 
 @pytest.mark.unit
@@ -849,7 +867,9 @@ def test_non_r101_delta_and_exact_count_mismatch_fail_closed() -> None:
         paths={},
         context=_context(non_r101_delta_evidence=_delta_evidence(delta)),
     )
-    assert report.mechanical_status == "incomplete"
+    assert report.r101_occurrence_certification == "complete"
+    assert report.non_r101_enumeration == "complete"
+    assert report.explanation == "incomplete"
     assert report.occurrences[0].disposition_reason == "explicit-no-old-or-new-links"
     assert report.counts.unresolved == 0
     assert report.counts.non_r101_delta == 1
@@ -899,7 +919,7 @@ def test_delta_rows_bind_query_runs_count_and_gate_malformed_or_omitted_rows() -
         "metadata_deltas": [],
         "classified_rows": [],
     }
-    assert report.mechanical_status == "incomplete"
+    assert report.explanation == "incomplete"
 
     for mutation, message in (
         (
@@ -946,11 +966,12 @@ def test_delta_rows_bind_query_runs_count_and_gate_malformed_or_omitted_rows() -
 
 @pytest.mark.unit
 def test_current_generation_refuses_the_historical_delta_query_identity() -> None:
-    historical_identity = r101_module._HISTORICAL_V4_QUERY_IDENTITY
     payload = _context().model_dump()
-    payload["non_r101_delta_evidence"]["query_identity"] = historical_identity
+    payload["non_r101_delta_evidence"]["query_identity"] = (
+        "2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1"
+    )
 
-    with pytest.raises(ValidationError, match="current ledger query identity"):
+    with pytest.raises(ValidationError, match="query identity"):
         LedgerBuildContext.model_validate(payload)
 
 
@@ -1026,9 +1047,25 @@ def test_report_rejects_each_independent_top_level_corruption() -> None:
     report = build_r101_occurrence_ledger((_input(),), paths={}, context=_context())
     cases = (
         ("detector_identity", "0" * 64, "detector identity"),
+        ("comparator_qualification_identity", None, "qualification identity"),
         ("structural_key_fields", ("concept_code",), "structural-key-mismatch"),
-        ("mechanical_status", "incomplete", "mechanical status"),
-        ("publication_gate", "eligible", "publication gate"),
+        (
+            "r101_occurrence_inventory_identity",
+            "0" * 64,
+            "R101 occurrence inventory",
+        ),
+        (
+            "non_r101_typed_inventory_identity",
+            "0" * 64,
+            "non-R101 inventory",
+        ),
+        ("r101_occurrence_certification", "blocked", "certification"),
+        ("non_r101_enumeration", "blocked", "enumeration"),
+        ("explanation", "incomplete", "explanation"),
+        ("semantic_isolation", "blocked", "semantic isolation"),
+        ("fully_controlled", True, "fully_controlled"),
+        ("causal_attribution", "permitted", "causal_attribution"),
+        ("publication_gate", "eligible", "publication_gate"),
         ("json_identity", "0" * 64, "JSON ledger identity"),
         ("tsv_identity", "0" * 64, "TSV ledger identity"),
         ("report_identity", "0" * 64, "report identity"),
@@ -1039,15 +1076,6 @@ def test_report_rejects_each_independent_top_level_corruption() -> None:
         with pytest.raises(ValidationError, match=message):
             type(report).model_validate(payload)
 
-    for status, digest, message in (
-        ("pending", "0" * 64, "pending authorization"),
-        ("authorized", "not-a-digest", "SHA-256"),
-    ):
-        with pytest.raises(ValidationError, match=message):
-            ContentAuthorization.model_validate(
-                {"status": status, "authorized_digest": digest}
-            )
-
     with pytest.raises(ValidationError, match="prerequisite proof identities"):
         _context(proof_identity="0" * 64)
     with pytest.raises(
@@ -1057,7 +1085,7 @@ def test_report_rejects_each_independent_top_level_corruption() -> None:
 
 
 @pytest.mark.unit
-def test_publication_rejects_unresolved_and_ineligible_authorized_shapes() -> None:
+def test_publication_rejects_unresolved_and_permanently_pending_shapes() -> None:
     old = Pair(axis="op:PrimarySite", filler_code="C30")
     incomplete = build_r101_occurrence_ledger(
         (_input(old=(old,)),), paths={}, context=_context()
@@ -1066,27 +1094,10 @@ def test_publication_rejects_unresolved_and_ineligible_authorized_shapes() -> No
         validate_r101_publication(incomplete)
 
     complete = build_r101_occurrence_ledger((_input(),), paths={}, context=_context())
-    ineligible = complete.model_copy(
-        update={
-            "content_authorization": ContentAuthorization(
-                status="authorized", authorized_digest=complete.json_identity
-            )
-        }
-    )
     with pytest.raises(
         R101ConservationValidationError, match="content-authorization-missing"
     ):
-        validate_r101_publication(ineligible)
-
-    eligible = complete.model_copy(
-        update={
-            "content_authorization": ContentAuthorization(
-                status="authorized", authorized_digest=complete.json_identity
-            ),
-            "publication_gate": "eligible",
-        }
-    )
-    validate_r101_publication(eligible)
+        validate_r101_publication(complete)
 
 
 class _ConsumerStore:
@@ -1220,7 +1231,7 @@ def test_report_loader_is_strict_gzip_schema3_and_rejects_ambiguous_input(
 
     duplicate = tmp_path / "duplicate.json.gz"
     duplicate.write_bytes(
-        gzip.compress(b'{"schema_version":3,"schema_version":3}', mtime=0)
+        gzip.compress(b'{"schema_version":4,"schema_version":4}', mtime=0)
     )
     with pytest.raises(R101ConservationValidationError, match="duplicate JSON key"):
         load_r101_conservation_report(duplicate)
@@ -1251,8 +1262,8 @@ def test_detector_identity_covers_semantic_model_validator_source(
 
     def changed_getsource(value: Any) -> str:
         source = real_getsource(value)
-        if value is ContentAuthorization:
-            return source + "\n# changed authorization semantics"
+        if value is r101_module.R101ConservationReport:
+            return source + "\n# changed report conclusion semantics"
         return source
 
     monkeypatch.setattr(r101_module.inspect, "getsource", changed_getsource)
@@ -1321,89 +1332,27 @@ def test_observed_query_ceilings_fail_closed_at_max_plus_one() -> None:
 
 
 @pytest.mark.unit
-def test_generated_ledger_inventory_sentinels_and_exact_tsv_are_bound() -> None:
+def test_historical_v4_report_remains_immutable_without_current_schema_loading(
+    tmp_path: Path,
+) -> None:
     golden = Path(__file__).parent / "golden"
-    report = load_r101_conservation_report(
-        golden / "neoplasm-r101-v4-conservation.json.gz"
-    )
-    tsv = r101_ledger_tsv_bytes(report)
-
-    assert report.counts.model_dump() == {
-        "total": 43414,
-        "projected": 30040,
-        "unchanged_unprojected": 10083,
-        "covered_by_retained_r82": 3291,
-        "unresolved": 0,
-        "one_step": 1954,
-        "closure_only": 1337,
-        "non_r101_delta": 0,
-    }
-    assert report.query_metrics == QueryMetrics(
-        postgres_query_count=3,
-        qlever_query_count=177,
-        max_pair_batch_size=8,
-        max_r82_hops=8,
-        max_asserted_superclass_hops=20,
-    )
-    assert report.json_identity == (
-        "bfa2ccdcc43e7b1a7c57df023678a48b3aa32fefd21574ed62b35f430868fd54"
-    )
-    assert report.report_identity == (
-        "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
-    )
-    assert report.tsv_identity == (
-        "b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d"
-    )
-    assert report.mechanical_status == "complete"
-    assert report.content_authorization.status == "pending"
-    assert report.publication_gate == "blocked"
-    assert hashlib.sha256(tsv).hexdigest() == report.tsv_identity
-    assert (
-        report.pre_resume_proof_identity,
-        report.resume_dry_run_identity,
-        report.mixed_cohort_identity,
-        report.proof_identity,
-    ) == (
-        "f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018",
-        "2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98",
-        "dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a",
-        "6c7adb9df5472e035d940fb9e4d0d445311d18d2c5a64d5eb087cf61bdd0b3b5",
-    )
-    assert read_r101_ledger_tsv(tsv) == report.occurrences
-
-    by_concept = {
-        code: tuple(item for item in report.occurrences if item.concept_code == code)
-        for code in ("C6135", "C101539", "C4791", "C5356", "C5552")
-    }
-    assert [len(by_concept[code]) for code in by_concept] == [7, 5, 8, 16, 16]
-    assert {
-        (pair.axis, pair.filler_code)
-        for code in ("C6135", "C101539")
-        for item in by_concept[code]
-        for pair in item.new_links
-        if pair.axis == "op:AssociatedRegion"
-    } == {("op:AssociatedRegion", "C13063")}
-    assert any(
-        item.disposition == "covered-by-retained-r82"
-        and item.old_links == (Pair(axis="op:PrimarySite", filler_code="C12727"),)
-        and item.retained_r82_target
-        == Pair(axis="op:PrimarySite", filler_code="C12869")
-        for item in by_concept["C4791"]
-    )
-    assert any(
-        item.disposition == "covered-by-retained-r82" for item in by_concept["C5356"]
-    )
-    assert any(
-        item.disposition == "covered-by-retained-r82" for item in by_concept["C5552"]
+    path = golden / "neoplasm-r101-v4-conservation.json.gz"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "2ca4e259b26c31bad0ba41e724c3d8631a493d59f90680a6b15af2cfb97111f3"
     )
     with pytest.raises(ValidationError):
-        QueryMetrics(
-            postgres_query_count=10,
-            qlever_query_count=209,
-            max_pair_batch_size=8,
-            max_r82_hops=8,
-            max_asserted_superclass_hops=20,
-        )
+        load_r101_conservation_report(path)
+    historical = load_historical_r101_review_report(path)
+    assert historical.report_identity == (
+        "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
+    )
+
+    changed = tmp_path / "changed-historical.json.gz"
+    changed.write_bytes(path.read_bytes() + b"changed")
+    with pytest.raises(
+        R101ConservationValidationError, match="historical R101 review artifact differs"
+    ):
+        load_historical_r101_review_report(changed)
 
 
 @pytest.mark.unit
@@ -1415,38 +1364,47 @@ def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
 
     assert (report.old_run_id, report.new_run_id) == (
         "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
-        "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+        "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
     )
     assert report.counts.model_dump() == {
         "total": 43_414,
-        "projected": 29_995,
-        "unchanged_unprojected": 13_419,
+        "projected": 30_276,
+        "unchanged_unprojected": 13_138,
         "covered_by_retained_r82": 0,
         "unresolved": 0,
         "one_step": 0,
         "closure_only": 0,
-        "non_r101_delta": 39,
+        "non_r101_delta": 2_097,
     }
     assert report.comparator_qualification_identity == (
-        "754e532097f81302a6c707f219bd594144ae551a5671a1bc0533e7e2cd8e4fe7"
+        "b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a"
     )
     assert report.report_identity == (
-        "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
+        "b25e1fe14294637ce221b1a9e3fcb69ab2e3d5990f38a92cb3e71b960796f6a8"
     )
     assert report.json_identity == (
-        "28ef430877da83d54fece6f28e6e77e44a2ed3db62e8674ef1e015472dca2009"
+        "8f4a9ab204b1f685d1018a5db49bdeb87066b80fb2ce2d4486215d05a63dd966"
     )
     assert report.tsv_identity == (
-        "23653bc37f4a43e69455dee7380e5928cb4258294520609fde78bb31310b14b1"
+        "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"
     )
     assert report.query_metrics.postgres_query_count == 6
-    assert len(evidence.rows) == 39
-    assert evidence.raw_typed_delta_count == 5_167
-    assert len(evidence.metadata_deltas) == 2_564
+    assert len(evidence.rows) == 2_097
+    assert evidence.raw_typed_delta_count == 79_393
+    assert len(evidence.metadata_deltas) == 38_648
     assert evidence.classified_rows == ()
     assert evidence.raw_typed_delta_count == (
         len(evidence.rows) + 2 * len(evidence.metadata_deltas)
     )
-    assert report.mechanical_status == "incomplete"
-    assert report.content_authorization.status == "pending"
+    assert report.r101_occurrence_certification == "complete"
+    assert report.non_r101_enumeration == "complete"
+    assert report.explanation == "incomplete"
+    assert report.semantic_isolation == "partial-unqualified"
+    assert report.authorization == "pending"
     assert report.publication_gate == "blocked"
+    assert report.r101_occurrence_inventory_identity == (
+        "e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de"
+    )
+    assert report.non_r101_typed_inventory_identity == (
+        "24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0"
+    )

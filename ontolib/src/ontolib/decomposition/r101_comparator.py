@@ -9,7 +9,7 @@ import re
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
@@ -51,15 +51,12 @@ def _identity(value: object) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
-class ComparatorFingerprint(_StrictModel):
-    """Immutable persisted fields needed to compare one historical or current run."""
+class _ComparatorFingerprintBase(_StrictModel):
+    """Complete common persisted fingerprint fields used by this comparator."""
 
-    schema_version: Literal[4, 5]
+    schema_version: Literal[4]
     source_identity: str = Field(pattern=_SHA256)
     collapse_policy_identity: str = Field(pattern=_SHA256)
-    routing_implementation_identity: str | None = Field(default=None, pattern=_SHA256)
-    mixed_chain_inventory_identity: str | None = Field(default=None, pattern=_SHA256)
-    stage_sequence_identity: str | None = Field(default=None, pattern=_SHA256)
     branch: Literal["neoplasm", "disease"]
     scope_root: str = Field(pattern=r"^C[0-9]+$")
     scope_version: str = Field(min_length=1)
@@ -67,7 +64,6 @@ class ComparatorFingerprint(_StrictModel):
     worklist: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
     sample_manifest_identity: str | None = Field(default=None, pattern=_SHA256)
-    algorithm_version: str = Field(min_length=1)
     config_version: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
     output_mode: Literal["none", "file"]
@@ -85,29 +81,30 @@ class ComparatorFingerprint(_StrictModel):
             raise ValueError("scope root does not match branch")
         return self
 
-    @model_validator(mode="after")
-    def _current_execution_controls_are_present(self) -> Self:
-        missing_controls = tuple(
-            field
-            for field, value in (
-                (
-                    "mixed_chain_inventory_identity",
-                    self.mixed_chain_inventory_identity,
-                ),
-                ("stage_sequence_identity", self.stage_sequence_identity),
-            )
-            if value is None
-        )
-        if self.algorithm_version != "decomposition-v4" and missing_controls:
-            raise ValueError(
-                "current comparator fingerprint lacks required "
-                + ", ".join(missing_controls)
-            )
-        return self
-
     @property
     def identity(self) -> str:
-        return _identity(self.model_dump(mode="json", exclude_unset=True))
+        return _identity(self.model_dump(mode="json"))
+
+
+class HistoricalV4ComparatorFingerprint(_ComparatorFingerprintBase):
+    """Observed historical v4 fingerprint, which has no later controls."""
+
+    algorithm_version: Literal["decomposition-v4"]
+
+
+class CurrentV5ComparatorFingerprint(_ComparatorFingerprintBase):
+    """Observed current v5 fingerprint with all persisted execution controls."""
+
+    algorithm_version: Literal["decomposition-v5"]
+    routing_implementation_identity: str = Field(pattern=_SHA256)
+    mixed_chain_inventory_identity: str = Field(pattern=_SHA256)
+    stage_sequence_identity: str = Field(pattern=_SHA256)
+
+
+ComparatorFingerprint = Annotated[
+    HistoricalV4ComparatorFingerprint | CurrentV5ComparatorFingerprint,
+    Field(discriminator="algorithm_version"),
+]
 
 
 class ComparatorRun(_StrictModel):
@@ -117,6 +114,7 @@ class ComparatorRun(_StrictModel):
     ncit_version: str = Field(min_length=1)
     fingerprint: ComparatorFingerprint
     fingerprint_identity: str = Field(pattern=_SHA256)
+    worklist: tuple[str, ...]
     representation_identity: str = Field(pattern=_SHA256)
     publication_artifact_path: str = Field(min_length=1)
 
@@ -124,10 +122,12 @@ class ComparatorRun(_StrictModel):
     def _fingerprint_identity_matches(self) -> Self:
         if self.fingerprint_identity != self.fingerprint.identity:
             raise ValueError("fingerprint identity does not match fingerprint content")
+        if self.worklist != self.fingerprint.worklist:
+            raise ValueError("materialized worklist does not match fingerprint")
         return self
 
 
-class ComparatorControl(_StrictModel):
+class ComparatorSharedControls(_StrictModel):
     source_identity: str = Field(pattern=_SHA256)
     ontology_release: str = Field(min_length=1)
     schema_version: Literal[4]
@@ -135,18 +135,41 @@ class ComparatorControl(_StrictModel):
     scope_root: Literal["C3262"]
     scope_version: str = Field(min_length=1)
     semantic_types: tuple[str, ...]
-    worklist: tuple[str, ...]
     worklist_identity: str = Field(pattern=_SHA256)
     worklist_count: int = Field(gt=0)
     total_limit: None
     sample_manifest_identity: None
     collapse_policy_identity: str = Field(pattern=_SHA256)
-    mixed_chain_inventory_identity: str = Field(pattern=_SHA256)
-    stage_sequence_identity: str = Field(pattern=_SHA256)
     config_version: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
     output_mode: Literal["file"]
     load_mode: Literal["none", "named-graph"]
+
+
+class ComparatorObservedTreatment(_StrictModel):
+    historical_routing_implementation: Literal["absent"]
+    current_routing_implementation_identity: str = Field(pattern=_SHA256)
+    historical_mixed_chain_inventory: Literal["absent"]
+    current_mixed_chain_inventory_identity: str = Field(pattern=_SHA256)
+    historical_stage_sequence: Literal["absent"]
+    current_stage_sequence_identity: str = Field(pattern=_SHA256)
+
+
+class ComparatorQualification(_StrictModel):
+    routing_treatment_change: Literal["intended"]
+    mixed_chain_treatment_change: Literal["intended"]
+    stage_difference: Literal["execution-provenance-unqualified"]
+
+
+class ComparatorConclusions(_StrictModel):
+    persisted_occurrence_output_comparison: Literal["permitted"]
+    semantic_isolation: Literal["partial-unqualified"]
+    execution_comparability: Literal["unqualified"]
+    fully_controlled: Literal[False]
+    all_controls_equal: Literal[False]
+    causal_attribution: Literal["prohibited"]
+    authorization: Literal["pending"]
+    publication: Literal["blocked"]
 
 
 class ComparatorRunBinding(_StrictModel):
@@ -157,18 +180,6 @@ class ComparatorRunBinding(_StrictModel):
     artifact_path: str = Field(min_length=1)
     artifact_identity: str = Field(pattern=_SHA256)
     algorithm_version: Literal["decomposition-v4", "decomposition-v5"]
-    routing_implementation_identity: str = Field(
-        pattern=r"^(?:[0-9a-f]{64}|not-recorded)$"
-    )
-
-    @model_validator(mode="after")
-    def _routing_identity_matches_algorithm(self) -> Self:
-        if (
-            self.algorithm_version == "decomposition-v5"
-            and self.routing_implementation_identity == "not-recorded"
-        ):
-            raise ValueError("v5 routing implementation identity is not recorded")
-        return self
 
 
 class ArtifactConstituentTriple(_StrictModel):
@@ -178,8 +189,11 @@ class ArtifactConstituentTriple(_StrictModel):
 
 
 class R101ComparatorQualification(_StrictModel):
-    schema_version: Literal[1]
-    control: ComparatorControl
+    schema_version: Literal[2]
+    shared_controls: ComparatorSharedControls
+    observed_treatment: ComparatorObservedTreatment
+    qualification: ComparatorQualification
+    conclusions: ComparatorConclusions
     old: ComparatorRunBinding
     new: ComparatorRunBinding
     shared_canary_constituents: tuple[ArtifactConstituentTriple, ...]
@@ -289,29 +303,11 @@ def _require_equal(label: str, old: object, new: object) -> None:
         raise R101ComparatorValidationError(f"comparator {label} differs")
 
 
-def _required_identity_pair(
-    label: str, old: str | None, new: str | None
-) -> tuple[str, str]:
-    if old is None:
-        raise R101ComparatorValidationError(f"old comparator {label} is missing")
-    if new is None:
-        raise R101ComparatorValidationError(f"new comparator {label} is missing")
-    return old, new
-
-
-def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorControl:
+def _qualify_control(
+    old: ComparatorRun, new: ComparatorRun
+) -> ComparatorSharedControls:
     old_fingerprint = old.fingerprint
     new_fingerprint = new.fingerprint
-    old_mixed_chain_identity, new_mixed_chain_identity = _required_identity_pair(
-        "mixed-chain inventory identity",
-        old_fingerprint.mixed_chain_inventory_identity,
-        new_fingerprint.mixed_chain_inventory_identity,
-    )
-    old_stage_identity, new_stage_identity = _required_identity_pair(
-        "stage sequence identity",
-        old_fingerprint.stage_sequence_identity,
-        new_fingerprint.stage_sequence_identity,
-    )
     controls = (
         (
             "source identity",
@@ -327,7 +323,17 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
             old_fingerprint.semantic_types,
             new_fingerprint.semantic_types,
         ),
-        ("worklist", old_fingerprint.worklist, new_fingerprint.worklist),
+        ("worklist", old.worklist, new.worklist),
+        (
+            "worklist identity",
+            _identity(old_fingerprint.worklist),
+            _identity(new_fingerprint.worklist),
+        ),
+        (
+            "worklist count",
+            len(old_fingerprint.worklist),
+            len(new_fingerprint.worklist),
+        ),
         ("total limit", old_fingerprint.total_limit, new_fingerprint.total_limit),
         (
             "sample manifest",
@@ -343,16 +349,6 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
             "collapse policy",
             old_fingerprint.collapse_policy_identity,
             new_fingerprint.collapse_policy_identity,
-        ),
-        (
-            "mixed-chain inventory",
-            old_mixed_chain_identity,
-            new_mixed_chain_identity,
-        ),
-        (
-            "stage sequence",
-            old_stage_identity,
-            new_stage_identity,
         ),
         (
             "configuration",
@@ -383,7 +379,7 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
         )
     if old_fingerprint.output_mode != "file":
         raise R101ComparatorValidationError("full comparator requires file output mode")
-    return ComparatorControl(
+    return ComparatorSharedControls(
         source_identity=old_fingerprint.source_identity,
         ontology_release=old.ncit_version,
         schema_version=4,
@@ -391,14 +387,11 @@ def _qualify_control(old: ComparatorRun, new: ComparatorRun) -> ComparatorContro
         scope_root="C3262",
         scope_version=old_fingerprint.scope_version,
         semantic_types=old_fingerprint.semantic_types,
-        worklist=old_fingerprint.worklist,
         worklist_identity=_identity(old_fingerprint.worklist),
         worklist_count=len(old_fingerprint.worklist),
         total_limit=None,
         sample_manifest_identity=None,
         collapse_policy_identity=old_fingerprint.collapse_policy_identity,
-        mixed_chain_inventory_identity=old_mixed_chain_identity,
-        stage_sequence_identity=old_stage_identity,
         config_version=old_fingerprint.config_version,
         walker_max_depth=old_fingerprint.walker_max_depth,
         output_mode="file",
@@ -443,11 +436,6 @@ def _binding(
     artifact_identity = _artifact_identity(artifact)
     if artifact_identity != run.representation_identity:
         raise R101ComparatorValidationError("comparator artifact identity differs")
-    routing_identity = run.fingerprint.routing_implementation_identity
-    if expected_algorithm == "decomposition-v5" and routing_identity is None:
-        raise R101ComparatorValidationError(
-            "v5 routing implementation identity is missing"
-        )
     return ComparatorRunBinding(
         run_id=run.run_id,
         fingerprint_identity=run.fingerprint_identity,
@@ -456,7 +444,6 @@ def _binding(
         artifact_path=artifact.as_posix(),
         artifact_identity=artifact_identity,
         algorithm_version=expected_algorithm,
-        routing_implementation_identity=routing_identity or "not-recorded",
     )
 
 
@@ -469,21 +456,52 @@ def qualify_r101_comparator(
     new_artifact: Path,
 ) -> R101ComparatorQualification:
     """Qualify a v4/full to v5/full pair while treating code identities as variables."""
-    control = _qualify_control(old_run, new_run)
+    shared_controls = _qualify_control(old_run, new_run)
     _require_baseline(old_run, old_baseline)
     old_binding = _binding(old_run, old_artifact, expected_algorithm="decomposition-v4")
     new_binding = _binding(new_run, new_artifact, expected_algorithm="decomposition-v5")
     shared_canary_constituents = _shared_canary_constituents(old_artifact, new_artifact)
-    if (
-        old_binding.routing_implementation_identity
-        == new_binding.routing_implementation_identity
-    ):
+    if not isinstance(old_run.fingerprint, HistoricalV4ComparatorFingerprint):
         raise R101ComparatorValidationError(
-            "routing implementation identities must be independent variables"
+            "old comparator fingerprint is not historical v4"
         )
+    if not isinstance(new_run.fingerprint, CurrentV5ComparatorFingerprint):
+        raise R101ComparatorValidationError(
+            "new comparator fingerprint is not current v5"
+        )
+    observed_treatment = ComparatorObservedTreatment(
+        historical_routing_implementation="absent",
+        current_routing_implementation_identity=(
+            new_run.fingerprint.routing_implementation_identity
+        ),
+        historical_mixed_chain_inventory="absent",
+        current_mixed_chain_inventory_identity=(
+            new_run.fingerprint.mixed_chain_inventory_identity
+        ),
+        historical_stage_sequence="absent",
+        current_stage_sequence_identity=new_run.fingerprint.stage_sequence_identity,
+    )
+    qualification = ComparatorQualification(
+        routing_treatment_change="intended",
+        mixed_chain_treatment_change="intended",
+        stage_difference="execution-provenance-unqualified",
+    )
+    conclusions = ComparatorConclusions(
+        persisted_occurrence_output_comparison="permitted",
+        semantic_isolation="partial-unqualified",
+        execution_comparability="unqualified",
+        fully_controlled=False,
+        all_controls_equal=False,
+        causal_attribution="prohibited",
+        authorization="pending",
+        publication="blocked",
+    )
     identity_payload: dict[str, object] = {
-        "schema_version": 1,
-        "control": control.model_dump(mode="json"),
+        "schema_version": 2,
+        "shared_controls": shared_controls.model_dump(mode="json"),
+        "observed_treatment": observed_treatment.model_dump(mode="json"),
+        "qualification": qualification.model_dump(mode="json"),
+        "conclusions": conclusions.model_dump(mode="json"),
         "old": old_binding.model_dump(mode="json"),
         "new": new_binding.model_dump(mode="json"),
         "shared_canary_constituents": [
@@ -494,8 +512,11 @@ def qualify_r101_comparator(
     }
     return R101ComparatorQualification.model_validate(
         {
-            "schema_version": 1,
-            "control": control,
+            "schema_version": 2,
+            "shared_controls": shared_controls,
+            "observed_treatment": observed_treatment,
+            "qualification": qualification,
+            "conclusions": conclusions,
             "old": old_binding,
             "new": new_binding,
             "shared_canary_constituents": shared_canary_constituents,

@@ -1339,7 +1339,9 @@ def _dispositions_by_code(
     return by_code
 
 
-def _comparator_run_from_row(run_id: str, row: RowMapping) -> ComparatorRun:
+def _comparator_run_from_row(
+    run_id: str, row: RowMapping, worklist: Sequence[str]
+) -> ComparatorRun:
     from ontolib.decomposition.r101_comparator import (  # noqa: PLC0415
         ComparatorRun,
     )
@@ -1352,31 +1354,30 @@ def _comparator_run_from_row(run_id: str, row: RowMapping) -> ComparatorRun:
     artifact_path = row["publication_artifact_path"]
     if representation_identity is None or artifact_path is None:
         raise RunStateError(f"decomposition run {run_id!r} lacks publication evidence")
-    run = ComparatorRun.model_validate_json(
-        _json.dumps(
-            {
-                "run_id": run_id,
-                "ncit_version": row["ncit_version"],
-                "fingerprint": row["fingerprint"],
-                "fingerprint_identity": row["fingerprint_sha256"],
-                "representation_identity": representation_identity,
-                "publication_artifact_path": artifact_path,
-            },
-            sort_keys=True,
+    try:
+        run = ComparatorRun.model_validate_json(
+            _json.dumps(
+                {
+                    "run_id": run_id,
+                    "ncit_version": row["ncit_version"],
+                    "fingerprint": row["fingerprint"],
+                    "fingerprint_identity": row["fingerprint_sha256"],
+                    "worklist": tuple(worklist),
+                    "representation_identity": representation_identity,
+                    "publication_artifact_path": artifact_path,
+                },
+                sort_keys=True,
+            )
         )
-    )
+    except ValidationError as exc:
+        raise RunIdentityMismatchError(
+            "persisted comparator evidence violates its source schema"
+        ) from exc
     if row["source_identity"] != run.fingerprint.source_identity:
         raise RunIdentityMismatchError(
             "persisted run source identity does not match its fingerprint"
         )
     return run
-
-
-def _require_comparator_worklist(run: ComparatorRun, codes: Sequence[str]) -> None:
-    if tuple(codes) != run.fingerprint.worklist:
-        raise RunIdentityMismatchError(
-            "materialized worklist does not match the immutable run fingerprint"
-        )
 
 
 class ProvenanceStore:
@@ -2488,7 +2489,6 @@ class ProvenanceStore:
             row = result.mappings().first()
             if row is None:
                 raise RunStateError(f"decomposition run {run_id!r} does not exist")
-            run = _comparator_run_from_row(run_id, row)
             worklist_result = await session.execute(
                 text(
                     "SELECT concept_code FROM decomp_work_item "
@@ -2496,8 +2496,9 @@ class ProvenanceStore:
                 ),
                 {"run_id": run_id},
             )
-            _require_comparator_worklist(run, worklist_result.scalars().all())
-            return run
+            return _comparator_run_from_row(
+                run_id, row, worklist_result.scalars().all()
+            )
 
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""

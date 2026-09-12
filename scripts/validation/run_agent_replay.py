@@ -40,19 +40,18 @@ _RUN_ID = re.compile(
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
 _MAX_INSPECTED_RUNS = 8
-_R101_COMPARATOR_OLD_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
-_R101_COMPARATOR_NEW_RUN = "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
 _MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
-_MAX_R101_STRUCTURAL_ROWS = 100
-_MAX_R101_METADATA_PAIRS = 5_000
+_MAX_R101_STRUCTURAL_ROWS = 2_500
+_MAX_R101_METADATA_PAIRS = 40_000
 _MAX_R101_METADATA_TRANSITIONS = 100
-_MAX_R101_METADATA_CONCEPTS = 5_000
-_MAX_R101_INSPECTION_BYTES = 1_000_000
+_MAX_R101_METADATA_CONCEPTS = 16_000
+_MAX_R101_INSPECTION_BYTES = 5_000_000
+_R101_PAIR_ARGUMENT_COUNT = 2
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = "ontoprism-podman-poc"
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
@@ -171,8 +170,23 @@ def _inspect_decomposition_runs(
     return 0
 
 
+def _validated_r101_pair(values: list[str], *, operation: str) -> tuple[str, str]:
+    if (
+        len(values) != _R101_PAIR_ARGUMENT_COUNT
+        or any(_RUN_ID.fullmatch(value) is None for value in values)
+        or values[0] == values[1]
+    ):
+        raise AgentReplayInputError(f"{operation} requires two distinct run IDs")
+    return values[0], values[1]
+
+
 async def _qualify_current_r101_comparator_async(
-    baseline: Path, old_artifact: Path, new_artifact: Path, output: Path
+    old_run_id: str,
+    new_run_id: str,
+    baseline: Path,
+    old_artifact: Path,
+    new_artifact: Path,
+    output: Path,
 ) -> None:
     settings = importlib.import_module("backend.config").get_settings()
     database = importlib.import_module("backend.db")
@@ -182,12 +196,8 @@ async def _qualify_current_r101_comparator_async(
     engine = database.make_engine(settings.database_url)
     try:
         store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
-        old_run = await store.completed_comparator_run_for_evidence(
-            _R101_COMPARATOR_OLD_RUN
-        )
-        new_run = await store.completed_comparator_run_for_evidence(
-            _R101_COMPARATOR_NEW_RUN
-        )
+        old_run = await store.completed_comparator_run_for_evidence(old_run_id)
+        new_run = await store.completed_comparator_run_for_evidence(new_run_id)
         qualification = comparator.qualify_r101_comparator(
             old_run=old_run,
             new_run=new_run,
@@ -219,10 +229,9 @@ def _qualify_current_r101_comparator(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
     del runner
-    if values:
-        raise AgentReplayInputError(
-            "qualify-current-r101-comparator accepts no arguments"
-        )
+    old_run_id, new_run_id = _validated_r101_pair(
+        values, operation="qualify-current-r101-comparator"
+    )
     baseline, old_artifact, new_artifact = (
         Path(path)
         for path in _require_files(
@@ -236,6 +245,8 @@ def _qualify_current_r101_comparator(
     )
     asyncio.run(
         _qualify_current_r101_comparator_async(
+            old_run_id,
+            new_run_id,
             baseline,
             old_artifact,
             new_artifact,
@@ -248,10 +259,9 @@ def _qualify_current_r101_comparator(
 def _generate_current_r101_conservation(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
-    if values:
-        raise AgentReplayInputError(
-            "generate-current-r101-conservation accepts no arguments"
-        )
+    old_run_id, new_run_id = _validated_r101_pair(
+        values, operation="generate-current-r101-conservation"
+    )
     _script, source_manifest, baseline, old_artifact, new_artifact = _require_files(
         root,
         (
@@ -273,9 +283,9 @@ def _generate_current_r101_conservation(
             "--baseline",
             baseline,
             "--run-id",
-            _R101_COMPARATOR_OLD_RUN,
+            old_run_id,
             "--new-run-id",
-            _R101_COMPARATOR_NEW_RUN,
+            new_run_id,
             "--old-artifact",
             old_artifact,
             "--new-artifact",
@@ -301,10 +311,11 @@ def _generate_current_r101_conservation(
 def _generate_current_corpus_baseline(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
-    if values:
+    if len(values) != 1 or _RUN_ID.fullmatch(values[0]) is None:
         raise AgentReplayInputError(
-            "generate-current-corpus-baseline accepts no arguments"
+            "generate-current-corpus-baseline requires one valid run ID"
         )
+    (run_id,) = values
     _script, source_manifest, artifact = _require_files(
         root,
         (
@@ -322,7 +333,7 @@ def _generate_current_corpus_baseline(
             "--source-manifest",
             source_manifest,
             "--run-id",
-            _R101_COMPARATOR_NEW_RUN,
+            run_id,
             "--artifact",
             artifact,
             "--output",
@@ -361,13 +372,19 @@ def _promote_current_r101_evidence(
         qualification_path
     )
     if (
-        report.old_run_id != _R101_COMPARATOR_OLD_RUN
-        or report.new_run_id != _R101_COMPARATOR_NEW_RUN
-        or report.mechanical_status != "complete"
-        or report.non_r101_delta_evidence.rows
-        or report.non_r101_delta_evidence.metadata_deltas
-        or report.non_r101_delta_evidence.raw_typed_delta_count
-        != len(report.non_r101_delta_evidence.classified_rows)
+        report.old_run_id != qualification.old.run_id
+        or report.new_run_id != qualification.new.run_id
+        or report.old_run_id == report.new_run_id
+        or report.r101_occurrence_certification != "complete"
+        or report.non_r101_enumeration != "complete"
+        or report.explanation != "incomplete"
+        or report.semantic_isolation != "partial-unqualified"
+        or report.execution_comparability != "unqualified"
+        or report.fully_controlled
+        or report.all_controls_equal
+        or report.causal_attribution != "prohibited"
+        or report.authorization != "pending"
+        or report.publication_gate != "blocked"
         or report.comparator_qualification_identity
         != qualification.qualification_identity
     ):
@@ -416,9 +433,10 @@ def _record_current_r101_diagnostic(
         + 2 * len(evidence.metadata_deltas)
     )
     if (
-        report.old_run_id != _R101_COMPARATOR_OLD_RUN
-        or report.new_run_id != _R101_COMPARATOR_NEW_RUN
-        or report.mechanical_status != "incomplete"
+        _RUN_ID.fullmatch(report.old_run_id) is None
+        or _RUN_ID.fullmatch(report.new_run_id) is None
+        or report.old_run_id == report.new_run_id
+        or report.r101_occurrence_certification != "blocked"
         or report.publication_gate != "blocked"
         or evidence.raw_typed_delta_count != expected_raw
         or not (evidence.rows or evidence.metadata_deltas)
@@ -516,7 +534,7 @@ def _r101_verification(report: Any, conservation: Any) -> dict[str, object]:
         )
     return {
         "count_reconciliation": {
-            "unclassified_structural_row_count": len(evidence.rows),
+            "structural_row_count": len(evidence.rows),
             "metadata_pair_count": len(evidence.metadata_deltas),
             "classified_row_count": len(evidence.classified_rows),
             "raw_typed_delta_count": evidence.raw_typed_delta_count,
@@ -568,9 +586,27 @@ def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -
             "new_run_id": report.new_run_id,
             "query_identity": evidence.query_identity,
             "report_identity": report.report_identity,
+            "r101_occurrence_inventory_identity": (
+                report.r101_occurrence_inventory_identity
+            ),
+            "non_r101_typed_inventory_identity": (
+                report.non_r101_typed_inventory_identity
+            ),
+        },
+        "statuses": {
+            "r101_occurrence_certification": report.r101_occurrence_certification,
+            "non_r101_enumeration": report.non_r101_enumeration,
+            "explanation": report.explanation,
+            "semantic_isolation": report.semantic_isolation,
+            "execution_comparability": report.execution_comparability,
+            "fully_controlled": report.fully_controlled,
+            "all_controls_equal": report.all_controls_equal,
+            "causal_attribution": report.causal_attribution,
+            "authorization": report.authorization,
+            "publication": report.publication_gate,
         },
         **_r101_verification(report, conservation),
-        "unclassified_structural_rows": _r101_structural_rows(evidence),
+        "structural_rows": _r101_structural_rows(evidence),
         "metadata_pairs": _r101_metadata_summary(evidence),
         "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
@@ -789,7 +825,7 @@ def _record_mixed_chain_inventory(
 
 
 async def _generate_mixed_chain_corrected_projection_async(
-    report_path: Path, inventory_path: Path, output: Path
+    inventory_path: Path, output: Path
 ) -> None:
     settings = importlib.import_module("backend.config").get_settings()
     database = importlib.import_module("backend.db")
@@ -800,21 +836,16 @@ async def _generate_mixed_chain_corrected_projection_async(
         "ontolib.decomposition.mixed_chain_projection"
     )
     provenance = importlib.import_module("ontolib.decomposition.provenance")
-    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
     semantic_identity = importlib.import_module(
         "ontolib.decomposition.semantic_identity"
     )
-    report = conservation.load_r101_conservation_report(report_path)
     inventory = inventory_module.load_mixed_chain_inventory(inventory_path)
-    if inventory.source_report_identity != report.report_identity:
-        raise AgentReplayInputError("projection inventory report identity differs")
     selector_identity = semantic_identity.routing_implementation_identity()
     if inventory.selector_identity != selector_identity:
         raise AgentReplayInputError("projection inventory selector identity differs")
     engine = database.make_engine(settings.database_url)
     try:
         store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
-        run = await store.completed_comparator_run_for_evidence(inventory.source_run_id)
         occurrences = await store.selector_occurrences_for_codes(
             inventory.source_run_id, inventory.candidate_codes
         )
@@ -823,8 +854,6 @@ async def _generate_mixed_chain_corrected_projection_async(
         )
     finally:
         await database.dispose_engine(engine)
-    if run.fingerprint.source_identity != inventory.source_identity:
-        raise AgentReplayInputError("projection run source identity differs")
     occurrences_by_code: dict[str, list[Any]] = defaultdict(list)
     for row in occurrences:
         occurrences_by_code[row.concept_code].append(row)
@@ -841,7 +870,7 @@ async def _generate_mixed_chain_corrected_projection_async(
     )
     artifact = projection_module.create_corrected_projection(
         source_run_id=inventory.source_run_id,
-        source_report_identity=report.report_identity,
+        source_report_identity=inventory.source_report_identity,
         source_identity=inventory.source_identity,
         selector_identity=selector_identity,
         inventory_identity=inventory.identity,
@@ -879,8 +908,6 @@ def _generate_mixed_chain_corrected_projection(
     output.unlink(missing_ok=True)
     asyncio.run(
         _generate_mixed_chain_corrected_projection_async(
-            root / "ontolib/tests/decomposition/golden/"
-            "neoplasm-r101-v5-conservation.json.gz",
             root / "ontolib/src/ontolib/decomposition/data/"
             "neoplasm_mixed_chain_inventory.json",
             output,

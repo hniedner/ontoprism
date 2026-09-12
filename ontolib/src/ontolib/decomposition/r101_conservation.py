@@ -31,19 +31,8 @@ if TYPE_CHECKING:
 _SHA256 = r"^[0-9a-f]{64}$"
 _CODE = r"^C[0-9]+$"
 _MIN_MIXED_PATH_EDGES = 2
-R101_CONSERVATION_SCHEMA_VERSION = 3
+R101_CONSERVATION_SCHEMA_VERSION = 4
 _GZIP_HEADER_SIZE = 10
-_HISTORICAL_V4_QUERY_IDENTITY = (
-    "2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1"
-)
-_HISTORICAL_V4_BINDING = (
-    "neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a",
-    "e0d54a70a9a58c6165e30bb0918a08617beade6b0ae2512d5c1ae0053deed81e",
-    "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46",
-    "d50fb846dd56fff591b148abab4c0f03adf8e41bc38ef5909d8eb9a4f728d67a",
-    "d5305c53e2b75fa5a273317f2ce1060a50dc8b72525ccbfa1c8d17caf8dba24e",
-    "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132",
-)
 
 STRUCTURAL_KEY_FIELDS = (
     "concept_code",
@@ -112,6 +101,7 @@ def r101_occurrence_ledger_query() -> str:
         "'source_filler',source_filler,'retained_filler',retained_filler,"
         "'semantic_route',semantic_route,'semantic_type',semantic_type,"
         "'r82_part',r82_part,'r82_whole',r82_whole,"
+        "'specificity_path',specificity_path,"
         "'policy_decision_identity',policy_decision_identity) disposition FROM "
         "decomp_occurrence_disposition d WHERE run_id=:new_run_id), "
         "old_links AS (SELECT co.concept_code, co.occurrence_id, "
@@ -579,16 +569,15 @@ class NonR101DeltaEvidence(_StrictModel):
 
 def _validate_non_r101_delta_evidence(evidence: NonR101DeltaEvidence) -> None:
     current_identity = r101_ledger_query_identity()
-    if evidence.query_identity not in {_HISTORICAL_V4_QUERY_IDENTITY, current_identity}:
+    if evidence.query_identity != current_identity:
         raise ValueError("non-R101 delta query identity differs")
-    if evidence.query_identity == current_identity:
-        expected_raw = (
-            len(evidence.rows)
-            + len(evidence.classified_rows)
-            + 2 * len(evidence.metadata_deltas)
-        )
-        if evidence.raw_typed_delta_count != expected_raw:
-            raise ValueError("raw typed non-R101 delta count differs")
+    expected_raw = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    if evidence.raw_typed_delta_count != expected_raw:
+        raise ValueError("raw typed non-R101 delta count differs")
     _require_canonical_unique(
         evidence.rows,
         tuple(sorted(evidence.rows, key=_delta_row_key)),
@@ -615,6 +604,19 @@ def _validate_non_r101_delta_evidence(evidence: NonR101DeltaEvidence) -> None:
         classified_ordered,
         "classified non-R101 deltas",
     )
+    _validate_exhaustive_delta_partition(evidence)
+
+
+def _validate_exhaustive_delta_partition(evidence: NonR101DeltaEvidence) -> None:
+    represented_rows = [*evidence.rows]
+    represented_rows.extend(item.row for item in evidence.classified_rows)
+    represented_rows.extend(
+        row
+        for metadata_delta in evidence.metadata_deltas
+        for row in (metadata_delta.old, metadata_delta.new)
+    )
+    if len(represented_rows) != len(set(represented_rows)):
+        raise ValueError("each typed non-R101 delta must be represented exactly once")
 
 
 def _require_canonical_unique(
@@ -772,24 +774,70 @@ class LedgerCounts(_StrictModel):
     non_r101_delta: int = Field(ge=0)
 
 
-class ContentAuthorization(_StrictModel):
-    status: Literal["pending", "authorized", "digest-mismatch"]
-    authorized_digest: str | None
-
-    @model_validator(mode="after")
-    def _digest_shape(self) -> Self:
-        _validate_content_authorization(self)
-        return self
-
-
 class GroupingPattern(_StrictModel):
     old_filler_code: str = Field(pattern=_CODE)
     retained_filler_code: str = Field(pattern=_CODE)
     occurrence_count: int = Field(gt=0)
 
 
-class R101ConservationReport(_StrictModel):
+class HistoricalR101DeltaEvidence(_StrictModel):
+    """Closed delta shape embedded in the certified v3-to-v4 review evidence."""
+
+    old_run_id: str = Field(min_length=1)
+    new_run_id: str = Field(min_length=1)
+    query_identity: Literal[
+        "2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1"
+    ]
+    rows: tuple[NonR101DeltaRow, ...]
+
+
+class HistoricalContentAuthorization(_StrictModel):
+    status: Literal["pending"]
+    authorized_digest: None
+
+
+class HistoricalR101ConservationReport(_StrictModel):
+    """Exact schema-3 evidence retained solely for its historical review boundary."""
+
     schema_version: Literal[3]
+    source_identity: str = Field(pattern=_SHA256)
+    source_release_id: str
+    old_run_id: Literal["neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a"]
+    old_run_fingerprint_identity: Literal[
+        "e0d54a70a9a58c6165e30bb0918a08617beade6b0ae2512d5c1ae0053deed81e"
+    ]
+    old_representation_identity: str = Field(pattern=_SHA256)
+    old_baseline_identity: str = Field(pattern=_SHA256)
+    new_run_id: Literal["neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"]
+    new_run_fingerprint_identity: Literal[
+        "d50fb846dd56fff591b148abab4c0f03adf8e41bc38ef5909d8eb9a4f728d67a"
+    ]
+    new_representation_identity: str = Field(pattern=_SHA256)
+    detector_identity: Literal[
+        "d5305c53e2b75fa5a273317f2ce1060a50dc8b72525ccbfa1c8d17caf8dba24e"
+    ]
+    pre_resume_proof_identity: str = Field(pattern=_SHA256)
+    resume_dry_run_identity: str = Field(pattern=_SHA256)
+    mixed_cohort_identity: str = Field(pattern=_SHA256)
+    proof_identity: str = Field(pattern=_SHA256)
+    structural_key_fields: tuple[str, ...]
+    mechanical_status: Literal["complete"]
+    content_authorization: HistoricalContentAuthorization
+    publication_gate: Literal["blocked"]
+    counts: LedgerCounts
+    query_metrics: QueryMetrics
+    non_r101_delta_evidence: HistoricalR101DeltaEvidence
+    grouping_presentation: tuple[GroupingPattern, ...]
+    occurrences: tuple[LedgerOccurrence, ...]
+    json_identity: str = Field(pattern=_SHA256)
+    tsv_identity: str = Field(pattern=_SHA256)
+    report_identity: Literal[
+        "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
+    ]
+
+
+class R101ConservationReport(_StrictModel):
+    schema_version: Literal[4]
     source_identity: str = Field(pattern=_SHA256)
     source_release_id: str
     old_run_id: str
@@ -805,9 +853,18 @@ class R101ConservationReport(_StrictModel):
     mixed_cohort_identity: str = Field(pattern=_SHA256)
     proof_identity: str = Field(pattern=_SHA256)
     structural_key_fields: tuple[str, ...]
-    mechanical_status: Literal["complete", "incomplete"]
-    content_authorization: ContentAuthorization
-    publication_gate: Literal["blocked", "eligible"]
+    r101_occurrence_inventory_identity: str = Field(pattern=_SHA256)
+    non_r101_typed_inventory_identity: str = Field(pattern=_SHA256)
+    r101_occurrence_certification: Literal["complete", "blocked"]
+    non_r101_enumeration: Literal["complete", "blocked"]
+    explanation: Literal["complete", "incomplete", "blocked"]
+    semantic_isolation: Literal["partial-unqualified", "blocked"]
+    execution_comparability: Literal["unqualified"]
+    fully_controlled: Literal[False]
+    all_controls_equal: Literal[False]
+    causal_attribution: Literal["prohibited"]
+    authorization: Literal["pending"]
+    publication_gate: Literal["blocked"]
     counts: LedgerCounts
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
@@ -822,27 +879,14 @@ class R101ConservationReport(_StrictModel):
     def _report_is_self_consistent(self) -> Self:
         _validate_report_bindings(self)
         _validate_report_paths(self)
-        complete = _validate_report_counts(self)
-        _validate_report_authorization(self, complete)
+        _validate_report_counts(self)
+        _validate_report_conclusions(self)
         _validate_report_identities(self)
         return self
 
 
-def _validate_content_authorization(authorization: ContentAuthorization) -> None:
-    digest = authorization.authorized_digest
-    if digest is not None and not re.fullmatch(_SHA256, digest):
-        raise ValueError("authorization digest must be SHA-256")
-    if authorization.status == "pending" and digest is not None:
-        raise ValueError("pending authorization cannot carry a digest")
-    if authorization.status != "pending" and digest is None:
-        raise ValueError(f"{authorization.status} authorization requires a digest")
-
-
 def _validate_report_bindings(report: R101ConservationReport) -> None:
-    if report.non_r101_delta_evidence.query_identity == _HISTORICAL_V4_QUERY_IDENTITY:
-        _validate_historical_report_binding(report)
-    else:
-        _validate_current_report_binding(report)
+    _validate_current_report_binding(report)
     expected_proof = r101_proof_identity(
         report.pre_resume_proof_identity,
         report.resume_dry_run_identity,
@@ -859,30 +903,11 @@ def _validate_report_bindings(report: R101ConservationReport) -> None:
         raise ValueError("non-R101 delta evidence does not bind report runs")
 
 
-def _validate_historical_report_binding(report: R101ConservationReport) -> None:
-    if report.comparator_qualification_identity is not None:
-        raise ValueError("historical comparator qualification must be absent")
-    _validate_historical_v4_binding(report)
-
-
 def _validate_current_report_binding(report: R101ConservationReport) -> None:
     if report.comparator_qualification_identity is None:
         raise ValueError("current comparator qualification identity is missing")
     if report.detector_identity != r101_detector_identity():
         raise ValueError("detector identity does not match current ledger semantics")
-
-
-def _validate_historical_v4_binding(report: R101ConservationReport) -> None:
-    binding = (
-        report.old_run_id,
-        report.old_run_fingerprint_identity,
-        report.new_run_id,
-        report.new_run_fingerprint_identity,
-        report.detector_identity,
-        report.report_identity,
-    )
-    if binding != _HISTORICAL_V4_BINDING:
-        raise ValueError("historical R101 v4 evidence binding differs")
 
 
 def _validate_report_paths(report: R101ConservationReport) -> None:
@@ -938,33 +963,45 @@ def _old_pair_at_path_endpoint(
     )
 
 
-def _validate_report_counts(report: R101ConservationReport) -> bool:
+def _validate_report_counts(report: R101ConservationReport) -> None:
     expected = _ledger_counts(
         report.occurrences, len(report.non_r101_delta_evidence.rows)
     )
     if report.counts != expected:
         raise ValueError("count-mismatch: report counts differ from occurrences")
-    complete = (
-        expected.unresolved == 0
-        and expected.non_r101_delta == 0
-        and report.non_r101_delta_evidence.semantic_metadata_delta_count == 0
-    )
-    expected_status = "complete" if complete else "incomplete"
-    if report.mechanical_status != expected_status:
-        raise ValueError("count-mismatch: mechanical status differs from counts")
-    return complete
+    if report.r101_occurrence_inventory_identity != _sha256(
+        _canonical(report.occurrences)
+    ):
+        raise ValueError("source-identity-mismatch: R101 occurrence inventory differs")
+    if report.non_r101_typed_inventory_identity != _sha256(
+        _canonical(report.non_r101_delta_evidence)
+    ):
+        raise ValueError("source-identity-mismatch: non-R101 inventory differs")
 
 
-def _validate_report_authorization(
-    report: R101ConservationReport, complete: bool
-) -> None:
-    authorization_matches = (
-        report.content_authorization.status == "authorized"
-        and report.content_authorization.authorized_digest == report.json_identity
-    )
-    expected_gate = "eligible" if complete and authorization_matches else "blocked"
-    if report.publication_gate != expected_gate:
-        raise ValueError("content authorization does not match publication gate")
+def _validate_report_conclusions(report: R101ConservationReport) -> None:
+    occurrence_complete = report.counts.unresolved == 0
+    expected_occurrence = "complete" if occurrence_complete else "blocked"
+    if report.r101_occurrence_certification != expected_occurrence:
+        raise ValueError("R101 occurrence certification differs from counts")
+    if report.non_r101_enumeration != "complete":
+        raise ValueError("complete typed inventory must certify enumeration")
+    expected_explanation = _expected_explanation(report, occurrence_complete)
+    if report.explanation != expected_explanation:
+        raise ValueError("explanation status differs from replay evidence")
+    expected_isolation = "partial-unqualified" if occurrence_complete else "blocked"
+    if report.semantic_isolation != expected_isolation:
+        raise ValueError("semantic isolation status differs")
+
+
+def _expected_explanation(
+    report: R101ConservationReport, occurrence_complete: bool
+) -> Literal["complete", "incomplete", "blocked"]:
+    if not occurrence_complete:
+        return "blocked"
+    if report.non_r101_delta_evidence.raw_typed_delta_count == 0:
+        return "complete"
+    return "incomplete"
 
 
 def _validate_report_identities(report: R101ConservationReport) -> None:
@@ -1029,33 +1066,14 @@ def _semantic_payload(
         else dict(report)
     )
     for field in (
-        "content_authorization",
+        "authorization",
         "publication_gate",
         "json_identity",
         "tsv_identity",
         "report_identity",
     ):
         payload.pop(field, None)
-    _strip_historical_delta_extensions(payload)
     return payload
-
-
-def _strip_historical_delta_extensions(payload: dict[str, object]) -> None:
-    delta = payload.get("non_r101_delta_evidence")
-    if not isinstance(delta, dict):
-        return
-    if delta.get("query_identity") != _HISTORICAL_V4_QUERY_IDENTITY:
-        return
-    if (
-        delta.get("metadata_deltas") not in (None, [], ())
-        or delta.get("classified_rows") not in (None, [], ())
-        or delta.get("raw_typed_delta_count") is not None
-    ):
-        raise ValueError("historical R101 delta extensions must be empty")
-    delta.pop("metadata_deltas", None)
-    delta.pop("classified_rows", None)
-    delta.pop("raw_typed_delta_count", None)
-    payload.pop("comparator_qualification_identity", None)
 
 
 def _json_identity(report: R101ConservationReport | dict[str, object]) -> str:
@@ -1069,7 +1087,6 @@ def _report_identity(report: R101ConservationReport | dict[str, object]) -> str:
         else dict(report)
     )
     payload.pop("report_identity", None)
-    _strip_historical_delta_extensions(payload)
     return _sha256(_canonical(payload))
 
 
@@ -1463,21 +1480,39 @@ def build_r101_occurrence_ledger(
         "schema_version": R101_CONSERVATION_SCHEMA_VERSION,
         **context.model_dump(exclude={"adapter_id"}),
         "structural_key_fields": STRUCTURAL_KEY_FIELDS,
-        "mechanical_status": "complete"
-        if counts.unresolved == 0
-        and counts.non_r101_delta == 0
-        and context.non_r101_delta_evidence.semantic_metadata_delta_count == 0
-        else "incomplete",
+        "r101_occurrence_inventory_identity": _sha256(_canonical(occurrences)),
+        "non_r101_typed_inventory_identity": _sha256(
+            _canonical(context.non_r101_delta_evidence)
+        ),
+        "r101_occurrence_certification": (
+            "complete" if counts.unresolved == 0 else "blocked"
+        ),
+        "non_r101_enumeration": "complete",
+        "explanation": (
+            "blocked"
+            if counts.unresolved
+            else (
+                "complete"
+                if context.non_r101_delta_evidence.raw_typed_delta_count == 0
+                else "incomplete"
+            )
+        ),
+        "semantic_isolation": (
+            "partial-unqualified" if counts.unresolved == 0 else "blocked"
+        ),
+        "execution_comparability": "unqualified",
+        "fully_controlled": False,
+        "all_controls_equal": False,
+        "causal_attribution": "prohibited",
+        "authorization": "pending",
         "counts": counts,
         "grouping_presentation": _grouping(occurrences),
         "occurrences": occurrences,
     }
     json_identity = _json_identity(payload)
     tsv_identity = _sha256(_tsv_content(occurrences))
-    authorization = ContentAuthorization(status="pending", authorized_digest=None)
     complete: dict[str, object] = {
         **payload,
-        "content_authorization": authorization,
         "publication_gate": "blocked",
         "json_identity": json_identity,
         "tsv_identity": tsv_identity,
@@ -1501,14 +1536,17 @@ def validate_r101_publication(report: R101ConservationReport) -> None:
     """Refuse publication unless mechanics and exact-digest authorization both pass."""
     if report.counts.non_r101_delta:
         raise R101ConservationValidationError("non-r101-delta")
-    if report.mechanical_status != "complete":
+    if report.r101_occurrence_certification != "complete":
         raise R101ConservationValidationError("unresolved-disposition")
-    if report.content_authorization.status == "pending":
-        raise R101ConservationValidationError("content-authorization-missing")
-    if report.content_authorization.status == "digest-mismatch":
-        raise R101ConservationValidationError("content-authorization-digest-mismatch")
-    if report.publication_gate != "eligible":
-        raise R101ConservationValidationError("content-authorization-missing")
+    raise R101ConservationValidationError("content-authorization-missing")
+
+
+def validate_historical_r101_publication(
+    report: HistoricalR101ConservationReport,
+) -> None:
+    """Keep the certified historical review evidence permanently non-publishing."""
+    del report
+    raise R101ConservationValidationError("content-authorization-missing")
 
 
 async def validate_r101_consumer_dry_run(
@@ -1581,7 +1619,6 @@ def r101_detector_identity() -> str:
                         R82PathEdge,
                         LedgerBuildContext,
                         LedgerOccurrence,
-                        ContentAuthorization,
                         R101ConservationReport,
                         r101_occurrence_ledger_query,
                         r101_non_r101_delta_query,
@@ -1630,7 +1667,7 @@ def r101_proof_identity(*identities: str) -> str:
 
 
 def load_r101_conservation_report(path: Path) -> R101ConservationReport:
-    """Load one metadata-free gzip member containing a strict schema-3 report."""
+    """Load one metadata-free gzip member containing a strict current report."""
     if not path.name.endswith(".json.gz"):
         raise R101ConservationValidationError("report path must end in .json.gz")
     content = _decompress_report(path.read_bytes())
@@ -1639,6 +1676,26 @@ def load_r101_conservation_report(path: Path) -> R101ConservationReport:
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise R101ConservationValidationError("invalid JSON report") from error
     return R101ConservationReport.model_validate_json(content)
+
+
+def load_historical_r101_review_report(
+    path: Path,
+) -> HistoricalR101ConservationReport:
+    """Load only the byte-certified schema-3 artifact that defines historical review."""
+    raw = path.read_bytes()
+    if (
+        _sha256(raw)
+        != "2ca4e259b26c31bad0ba41e724c3d8631a493d59f90680a6b15af2cfb97111f3"
+    ):
+        raise R101ConservationValidationError("historical R101 review artifact differs")
+    content = _decompress_report(raw)
+    try:
+        json.loads(content, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise R101ConservationValidationError(
+            "invalid historical JSON report"
+        ) from error
+    return HistoricalR101ConservationReport.model_validate_json(content)
 
 
 def _decompress_report(compressed: bytes) -> bytes:

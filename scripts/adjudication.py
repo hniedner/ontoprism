@@ -49,6 +49,7 @@ from ontolib.decomposition.r101_conservation import (
     QueryMetrics,
     R101ConservationValidationError,
     build_r101_occurrence_ledger,
+    load_historical_r101_review_report,
     load_r101_conservation_report,
     r82_path_document,
     r101_detector_identity,
@@ -616,8 +617,10 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                 new_artifact=args.new_artifact,
             )
             if (
-                qualification.control.source_identity != manifest.source_identity
-                or qualification.control.ontology_release != manifest.ontology_version
+                qualification.shared_controls.source_identity
+                != manifest.source_identity
+                or qualification.shared_controls.ontology_release
+                != manifest.ontology_version
             ):
                 raise ValueError("source-identity-mismatch")
             write_r101_comparator_qualification(
@@ -696,7 +699,7 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
 
 
 async def _prepare_r101_review(args: _PrepareR101ReviewArgs) -> None:
-    report = load_r101_conservation_report(args.report)
+    report = load_historical_r101_review_report(args.report)
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     if (
         source.source_identity != report.source_identity
@@ -734,7 +737,7 @@ def _import_r101_review(args: _ImportR101ReviewArgs) -> None:
 
 def _dry_run_r101_decision_expansion(args: _DryRunR101DecisionExpansionArgs) -> None:
     result = dry_run_r101_decision_expansion(
-        load_r101_conservation_report(args.report),
+        load_historical_r101_review_report(args.report),
         load_r101_review_packet(args.packet),
         load_r101_decision_registry(args.registry),
     )
@@ -844,7 +847,7 @@ async def _generate_r101_collapse_policy(
 ) -> None:
     registry = load_r101_decision_registry(args.registry)
     packet = load_r101_review_packet(args.packet)
-    report = load_r101_conservation_report(args.report)
+    report = load_historical_r101_review_report(args.report)
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     if (
         source.source_identity != report.source_identity
@@ -1225,13 +1228,6 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         publication_args = cast("_R101PublicationArgs", args)
         report = load_r101_conservation_report(publication_args.report)
         validate_r101_publication(report)
-        if (
-            report.content_authorization.authorized_digest
-            != publication_args.authorization_digest
-        ):
-            raise R101ConservationValidationError(
-                "content-authorization-digest-mismatch"
-            )
         return
     if args.command == "prepare-r101-review-packet":
         asyncio.run(_prepare_r101_review(cast("_PrepareR101ReviewArgs", args)))

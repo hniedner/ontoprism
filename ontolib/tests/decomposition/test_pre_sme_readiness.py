@@ -46,7 +46,7 @@ from ontolib.decomposition.r103_specificity_review import (
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _OP = "https://w3id.org/ontoprism/vocab#"
-_R101_REPORT = Path(__file__).parent / "golden/neoplasm-r101-v4-conservation.json.gz"
+_R101_REPORT = Path(__file__).parent / "golden/neoplasm-r101-v5-conservation.json.gz"
 
 
 def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
@@ -522,6 +522,14 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "r101_mechanical_unresolved": 0,
         "r101_non_r101_delta": 0,
         "r101_metadata_delta": 0,
+        "r101_occurrence_certification": "complete",
+        "r101_non_r101_enumeration": "complete",
+        "r101_explanation": "complete",
+        "r101_semantic_isolation": "partial-unqualified",
+        "r101_execution_comparability": "unqualified",
+        "r101_fully_controlled": False,
+        "r101_all_controls_equal": False,
+        "r101_causal_attribution": "prohibited",
     }
 
 
@@ -531,7 +539,7 @@ def test_emitted_report_carries_all_five_metric_contracts_and_current_values() -
         MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
     )
 
-    assert report.schema_version == 2
+    assert report.schema_version == 3
     assert tuple(
         (view.name, view.denominator_rule)
         for view in (
@@ -1076,6 +1084,16 @@ def test_composed_readiness_derives_zero_delta_from_current_r101_report(
 
     assert readiness.r101_mechanical_unresolved == report.counts.unresolved
     assert readiness.r101_non_r101_delta == report.counts.non_r101_delta
+    assert (
+        readiness.r101_occurrence_certification == report.r101_occurrence_certification
+    )
+    assert readiness.r101_non_r101_enumeration == report.non_r101_enumeration
+    assert readiness.r101_explanation == report.explanation
+    assert readiness.r101_semantic_isolation == report.semantic_isolation
+    assert readiness.r101_execution_comparability == "unqualified"
+    assert readiness.r101_fully_controlled is False
+    assert readiness.r101_all_controls_equal is False
+    assert readiness.r101_causal_attribution == "prohibited"
     rows = load_row_decisions(Path(arguments["row_decisions"]))
     assert readiness.identities.row_decisions_identity == rows.payload_identity
     assert readiness.metrics.sme_include_rate.fraction.numerator == 48

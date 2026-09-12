@@ -23,7 +23,7 @@ from scripts.research.group_review_packet import (
     load_group_review_packet,
 )
 
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 
 pytestmark = pytest.mark.unit
 
@@ -55,7 +55,7 @@ def _packet() -> GroupReviewPacket:
     return build_group_review_packet(
         evidence=evidence,
         comparison=comparison,
-        r101_report=load_r101_conservation_report(_R101),
+        r101_report=load_historical_r101_review_report(_R101),
     )
 
 
@@ -263,7 +263,7 @@ def test_wrong_highest_fanout_normalized_partition_is_rejected() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=wrong,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
 
@@ -274,7 +274,7 @@ def test_packet_rejects_rebound_and_aliased_group_identity() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=rebound,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
     packet = _packet()

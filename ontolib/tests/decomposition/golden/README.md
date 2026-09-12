@@ -647,10 +647,10 @@ The generated schema-3 report contains 43,414 source occurrences partitioned int
 projected, 10,083 unchanged-unprojected, 3,291 covered by stated R82 evidence, and zero
 unresolved rows; the R82 evidence is independently partitioned into 1,954 one-step and 1,337
 closure-only paths, and the non-R101 delta is zero
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
 2026-08-19). The observed budgets are three PostgreSQL queries, 177 QLever queries, batches of
 at most eight candidate pairs, eight R82 hops, and twenty asserted-superclass hops
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.query_metrics.model_dump())'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.query_metrics.model_dump())'`,
 2026-08-19).
 
 The self-excluding canonical semantic `json_identity` is
@@ -667,53 +667,51 @@ The exact non-R101 delta evidence contains zero canonical rows and binds the old
 the SQL query contract identity
 `2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1`; the reported count is
 derived from those rows
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; e=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")).non_r101_delta_evidence; print(e.old_run_id,e.new_run_id,e.query_identity,len(e.rows))'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; e=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")).non_r101_delta_evidence; print(e.old_run_id,e.new_run_id,e.query_identity,len(e.rows))'`,
 2026-08-19).
 
 Mechanical validation is complete, content authorization is pending, and publication is blocked
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
 2026-08-19). No authorization is recorded here. SME pattern review is deferred to the final M1.6
 milestone review; this ledger must not be described as published or accepted content.
 
 ## R101 v4-to-v5 qualified occurrence ledger
 
 The bounded operations first qualify the exact persisted comparator pair and then regenerate the
-current ledger from the two persisted runs and artifacts. The current incomplete report is recorded
-as a diagnostic; promotion remains a separate fail-closed operation and must not be run until a
-later report has no unexplained structural or semantic metadata deltas:
+current ledger and baseline from those two persisted runs and artifacts. Promotion validates the
+complete occurrence inventory separately from the incomplete causal explanation:
 
 ```bash
-pdm run agent-replay qualify-current-r101-comparator
-pdm run agent-replay generate-current-r101-conservation
-pdm run agent-replay generate-current-corpus-baseline
-pdm run agent-replay record-current-r101-diagnostic
+pdm run agent-replay qualify-current-r101-comparator neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820 neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay generate-current-r101-conservation neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820 neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay generate-current-corpus-baseline neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay promote-current-r101-evidence
 pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz
 ```
 
-The eventual promotion order is qualification → report/baseline generation →
-`pdm run agent-replay promote-current-r101-evidence`; that final command validates the exact
-qualification identity, raw/metadata/classified/unclassified reconciliation, fixed run bindings,
-and complete mechanical gate before writing either promoted artifact.
-
 The report binds old run `neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820` and new run
-`neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722`, records 43,414 R101 source occurrences as
-29,995 projected and 13,419 unchanged-unprojected with zero R101 disposition failures, and has
-report identity `25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba`.
-Its exact typed delta input has 5,167 rows: 2,564 paired semantic metadata changes consume 5,128
-rows and the remaining 39 structural rows are unexplained. No row has occurrence-level evidence
-that proves causation by a changed R101 link, so none is classified. The metadata inventory changes
-`most_specific` on 2,550 pairs and `needs_review` on 36 pairs (22 pairs change both fields).
-Consequently `mechanical_status` is `incomplete`, current content authorization is pending, and
-publication is blocked
+`neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, records 43,414 R101 source occurrences as
+30,276 projected and 13,138 unchanged-unprojected with zero unresolved occurrences, and has report
+identity `b25e1fe14294637ce221b1a9e3fcb69ab2e3d5990f38a92cb3e71b960796f6a8`.
+Its exact typed non-R101 inventory has 79,393 rows: 38,648 paired semantic metadata changes consume
+77,296 rows and 2,097 are structural rows. No row has occurrence-level evidence that proves
+causation by a changed R101 link, so none is classified. Every raw typed row is represented exactly
+once. The report binds the complete occurrence inventory as
+`e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de` and the complete typed
+non-R101 inventory as `24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0`.
+`r101_occurrence_certification` and `non_r101_enumeration` are `complete`, while `explanation` is
+`incomplete`, semantic isolation is `partial-unqualified`, execution comparability is
+`unqualified`, the comparison is not fully controlled, causal attribution is prohibited,
+authorization is pending, and publication is blocked
 (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-10). The tracked gzip SHA-256 is
-`f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f`
+2026-09-11). The tracked gzip SHA-256 is
+`091118d2be1087da3f595fb38f594fb90a03443ff19d22f974a1c4290d7e7283`
 (`shasum -a 256 ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-10). The comparator qualification identity is
-`754e532097f81302a6c707f219bd594144ae551a5671a1bc0533e7e2cd8e4fe7`; its file SHA-256 is
-`9125f7ab4127fe5a759919db5a58f99507fb58f213eb6df42d63cc70d995e77b`
-(`pdm run agent-replay qualify-current-r101-comparator && shasum -a 256 tmp/m1-6-r101-v5-comparator-qualification.json`,
-2026-09-10). This diagnostic does not replace the historical v3→v4 review packet: v5
+2026-09-11). The comparator qualification identity is
+`b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a`; its file SHA-256 is
+`ff8a7a384009b0104c889ae932af4ffff09461124ebc5efad5786735bc34b278`
+(`shasum -a 256 tmp/m1-6-r101-v5-comparator-qualification.json`, 2026-09-11). This current report
+does not replace the historical v3→v4 review packet: v5
 routes source R101 directly before R82 collapse, so it has no `covered-by-retained-r82` patterns
 from which to regenerate that historical 162-pattern review boundary.
 

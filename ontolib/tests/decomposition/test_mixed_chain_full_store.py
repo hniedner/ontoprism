@@ -14,7 +14,6 @@ from ontolib.decomposition.mixed_chain_projection import (
     project_mixed_chain_candidate,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.terminologies.ncit.client import ncit_sparql_client
@@ -78,9 +77,6 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
             "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
         )
     )
-    report = load_r101_conservation_report(
-        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
-    )
     expected = load_corrected_projection(
         Path(
             "ontolib/tests/decomposition/golden/"
@@ -116,7 +112,7 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
 
     actual = create_corrected_projection(
         source_run_id=inventory.source_run_id,
-        source_report_identity=report.report_identity,
+        source_report_identity=inventory.source_report_identity,
         source_identity=inventory.source_identity,
         selector_identity=routing_implementation_identity(),
         inventory_identity=inventory.identity,
@@ -125,3 +121,7 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
     )
 
     assert actual == expected
+    assert actual.source_report_identity == inventory.source_report_identity
+    assert actual.projection_identity == (
+        "9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6"
+    )

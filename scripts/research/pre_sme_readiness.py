@@ -465,6 +465,14 @@ class MachineReadinessInputs(_StrictModel):
     r101_mechanical_unresolved: int = Field(ge=0)
     r101_non_r101_delta: int = Field(ge=0)
     r101_metadata_delta: int = Field(ge=0)
+    r101_occurrence_certification: Literal["complete", "blocked"]
+    r101_non_r101_enumeration: Literal["complete", "blocked"]
+    r101_explanation: Literal["complete", "incomplete", "blocked"]
+    r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
+    r101_execution_comparability: Literal["unqualified"]
+    r101_fully_controlled: Literal[False]
+    r101_all_controls_equal: Literal[False]
+    r101_causal_attribution: Literal["prohibited"]
 
     @model_validator(mode="after")
     def _validate_reuse_status(self) -> Self:
@@ -949,7 +957,7 @@ class ReportIdentities(_StrictModel):
 
 
 class MachineReadinessReport(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     status: Literal[
         "machine-blocked", "awaiting-later-evaluation", "awaiting-human-review"
     ]
@@ -965,6 +973,14 @@ class MachineReadinessReport(_StrictModel):
     r101_mechanical_unresolved: int = Field(ge=0)
     r101_non_r101_delta: int = Field(ge=0)
     r101_metadata_delta: int = Field(ge=0)
+    r101_occurrence_certification: Literal["complete", "blocked"]
+    r101_non_r101_enumeration: Literal["complete", "blocked"]
+    r101_explanation: Literal["complete", "incomplete", "blocked"]
+    r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
+    r101_execution_comparability: Literal["unqualified"]
+    r101_fully_controlled: Literal[False]
+    r101_all_controls_equal: Literal[False]
+    r101_causal_attribution: Literal["prohibited"]
     human_requirements: tuple[HumanRequirement, ...]
     report_identity: str = Field(pattern=_SHA256)
 
@@ -1279,7 +1295,7 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         else "not-available"
     )
     payload: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": report_status,
         "authorization": False,
         "publication": {
@@ -1347,6 +1363,14 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         "r101_mechanical_unresolved": inputs.r101_mechanical_unresolved,
         "r101_non_r101_delta": inputs.r101_non_r101_delta,
         "r101_metadata_delta": inputs.r101_metadata_delta,
+        "r101_occurrence_certification": inputs.r101_occurrence_certification,
+        "r101_non_r101_enumeration": inputs.r101_non_r101_enumeration,
+        "r101_explanation": inputs.r101_explanation,
+        "r101_semantic_isolation": inputs.r101_semantic_isolation,
+        "r101_execution_comparability": inputs.r101_execution_comparability,
+        "r101_fully_controlled": inputs.r101_fully_controlled,
+        "r101_all_controls_equal": inputs.r101_all_controls_equal,
+        "r101_causal_attribution": inputs.r101_causal_attribution,
         "human_requirements": tuple(requirements),
     }
     return MachineReadinessReport.model_validate(
@@ -1473,7 +1497,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         if artifact_identity != baseline.artifact_identity:
             raise PreSmeValidationError("full-corpus artifact identity differs")
         report = load_r101_conservation_report(r101_report)
-        if report.content_authorization.status != "pending":
+        if report.authorization != "pending":
             raise PreSmeValidationError(
                 "current R101 content authorization must remain pending"
             )
@@ -1732,6 +1756,14 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             r101_mechanical_unresolved=unresolved,
             r101_non_r101_delta=non_r101_delta,
             r101_metadata_delta=len(report.non_r101_delta_evidence.metadata_deltas),
+            r101_occurrence_certification=report.r101_occurrence_certification,
+            r101_non_r101_enumeration=report.non_r101_enumeration,
+            r101_explanation=report.explanation,
+            r101_semantic_isolation=report.semantic_isolation,
+            r101_execution_comparability=report.execution_comparability,
+            r101_fully_controlled=report.fully_controlled,
+            r101_all_controls_equal=report.all_controls_equal,
+            r101_causal_attribution=report.causal_attribution,
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc

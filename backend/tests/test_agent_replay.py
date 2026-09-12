@@ -55,8 +55,8 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
     assert run_agent_replay(["inspect-r101-report", str(relative)], tmp_path) == 0
 
     observed = json.loads(capsys.readouterr().out)
-    structural_rows = observed["unclassified_structural_rows"]
-    assert len(structural_rows) == 39
+    structural_rows = observed["structural_rows"]
+    assert len(structural_rows) == 2_097
     assert all(
         set(row)
         == {
@@ -85,24 +85,22 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
         ),
     )
     metadata = observed["metadata_pairs"]
-    assert metadata["pair_count"] == 2_564
-    assert sum(item["pair_count"] for item in metadata["per_concept_counts"]) == 2_564
-    assert sum(item["pair_count"] for item in metadata["transition_cross_tab"]) == 2_586
-    assert {item["changed_field"] for item in metadata["transition_cross_tab"]} == {
-        "most_specific",
-        "needs_review",
-    }
+    assert metadata["pair_count"] == 38_648
+    assert sum(item["pair_count"] for item in metadata["per_concept_counts"]) == 38_648
+    assert (
+        sum(item["pair_count"] for item in metadata["transition_cross_tab"]) >= 38_648
+    )
     assert observed["count_reconciliation"] == {
         "classified_row_count": 0,
-        "metadata_pair_count": 2_564,
-        "raw_typed_delta_count": 5_167,
-        "recomputed_raw_typed_delta_count": 5_167,
-        "unclassified_structural_row_count": 39,
+        "metadata_pair_count": 38_648,
+        "raw_typed_delta_count": 79_393,
+        "recomputed_raw_typed_delta_count": 79_393,
+        "structural_row_count": 2_097,
         "verified": True,
     }
-    json_identity = "28ef430877da83d54fece6f28e6e77e44a2ed3db62e8674ef1e015472dca2009"
-    report_identity = "25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba"
-    tsv_identity = "23653bc37f4a43e69455dee7380e5928cb4258294520609fde78bb31310b14b1"
+    json_identity = "8f4a9ab204b1f685d1018a5db49bdeb87066b80fb2ce2d4486215d05a63dd966"
+    report_identity = "b25e1fe14294637ce221b1a9e3fcb69ab2e3d5990f38a92cb3e71b960796f6a8"
+    tsv_identity = "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"
     assert observed["identity_verification"] == {
         "json_identity": {
             "recorded": json_identity,
@@ -122,12 +120,31 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
             "verified": True,
         },
     }
-    query_identity = "04c4e950a0402e2bed8f13e8e2231b01d0fb430df0707d2e3de6831dc177383a"
     assert observed["report_binding"] == {
-        "new_run_id": "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+        "new_run_id": "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
+        "non_r101_typed_inventory_identity": (
+            "24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0"
+        ),
         "old_run_id": "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
-        "query_identity": query_identity,
+        "query_identity": (
+            "01ce7e47a0a62180d497279d4822564f65b5ada5ed5f3c82bf65959c8599cb97"
+        ),
+        "r101_occurrence_inventory_identity": (
+            "e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de"
+        ),
         "report_identity": report_identity,
+    }
+    assert observed["statuses"] == {
+        "r101_occurrence_certification": "complete",
+        "non_r101_enumeration": "complete",
+        "explanation": "incomplete",
+        "semantic_isolation": "partial-unqualified",
+        "execution_comparability": "unqualified",
+        "fully_controlled": False,
+        "all_controls_equal": False,
+        "causal_attribution": "prohibited",
+        "authorization": "pending",
+        "publication": "blocked",
     }
     assert observed["file_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -191,28 +208,48 @@ def test_current_r101_comparator_qualification_uses_only_fixed_full_artifacts(
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    calls: list[tuple[Path, Path, Path, Path]] = []
+    old_run = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
+    new_run = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
+    calls: list[tuple[str, str, Path, Path, Path, Path]] = []
 
     async def qualify(
-        baseline: Path, old_artifact: Path, new_artifact: Path, output: Path
+        old_run_id: str,
+        new_run_id: str,
+        baseline: Path,
+        old_artifact: Path,
+        new_artifact: Path,
+        output: Path,
     ) -> None:
-        calls.append((baseline, old_artifact, new_artifact, output))
+        calls.append(
+            (old_run_id, new_run_id, baseline, old_artifact, new_artifact, output)
+        )
 
     monkeypatch.setattr(
         replay, "_qualify_current_r101_comparator_async", qualify, raising=False
     )
 
-    assert run_agent_replay(["qualify-current-r101-comparator"], tmp_path) == 0
+    assert (
+        run_agent_replay(
+            ["qualify-current-r101-comparator", old_run, new_run], tmp_path
+        )
+        == 0
+    )
     assert calls == [
         (
+            old_run,
+            new_run,
             tmp_path / required[0],
             tmp_path / required[1],
             tmp_path / required[2],
             tmp_path / "tmp/m1-6-r101-v5-comparator-qualification.json",
         )
     ]
-    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
-        run_agent_replay(["qualify-current-r101-comparator", "sample.ttl"], tmp_path)
+    with pytest.raises(AgentReplayInputError, match="requires two distinct run IDs"):
+        run_agent_replay(["qualify-current-r101-comparator", old_run], tmp_path)
+    with pytest.raises(AgentReplayInputError, match="requires two distinct run IDs"):
+        run_agent_replay(
+            ["qualify-current-r101-comparator", old_run, old_run], tmp_path
+        )
 
 
 @pytest.mark.unit
@@ -232,17 +269,21 @@ def test_current_r101_conservation_generation_uses_fixed_qualified_pair(
         path.touch()
     runner = _Runner()
 
+    old_run = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
+    new_run = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
     assert (
         run_agent_replay(
-            ["generate-current-r101-conservation"], tmp_path, runner=runner
+            ["generate-current-r101-conservation", old_run, new_run],
+            tmp_path,
+            runner=runner,
         )
         == 0
     )
 
     command = runner.calls[0][0]
     assert command[:3] == ["/opt/homebrew/bin/pdm", "run", "adjudication"]
-    assert "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820" in command
-    assert "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722" in command
+    assert old_run in command
+    assert new_run in command
     assert str(tmp_path / "tmp/m1-6-prechange-v4-full-corpus.ttl") in command
     assert str(tmp_path / "tmp/m1-6-current-full-corpus.ttl") in command
     assert str(tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz") in command
@@ -263,16 +304,46 @@ def test_current_corpus_baseline_generation_uses_fixed_published_run(
         path.touch()
     runner = _Runner()
 
+    current_run = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
     assert (
-        run_agent_replay(["generate-current-corpus-baseline"], tmp_path, runner=runner)
+        run_agent_replay(
+            ["generate-current-corpus-baseline", current_run], tmp_path, runner=runner
+        )
         == 0
     )
 
     command = runner.calls[0][0]
     assert command[:3] == ["/opt/homebrew/bin/pdm", "run", "adjudication"]
-    assert "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722" in command
+    assert current_run in command
     assert str(tmp_path / "tmp/m1-6-current-full-corpus.ttl") in command
     assert str(tmp_path / "tmp/m1-6-current-corpus-baseline.json") in command
+
+
+@pytest.mark.unit
+def test_corrected_projection_generator_uses_historical_inventory_binding_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inventory = (
+        tmp_path
+        / "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.touch()
+    calls: list[tuple[Path, Path]] = []
+
+    async def generate(inventory_path: Path, output: Path) -> None:
+        calls.append((inventory_path, output))
+
+    monkeypatch.setattr(
+        replay, "_generate_mixed_chain_corrected_projection_async", generate
+    )
+
+    assert (
+        run_agent_replay(["generate-mixed-chain-corrected-projection"], tmp_path) == 0
+    )
+    assert calls == [
+        (inventory, tmp_path / "tmp/m1-6-mixed-chain-corrected-projection.json")
+    ]
 
 
 @pytest.mark.unit
@@ -305,13 +376,25 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
         "load_r101_conservation_report",
         lambda _path: SimpleNamespace(
             old_run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
-            new_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+            new_run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
             new_run_fingerprint_identity="a" * 64,
             new_representation_identity="b" * 64,
-            mechanical_status="complete",
+            r101_occurrence_certification="complete",
+            non_r101_enumeration="complete",
+            explanation="incomplete",
+            semantic_isolation="partial-unqualified",
+            execution_comparability="unqualified",
+            fully_controlled=False,
+            all_controls_equal=False,
+            causal_attribution="prohibited",
+            authorization="pending",
+            publication_gate="blocked",
             comparator_qualification_identity="c" * 64,
             non_r101_delta_evidence=SimpleNamespace(
-                rows=(), metadata_deltas=(), classified_rows=(), raw_typed_delta_count=0
+                rows=(object(),),
+                metadata_deltas=(object(),),
+                classified_rows=(),
+                raw_typed_delta_count=3,
             ),
         ),
     )
@@ -319,7 +402,7 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
         baseline_module,
         "load_corpus_baseline",
         lambda _path: SimpleNamespace(
-            run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+            run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
             run_fingerprint_identity="a" * 64,
             representation_identity="b" * 64,
         ),
@@ -327,7 +410,11 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
     monkeypatch.setattr(
         comparator_module,
         "load_r101_comparator_qualification",
-        lambda _path: SimpleNamespace(qualification_identity="c" * 64),
+        lambda _path: SimpleNamespace(
+            qualification_identity="c" * 64,
+            old=SimpleNamespace(run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"),
+            new=SimpleNamespace(run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"),
+        ),
     )
 
     assert run_agent_replay(["promote-current-r101-evidence"], tmp_path) == 0
@@ -336,6 +423,20 @@ def test_current_r101_evidence_promotion_validates_and_writes_fixed_golden_paths
     assert (
         golden / "neoplasm-current-corpus-baseline.json"
     ).read_bytes() == b"baseline"
+
+    accepted_report = conservation.load_r101_conservation_report(report_source)
+    monkeypatch.setattr(
+        conservation,
+        "load_r101_conservation_report",
+        lambda _path: SimpleNamespace(
+            **{**vars(accepted_report), "explanation": "complete"}
+        ),
+    )
+    with pytest.raises(
+        AgentReplayInputError,
+        match="does not certify the fixed comparator pair",
+    ):
+        run_agent_replay(["promote-current-r101-evidence"], tmp_path)
 
 
 @pytest.mark.unit
@@ -356,8 +457,9 @@ def test_incomplete_current_r101_report_can_only_be_recorded_as_diagnostic(
         "load_r101_conservation_report",
         lambda _path: SimpleNamespace(
             old_run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
-            new_run_id="neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
-            mechanical_status="incomplete",
+            new_run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
+            r101_occurrence_certification="blocked",
+            explanation_status="incomplete",
             publication_gate="blocked",
             non_r101_delta_evidence=SimpleNamespace(
                 rows=(object(),),

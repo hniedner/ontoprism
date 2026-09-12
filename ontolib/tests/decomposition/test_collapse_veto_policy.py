@@ -25,7 +25,7 @@ from ontolib.decomposition.provenance_models import (
     RunFingerprint,
     RunResumeIdentity,
 )
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 from ontolib.decomposition.r101_review import load_r101_decision_registry
 
 _SOURCE = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
@@ -386,7 +386,7 @@ def test_policy_second_staging_failure_leaves_no_partial_or_temp_file(
 
 
 def _rejected_evidence():
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
     )
     source = next(
@@ -579,7 +579,7 @@ def test_policy_live_qualification_accepts_all_keys_and_rejects_provenance_drift
     None
 ):
     policy = _policy()
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
     )
     by_id = {row.occurrence_id: row for row in report.occurrences}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -23,6 +25,10 @@ from ontolib.decomposition.pre_resume import (
 )
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import WorkItemOutcome
+from ontolib.decomposition.r101_comparator import (
+    CurrentV5ComparatorFingerprint,
+    HistoricalV4ComparatorFingerprint,
+)
 from ontolib.decomposition.r101_conservation import (
     load_r101_conservation_report,
     r82_path_document,
@@ -45,7 +51,7 @@ if TYPE_CHECKING:
 
 RUN_ID = "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"
 PRECHANGE_FULL_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
-CURRENT_FULL_RUN = "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722"
+CURRENT_FULL_RUN = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
 COMPLETED_FULL_RUN = "completed-full-run"
 
 
@@ -74,7 +80,53 @@ async def test_comparator_transport_uses_six_postgres_queries() -> None:
 
 @pytest.mark.integration
 @pytest.mark.full_store
-async def test_exact_full_v4_v5_pair_preserves_unexplained_non_r101_deltas() -> None:
+async def test_exact_comparator_pair_preserves_observed_fingerprints_and_worklist() -> (
+    None
+):
+    engine = make_engine(get_settings().database_url)
+    try:
+        store = ProvenanceStore(make_sessionmaker(engine))
+        old = await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
+        current = await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
+    finally:
+        await dispose_engine(engine)
+
+    assert isinstance(old.fingerprint, HistoricalV4ComparatorFingerprint)
+    assert isinstance(current.fingerprint, CurrentV5ComparatorFingerprint)
+    assert (
+        old.fingerprint_identity
+        == "3ee3c1f4d6b2b71606245c4471151b9eb43183f783a0c1919977871c7fa5ff57"
+    )
+    assert (
+        current.fingerprint_identity
+        == "aa392a7e9f58066e05094ae4adae6c2dd601f84a47310dca9af9c2ddac3b2fae"
+    )
+    assert old.worklist == current.worklist
+    assert len(old.worklist) == 15_633
+    worklist_identity = hashlib.sha256(
+        json.dumps(old.worklist, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert (
+        worklist_identity
+        == "4213999a3488eee5a93f4f7e509e322a18ba37f3955a72295c700dea7382e6f7"
+    )
+    assert (
+        current.fingerprint.routing_implementation_identity
+        == "aa777510e0ffc0a7cfc8c3682506c046300ed6749598b78504eb1ce8a3888608"
+    )
+    assert (
+        current.fingerprint.mixed_chain_inventory_identity
+        == "3fc473e9ce049c2c619be8b714f5bfb4cbf2dd7297a10ff8e1bfa00feb1ba0cd"
+    )
+    assert (
+        current.fingerprint.stage_sequence_identity
+        == "336b24467d4f054a0a37e665cb3038a28061d8d0af772e3d0e5ebf4515670807"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_exact_full_v4_v5_pair_enumerates_every_typed_non_r101_delta() -> None:
     engine = make_engine(get_settings().database_url)
     try:
         ledger = await ProvenanceStore(
@@ -90,10 +142,12 @@ async def test_exact_full_v4_v5_pair_preserves_unexplained_non_r101_deltas() -> 
     assert ledger.non_r101_delta_evidence.old_run_id == PRECHANGE_FULL_RUN
     assert ledger.non_r101_delta_evidence.new_run_id == CURRENT_FULL_RUN
     evidence = ledger.non_r101_delta_evidence
-    assert len(evidence.rows) == 39
-    assert len(evidence.metadata_deltas) == 2_564
-    assert evidence.classified_rows == ()
-    assert evidence.raw_typed_delta_count == 5_167
+    assert (
+        len(evidence.rows),
+        len(evidence.metadata_deltas),
+        len(evidence.classified_rows),
+        evidence.raw_typed_delta_count,
+    ) == (2_097, 38_648, 0, 79_393)
     assert evidence.raw_typed_delta_count == (
         len(evidence.rows)
         + len(evidence.classified_rows)
@@ -495,7 +549,7 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
 @pytest.mark.full_store
 async def test_tied_highest_fanout_ledgers_and_paths_match_generated_report() -> None:
     report = load_r101_conservation_report(
-        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
+        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
     )
     engine = make_engine(get_settings().database_url)
     try:

@@ -20,8 +20,8 @@ import ontolib.decomposition.r101_review as r101_review_module
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.r101_conservation import (
     R101ConservationValidationError,
-    load_r101_conservation_report,
-    validate_r101_publication,
+    load_historical_r101_review_report,
+    validate_historical_r101_publication,
 )
 from ontolib.decomposition.r101_review import (
     AtomicDecision,
@@ -113,7 +113,7 @@ class _Labels:
 
 @pytest.fixture(scope="module")
 def source_manifest(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    report = load_r101_conservation_report(REPORT_PATH)
+    report = load_historical_r101_review_report(REPORT_PATH)
     path = tmp_path_factory.mktemp("r101-source") / "manifest.json"
     path.write_text("{}", encoding="utf-8")
     patch = pytest.MonkeyPatch()
@@ -131,7 +131,7 @@ def source_manifest(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def packet_and_labels(source_manifest: Path):
-    report = load_r101_conservation_report(REPORT_PATH)
+    report = load_historical_r101_review_report(REPORT_PATH)
     labels = _Labels()
     packet = await build_r101_review_packet(report, source_manifest, labels)
     return report, packet, labels
@@ -398,7 +398,7 @@ async def test_every_pattern_decision_expands_to_atomic_frozen_membership(
     assert result.atomic_decisions == 3291
     assert report.content_authorization.status == "pending"
     with pytest.raises(R101ConservationValidationError, match="authorization-missing"):
-        validate_r101_publication(report)
+        validate_historical_r101_publication(report)
 
 
 @pytest.mark.unit
@@ -618,7 +618,7 @@ async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows(
     assert reader.query_count == math.ceil(1201 / 500)
     assert client.batch_sizes == [500, 500, 201]
 
-    report = load_r101_conservation_report(REPORT_PATH)
+    report = load_historical_r101_review_report(REPORT_PATH)
     for override, message in (
         ((), "missing label"),
         (("one", "two"), "multiple labels"),
@@ -633,7 +633,7 @@ async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows(
 async def test_prepare_certifies_source_before_batched_label_reads(
     monkeypatch, tmp_path: Path, capsys, source_manifest: Path
 ) -> None:
-    report = load_r101_conservation_report(REPORT_PATH)
+    report = load_historical_r101_review_report(REPORT_PATH)
     events: list[str] = []
 
     async def source_snapshot(manifest: Path, endpoint: str) -> NcitSourceSnapshot:

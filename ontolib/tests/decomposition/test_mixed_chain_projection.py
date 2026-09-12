@@ -23,7 +23,6 @@ from ontolib.decomposition.models import (
     OccurrenceDisposition,
     SpecificityPathEdge,
 )
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 
 _SOURCE = "a" * 64
 _BROAD_OCCURRENCE = "b" * 64
@@ -229,9 +228,6 @@ def test_tracked_projection_covers_the_exact_structural_inventory() -> None:
             "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
         )
     )
-    report = load_r101_conservation_report(
-        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
-    )
     artifact = load_corrected_projection(
         Path(
             "ontolib/tests/decomposition/golden/"
@@ -243,7 +239,7 @@ def test_tracked_projection_covers_the_exact_structural_inventory() -> None:
         "9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6"
     )
     assert artifact.inventory_identity == inventory.identity
-    assert artifact.source_report_identity == report.report_identity
+    assert artifact.source_report_identity == inventory.source_report_identity
     assert artifact.candidate_codes == inventory.candidate_codes
     assert artifact.constituent_transition_counts.model_dump() == {
         "added": 0,
@@ -263,11 +259,11 @@ def test_tracked_projection_covers_the_exact_structural_inventory() -> None:
         for transition in projection.constituent_transitions
         if transition.kind == "removed"
     }
-    report_structural = {
-        (row.concept_code, row.axis, row.filler_code)
-        for row in report.non_r101_delta_evidence.rows
+    inventory_structural = {
+        (candidate.concept_code, candidate.axis, candidate.broad_filler)
+        for candidate in inventory.candidates
     }
-    assert removed == report_structural
+    assert removed == inventory_structural
     assert artifact.disposition_transition_count == 39
     for candidate, projection in zip(
         inventory.candidates, artifact.projections, strict=True
