@@ -21,7 +21,7 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
 | `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
 | `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
-| `neoplasm-r101-v5-conservation.json.gz` | Current qualified 8fb→cd4b full-corpus diagnostic ledger with fail-closed unexplained typed deltas; not promoted evidence or content authorization. |
+| `neoplasm-r101-v5-conservation.json.gz` | Current qualified 8fb→cd4b full-corpus diagnostic ledger, promoted as mechanical evidence only—not content authorization or publication; occurrence certification is complete while explanation is incomplete (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`, 2026-09-12). |
 | `neoplasm-r101-v5-2b39-historical-conservation.json.gz` | Immutable schema-3 source diagnostic for the historical 2b39 mixed-chain inventory/projection era. |
 | `neoplasm-r101-v5-corrected-projection.json` | Immutable corrected projection bound to the historical 2b39 inventory and source diagnostic; not a run. |
 | `r101-review-registry-v3-sme.json.gz` | Deterministic test golden of the complete proposed review registry; it is not runtime package data or publication authorization. |
@@ -621,8 +621,9 @@ representation identity `8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99
 (`pdm run agent-test ontolib/tests/decomposition/test_corpus_baseline.py::test_tracked_current_corpus_baseline_binds_exact_persisted_counts -v`,
 2026-09-12). This generates a baseline candidate only; `pdm run agent-replay
 promote-current-r101-evidence` remains the separate promotion operation and must validate the
-qualified comparator/report pair before replacing tracked current evidence (the four-command
-sequence at lines 685–689, 2026-09-12).
+qualified comparator/report pair before replacing tracked current evidence (the promotion sequence
+in [R101 v4-to-v5 qualified occurrence ledger](#r101-v4-to-v5-qualified-occurrence-ledger),
+2026-09-12).
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.
@@ -726,8 +727,8 @@ era, not to the current 8fb→cd4b comparator pair. Their exact tracked source i
 `25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba`, and new run
 `neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722` (`pdm run agent-test
 ontolib/tests/decomposition/test_mixed_chain_inventory.py::test_historical_mixed_chain_inventory_binds_available_report_evidence
--v`, 2026-09-12). That immutable report has 39 structural additions and 2,564 metadata pairs; it
-is retained only to reproduce this historical derivation, not as the current diagnostic (`pdm run
+-v`, 2026-09-12). That immutable report has 39 structural additions; it is retained only to
+reproduce this historical derivation, not as the current diagnostic (`pdm run
 agent-test --full-store ontolib/tests/decomposition/test_mixed_chain_full_store.py::test_historical_inventory_generator_replays_from_exact_report
 -v`, 2026-09-12).
 

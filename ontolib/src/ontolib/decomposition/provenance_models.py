@@ -695,6 +695,14 @@ class CompletionRunMetrics(BaseModel):
 
     @model_validator(mode="after")
     def _counts_and_rates_are_consistent(self) -> Self:
+        if (
+            self.residual_precoordination_unknown_count == 0
+            and self.residual_precoordination is None
+        ):
+            raise ValueError(
+                "residual precoordination rate is required when all fillers are "
+                "classifiable"
+            )
         PersistedRunMetrics.model_validate(self.model_dump())
         return self
 

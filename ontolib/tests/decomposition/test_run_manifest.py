@@ -570,12 +570,21 @@ def test_completion_metrics_bound_residual_precoordination_by_decomposed() -> No
 @pytest.mark.unit
 def test_completion_metrics_preserve_an_unclassifiable_residual_result() -> None:
     metrics = _completion_metrics(
-        residual_precoordination_unknown_count=1,
+        residual_precoordination_unknown_count=2,
         residual_precoordination=None,
     )
 
-    assert metrics.residual_precoordination_unknown_count == 1
+    assert metrics.residual_precoordination_unknown_count == 2
     assert metrics.residual_precoordination is None
+
+
+@pytest.mark.unit
+def test_completion_metrics_require_a_rate_when_all_fillers_are_classified() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="rate is required when all fillers are classifiable",
+    ):
+        _completion_metrics(residual_precoordination=None)
 
 
 @pytest.mark.unit
