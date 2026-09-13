@@ -677,9 +677,10 @@ async def _classify_mixed_chain_delta(
         source_identity=source_identity,
     )
     part_of = {(pair.part, pair.whole) for pair in part_pairs}
-    selected = fs._reduce_routed_plan(
+    selected = fs.diagnose_historical_collapse_dispositions(
         plan,
         extract.make_is_ancestor(set(ancestor_pairs)),
+        purpose=fs.DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION,
         is_part_of=lambda part, whole, pairs=part_of: (part, whole) in pairs,
     )
     broad = tuple(

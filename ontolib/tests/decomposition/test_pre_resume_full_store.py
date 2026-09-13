@@ -256,7 +256,20 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
         for actual_row, expected_row in zip(
             actual_item.constituents, expected_item.constituents, strict=True
         ):
-            assert actual_row == expected_row, (actual_item.code, actual_row.axis)
+            actual_fields = actual_row.model_dump(mode="json")
+            expected_fields = expected_row.model_dump(mode="json")
+            assert actual_row == expected_row, {
+                "code": actual_item.code,
+                "axis": actual_row.axis,
+                "field_diff": {
+                    field: {
+                        "expected": expected_fields.get(field),
+                        "actual": actual_fields.get(field),
+                    }
+                    for field in expected_fields.keys() | actual_fields.keys()
+                    if expected_fields.get(field) != actual_fields.get(field)
+                },
+            }
         assert actual_item.model_dump(mode="json") == expected_item.model_dump(
             mode="json"
         ), actual_item.code

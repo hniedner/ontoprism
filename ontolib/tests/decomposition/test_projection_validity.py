@@ -15,7 +15,9 @@ from ontolib.decomposition.axis_diagnostics import (
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
+    DiagnosticReductionPurpose,
     build_routed_plan,
+    diagnose_historical_collapse_dispositions,
     select_assessed_routed_plan,
 )
 from ontolib.decomposition.models import RoleRestriction
@@ -229,6 +231,47 @@ def test_missing_assessment_fails_closed_after_final_route() -> None:
                     _assessment("op:StageSystem", "C90530", "valid", "atomic"),
                 )
             ),
+        )
+
+
+@pytest.mark.unit
+def test_historical_collapse_diagnostic_is_explicit_and_cannot_emit() -> None:
+    plan = build_routed_plan(
+        (
+            RoleRestriction(
+                "R105",
+                "C10",
+                source_definition_ids=("1" * 64,),
+                source_occurrence_ids=("2" * 64,),
+            ),
+            RoleRestriction(
+                "R105",
+                "C20",
+                source_definition_ids=("3" * 64,),
+                source_occurrence_ids=("4" * 64,),
+            ),
+        ),
+        concept_code="C9000",
+        source_identity=_SOURCE,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    diagnostic = diagnose_historical_collapse_dispositions(
+        plan,
+        lambda broader, narrower: (broader, narrower) == ("C10", "C20"),
+        purpose=DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION,
+    )
+
+    assert [row.kind for row in diagnostic.dispositions] == [
+        "collapsed-is-a",
+        "retained-routed",
+    ]
+    assert not hasattr(diagnostic, "constituents")
+    with pytest.raises(TypeError, match="purpose"):
+        diagnose_historical_collapse_dispositions(
+            plan,
+            lambda _broader, _narrower: False,
+            purpose="historical-mixed-chain-reconstruction",  # type: ignore[arg-type]
         )
 
 
