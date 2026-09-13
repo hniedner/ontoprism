@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import get_args
 
@@ -145,6 +146,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         == ("C27262", "op:Morphology", "C9290")
     )
     assert c9290.classification == "added"
+    assert isinstance(c9290.source_evidence, SourceBackedCoordinateMissingEvidence)
     assert c9290.source_evidence.source_definition_ids == ("b" * 64,)
     selection_misses = [
         row for row in report.candidate_rows if row.classification == "selection-miss"
@@ -346,7 +348,17 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
 
     assert output.exists()
     assert AxisDiagnosticReport.model_validate_json(output.read_bytes()) == report
-    assert len(report.range_diagnostics) >= 153
+    assert len(report.revise_rows) == 42
+    assert len(report.candidate_rows) == 64
+    assert len(report.range_diagnostics) == 174
+    assert Counter(row.verdict.status for row in report.range_diagnostics) == {
+        "valid": 173,
+        "invalid": 1,
+    }
+    assert (
+        report.report_identity
+        == "7fee644582ed1f01bba3de867b6f52ea975377a81733d282030bc1dd4851e490"
+    )
     assert report.residual_diagnostics["C35501"].status == "detected"
     invalid = [
         row for row in report.range_diagnostics if row.verdict.status == "invalid"
@@ -371,6 +383,18 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
             "invalid",
         )
     ]
+    invalid_candidate = next(
+        row
+        for row in report.candidate_rows
+        if (row.code, row.expected.axis, row.expected.filler)
+        == ("C35756", "op:StageSystem", "C141685")
+    )
+    assert invalid_candidate.classification == "unavailable-source-evidence"
+    assert isinstance(invalid_candidate.source_evidence, UnavailableSourcePairEvidence)
+    assert invalid_candidate.source_evidence.status == "unavailable"
+    assert invalid_candidate.source_evidence.reason == (
+        "no-matching-stated-definition-fact"
+    )
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 

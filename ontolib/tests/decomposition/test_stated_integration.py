@@ -18,6 +18,7 @@ import pytest
 from ontolib.decomposition import stated_queries
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticError,
     AxisHierarchyEvidence,
     HierarchyEdge,
     build_disjoint_pairs_query,
@@ -58,7 +59,7 @@ from ontolib.decomposition.stated_queries import (
     resolve_morphology_filler,
     walk_genus_chain,
 )
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import (
@@ -269,6 +270,9 @@ async def test_axis_range_double_matches_disposable_qlever(
         ncit:C99701 rdfs:subClassOf ncit:C99702 .
         ncit:C99702 rdfs:subClassOf ncit:C7057 .
         ncit:C99703 owl:disjointWith ncit:C7057 .
+        [ a owl:AllDisjointClasses ;
+          owl:members (ncit:C7057 ncit:C99703 ncit:C99704)
+        ] .
     """
     async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
@@ -300,7 +304,30 @@ async def test_axis_range_double_matches_disposable_qlever(
             HierarchyEdge(child="C99702", parent="C7057"),
         ),
         disjoint_pairs=disjoint_pairs_from_rows(
-            [{"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C99703"}]
+            [
+                {"left": f"{NCIT_NS}C99703", "right": f"{NCIT_NS}C7057"},
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-1",
+                    "first": f"{NCIT_NS}C7057",
+                    "rest": "cell-2",
+                },
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-2",
+                    "first": f"{NCIT_NS}C99703",
+                    "rest": "cell-3",
+                },
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-3",
+                    "first": f"{NCIT_NS}C99704",
+                    "rest": f"{RDF_NS}nil",
+                },
+            ]
         ),
     )
     real = tuple(
@@ -310,7 +337,7 @@ async def test_axis_range_double_matches_disposable_qlever(
             contract.range_code,
             real_snapshot,
         ).status
-        for filler in ("C99701", "C99703", "C99704")
+        for filler in ("C99701", "C99703", "C99704", "C99705")
     )
     doubled = tuple(
         classify_axis_range(
@@ -319,10 +346,43 @@ async def test_axis_range_double_matches_disposable_qlever(
             contract.range_code,
             doubled_snapshot,
         ).status
-        for filler in ("C99701", "C99703", "C99704")
+        for filler in ("C99701", "C99703", "C99704", "C99705")
     )
 
-    assert real == doubled == ("valid", "invalid", "unknown")
+    assert real == doubled == ("valid", "invalid", "invalid", "unknown")
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_disjoint_query_exposes_malformed_all_disjoint_list(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdf: <{RDF_NS}> .
+
+        [] a owl:AllDisjointClasses ; owl:members [
+            rdf:first ncit:C99701 ;
+            rdf:rest rdf:nil, [ rdf:first ncit:C99702 ; rdf:rest rdf:nil ]
+        ] .
+    """
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        rows = await client.select_once(
+            build_disjoint_pairs_query(),
+            required_variables={"left", "right"},
+        )
+
+    with pytest.raises(AxisDiagnosticError, match="malformed AllDisjointClasses list"):
+        disjoint_pairs_from_rows(rows)
 
 
 @pytest.mark.integration
