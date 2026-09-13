@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -131,6 +132,19 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
 
     assert len(report.revise_rows) == 42
     assert len(report.candidate_rows) == 64
+    assert Counter(row.group_delta for row in report.revise_rows) == {
+        "unchanged": 13,
+        "changed": 29,
+    }
+    assert (
+        hashlib.sha256(
+            json.dumps(
+                tuple(row.group_delta for row in report.revise_rows),
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        == "947ae783ab1c386a4fc5ebee1796add354fd8fe931cbc7f8d8f72301321cdfbe"
+    )
     assert report.metrics.sme_include_rate.model_dump() == {
         "numerator": 48,
         "denominator": 106,
@@ -145,7 +159,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         if (row.code, row.expected.axis, row.expected.filler)
         == ("C27262", "op:Morphology", "C9290")
     )
-    assert c9290.classification == "added"
+    assert c9290.classification == "currently-emitted"
     assert isinstance(c9290.source_evidence, SourceBackedCoordinateMissingEvidence)
     assert c9290.source_evidence.source_definition_ids == ("b" * 64,)
     selection_misses = [
@@ -161,11 +175,18 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         "reason": range_verdict.reason,
         "structural_path": list(range_verdict.structural_path),
     }
-    assert report.schema_version == 3
+    assert report.schema_version == 4
     assert report.range_diagnostics[0].current_projection_status == (
         "scoreable-release-bound"
     )
     assert report.range_diagnostics[0].in_expected_oracle is True
+    assert report.range_diagnostics[0].projection_decision.model_dump() == {
+        "outcome": "accepted",
+        "review_bearing": True,
+        "axis_range_status": "valid",
+        "atomicity_status": "residual",
+        "reasons": ("residual-precoordination",),
+    }
     assert report.residual_diagnostics["C35501"].model_dump(mode="json") == {
         "status": residual_verdict.status,
         "reason": residual_verdict.reason,
@@ -283,6 +304,16 @@ def test_current_projection_status_is_typed_and_independent_from_range_verdict()
             disjoint_pairs=(),
         ),
     )
+    second_verdict = classify_axis_range(
+        "op:ClinicalFinding",
+        "C41444",
+        "C36292",
+        AxisHierarchyEvidence(
+            source_identity=evidence.source_identity,
+            edges=(),
+            disjoint_pairs=(),
+        ),
+    )
     report = build_axis_diagnostic_report(
         oracle=oracle,
         rows=rows,
@@ -292,7 +323,7 @@ def test_current_projection_status_is_typed_and_independent_from_range_verdict()
         source_evidence={},
         range_verdicts={
             ("C101539", "op:ClinicalFinding", "C47806"): verdict,
-            ("C132677", "op:ClinicalFinding", "C41444"): verdict,
+            ("C132677", "op:ClinicalFinding", "C41444"): second_verdict,
         },
         residual_verdicts={},
     )
@@ -320,6 +351,35 @@ def test_current_projection_status_is_typed_and_independent_from_range_verdict()
         "provisional-proposed",
         "not-emitted",
     }
+
+
+@pytest.mark.unit
+def test_report_rejects_range_verdict_key_drift_as_malformed_source_data() -> None:
+    oracle, rows, registry, evidence, comparison = _inputs()
+    verdict = classify_axis_range(
+        "op:ClinicalFinding",
+        "C47806",
+        "C36292",
+        AxisHierarchyEvidence(
+            source_identity=evidence.source_identity,
+            edges=(),
+            disjoint_pairs=(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="range verdict key"):
+        build_axis_diagnostic_report(
+            oracle=oracle,
+            rows=rows,
+            registry=registry,
+            evidence=evidence,
+            comparison=comparison,
+            source_evidence={},
+            range_verdicts={
+                ("C101539", "op:Grade", "C47806"): verdict,
+            },
+            residual_verdicts={},
+        )
 
 
 @pytest.mark.full_store
@@ -350,6 +410,11 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     assert AxisDiagnosticReport.model_validate_json(output.read_bytes()) == report
     assert len(report.revise_rows) == 42
     assert len(report.candidate_rows) == 64
+    assert Counter(row.classification for row in report.candidate_rows) == {
+        "currently-emitted": 56,
+        "unavailable-source-evidence": 7,
+        "proposal-only": 1,
+    }
     assert len(report.range_diagnostics) == 174
     assert Counter(row.verdict.status for row in report.range_diagnostics) == {
         "valid": 173,
@@ -357,7 +422,7 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     }
     assert (
         report.report_identity
-        == "7fee644582ed1f01bba3de867b6f52ea975377a81733d282030bc1dd4851e490"
+        == "dd1e741f5fb073ac84a9f31bf1b1d93be6b6348ac2e52b96c55603dfe205fc9f"
     )
     assert report.residual_diagnostics["C35501"].status == "detected"
     invalid = [
@@ -395,6 +460,18 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     assert invalid_candidate.source_evidence.reason == (
         "no-matching-stated-definition-fact"
     )
+    assert invalid[0].projection_decision.outcome == "rejected"
+    assert invalid[0].projection_decision.reasons == ("invalid-axis-range",)
+    assert not [
+        row
+        for row in report.range_diagnostics
+        if row.current_projection_status != "not-emitted"
+        and row.verdict.status == "invalid"
+    ]
+    assert Counter(row.group_delta for row in report.revise_rows) == {
+        "unchanged": 13,
+        "changed": 29,
+    }
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 
@@ -517,7 +594,9 @@ async def test_residual_collector_is_bounded_typed_and_detector_relative() -> No
 
 
 @pytest.mark.unit
-async def test_residual_collector_rejects_unbounded_or_duplicate_requests() -> None:
+async def test_residual_collector_rejects_duplicates_without_arbitrary_size_cap() -> (
+    None
+):
     with pytest.raises(ValueError, match="unique"):
         await collect_residual_verdicts(
             object(),
@@ -525,10 +604,10 @@ async def test_residual_collector_rejects_unbounded_or_duplicate_requests() -> N
             detector_identity="d" * 64,
             walker_max_depth=5,
         )
-    with pytest.raises(ValueError, match="at most 8"):
-        await collect_residual_verdicts(
-            object(),
-            tuple(f"C{index}" for index in range(1, 10)),
-            detector_identity="d" * 64,
-            walker_max_depth=5,
-        )
+    verdicts = await collect_residual_verdicts(
+        object(),
+        tuple(f"MINT-{index}" for index in range(1, 80)),
+        detector_identity="d" * 64,
+        walker_max_depth=5,
+    )
+    assert len(verdicts) == 79

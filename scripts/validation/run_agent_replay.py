@@ -38,7 +38,6 @@ _RUN_ID = re.compile(
     r"neoplasm-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
-_MAX_FILLERS = 8
 _MAX_INSPECTED_RUNS = 8
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
@@ -1775,8 +1774,6 @@ def _generate_axis_diagnostics(
 ) -> int:
     if not values:
         raise AgentReplayInputError("at least one residual filler is required")
-    if len(values) > _MAX_FILLERS:
-        raise AgentReplayInputError("axis diagnostics accept at most 8 fillers")
     if len(values) != len(set(values)) or any(
         _FILLER.fullmatch(value) is None for value in values
     ):
