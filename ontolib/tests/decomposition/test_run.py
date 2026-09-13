@@ -15,6 +15,10 @@ import pytest
 
 from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticSource,
+    AxisHierarchyEvidence,
+)
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
@@ -73,6 +77,16 @@ def _iri(code: str) -> str:
     return f"{NCIT_NS}{code}"
 
 
+def _diagnostic_source() -> AxisDiagnosticSource:
+    return AxisDiagnosticSource(
+        AxisHierarchyEvidence(
+            source_identity="a" * 64,
+            edges=(),
+            disjoint_pairs=(),
+        )
+    )
+
+
 def _role(rel: str, label: str, target: str) -> dict[str, str | None]:
     return {"rel": _iri(rel), "relLabel": label, "target": _iri(target)}
 
@@ -112,6 +126,8 @@ class _FakeClient:
         semantic_type_of_rows: list[dict[str, str | None]] | None = None,
         part_of_expansions: dict[str, list[tuple[str, str]]] | None = None,
         label_rows: list[dict[str, str | None]] | None = None,
+        hierarchy_edges: list[tuple[str, str]] | None = None,
+        disjoint_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
@@ -155,6 +171,8 @@ class _FakeClient:
         self._ancestors = ancestors or []
         self._semantic_type_of_rows = semantic_type_of_rows or []
         self._part_of_expansions = part_of_expansions or {}
+        self._hierarchy_edges = hierarchy_edges or []
+        self._disjoint_rows = disjoint_rows or []
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
@@ -171,7 +189,7 @@ class _FakeClient:
                 return token
         return None
 
-    async def select(  # noqa: C901, PLR0911 — query-routing test helper
+    async def select(  # noqa: C901, PLR0911, PLR0912 — query-routing test helper
         self,
         query: str,
         *,
@@ -190,7 +208,13 @@ class _FakeClient:
             return [
                 {"child": _iri("C3262"), "parent": _iri("C2991")},
                 *({"child": _iri(code), "parent": _iri("C3262")} for code in codes),
+                *(
+                    {"child": _iri(child), "parent": _iri(parent)}
+                    for child, parent in self._hierarchy_edges
+                ),
             ]
+        if "owl:disjointWith" in query:
+            return self._disjoint_rows
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
             page_index = offset // 500
@@ -781,6 +805,7 @@ async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> No
             snapshot=_source_snapshot(),
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             fresh_worklist=("C1",),
+            diagnostic_source=_diagnostic_source(),
         )
 
 
@@ -797,6 +822,7 @@ async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
             snapshot=_source_snapshot(),
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             fresh_worklist=None,
+            diagnostic_source=_diagnostic_source(),
         )
 
 
@@ -1014,6 +1040,68 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 1
+
+
+@pytest.mark.unit
+async def test_run_guard_rejects_invalid_projection_without_altering_source() -> None:
+    """Fixture C900001 has the real-store C12218 invalid projection verdict.
+
+    This does not claim C900001 or C35756 is source-backed. The production-shaped
+    complete definition deliberately retains its C12218 genus fact after the curated
+    projection rejects ``op:Morphology/C12218``.
+    """
+    client = _FakeClient(
+        pages=[["C900001"]],
+        semantic_types={"C900001": ["Neoplastic Process"]},
+        roles={
+            "C900001": [
+                _role("R101", "Has_Primary_Site", "C12431"),
+            ]
+        },
+        semantic_type_of_rows=[
+            {"code": "C12431", "st": "Body Part, Organ, or Organ Component"}
+        ],
+        label_rows=[{"label": "Anatomic Structure"}],
+        hierarchy_edges=[
+            ("C12218", "C12219"),
+            ("C12431", "C12219"),
+        ],
+        disjoint_rows=[{"left": _iri("C7057"), "right": _iri("C12219")}],
+    )
+    role_row = client._complete_rows["C900001"][0]
+    client._complete_rows["C900001"] = [
+        {
+            "expression": "_:complete-C900001",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "0",
+            "member": _iri("C12218"),
+            "role": None,
+            "target": None,
+            "childExpression": None,
+            "nestedExpression": None,
+            "overflow": "false",
+        },
+        {**role_row, "position": "1"},
+    ]
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    decomposition = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    assert metrics.decomposed == 1
+    assert decomposition is not None
+    assert {(item.axis, item.filler_code) for item in decomposition.constituents} == {
+        ("op:PrimarySite", "C12431")
+    }
+    assert decomposition.complete_definition is not None
+    assert any(
+        getattr(fact, "genus_code", None) == "C12218"
+        for fact in decomposition.complete_definition.facts
+    )
+    assert (
+        sum("owl:disjointWith" in query for query in client.single_attempt_queries) == 1
+    )
 
 
 @pytest.mark.unit
@@ -1506,6 +1594,7 @@ def _checkpoint_setup() -> run_module._RunSetup:
             emitted_at=datetime(2026, 9, 9, tzinfo=UTC),
         ),
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=_diagnostic_source(),
         pending=[],
         labels={},
     )
@@ -2309,6 +2398,8 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
         label_lookup=AsyncMock(return_value=None),
         source_identity="0" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="1" * 64,
     )
 
     assert result.outcome == "unknown"
@@ -2326,6 +2417,7 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
             source_identity="a" * 64,
             ontology_version="26.07d",
         ),
+        diagnostic_source=_diagnostic_source(),
         fingerprint=RunFingerprint(
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
@@ -2459,7 +2551,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
         load_mode="none",
         emitted_at=emitted_at,
     )
-    client = _FakeClient(pages=[["MUST-NOT-BE-ENUMERATED"]])
+    client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
     provenance.resume_run = AsyncMock(return_value=fingerprint)
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])

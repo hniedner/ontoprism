@@ -18,7 +18,10 @@ from ontolib.decomposition.collapse_policy_generation import (
     _entry,
     _validate_authorized_accounting,
 )
-from ontolib.decomposition.filler_selection import build_routed_plan, select_routed_plan
+from ontolib.decomposition.filler_selection import (
+    _reduce_routed_plan,
+    build_routed_plan,
+)
 from ontolib.decomposition.models import RoleRestriction
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -101,7 +104,7 @@ def select_constituents(
         collapse_policy=kwargs.pop("collapse_policy"),
     )
     return list(
-        select_routed_plan(
+        _reduce_routed_plan(
             plan,
             is_ancestor,
             is_part_of=kwargs.pop("is_part_of", None),

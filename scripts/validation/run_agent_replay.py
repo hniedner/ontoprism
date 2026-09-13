@@ -677,7 +677,7 @@ async def _classify_mixed_chain_delta(
         source_identity=source_identity,
     )
     part_of = {(pair.part, pair.whole) for pair in part_pairs}
-    selected = fs.select_routed_plan(
+    selected = fs._reduce_routed_plan(
         plan,
         extract.make_is_ancestor(set(ancestor_pairs)),
         is_part_of=lambda part, whole, pairs=part_of: (part, whole) in pairs,

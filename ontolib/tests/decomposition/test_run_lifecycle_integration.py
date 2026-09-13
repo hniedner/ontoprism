@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from test_support.projection import unknown_axis_diagnostic_source
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -1582,6 +1583,15 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
     monkeypatch.setattr(run_module, "_decompose_one", _InterruptedDecomposer())
     monkeypatch.setattr(run_module, "enumerate_in_scope_codes", _two_codes)
     monkeypatch.setattr(run_module, "_classify_residual_filler", _atomic_residual)
+
+    async def diagnostic_source(*_args: object, **_kwargs: object):
+        return unknown_axis_diagnostic_source("a" * 64)
+
+    monkeypatch.setattr(
+        run_module.axis_diagnostics,
+        "read_axis_diagnostic_source",
+        diagnostic_source,
+    )
 
     engine = make_engine(get_settings().database_url)
     store = _RecordingStore(make_sessionmaker(engine))

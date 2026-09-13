@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock
 
 import pytest
+from test_support.projection import unknown_axis_diagnostic_source
 
 from ontolib.decomposition import fanout_baseline as fanout_module
 from ontolib.decomposition.fanout_baseline import (
@@ -488,7 +490,9 @@ async def test_rerun_rejects_missing_decomposition_records(
     monkeypatch.setattr(fanout_module, "_decompose_one", decompose)
 
     with pytest.raises(ValueError, match=message):
-        await rerun_fanout_concept(_RecordingClient(), "C10")
+        await rerun_fanout_concept(
+            _RecordingClient(), "C10", unknown_axis_diagnostic_source("0" * 64)
+        )
 
 
 @pytest.mark.unit
@@ -513,7 +517,9 @@ async def test_rerun_returns_exact_definition_and_query_counts(
 
     monkeypatch.setattr(fanout_module, "_decompose_one", decompose)
 
-    rerun = await rerun_fanout_concept(_RecordingClient(), "C10")
+    rerun = await rerun_fanout_concept(
+        _RecordingClient(), "C10", unknown_axis_diagnostic_source("0" * 64)
+    )
 
     assert rerun == FanoutRerun(
         concept_code="C10",
@@ -572,7 +578,9 @@ async def test_generate_baseline_reports_discovery_and_binds_exact_counts(
         assert root_code == "C3262"
         return ("C10", "C11")
 
-    async def rerun(_client: object, code: str) -> FanoutRerun:
+    async def rerun(
+        _client: object, code: str, _diagnostic_source: object
+    ) -> FanoutRerun:
         return FanoutRerun(code, 2, 3, 5 if code == "C10" else 7, 4)
 
     class DiscoveryClient(_RecordingClient):
@@ -594,6 +602,11 @@ async def test_generate_baseline_reports_discovery_and_binds_exact_counts(
 
     monkeypatch.setattr(fanout_module, "enumerate_scope_codes", enumerate_codes)
     monkeypatch.setattr(fanout_module, "rerun_fanout_concept", rerun)
+    monkeypatch.setattr(
+        fanout_module,
+        "read_axis_diagnostic_source",
+        AsyncMock(return_value=unknown_axis_diagnostic_source("a" * 64)),
+    )
 
     baseline = await generate_fanout_baseline(
         DiscoveryClient(),

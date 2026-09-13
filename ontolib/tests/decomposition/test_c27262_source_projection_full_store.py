@@ -11,6 +11,7 @@ from sqlalchemy import text
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.models import GenusDefinitionFact
@@ -80,6 +81,9 @@ async def test_c27262_source_projection_is_conserved_through_current_layers() ->
         "http://localhost:7888", query_timeout=180.0
     ) as client:
         counted = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, evidence.source_identity
+        )
         result = await _decompose_one(
             _CONCEPT,
             cast("Any", counted),
@@ -87,6 +91,8 @@ async def test_c27262_source_projection_is_conserved_through_current_layers() ->
             label_lookup=no_label_match,
             source_identity=evidence.source_identity,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            diagnostic_source=diagnostic_source,
+            detector_identity=evidence.detector_identity,
             walker_max_depth=5,
         )
 

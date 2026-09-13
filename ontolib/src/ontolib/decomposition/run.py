@@ -35,7 +35,7 @@ import asyncio
 import hashlib
 import json
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -44,6 +44,7 @@ from uuid import UUID, uuid4
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
     axes,
+    axis_diagnostics,
     complete_definition,
     constituent_index,
     detector,
@@ -51,7 +52,9 @@ from ontolib.decomposition import (
     nlp_fallback,
     stated_queries,
 )
-from ontolib.decomposition import filler_selection as fs
+from ontolib.decomposition import (
+    filler_selection as fs,
+)
 from ontolib.decomposition import (
     scope as hierarchy_scope,
 )
@@ -77,6 +80,11 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     ConceptOutcome,
     Decomposition,
+)
+from ontolib.decomposition.projection_validity import (
+    ProjectionAssessment,
+    UnknownProjectionEvidence,
+    freeze_projection_assessments,
 )
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
@@ -109,7 +117,7 @@ _PROGRESS_HEARTBEAT_SECONDS = 15.0
 _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES = 20_000
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping, Sequence
+    from collections.abc import Collection, Sequence
     from pathlib import Path
 
     from ontolib.decomposition.constituent_index import LabelLookup
@@ -561,6 +569,41 @@ def _semantic_type_resolver(
     return resolve
 
 
+def _projection_keys(plan: fs.RoutedPlan) -> set[tuple[str, str]]:
+    routed = {
+        (occurrence.normalized_axis, occurrence.restriction.filler_code)
+        for occurrence in plan.occurrences
+    }
+    morphologies = {
+        (axes.MORPHOLOGY_AXIS, filler) for filler in plan.parent_morphologies
+    }
+    return routed | morphologies
+
+
+def _projection_assessments(
+    plan: fs.RoutedPlan,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    detector_identity: str,
+) -> Mapping[tuple[str, str], ProjectionAssessment]:
+    keys = _projection_keys(plan)
+    atomicity_by_filler = {
+        filler: UnknownProjectionEvidence(
+            status="unknown",
+            reason="not-classified-for-issue-replay",
+            filler_code=filler,
+            detector_identity=detector_identity,
+        )
+        for _axis, filler in keys
+    }
+    return freeze_projection_assessments(
+        ProjectionAssessment(
+            axis_range=diagnostic_source.classify(axis=axis, filler_code=filler),
+            atomicity=atomicity_by_filler[filler],
+        )
+        for axis, filler in keys
+    )
+
+
 async def _routed_selection(
     code: str,
     client: DecompositionSparqlClient,
@@ -569,6 +612,8 @@ async def _routed_selection(
     semantic_type_of: Callable[[str], str | None],
     source_identity: str,
     collapse_policy: CollapseVetoPolicy,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    detector_identity: str,
 ) -> fs.RoutedSelection:
     routed_plan = fs.build_routed_plan(
         roles,
@@ -600,9 +645,12 @@ async def _routed_selection(
     )
     part_of_pairs = await stated_queries.resolve_part_of_pairs(client, r82_codes)
     part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
-    return fs.select_routed_plan(
+    return fs.select_assessed_routed_plan(
         routed_plan,
         extract.make_is_ancestor(ancestor_pairs),
+        assessments=_projection_assessments(
+            routed_plan, diagnostic_source, detector_identity
+        ),
         is_part_of=lambda part, whole: (part, whole) in part_of,
     )
 
@@ -615,6 +663,8 @@ async def _decompose_one(
     label_lookup: LabelLookup,
     source_identity: str,
     collapse_policy: CollapseVetoPolicy,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    detector_identity: str,
     walker_max_depth: int = 5,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
@@ -649,6 +699,8 @@ async def _decompose_one(
         _semantic_type_resolver(semantic_type_of),
         source_identity,
         collapse_policy,
+        diagnostic_source,
+        detector_identity,
     )
     role_constituents = list(routed_selection.constituents)
 
@@ -722,6 +774,7 @@ class _RunSetup:
         collapse_policy: CollapseVetoPolicy,
         pending: list[str],
         labels: dict[str, str],
+        diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     ) -> None:
         self.run_id = run_id
         self.source_snapshot = source_snapshot
@@ -729,6 +782,7 @@ class _RunSetup:
         self.collapse_policy = collapse_policy
         self.pending = list(pending)
         self.labels = dict(labels)
+        self.diagnostic_source = diagnostic_source
 
 
 @dataclass(frozen=True, slots=True)
@@ -956,6 +1010,7 @@ async def _prepare_run(
     snapshot: NcitSourceSnapshot,
     collapse_policy: CollapseVetoPolicy,
     fresh_worklist: tuple[str, ...] | None,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
 ) -> _RunSetup:
     """Admit exactly one source-bound worklist through the shared DB boundary."""
     if config.sample_manifest is not None and total_limit is not None:
@@ -1000,6 +1055,7 @@ async def _prepare_run(
         collapse_policy=collapse_policy,
         pending=pending,
         labels=labels,
+        diagnostic_source=diagnostic_source,
     )
 
 
@@ -1023,6 +1079,8 @@ async def _process_work_item(
             label_lookup=label_lookup,
             source_identity=setup.source_snapshot.source_identity,
             collapse_policy=setup.collapse_policy,
+            diagnostic_source=setup.diagnostic_source,
+            detector_identity=setup.fingerprint.routing_implementation_identity,
             walker_max_depth=walker_max_depth,
         )
         await provenance.complete_work_item(
@@ -2047,6 +2105,9 @@ async def run_pipeline(
         snapshot=snapshot,
         collapse_policy=active_collapse_policy,
         fresh_worklist=fresh_worklist,
+        diagnostic_source=await axis_diagnostics.read_axis_diagnostic_source(
+            client, snapshot.source_identity
+        ),
     )
 
     try:

@@ -18,11 +18,11 @@ from ontolib.decomposition.filler_selection import (
     STAGE_SYSTEM_CODES,
     RoutedOccurrence,
     _disposition,
+    _reduce_routed_plan,
     build_routed_plan,
     filter_excluded,
     most_specific,
     route_axis,
-    select_routed_plan,
 )
 from ontolib.decomposition.models import (
     OccurrenceDisposition,
@@ -47,7 +47,7 @@ def select_constituents(*args: Any, **kwargs: Any):
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
     return list(
-        select_routed_plan(
+        _reduce_routed_plan(
             plan,
             is_ancestor,
             is_part_of=kwargs.pop("is_part_of", None),

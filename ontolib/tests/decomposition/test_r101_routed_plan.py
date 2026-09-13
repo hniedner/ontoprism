@@ -11,8 +11,8 @@ from ontolib.decomposition.collapse_policy import (
     CollapseVetoPolicy,
 )
 from ontolib.decomposition.filler_selection import (
+    _reduce_routed_plan,
     build_routed_plan,
-    select_routed_plan,
 )
 from ontolib.decomposition.models import RoleRestriction
 
@@ -66,7 +66,7 @@ def test_routed_occurrence_plan_drives_query_groups_and_r82_dispositions() -> No
 
     assert plan.comparison_groups == (("op:AssociatedRegion", ("C12418", "C13063")),)
     assert plan.specificity_groups == plan.comparison_groups
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda _broader, _narrower: False,
         is_part_of=lambda part, whole: (part, whole) == ("C13063", "C12418"),
@@ -132,7 +132,7 @@ def test_unknown_semantics_and_unknown_roles_are_never_specificity_collapsed() -
     )
 
     assert plan.comparison_groups == ()
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda broader, narrower: (broader, narrower) in {("C1", "C2"), ("C3", "C4")},
         is_part_of=lambda part, whole: (part, whole) == ("C2", "C1"),
@@ -166,7 +166,7 @@ def test_unknown_r101_does_not_block_collapse_inside_known_region_partition() ->
     assert plan.specificity_groups == (("op:AssociatedRegion", ("C1", "C2")),)
     assert plan.comparison_groups == plan.specificity_groups
 
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda _broader, _narrower: False,
         is_part_of=lambda part, whole: (part, whole) == ("C2", "C1"),
@@ -196,7 +196,7 @@ def test_three_node_specificity_cycle_fails_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="cycle"):
-        select_routed_plan(
+        _reduce_routed_plan(
             plan,
             lambda broader, narrower: (
                 (broader, narrower) in {("C1", "C2"), ("C2", "C3"), ("C3", "C1")}
@@ -217,7 +217,7 @@ def test_transitive_collapse_disposition_names_the_surviving_leaf() -> None:
         source_identity=_SOURCE,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda broader, narrower: (
             (broader, narrower) in {("C2", "C1"), ("C1", "C9"), ("C2", "C9")}
@@ -244,7 +244,7 @@ def test_mixed_chain_collapses_to_terminal_with_truthful_path() -> None:
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
 
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda broader, narrower: (broader, narrower) == ("C1", "C2"),
         is_part_of=lambda part, whole: (part, whole) == ("C3", "C2"),
@@ -284,7 +284,7 @@ def test_known_nonexempt_ambiguity_has_axis_bound_review_group() -> None:
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
 
-    result = select_routed_plan(plan, lambda _broader, _narrower: False)
+    result = _reduce_routed_plan(plan, lambda _broader, _narrower: False)
 
     assert {(row.needs_review, row.group) for row in result.constituents} == {
         (True, "op:CellType")
@@ -315,7 +315,7 @@ def test_r82_reverse_cross_axis_and_nonlocation_relations_do_not_collapse() -> N
     assert plan.specificity_groups == (("op:CellType", ("C4", "C5")),)
     assert plan.comparison_groups == ()
 
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda _broader, _narrower: False,
         is_part_of=lambda part, whole: (
@@ -353,7 +353,7 @@ def test_mutual_broader_relation_fails_closed_in_eligible_partition() -> None:
     )
 
     with pytest.raises(ValueError, match=r"cycle|mutually broader"):
-        select_routed_plan(
+        _reduce_routed_plan(
             plan,
             lambda _broader, _narrower: False,
             is_part_of=lambda part, whole: (
@@ -427,7 +427,7 @@ def test_live_veto_retention_carries_exact_policy_decision_evidence() -> None:
         collapse_policy=policy,
     )
 
-    result = select_routed_plan(
+    result = _reduce_routed_plan(
         plan,
         lambda broader, narrower: (broader, narrower) == ("C1", "C2"),
     )

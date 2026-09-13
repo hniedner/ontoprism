@@ -798,7 +798,7 @@ def _select_axis_partition(
     return constituents, dispositions
 
 
-def select_routed_plan(
+def _reduce_routed_plan(
     plan: RoutedPlan,
     is_ancestor: IsAncestor,
     *,
@@ -875,6 +875,8 @@ def _occurrences_by_projection_key(
         result[(occurrence.normalized_axis, occurrence.restriction.filler_code)].append(
             occurrence
         )
+    for filler in plan.parent_morphologies:
+        result[(axes.MORPHOLOGY_AXIS, filler)]
     return result
 
 
@@ -919,6 +921,16 @@ def _projection_decisions(
     )
 
 
+def _retained_parent_morphologies(
+    plan: RoutedPlan, accepted: set[tuple[str, str]]
+) -> tuple[str, ...]:
+    return tuple(
+        filler
+        for filler in plan.parent_morphologies
+        if (axes.MORPHOLOGY_AXIS, filler) in accepted
+    )
+
+
 def _assessed_plan(
     plan: RoutedPlan,
     assessments: Mapping[tuple[str, str], ProjectionAssessment],
@@ -938,7 +950,7 @@ def _assessed_plan(
     )
     assessed = RoutedPlan(
         occurrences=occurrences,
-        parent_morphologies=plan.parent_morphologies,
+        parent_morphologies=_retained_parent_morphologies(plan, accepted),
         specificity_groups=_comparison_groups(occurrences, location_only=False),
         comparison_groups=_comparison_groups(occurrences, location_only=True),
         protected_pairs=frozenset(
@@ -959,7 +971,7 @@ def select_assessed_routed_plan(
 ) -> RoutedSelection:
     """Apply complete validity decisions after routing and before reduction."""
     assessed, decisions = _assessed_plan(plan, assessments)
-    selected = select_routed_plan(assessed, is_ancestor, is_part_of=is_part_of)
+    selected = _reduce_routed_plan(assessed, is_ancestor, is_part_of=is_part_of)
     return RoutedSelection(
         constituents=selected.constituents,
         dispositions=selected.dispositions,

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
+from test_support.projection import unknown_axis_diagnostic_source
 
 from ontolib.decomposition import stated_queries
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
@@ -39,7 +40,10 @@ from ontolib.decomposition.extract import (
     part_of_pairs_from_rows,
     semantic_type_of_from_rows,
 )
-from ontolib.decomposition.filler_selection import build_routed_plan, select_routed_plan
+from ontolib.decomposition.filler_selection import (
+    _reduce_routed_plan,
+    build_routed_plan,
+)
 from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
@@ -1915,7 +1919,7 @@ def select_constituents(*args: Any, **kwargs: Any):
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
     return list(
-        select_routed_plan(
+        _reduce_routed_plan(
             plan,
             is_ancestor,
             is_part_of=kwargs.pop("is_part_of", None),
@@ -1929,4 +1933,6 @@ async def _decompose_one(*args: Any, **kwargs: Any):
         **kwargs,
         source_identity="0" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
+        detector_identity="0" * 64,
     )
