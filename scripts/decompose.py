@@ -25,6 +25,11 @@ from typing import Annotated
 
 import typer
 
+# ruff: noqa: E402 -- source paths must be installed before application imports
+
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "ontolib/src"), str(_ROOT / "backend/src")]
+
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.logging_config import get_logger
@@ -334,6 +339,13 @@ def main(
             sample_manifest,
         )
     )
+    residual_rate = metrics.residual_precoordination
+    residual_summary = (
+        f"{residual_rate:.2%} "
+        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        if residual_rate is not None
+        else f"unavailable (unknown={metrics.residual_precoordination_unknown_count})"
+    )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
         f"residual={metrics.residual} "
@@ -342,8 +354,7 @@ def main(
         f"minted={metrics.minted_count} "
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
-        f"residual_precoordination={metrics.residual_precoordination:.2%} "
-        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        f"residual_precoordination={residual_summary}"
     )
 
 

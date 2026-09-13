@@ -284,6 +284,7 @@ class RunMetrics:
         atomic_noop: int = 0,
         unknown_outcome: int = 0,
         residual_precoordinated_count: int = 0,
+        residual_precoordination_unknown_count: int = 0,
         minted_count: int = 0,
         complete_definition_count: int = 0,
         complete_fact_count: int = 0,
@@ -300,6 +301,9 @@ class RunMetrics:
         self.atomic_noop = atomic_noop
         self.unknown_outcome = unknown_outcome
         self.residual_precoordinated_count = residual_precoordinated_count
+        self.residual_precoordination_unknown_count = (
+            residual_precoordination_unknown_count
+        )
         self.minted_count = minted_count
         self.complete_definition_count = complete_definition_count
         self.complete_fact_count = complete_fact_count
@@ -322,12 +326,14 @@ class RunMetrics:
         return self.decomposed / self.total_in_scope
 
     @property
-    def residual_precoordination(self) -> float:
+    def residual_precoordination(self) -> float | None:
         """D37: fraction of decomposed concepts that are residually pre-coordinated.
 
         Detector-relative (see the class docstring). ``0.0`` when nothing decomposed —
         honestly zero, not undefined.
         """
+        if self.residual_precoordination_unknown_count:
+            return None
         if self.decomposed == 0:
             return 0.0
         return self.residual_precoordinated_count / self.decomposed
@@ -635,7 +641,7 @@ async def _precoordinated_fillers(
     *,
     walker_max_depth: int,
     progress: Callable[[int, int, str], None] | None = None,
-) -> set[str]:
+) -> tuple[set[str], set[str]]:
     """The constituent filler codes that are themselves pre-coordinated (D37).
 
     Every distinct store-resident filler is classified once, by the SAME detector that
@@ -646,22 +652,37 @@ async def _precoordinated_fillers(
     """
     fillers = _store_resident_constituent_fillers(decompositions)
     if not fillers:
-        return set()
+        return set(), set()
     labels = await get_labels(fillers) if get_labels is not None else {}
     precoordinated: set[str] = set()
+    unknown: set[str] = set()
     for index, filler in enumerate(fillers):
-        if progress is not None:
-            progress(index, len(fillers), filler)
-        if await _is_precoordinated_filler(
-            filler,
-            client,
-            label=labels.get(filler),
-            walker_max_depth=walker_max_depth,
-        ):
-            precoordinated.add(filler)
-        if progress is not None:
-            progress(index + 1, len(fillers), filler)
-    return precoordinated
+        _report_filler_progress(progress, index, len(fillers), filler)
+        try:
+            if await _is_precoordinated_filler(
+                filler,
+                client,
+                label=labels.get(filler),
+                walker_max_depth=walker_max_depth,
+            ):
+                precoordinated.add(filler)
+        except complete_definition.UnsupportedDefinitionConstructorError:
+            logger.warning(
+                "residual-precoordination is unknown for filler_code=%s", filler
+            )
+            unknown.add(filler)
+        _report_filler_progress(progress, index + 1, len(fillers), filler)
+    return precoordinated, unknown
+
+
+def _report_filler_progress(
+    progress: Callable[[int, int, str], None] | None,
+    completed: int,
+    total: int,
+    filler: str,
+) -> None:
+    if progress is not None:
+        progress(completed, total, filler)
 
 
 async def _is_precoordinated_filler(
@@ -678,6 +699,8 @@ async def _is_precoordinated_filler(
             label=label,
             walker_max_depth=walker_max_depth,
         )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        raise
     except Exception:
         logger.exception(
             "residual-precoordination detection failed for filler_code=%s", filler
@@ -1133,7 +1156,7 @@ async def _reconstructed_metrics(
         metrics.projection_loss_rate = (
             metrics.projection_loss_count / metrics.complete_fact_count
         )
-    precoordinated = await _precoordinated_fillers(
+    precoordinated, unknown_fillers = await _precoordinated_fillers(
         decompositions,
         client,
         get_labels,
@@ -1142,6 +1165,9 @@ async def _reconstructed_metrics(
     )
     metrics.residual_precoordinated_count = _residual_count(
         decompositions, precoordinated_fillers=precoordinated
+    )
+    metrics.residual_precoordination_unknown_count = _residual_count(
+        decompositions, precoordinated_fillers=unknown_fillers
     )
     metrics.pct_decomposed = metrics.coverage
     return metrics, decompositions
@@ -1219,6 +1245,9 @@ def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
         "atomic_noop": metrics.atomic_noop,
         "unknown_outcome": metrics.unknown_outcome,
         "residual_precoordinated_count": metrics.residual_precoordinated_count,
+        "residual_precoordination_unknown_count": (
+            metrics.residual_precoordination_unknown_count
+        ),
         "minted_count": metrics.minted_count,
         "complete_definition_count": metrics.complete_definition_count,
         "complete_fact_count": metrics.complete_fact_count,

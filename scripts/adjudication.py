@@ -11,6 +11,11 @@ import sys
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 
+# ruff: noqa: E402 -- source paths must be installed before application imports
+
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "ontolib/src"), str(_ROOT / "backend/src")]
+
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.branches import DecompositionBranch
@@ -114,19 +119,16 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         write_canonical_json,
         write_evaluation_report,
     )
-
 try:
     from scripts.research.current_evidence import generate_current_evidence
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.current_evidence import generate_current_evidence
-
 try:
     from scripts.research.axis_diagnostic_report import (
         generate_axis_diagnostic_report,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.axis_diagnostic_report import generate_axis_diagnostic_report
-
 try:
     from scripts.research.specialist_review_packets import (
         generate_specialist_review_packets,
@@ -141,7 +143,6 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         validate_specialist_review_packet_directory,
         validate_specialist_review_row,
     )
-
 try:
     from scripts.research.group_review_packet import (
         admit_group_review_rationale_evidence,
@@ -596,7 +597,6 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                 raise ValueError(
                     "live source does not match the explicit source manifest"
                 )
-
             store = ProvenanceStore(make_sessionmaker(engine))
             baseline = load_corpus_baseline(args.baseline)
             old_run = await store.completed_run_for_evidence(args.run_id)
