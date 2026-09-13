@@ -35,8 +35,8 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
 
     from ontolib.decomposition.r101_conservation import (
+        HistoricalR101ConservationReport,
         LedgerOccurrence,
-        R101ConservationReport,
     )
 
 _SHA256 = r"^[0-9a-f]{64}$"
@@ -483,7 +483,7 @@ def _guidance_payload(source_release: str) -> dict[str, object]:
     }
 
 
-def _bindings(report: R101ConservationReport) -> ReviewBindings:
+def _bindings(report: HistoricalR101ConservationReport) -> ReviewBindings:
     return ReviewBindings.model_validate(
         {name: getattr(report, name) for name in ReviewBindings.model_fields},
         strict=True,
@@ -691,7 +691,7 @@ def _validated_label_row(row: dict[str, str]) -> tuple[str, str]:
 
 
 def _review_groups(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
 ) -> tuple[
     tuple[LedgerOccurrence, ...], dict[tuple[str, str, str], list[LedgerOccurrence]]
 ]:
@@ -719,7 +719,7 @@ def _review_group_key(row: LedgerOccurrence) -> tuple[str, str, str]:
 
 
 def _validate_review_group_inventory(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     covered: tuple[LedgerOccurrence, ...],
     groups: dict[tuple[str, str, str], list[LedgerOccurrence]],
 ) -> None:
@@ -797,7 +797,9 @@ def _review_paths(
     )
 
 
-def _pattern_id(report: R101ConservationReport, key: tuple[str, str, str]) -> str:
+def _pattern_id(
+    report: HistoricalR101ConservationReport, key: tuple[str, str, str]
+) -> str:
     axis, broader, retained = key
     return (
         "r101-"
@@ -821,7 +823,7 @@ def _risk_summary(rows: list[LedgerOccurrence], paths: tuple[ReviewPath, ...]) -
 
 
 def _build_rows(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     groups: dict[tuple[str, str, str], list[LedgerOccurrence]],
     labels: dict[str, str],
 ) -> tuple[
@@ -963,7 +965,7 @@ def _build_occurrence(
 
 
 def _build_disease_proposition(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     pattern_id: str,
     pattern_number: int,
     key: tuple[str, str, str],
@@ -1016,7 +1018,7 @@ def _disease_risk(rows: list[LedgerOccurrence]) -> str:
 
 
 async def build_r101_review_packet(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     source_manifest: Path,
     label_source: ReviewLabelSource,
 ) -> R101ReviewPacket:
@@ -1756,7 +1758,7 @@ class DecisionExpansionDryRun(_StrictModel):
 
 
 def _validate_registry_bindings(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     packet: R101ReviewPacket,
     registry: R101DecisionRegistry,
 ) -> None:
@@ -1791,7 +1793,7 @@ def _validate_registry_bindings(
 
 
 def dry_run_r101_decision_expansion(
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     packet: R101ReviewPacket,
     registry: R101DecisionRegistry,
 ) -> DecisionExpansionDryRun:

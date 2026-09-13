@@ -13,7 +13,7 @@ from ontolib.decomposition.collapse_policy import (
     load_packaged_collapse_veto_policy,
 )
 from ontolib.decomposition.fanout_baseline import _CountingClient
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 from ontolib.decomposition.r101_review import (
     QLeverReviewLabels,
     build_r101_review_packet,
@@ -40,7 +40,7 @@ class _RecordedLabels:
 async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
     tmp_path: Path,
 ) -> None:
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
     )
     manifest_path = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
@@ -92,7 +92,7 @@ async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
 @pytest.mark.integration
 @pytest.mark.full_store
 async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
     )
     policy = load_packaged_collapse_veto_policy()

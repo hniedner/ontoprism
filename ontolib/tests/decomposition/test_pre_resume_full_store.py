@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from scripts.adjudication import main as adjudication_main
+from scripts.decompose import _make_label_lookup
+from scripts.research.current_evidence import CurrentEngineEvidence, _concepts
+from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition.collapse_policy import (
+    NO_COLLAPSE_VETO_POLICY,
+    load_packaged_collapse_veto_policy,
+)
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.fanout_baseline import load_fanout_baseline
 from ontolib.decomposition.pre_resume import (
@@ -15,22 +24,236 @@ from ontolib.decomposition.pre_resume import (
     affected_missing_p106,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.provenance_models import WorkItemOutcome
+from ontolib.decomposition.r101_comparator import (
+    CurrentV5ComparatorFingerprint,
+    HistoricalV4ComparatorFingerprint,
+)
 from ontolib.decomposition.r101_conservation import (
     load_r101_conservation_report,
     r82_path_document,
 )
+from ontolib.decomposition.run import _decompose_one
+from ontolib.decomposition.sampling import load_sample_manifest
+from ontolib.decomposition.semantic_identity import routing_implementation_identity
+from ontolib.decomposition.source_preflight import run_source_preflight
 from ontolib.decomposition.stated_queries import (
     resolve_part_of_pairs,
     resolve_part_of_paths,
 )
 from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Collection
 
 RUN_ID = "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"
+PRECHANGE_FULL_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
+CURRENT_FULL_RUN = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
 COMPLETED_FULL_RUN = "completed-full-run"
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_comparator_transport_uses_six_postgres_queries() -> None:
+    engine = make_engine(get_settings().database_url)
+    query_count = 0
+
+    def count_query(*_args: object) -> None:
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count_query)
+    try:
+        store = ProvenanceStore(make_sessionmaker(engine))
+        await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
+        await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
+        await store.r101_occurrence_ledger(PRECHANGE_FULL_RUN, CURRENT_FULL_RUN)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count_query)
+        await dispose_engine(engine)
+
+    assert query_count == 6
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_exact_comparator_pair_preserves_observed_fingerprints_and_worklist() -> (
+    None
+):
+    engine = make_engine(get_settings().database_url)
+    try:
+        store = ProvenanceStore(make_sessionmaker(engine))
+        old = await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
+        current = await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
+    finally:
+        await dispose_engine(engine)
+
+    assert isinstance(old.fingerprint, HistoricalV4ComparatorFingerprint)
+    assert isinstance(current.fingerprint, CurrentV5ComparatorFingerprint)
+    assert (
+        old.fingerprint_identity
+        == "3ee3c1f4d6b2b71606245c4471151b9eb43183f783a0c1919977871c7fa5ff57"
+    )
+    assert (
+        current.fingerprint_identity
+        == "aa392a7e9f58066e05094ae4adae6c2dd601f84a47310dca9af9c2ddac3b2fae"
+    )
+    assert old.worklist == current.worklist
+    assert len(old.worklist) == 15_633
+    worklist_identity = hashlib.sha256(
+        json.dumps(old.worklist, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert (
+        worklist_identity
+        == "4213999a3488eee5a93f4f7e509e322a18ba37f3955a72295c700dea7382e6f7"
+    )
+    assert (
+        current.fingerprint.routing_implementation_identity
+        == "aa777510e0ffc0a7cfc8c3682506c046300ed6749598b78504eb1ce8a3888608"
+    )
+    assert (
+        current.fingerprint.mixed_chain_inventory_identity
+        == "3fc473e9ce049c2c619be8b714f5bfb4cbf2dd7297a10ff8e1bfa00feb1ba0cd"
+    )
+    assert (
+        current.fingerprint.stage_sequence_identity
+        == "336b24467d4f054a0a37e665cb3038a28061d8d0af772e3d0e5ebf4515670807"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_exact_full_v4_v5_pair_enumerates_every_typed_non_r101_delta() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        ledger = await ProvenanceStore(
+            make_sessionmaker(engine)
+        ).r101_occurrence_ledger(
+            PRECHANGE_FULL_RUN,
+            CURRENT_FULL_RUN,
+        )
+    finally:
+        await dispose_engine(engine)
+
+    assert ledger.postgres_query_count == 2
+    assert ledger.non_r101_delta_evidence.old_run_id == PRECHANGE_FULL_RUN
+    assert ledger.non_r101_delta_evidence.new_run_id == CURRENT_FULL_RUN
+    evidence = ledger.non_r101_delta_evidence
+    assert (
+        len(evidence.rows),
+        len(evidence.metadata_deltas),
+        len(evidence.classified_rows),
+        evidence.raw_typed_delta_count,
+    ) == (2_097, 38_648, 0, 79_393)
+    assert evidence.raw_typed_delta_count == (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> None:
+    manifest = validate_ncit_sibling_manifest(
+        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    )
+    async with ncit_sparql_client("http://localhost:7888") as client:
+
+        async def read_definition(code: str):
+            return await read_complete_definition(client.select, code, max_depth=7)
+
+        result = await run_source_preflight(
+            ("C36081",),
+            read_definition=read_definition,
+            source_identity=manifest.source_identity,
+            reader_identity=routing_implementation_identity(),
+            query_identity=routing_implementation_identity(),
+            tool_identity=await client.version() or "missing-version",
+            walker_max_depth=7,
+            max_nodes=4096,
+        )
+
+    assert result.unsupported_codes == ("C36081",)
+    assert "owl:unionOf" in result.unsupported_reasons["C36081"]
+    assert result.malformed_codes == ()
+    assert result.overflow_codes == ()
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> None:
+    manifest = validate_ncit_sibling_manifest(
+        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    )
+    sample = load_sample_manifest(Path("samples/ncit-26.07d-m1-current-replay.json"))
+    expected = CurrentEngineEvidence.model_validate_json(
+        Path(
+            "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
+        ).read_bytes()
+    )
+    engine = make_engine(get_settings().database_url)
+    outcomes: list[WorkItemOutcome] = []
+    decompositions = []
+    try:
+        label_lookup = _make_label_lookup(NcitSearchIndex(make_sessionmaker(engine)))
+        async with ncit_sparql_client("http://localhost:7888") as client:
+            labels = await NcitGraphStore(client).labels_for(list(sample.codes))
+            for ordinal, code in enumerate(sample.codes):
+                result = await _decompose_one(
+                    code,
+                    cast("Any", client),
+                    label=labels.get(code),
+                    label_lookup=label_lookup,
+                    source_identity=manifest.source_identity,
+                    collapse_policy=load_packaged_collapse_veto_policy(),
+                    walker_max_depth=7,
+                )
+                decomposition = result.decomposition
+                if decomposition is not None:
+                    decompositions.append(decomposition)
+                outcomes.append(
+                    WorkItemOutcome(
+                        run_id="bounded-current-replay",
+                        concept_code=code,
+                        ordinal=ordinal,
+                        state="complete",
+                        outcome=result.outcome,
+                        semantic_type=(
+                            decomposition.semantic_type
+                            if decomposition is not None
+                            else next(iter(result.semantic_types), None)
+                        ),
+                        semantic_types=result.semantic_types,
+                        is_decomposed=result.outcome == "decomposed",
+                        is_residual=result.outcome == "residual",
+                        constituent_count=(
+                            len(decomposition.constituents)
+                            if decomposition is not None
+                            else 0
+                        ),
+                        minted_count=len(result.minted),
+                    )
+                )
+    finally:
+        await dispose_engine(engine)
+
+    actual = _concepts(outcomes, decompositions)
+    assert tuple(item.code for item in actual) == tuple(
+        item.code for item in expected.concepts
+    )
+    for actual_item, expected_item in zip(actual, expected.concepts, strict=True):
+        assert len(actual_item.constituents) == len(expected_item.constituents)
+        for actual_row, expected_row in zip(
+            actual_item.constituents, expected_item.constituents, strict=True
+        ):
+            assert actual_row == expected_row, (actual_item.code, actual_row.axis)
+        assert actual_item.model_dump(mode="json") == expected_item.model_dump(
+            mode="json"
+        ), actual_item.code
 
 
 class _RemoveOneP106:
@@ -41,6 +264,23 @@ class _RemoveOneP106:
     async def select(self, query: str, *, required_variables=()):
         rows = await self._client.select(query, required_variables=required_variables)
         return [row for row in rows if row.get("code") != self._removed_code]
+
+
+class _CountingClient:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.select_count = 0
+        self.select_once_count = 0
+
+    async def select(self, query: str, *, required_variables=()):
+        self.select_count += 1
+        return await self._client.select(query, required_variables=required_variables)
+
+    async def select_once(self, query: str, *, required_variables=()):
+        self.select_once_count += 1
+        return await self._client.select_once(
+            query, required_variables=required_variables
+        )
 
 
 @pytest.mark.integration
@@ -206,12 +446,110 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
         <= (len(definitions) * baseline.logical_select_count_budget)
     )
 
+    async def no_label_match(_surface: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client("http://localhost:7888") as client:
+        for code in baseline.concept_codes:
+            counted = _CountingClient(client)
+            result = await _decompose_one(
+                code,
+                cast("Any", counted),
+                label=None,
+                label_lookup=no_label_match,
+                source_identity=manifest.source_identity,
+                collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                walker_max_depth=7,
+            )
+            assert result.decomposition is not None
+            assert counted.select_count <= baseline.logical_select_count_budget + 3
+            assert counted.select_once_count <= baseline.select_once_r82_count_budget
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() -> None:
+    manifest = validate_ncit_sibling_manifest(
+        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    )
+    expected = {
+        "C6135": ("C12418", "C13063", "op:AssociatedRegion", "C13063"),
+        "C101539": ("C12418", "C13063", "op:AssociatedRegion", "C13063"),
+        "C4791": ("C12727", "C13004", "op:PrimarySite", "C12869"),
+    }
+
+    async def no_label_match(_surface: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client("http://localhost:7888") as client:
+        for code, (
+            broader,
+            retained_region,
+            collapsed_axis,
+            collapse_retained,
+        ) in expected.items():
+            result = await _decompose_one(
+                code,
+                cast("Any", client),
+                label=None,
+                label_lookup=no_label_match,
+                source_identity=manifest.source_identity,
+                collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                walker_max_depth=7,
+            )
+            decomposition = result.decomposition
+            assert decomposition is not None
+            definition = decomposition.complete_definition
+            assert definition is not None
+            r101_occurrence_ids = {
+                row.occurrence_id
+                for row in definition.occurrences
+                if row.role_code == "R101"
+            }
+            disposition_ids = {
+                row.source_occurrence_id
+                for row in decomposition.occurrence_dispositions
+                if row.source_occurrence_id in r101_occurrence_ids
+            }
+            assert disposition_ids == r101_occurrence_ids
+            assert ("op:AssociatedRegion", retained_region) in {
+                (row.axis, row.filler_code) for row in decomposition.constituents
+            }
+            assert ("op:AssociatedRegion", broader) not in {
+                (row.axis, row.filler_code) for row in decomposition.constituents
+            }
+            collapsed = [
+                row
+                for row in decomposition.occurrence_dispositions
+                if row.source_filler == broader
+                and row.normalized_axis == collapsed_axis
+            ]
+            assert collapsed
+            assert [
+                (
+                    row.kind,
+                    row.normalized_axis,
+                    row.retained_filler,
+                    row.r82_part,
+                    row.r82_whole,
+                )
+                for row in collapsed
+            ] == [
+                (
+                    "collapsed-r82",
+                    collapsed_axis,
+                    collapse_retained,
+                    collapse_retained,
+                    broader,
+                )
+            ] * len(collapsed)
+
 
 @pytest.mark.integration
 @pytest.mark.full_store
 async def test_tied_highest_fanout_ledgers_and_paths_match_generated_report() -> None:
     report = load_r101_conservation_report(
-        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
+        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
     )
     engine = make_engine(get_settings().database_url)
     try:

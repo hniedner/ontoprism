@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -25,6 +26,26 @@ ConceptOutcome = Literal[
     "atomic-no-op",
     "unknown",
 ]
+R101DispositionKind = Literal[
+    "retained-routed",
+    "retained-unknown",
+    "collapsed-is-a",
+    "collapsed-r82",
+    "collapsed-mixed",
+    "retained-policy-veto",
+]
+SpecificityRelationKind = Literal["is-a", "r82"]
+SemanticRoute = Literal[
+    "semantic-evidence-not-requested",
+    "missing-p106",
+    "p106-organ",
+    "p106-non-organ-anatomy",
+    "reviewed-primary-subsite",
+    "reviewed-lineage",
+    "reviewed-contextual-override",
+    "unknown-role",
+    "role-contract",
+]
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -33,6 +54,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _AXIS_OR_ROLE = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
 # A filler is an NCIt code or a minted proposal id (see decomposition.minting).
 _FILLER_CODE = re.compile(r"C[0-9]+|MINT-[0-9a-f]{12}")
+_MIN_MIXED_PATH_EDGES = 2
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -539,6 +561,7 @@ class RoleRestriction:
     anchoring_genus: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     source_occurrence_ids: tuple[str, ...] = ()
+    source_kind: Literal["stated", "synthetic"] = "synthetic"
 
     def __post_init__(self) -> None:
         for field_name in ("source_definition_ids", "source_occurrence_ids"):
@@ -591,6 +614,103 @@ class Constituent:
         object.__setattr__(self, "source_occurrence_ids", occurrence_ids)
         if occurrence_ids and not canonical:
             raise ValueError("source occurrence IDs require source definition IDs")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SpecificityPathEdge:
+    """One source-bound accepted edge in a transitive mixed specificity path."""
+
+    kind: SpecificityRelationKind
+    broader_code: str
+    narrower_code: str
+    source_identity: str
+
+    def __post_init__(self) -> None:
+        _require_code(self.broader_code, _CONCEPT_CODE, "broader_code")
+        _require_code(self.narrower_code, _CONCEPT_CODE, "narrower_code")
+        _require_sha256(self.source_identity, "source_identity")
+        if self.broader_code == self.narrower_code:
+            raise ValueError("specificity path edge must connect distinct fillers")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OccurrenceDisposition:
+    """The engine's exact route/reduction verdict for one source occurrence."""
+
+    kind: R101DispositionKind
+    source_occurrence_id: str
+    source_fact_id: str
+    normalized_axis: str
+    source_filler: str
+    retained_filler: str
+    semantic_route: SemanticRoute
+    semantic_type: str | None
+    r82_part: str | None = None
+    r82_whole: str | None = None
+    specificity_path: tuple[SpecificityPathEdge, ...] = ()
+    policy_decision_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.source_occurrence_id, "source_occurrence_id")
+        _require_sha256(self.source_fact_id, "source_fact_id")
+        _require_code(self.normalized_axis, _AXIS_OR_ROLE, "normalized_axis")
+        _require_code(self.source_filler, _CONCEPT_CODE, "source_filler")
+        _require_code(self.retained_filler, _CONCEPT_CODE, "retained_filler")
+        retained = self.kind.startswith("retained-")
+        if retained != (self.retained_filler == self.source_filler):
+            raise ValueError("retained filler equality differs from disposition")
+        _require_r82_disposition(self)
+        _require_specificity_path(self)
+        _require_policy_disposition(self)
+        if self.policy_decision_identity is not None:
+            _require_sha256(self.policy_decision_identity, "policy_decision_identity")
+
+
+def _require_r82_disposition(disposition: OccurrenceDisposition) -> None:
+    if disposition.kind == "collapsed-r82":
+        if (disposition.r82_part, disposition.r82_whole) != (
+            disposition.retained_filler,
+            disposition.source_filler,
+        ):
+            raise ValueError("collapsed R82 disposition requires directed endpoints")
+        return
+    if disposition.r82_part is not None or disposition.r82_whole is not None:
+        raise ValueError("only collapsed R82 dispositions carry R82 endpoints")
+
+
+def _require_specificity_path(disposition: OccurrenceDisposition) -> None:
+    path = disposition.specificity_path
+    if disposition.kind != "collapsed-mixed":
+        if path:
+            raise ValueError("only mixed collapse carries a specificity path")
+        return
+    if not _is_mixed_specificity_path(path):
+        raise ValueError("mixed collapse requires both specificity edge kinds")
+    if path[0].broader_code != disposition.source_filler:
+        raise ValueError("mixed specificity path does not start at source filler")
+    if path[-1].narrower_code != disposition.retained_filler:
+        raise ValueError("mixed specificity path does not end at retained filler")
+    if not _is_contiguous_specificity_path(path):
+        raise ValueError("mixed specificity path is not contiguous")
+
+
+def _is_mixed_specificity_path(path: tuple[SpecificityPathEdge, ...]) -> bool:
+    return len(path) >= _MIN_MIXED_PATH_EDGES and {edge.kind for edge in path} == {
+        "is-a",
+        "r82",
+    }
+
+
+def _is_contiguous_specificity_path(path: tuple[SpecificityPathEdge, ...]) -> bool:
+    return all(
+        left.narrower_code == right.broader_code for left, right in pairwise(path)
+    )
+
+
+def _require_policy_disposition(disposition: OccurrenceDisposition) -> None:
+    policy_veto = disposition.kind == "retained-policy-veto"
+    if policy_veto != (disposition.policy_decision_identity is not None):
+        raise ValueError("policy decision identity presence differs from disposition")
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,10 +820,14 @@ class Decomposition:
     semantic_type: str | None
     constituents: Sequence[Constituent] = ()
     complete_definition: CompleteDefinition | None = None
+    occurrence_dispositions: Sequence[OccurrenceDisposition] = ()
 
     def __post_init__(self) -> None:
         _require_code(self.code, _CONCEPT_CODE, "code")
         object.__setattr__(self, "constituents", tuple(self.constituents))
+        object.__setattr__(
+            self, "occurrence_dispositions", tuple(self.occurrence_dispositions)
+        )
         _validate_axis_cardinality(self.constituents)
         _validate_definition_link(
             self.code,

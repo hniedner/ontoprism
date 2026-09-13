@@ -23,7 +23,7 @@ from scripts.research.group_review_packet import (
     load_group_review_packet,
 )
 
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 
 pytestmark = pytest.mark.unit
 
@@ -55,7 +55,7 @@ def _packet() -> GroupReviewPacket:
     return build_group_review_packet(
         evidence=evidence,
         comparison=comparison,
-        r101_report=load_r101_conservation_report(_R101),
+        r101_report=load_historical_r101_review_report(_R101),
     )
 
 
@@ -159,6 +159,7 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         ("C101539", "C47817"),
         ("C132677", "C40557"),
         ("C132677", "C40989"),
+        ("C132677", "C41444"),
         ("C132677", "C48322"),
         ("C100054", "C36027"),
         ("C100054", "C8326"),
@@ -170,10 +171,6 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         if context.relation == "expected-emitted-review-bearing"
     }
     assert expected_review <= observed_review
-    c132677 = next(item for item in packet.concepts if item.code == "C132677")
-    assert ("op:ClinicalFinding", "C41444") in (
-        c132677.pair_relations.expected_not_emitted
-    )
     c100054 = next(item for item in packet.concepts if item.code == "C100054")
     assert not c100054.pair_relations.expected_not_emitted
 
@@ -266,7 +263,7 @@ def test_wrong_highest_fanout_normalized_partition_is_rejected() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=wrong,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
 
@@ -277,7 +274,7 @@ def test_packet_rejects_rebound_and_aliased_group_identity() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=rebound,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
     packet = _packet()

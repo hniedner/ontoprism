@@ -283,7 +283,7 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   covered only by a retained new R101 link and a replayable directed stated-R82 path. One-step and
   closure-only evidence remain distinct; report mechanics cannot authorize content or open the
   publication gate. The tracked report is mechanically complete but content-pending and blocked
-  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
   2026-08-19).
 - **R101 human review (D78):** the 3,291 R82-covered occurrences are frozen in a separate packet as
   162 endpoint patterns and 2,800 disease propositions. The workbook contains no occurrence audit

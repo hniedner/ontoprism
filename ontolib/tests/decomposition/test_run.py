@@ -17,27 +17,40 @@ from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
+    CompleteDefinitionError,
     UnsupportedDefinitionConstructorError,
 )
 from ontolib.decomposition.minting import MintedConcept
-from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    FreshAdmitted,
     NcitSourceSnapshot,
+    RefusalReason,
+    Refused,
+    ResidualFillerClassification,
+    ResumeAdmitted,
+    ResumeKind,
     RunFingerprint,
     RunOutcomeCounts,
+    RunStageCheckpoint,
     RunSummary,
+    stage_output_identity,
 )
 from ontolib.decomposition.publication import PublicationPreflightError
 from ontolib.decomposition.run import (
+    RunAdmissionRefusedError,
     RunConfig,
     RunMetrics,
     RunPublicationError,
     SourceIdentityChangedError,
+    SourcePreflightRejectedError,
     _CandidateResult,
     _new_run_id,
-    _precoordinated_fillers,
+    _prepare_run,
     _residual_count,
+    _resume_preflight,
     _store_resident_constituent_fillers,
     enumerate_in_scope_codes,
 )
@@ -49,6 +62,7 @@ from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     SampleConcept,
 )
+from ontolib.decomposition.source_preflight import run_source_preflight
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -337,9 +351,8 @@ def _install_publication_doubles(store: Any, state: dict[str, Any]) -> None:
     store.record_publication_failure = AsyncMock(side_effect=record_publication_failure)
 
 
-def _mock_provenance() -> Any:
-    store = MagicMock(spec=ProvenanceStore)
-    state: dict[str, Any] = {
+def _new_mock_run_state() -> dict[str, Any]:
+    return {
         "fingerprint": None,
         "pending": [],
         "decompositions": [],
@@ -357,11 +370,13 @@ def _mock_provenance() -> Any:
         "publication_artifact_path": None,
         "publication_predecessor": None,
         "publication_predecessor_captured": False,
+        "stage_events": [],
+        "stage_outputs": {},
+        "residual_fillers": {},
     }
 
-    _install_lifecycle_doubles(store, state)
-    _install_publication_doubles(store, state)
 
+def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
     async def create_run(
         run_id: str,
         ncit_version: str,
@@ -371,16 +386,16 @@ def _mock_provenance() -> Any:
         state["pending"] = list(fingerprint.worklist)
         del run_id, ncit_version
 
-    async def resume_run(
-        run_id: str,
-        expected: object,
-    ) -> RunFingerprint:
+    async def resume_run(run_id: str, expected: object) -> RunFingerprint:
         del run_id, expected
         fingerprint = state["fingerprint"]
         if fingerprint is None:
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
+                routing_implementation_identity="1" * 64,
+                mixed_chain_inventory_identity="2" * 64,
+                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",
@@ -418,7 +433,8 @@ def _mock_provenance() -> Any:
             state["semantic_excluded"] += 1
         elif outcome == "atomic-no-op":
             state["atomic_noop"] += 1
-        del run_id, code, semantic_types
+        state["pending"].remove(code)
+        del run_id, semantic_types
         state["minted"] += len(minted)
 
     async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
@@ -435,12 +451,190 @@ def _mock_provenance() -> Any:
     store.create_run = AsyncMock(side_effect=create_run)
     store.resume_run = AsyncMock(side_effect=resume_run)
     store.pending_codes = AsyncMock(side_effect=lambda _run_id: state["pending"])
+    store.unknown_outcome_codes = AsyncMock(return_value=())
     store.claim_work_item = AsyncMock(return_value=UUID(int=1))
     store.complete_work_item = AsyncMock(side_effect=complete_work_item)
     store.decompositions_for_run = AsyncMock(
         side_effect=lambda _run_id: state["decompositions"]
     )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
+
+
+def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def fingerprint_for_run(_run_id: str) -> RunFingerprint:
+        fingerprint = state["fingerprint"]
+        if fingerprint is None:
+            fingerprint = RunFingerprint(
+                source_identity="a" * 64,
+                collapse_policy_identity="0" * 64,
+                routing_implementation_identity="1" * 64,
+                mixed_chain_inventory_identity="2" * 64,
+                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+                branch="neoplasm",
+                scope_root="C3262",
+                scope_version="stated-genus-subclass-v1",
+                semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+                worklist=(),
+                algorithm_version="decomposition-v1",
+                config_version="axes-v1",
+                walker_max_depth=5,
+                output_mode="none",
+                load_mode="none",
+                emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+            )
+            state["fingerprint"] = fingerprint
+        return fingerprint
+
+    async def admit_run(
+        run_id: str,
+        _ncit_version: str,
+        fingerprint: RunFingerprint,
+        _execution: object,
+        *,
+        resume_run_id: str | None = None,
+    ) -> FreshAdmitted | ResumeAdmitted:
+        if resume_run_id is not None:
+            state["fingerprint"] = await fingerprint_for_run(resume_run_id)
+            return ResumeAdmitted(
+                run_id=resume_run_id,
+                resume_kind=ResumeKind.SEMANTIC,
+            )
+        state["fingerprint"] = fingerprint
+        state["pending"] = list(fingerprint.worklist)
+        return FreshAdmitted(run_id=run_id)
+
+    store.fingerprint_for_run = AsyncMock(side_effect=fingerprint_for_run)
+    store.admit_run = AsyncMock(side_effect=admit_run)
+
+
+def _install_stage_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def claim_stage(_run_id: str, stage: str, input_identity: str):
+        state["stage_events"].append(("claim", stage, input_identity))
+        if stage in state["stage_outputs"]:
+            return None
+        return UUID(int=len(state["stage_events"]))
+
+    async def complete_stage(
+        _run_id: str, stage: str, _claim: UUID, payload: dict[str, object]
+    ) -> str:
+        identity = stage_output_identity(payload)
+        state["stage_outputs"][stage] = (identity, payload)
+        state["stage_events"].append(("complete", stage, identity))
+        return identity
+
+    async def run_stages(_run_id: str):
+        rows = []
+        stage_names = (
+            "preflight",
+            "concept-workset",
+            "residual-classification",
+            "metrics",
+            "artifact",
+            "publication",
+        )
+        for ordinal, stage in enumerate(stage_names):
+            output = state["stage_outputs"].get(stage)
+            rows.append(
+                RunStageCheckpoint(
+                    run_id="run",
+                    stage=stage,
+                    ordinal=ordinal,
+                    state="complete" if output else "pending",
+                    attempt_count=1 if output else 0,
+                    input_identity=("a" * 64 if output else None),
+                    output_identity=(output[0] if output else None),
+                    output_payload=(output[1] if output else None),
+                    started_at=(datetime.now(UTC) if output else None),
+                    finished_at=(datetime.now(UTC) if output else None),
+                )
+            )
+        return tuple(rows)
+
+    store.claim_stage = AsyncMock(side_effect=claim_stage)
+    store.complete_stage = AsyncMock(side_effect=complete_stage)
+    store.fail_stage = AsyncMock()
+    store.run_stages = AsyncMock(side_effect=run_stages)
+
+
+def _install_residual_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def initialize_residual_fillers(
+        _run_id: str,
+        fillers: tuple[str, ...],
+        *,
+        source_identity: str,
+        detector_identity: str,
+    ) -> None:
+        for ordinal, filler in enumerate(sorted(fillers)):
+            state["residual_fillers"].setdefault(
+                filler,
+                {
+                    "ordinal": ordinal,
+                    "source_identity": source_identity,
+                    "detector_identity": detector_identity,
+                    "classification": None,
+                },
+            )
+
+    async def pending_residual_fillers(_run_id: str) -> list[str]:
+        return [
+            filler
+            for filler, value in state["residual_fillers"].items()
+            if value["classification"] is None
+        ]
+
+    async def complete_residual_filler(
+        _run_id: str,
+        filler: str,
+        _claim: UUID,
+        *,
+        definition_identity: str,
+        classification: str,
+        unsupported_reason: str | None,
+    ) -> None:
+        state["residual_fillers"][filler].update(
+            definition_identity=definition_identity,
+            classification=classification,
+            unsupported_reason=unsupported_reason,
+        )
+
+    async def residual_filler_classifications(_run_id: str):
+        return tuple(
+            ResidualFillerClassification(
+                run_id="run",
+                filler_code=filler,
+                ordinal=value["ordinal"],
+                source_identity=value["source_identity"],
+                definition_identity=value["definition_identity"],
+                detector_identity=value["detector_identity"],
+                classification=value["classification"],
+                unsupported_reason=value.get("unsupported_reason"),
+            )
+            for filler, value in state["residual_fillers"].items()
+            if value["classification"] is not None
+        )
+
+    store.initialize_residual_fillers = AsyncMock(
+        side_effect=initialize_residual_fillers
+    )
+    store.pending_residual_fillers = AsyncMock(side_effect=pending_residual_fillers)
+    store.claim_residual_filler = AsyncMock(return_value=UUID(int=100))
+    store.complete_residual_filler = AsyncMock(side_effect=complete_residual_filler)
+    store.fail_residual_filler = AsyncMock()
+    store.residual_filler_classifications = AsyncMock(
+        side_effect=residual_filler_classifications
+    )
+
+
+def _mock_provenance() -> Any:
+    store = MagicMock(spec=ProvenanceStore)
+    state = _new_mock_run_state()
+
+    _install_lifecycle_doubles(store, state)
+    _install_publication_doubles(store, state)
+    _install_work_doubles(store, state)
+    _install_admission_doubles(store, state)
+    _install_stage_doubles(store, state)
+    _install_residual_doubles(store, state)
     store._test_state = state
     return store
 
@@ -491,6 +685,9 @@ def _set_resume_worklist(
     provenance._test_state["fingerprint"] = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -505,6 +702,7 @@ def _set_resume_worklist(
         emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
     )
     provenance._test_state["pending"] = pending
+    provenance._test_state["atomic_noop"] = len(worklist) - len(pending)
 
 
 async def _stable_source_snapshot() -> NcitSourceSnapshot:
@@ -528,6 +726,95 @@ async def run_pipeline(
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         **kwargs,
     )
+
+
+@pytest.mark.unit
+async def test_resume_preflight_requires_an_explicit_run_identity() -> None:
+    with pytest.raises(RuntimeError, match="requires an explicit run id"):
+        await _resume_preflight(
+            RunConfig(branch="neoplasm"),
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            _source_snapshot(),
+        )
+
+
+@pytest.mark.unit
+async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) -> None:
+    config = RunConfig(
+        branch="neoplasm",
+        resume_from="run-1",
+        sample_manifest=_sample_manifest("C1"),
+        out=tmp_path / "review.ttl",
+    )
+
+    with pytest.raises(
+        SourcePreflightRejectedError,
+        match="sample manifest worklist does not match the persisted run",
+    ):
+        await _resume_preflight(
+            config,
+            cast("Any", _FakeClient(pages=[["C1"]])),
+            _mock_provenance(),
+            _source_snapshot(),
+        )
+
+
+@pytest.mark.unit
+async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> None:
+    config = RunConfig(
+        branch="neoplasm",
+        sample_manifest=_sample_manifest("C1"),
+        out=tmp_path / "review.ttl",
+    )
+
+    with pytest.raises(
+        ValueError, match="sample manifest and total_limit are mutually exclusive"
+    ):
+        await _prepare_run(
+            config,
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=None,
+            total_limit=1,
+            snapshot=_source_snapshot(),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            fresh_worklist=("C1",),
+        )
+
+
+@pytest.mark.unit
+async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
+    with pytest.raises(RuntimeError, match="run worklist was not preflighted"):
+        await _prepare_run(
+            RunConfig(branch="neoplasm"),
+            cast("Any", _FakeClient()),
+            _mock_provenance(),
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=None,
+            total_limit=None,
+            snapshot=_source_snapshot(),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            fresh_worklist=None,
+        )
+
+
+@pytest.mark.unit
+async def test_pipeline_reports_typed_database_admission_refusal() -> None:
+    provenance = _mock_provenance()
+    provenance.admit_run = AsyncMock(
+        return_value=Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+    )
+
+    with pytest.raises(
+        RunAdmissionRefusedError, match="admission refused: active_run_exists"
+    ):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
 
 
 @pytest.mark.unit
@@ -591,6 +878,51 @@ async def test_run_pipeline_rejects_endpoint_without_proved_version() -> None:
     with pytest.raises(SourceIdentityChangedError, match="version"):
         await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_run_pipeline_rejects_source_before_creating_run_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+
+    async def reject_malformed_constructor(*_args: object, **_kwargs: object) -> None:
+        raise CompleteDefinitionError("malformed source constructor")
+
+    monkeypatch.setattr(
+        run_module.complete_definition,
+        "read_complete_definition",
+        reject_malformed_constructor,
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="malformed=C1"):
+        await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    provenance.create_run.assert_not_awaited()
+    provenance.claim_stage.assert_not_awaited()
+    provenance.claim_work_item.assert_not_awaited()
+    provenance.fail_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_source_preflight_uses_the_production_definition_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    read_definition = AsyncMock(
+        return_value=CompleteDefinition(root_code="C1", facts=())
+    )
+    monkeypatch.setattr(
+        run_module.complete_definition,
+        "read_complete_definition",
+        read_definition,
+    )
+
+    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert read_definition.await_args_list[0].kwargs == {}
 
 
 @pytest.mark.unit
@@ -707,7 +1039,19 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert metrics.complete_fact_count == 2
     assert metrics.projected_fact_count == 2
     assert metrics.projection_loss_count == 0
-    provenance.create_run.assert_awaited_once()
+    assert [
+        event[1]
+        for event in provenance._test_state["stage_events"]
+        if event[0] == "complete"
+    ] == [
+        "preflight",
+        "concept-workset",
+        "residual-classification",
+        "metrics",
+        "artifact",
+        "publication",
+    ]
+    provenance.admit_run.assert_awaited_once()
     provenance.complete_work_item.assert_awaited_once()
     provenance.finish_run.assert_called_once()
     # dataclasses.asdict() doesn't serialize @property fields — pct_decomposed is a
@@ -811,6 +1155,10 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
             ]
         },
         ancestors=[{"ancestor": _iri("C12400"), "descendant": _iri("C12401")}],
+        semantic_type_of_rows=[
+            {"code": code, "st": "Body Part, Organ, or Organ Component"}
+            for code in ("C12400", "C12401")
+        ],
     )
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
@@ -820,6 +1168,12 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     ].constituents
     site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
+    (ancestor_query,) = [
+        query for query in client.queries if "rdfs:subClassOf+" in query
+    ]
+    assert "C12400" in ancestor_query
+    assert "C12401" in ancestor_query
+    assert "C3" not in ancestor_query
 
 
 @pytest.mark.unit
@@ -841,6 +1195,10 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
             "C13063": [("whole", "C12418")],
             **{f"C{9000 + hop}": [("whole", f"C{9001 + hop}")] for hop in range(9)},
         },
+        semantic_type_of_rows=[
+            {"code": code, "st": "Body Part, Organ, or Organ Component"}
+            for code in ("C12400", "C13063", "C12418")
+        ],
     )
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
@@ -858,7 +1216,7 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
 
 
 @pytest.mark.unit
-async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
+async def test_run_pipeline_fails_closed_on_cyclic_fillers() -> None:
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -881,15 +1239,8 @@ async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
     )
     provenance = _mock_provenance()
 
-    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
-
-    assert metrics.decomposed == 1
-    constituents = provenance.complete_work_item.await_args.kwargs[
-        "decomposition"
-    ].constituents
-    sites = [c for c in constituents if c.axis == "op:PrimarySite"]
-    assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
-    assert all(c.needs_review and not c.most_specific for c in sites)
+    with pytest.raises(ValueError, match=r"cycle|mutually broader"):
+        await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
 
 @pytest.mark.unit
@@ -908,6 +1259,10 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
             "C10000": [("whole", "C15000")],
             "C15000": [("whole", "C99999")],
         },
+        semantic_type_of_rows=[
+            {"code": code, "st": "Body Part, Organ, or Organ Component"}
+            for code in site_codes
+        ],
     )
     provenance = _mock_provenance()
 
@@ -1096,7 +1451,7 @@ async def test_run_pipeline_resume_skips_already_processed_codes() -> None:
     # Only C2 is newly processed; C1 is skipped. Neither is in scope here (no roles),
     # so this exercises the skip path rather than the extraction path.
     assert metrics.total_in_scope == 2
-    provenance.resume_run.assert_awaited_once()
+    provenance.admit_run.assert_awaited_once()
     provenance.create_run.assert_not_awaited()
 
 
@@ -1107,14 +1462,522 @@ async def test_run_pipeline_resume_with_matching_version_proceeds() -> None:
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 0
-    provenance.resume_run.assert_awaited_once()
+    provenance.admit_run.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_metrics_validation_failure_is_recorded_on_the_metrics_stage() -> None:
+    provenance = _mock_provenance()
+    provenance._test_state["atomic_noop"] = 1
+
+    with pytest.raises(ValueError, match="outcome counts do not sum"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    claimed_stages = [call.args[1] for call in provenance.claim_stage.await_args_list]
+    assert "metrics" in claimed_stages
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+
+
+def _checkpoint_setup() -> run_module._RunSetup:
+    return run_module._RunSetup(
+        run_id="checkpoint-run",
+        source_snapshot=_source_snapshot(),
+        fingerprint=RunFingerprint(
+            source_identity="a" * 64,
+            collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+            routing_implementation_identity="1" * 64,
+            mixed_chain_inventory_identity="2" * 64,
+            stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+            branch="neoplasm",
+            scope_root="C3262",
+            scope_version="stated-genus-subclass-v1",
+            semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+            worklist=("C1",),
+            total_limit=None,
+            algorithm_version="decomposition-v5",
+            config_version="nested-definition-v2",
+            walker_max_depth=7,
+            output_mode="none",
+            load_mode="none",
+            emitted_at=datetime(2026, 9, 9, tzinfo=UTC),
+        ),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        pending=[],
+        labels={},
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("state", "identity", "payload"),
+    [
+        ("pending", None, None),
+        ("complete", None, {}),
+        ("complete", "a" * 64, None),
+    ],
+)
+async def test_completed_checkpoint_requires_a_sealed_output(
+    state: str,
+    identity: str | None,
+    payload: dict[str, object] | None,
+) -> None:
+    provenance = MagicMock()
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="metrics",
+                state=state,
+                output_identity=identity,
+                output_payload=payload,
+            ),
+        )
+    )
+
+    with pytest.raises(RunStateError, match="is not complete"):
+        await run_module._completed_stage_output(provenance, "run", "metrics")
+
+
+@pytest.mark.unit
+async def test_completed_concept_checkpoint_skips_concept_processing() -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="concept-workset",
+                state="complete",
+                output_identity="b" * 64,
+                output_payload={"complete_count": 1},
+            ),
+        )
+    )
+
+    identity = await run_module._concept_workset_stage(
+        _checkpoint_setup(),
+        RunConfig(branch="neoplasm"),
+        MagicMock(),
+        provenance,
+        AsyncMock(return_value=None),
+        None,
+        "a" * 64,
+    )
+
+    assert identity == "b" * 64
+    provenance.pending_codes.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_completed_preflight_checkpoint_restores_its_typed_result() -> None:
+    result = await run_source_preflight(
+        (),
+        read_definition=AsyncMock(),
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=10,
+    )
+    payload = result.model_dump(mode="json", exclude_computed_fields=True)
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="preflight",
+                state="complete",
+                output_identity=result.identity,
+                output_payload=payload,
+            ),
+        )
+    )
+
+    identity = await run_module._preflight_stage(
+        _checkpoint_setup(),
+        RunConfig(branch="disease"),
+        MagicMock(),
+        provenance,
+    )
+
+    assert identity == result.identity
+
+
+@pytest.mark.unit
+async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None:
+    result = await run_source_preflight(
+        (),
+        read_definition=AsyncMock(),
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=10,
+        mixed_chain_inventory_identity="d" * 64,
+    )
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="preflight",
+                state="complete",
+                output_identity=result.identity,
+                output_payload=result.model_dump(
+                    mode="json", exclude_computed_fields=True
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="mixed-chain inventory"):
+        await run_module._preflight_stage(
+            _checkpoint_setup(),
+            RunConfig(
+                branch="neoplasm",
+                mixed_chain_inventory_path=Path(
+                    "ontolib/src/ontolib/decomposition/data/"
+                    "neoplasm_mixed_chain_inventory.json"
+                ),
+            ),
+            MagicMock(),
+            provenance,
+        )
+
+
+@pytest.mark.unit
+async def test_concept_checkpoint_fails_if_processing_leaves_pending_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
+    provenance.pending_codes = AsyncMock(return_value=["C1"])
+    provenance.fail_stage = AsyncMock()
+    monkeypatch.setattr(run_module, "_process_pending_work", AsyncMock())
+
+    with pytest.raises(RunStateError, match="non-complete work items") as error:
+        await run_module._concept_workset_stage(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            AsyncMock(return_value=None),
+            None,
+            "a" * 64,
+        )
+
+    assert str(error.value) == "concept stage completed with non-complete work items"
+    provenance.fail_stage.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_residual_materialization_rejects_an_unclaimable_filler() -> None:
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=None)
+
+    with pytest.raises(RunStateError, match="could not be claimed") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert str(error.value) == "residual filler 'C1' could not be claimed"
+
+
+@pytest.mark.unit
+async def test_residual_materialization_persists_classifier_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock()
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(CompleteDefinitionError, match="malformed") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert str(error.value) == "malformed"
+    provenance.fail_residual_filler.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_unsupported_residual_constructor_is_a_typed_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_module,
+        "_detect_concept",
+        AsyncMock(side_effect=UnsupportedDefinitionConstructorError("union")),
+    )
+
+    classification, identity, reason = await run_module._classify_residual_filler(
+        "C1",
+        MagicMock(),
+        label=None,
+        walker_max_depth=7,
+        source_identity="a" * 64,
+        detector_identity="b" * 64,
+    )
+
+    assert (classification, len(identity), reason) == ("unknown", 64, "union")
+
+
+@pytest.mark.unit
+async def test_residual_progress_then_incomplete_inventory_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_module, "_store_resident_constituent_fillers", lambda _items: {"C1"}
+    )
+    monkeypatch.setattr(
+        run_module, "_materialize_residual_filler", AsyncMock(return_value=None)
+    )
+    provenance = MagicMock()
+    provenance.initialize_residual_fillers = AsyncMock()
+    provenance.pending_residual_fillers = AsyncMock(return_value=["C1"])
+    provenance.residual_filler_classifications = AsyncMock(return_value=[])
+    progress: list[tuple[int, int, str]] = []
+
+    with pytest.raises(RunStateError, match="inventory is incomplete"):
+        await run_module._materialize_residual_classifications(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            [],
+            get_labels=None,
+            progress=lambda *event: progress.append(event),
+        )
+
+    assert progress == [(0, 1, "C1"), (1, 1, "C1")]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("claimed", [False, True])
+async def test_residual_stage_failure_is_recorded_only_for_a_new_claim(
+    claimed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=UUID(int=1) if claimed else None)
+    provenance.fail_stage = AsyncMock()
+    monkeypatch.setattr(
+        run_module,
+        "_base_run_data",
+        AsyncMock(side_effect=RunStateError("persisted outcomes unavailable")),
+    )
+
+    with pytest.raises(RunStateError, match="persisted outcomes unavailable"):
+        await run_module._residual_classification_stage(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            concept_identity="a" * 64,
+            get_labels=None,
+            residual_progress=None,
+        )
+
+    assert provenance.fail_stage.await_count == int(claimed)
+
+
+@pytest.mark.unit
+async def test_residual_checkpoint_reuse_rejects_changed_payload() -> None:
+    provenance = MagicMock()
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="residual-classification",
+                state="complete",
+                output_identity="c" * 64,
+                output_payload={"unknown_filler_codes": []},
+            ),
+        )
+    )
+
+    with pytest.raises(RunStateError, match="differs from filler classifications"):
+        await run_module._seal_residual_stage(
+            _checkpoint_setup(),
+            provenance,
+            None,
+            {"unknown_filler_codes": ["C1"]},
+        )
+
+
+@pytest.mark.unit
+async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
+    provenance.unknown_outcome_codes = AsyncMock(return_value=("C1",))
+    provenance.fail_stage = AsyncMock()
+
+    with pytest.raises(RunStateError, match="unknown outcome codes") as error:
+        await run_module._metrics_stage(
+            _checkpoint_setup(), provenance, RunMetrics(), "a" * 64, set()
+        )
+
+    assert str(error.value) == "unknown outcome codes do not match completion metrics"
+    provenance.fail_stage.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
+    provenance.unknown_outcome_codes = AsyncMock(return_value=())
+    provenance.complete_stage = AsyncMock(return_value="b" * 64)
+    identity, persisted = await run_module._metrics_stage(
+        _checkpoint_setup(), provenance, RunMetrics(), "a" * 64, set()
+    )
+    payload = provenance.complete_stage.await_args.args[3]
+    assert identity == "b" * 64
+
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="metrics",
+                state="complete",
+                output_identity="b" * 64,
+                output_payload=payload,
+            ),
+        )
+    )
+    assert await run_module._metrics_stage(
+        _checkpoint_setup(), provenance, RunMetrics(), "a" * 64, set()
+    ) == ("b" * 64, persisted)
+
+    provenance.run_stages.return_value[0].output_payload = {
+        **payload,
+        "publication_eligible": False,
+    }
+    with pytest.raises(RunStateError, match="differs from persisted run outputs"):
+        await run_module._metrics_stage(
+            _checkpoint_setup(), provenance, RunMetrics(), "a" * 64, set()
+        )
+
+
+@pytest.mark.unit
+async def test_completed_no_output_artifact_and_publication_are_reusable() -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="artifact",
+                state="complete",
+                output_identity="b" * 64,
+                output_payload={"output_mode": "none"},
+            ),
+        )
+    )
+    assert await run_module._artifact_stage(
+        _checkpoint_setup(),
+        RunConfig(branch="neoplasm"),
+        provenance,
+        [],
+        "a" * 64,
+    ) == ("b" * 64, None)
+
+    get_source_snapshot = AsyncMock()
+    await run_module._publication_stage(
+        _checkpoint_setup(),
+        RunConfig(branch="neoplasm"),
+        MagicMock(),
+        provenance,
+        artifact_identity="b" * 64,
+        publication=None,
+        decompositions=[],
+        persisted_metrics={},
+        get_source_snapshot=get_source_snapshot,
+    )
+    get_source_snapshot.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["missing", "changed"])
+def test_sealed_artifact_rejects_missing_or_changed_bytes(
+    mode: str, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging.ttl"
+    published = tmp_path / "published.ttl"
+    if mode == "changed":
+        published.write_text("changed", encoding="utf-8")
+
+    with pytest.raises(RunPublicationError, match="missing or changed"):
+        run_module._require_sealed_artifact((staging, published), {"sha256": "0" * 64})
+
+
+@pytest.mark.unit
+def test_sealed_artifact_accepts_its_unchanged_published_destination(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / "staging.ttl"
+    published = tmp_path / "published.ttl"
+    staging.write_text("sealed", encoding="utf-8")
+    payload = run_module._artifact_payload((staging, published))
+    staging.rename(published)
+
+    run_module._require_sealed_artifact((staging, published), payload)
+
+    assert published.read_text(encoding="utf-8") == "sealed"
+
+
+@pytest.mark.unit
+async def test_publication_checkpoint_failure_is_persisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_stage = AsyncMock()
+    monkeypatch.setattr(
+        run_module,
+        "_verify_final_source_snapshot",
+        AsyncMock(side_effect=SourceIdentityChangedError("changed")),
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="changed") as error:
+        await run_module._publication_stage(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            artifact_identity="a" * 64,
+            publication=None,
+            decompositions=[],
+            persisted_metrics={},
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert str(error.value) == "changed"
+    provenance.fail_stage.assert_awaited_once()
 
 
 @pytest.mark.unit
 async def test_run_pipeline_resume_with_no_prior_manifest_is_rejected() -> None:
     client = _FakeClient(pages=[[]], version="26.02d")
     provenance = _mock_provenance()
-    provenance.resume_run = AsyncMock(
+    provenance.fingerprint_for_run = AsyncMock(
         side_effect=RunStateError("decomposition run does not exist")
     )
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
@@ -1254,109 +2117,14 @@ def test_residual_precoordination_is_zero_when_nothing_decomposed() -> None:
 
 
 @pytest.mark.unit
-async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
-    """GATE LIVENESS through the REAL detector: a constituent filler that is itself
-    in-scope with >=2 defining roles comes back pre-coordinated, while an atomic filler
-    does not. This proves the metric can fire end-to-end (detection wiring), not only in
-    the pure counting logic — the difference the #73 vacuous-gate history turns on.
-    """
-    decompositions = [_decomp("C2000", "C2001", "C2002")]
-    client = _FakeClient(
-        semantic_types={
-            "C2001": ["Neoplastic Process"],  # compound: in scope + 2 roles
-            "C2002": ["Neoplastic Process"],  # atomic: in scope, no defining roles
-        },
-        roles={
-            "C2001": [
-                _role("R101", "Has_Primary_Site", "C3001"),
-                _role("R100", "Has_Associated_Site", "C3002"),
-            ],
-            "C2002": [],
-        },
+def test_residual_precoordination_is_unknown_when_a_filler_is_unclassifiable() -> None:
+    metrics = RunMetrics(
+        decomposed=4,
+        residual_precoordinated_count=1,
+        residual_precoordination_unknown_count=1,
     )
 
-    async def _labels(codes: list[str]) -> dict[str, str]:
-        return {c: f"label-{c}" for c in codes}
-
-    precoordinated = await _precoordinated_fillers(
-        decompositions, client, _labels, walker_max_depth=5
-    )
-    assert precoordinated == {"C2001"}
-    assert _residual_count(decompositions, precoordinated_fillers=precoordinated) == 1
-
-
-@pytest.mark.unit
-async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A store failure during the metric post-pass must surface LOUDLY, naming the
-    filler — never vanish into a quiet 0 (the #73 cardinal sin). The post-pass runs
-    outside the main loop's try/except, so it logs its own context then re-raises.
-    """
-
-    store_error = RuntimeError("store down")
-
-    class _BoomClient:
-        async def select(
-            self,
-            query: str,
-            *,
-            required_variables: Collection[str] = (),
-        ) -> list[dict[str, str | None]]:
-            del query, required_variables
-            raise store_error
-
-        async def version(self) -> str | None:
-            return "x"
-
-    decompositions = [_decomp("C1", "C9099")]
-    log_exception = MagicMock()
-    monkeypatch.setattr(run_module.logger, "exception", log_exception)
-    with pytest.raises(RuntimeError, match="store down") as raised:
-        await _precoordinated_fillers(
-            decompositions, _BoomClient(), None, walker_max_depth=5
-        )
-    assert raised.value is store_error
-    log_exception.assert_called_once_with(
-        "residual-precoordination detection failed for filler_code=%s", "C9099"
-    )
-
-
-@pytest.mark.unit
-async def test_precoordinated_fillers_fail_closed_on_unsupported_definitions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    error = UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
-
-    async def unsupported(*_args: object, **_kwargs: object) -> object:
-        raise error
-
-    monkeypatch.setattr(run_module, "_detect_concept", unsupported)
-
-    with pytest.raises(UnsupportedDefinitionConstructorError) as raised:
-        await _precoordinated_fillers(
-            [_decomp("C1", "C9099")], MagicMock(), None, walker_max_depth=5
-        )
-    assert raised.value is error
-
-
-@pytest.mark.unit
-async def test_precoordinated_fillers_reports_post_pass_progress() -> None:
-    decompositions = [_decomp("C1", "C2", "C3")]
-    events: list[tuple[int, int, str]] = []
-    client = _FakeClient(semantic_types={"C2": [], "C3": []})
-
-    await _precoordinated_fillers(
-        decompositions,
-        client,
-        None,
-        walker_max_depth=5,
-        progress=lambda completed, total, filler: events.append(
-            (completed, total, filler)
-        ),
-    )
-
-    assert events == [(0, 2, "C2"), (1, 2, "C2"), (1, 2, "C3"), (2, 2, "C3")]
+    assert metrics.residual_precoordination is None
 
 
 @pytest.mark.unit
@@ -1394,6 +2162,7 @@ async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     # Persist both numerator and derived rate so every read surface has one schema.
     persisted = provenance.finish_run.call_args.kwargs["metrics"]
     assert persisted["residual_precoordinated_count"] == 1
+    assert persisted["residual_precoordination_unknown_count"] == 0
     assert persisted["residual_precoordination"] == pytest.approx(1.0)
     assert set(persisted) == {
         "total_in_scope",
@@ -1403,6 +2172,7 @@ async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
         "atomic_noop",
         "unknown_outcome",
         "residual_precoordinated_count",
+        "residual_precoordination_unknown_count",
         "residual_precoordination",
         "minted_count",
         "complete_definition_count",
@@ -1559,6 +2329,9 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
         fingerprint=RunFingerprint(
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+            routing_implementation_identity="1" * 64,
+            mixed_chain_inventory_identity="2" * 64,
+            stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
             scope_version="stated-genus-subclass-v1",
@@ -1627,7 +2400,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
-    provenance.pending_codes = AsyncMock(return_value=["C0"])
+    provenance.pending_codes = AsyncMock(side_effect=[["C0"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
     provenance.complete_work_item = AsyncMock()
     provenance.decompositions_for_run = AsyncMock(return_value=[])
@@ -1636,6 +2409,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
             total_in_scope=1,
             decomposed=0,
             residual=0,
+            atomic_noop=1,
             minted_count=0,
         )
     )
@@ -1649,7 +2423,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
         get_source_snapshot=source,
     )
 
-    fingerprint = provenance.create_run.await_args.args[2]
+    fingerprint = provenance.admit_run.await_args.args[2]
     assert isinstance(fingerprint, RunFingerprint)
     assert fingerprint.worklist == ("C0",)
     assert fingerprint.source_identity == "a" * 64
@@ -1669,6 +2443,9 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1685,7 +2462,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     client = _FakeClient(pages=[["MUST-NOT-BE-ENUMERATED"]])
     provenance = _mock_provenance()
     provenance.resume_run = AsyncMock(return_value=fingerprint)
-    provenance.pending_codes = AsyncMock(return_value=["C1"])
+    provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
     provenance.complete_work_item = AsyncMock()
     provenance.decompositions_for_run = AsyncMock(return_value=[])
@@ -1694,6 +2471,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
             total_in_scope=2,
             decomposed=0,
             residual=0,
+            atomic_noop=2,
             minted_count=0,
         )
     )
@@ -1720,6 +2498,9 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
         schema_version=5,
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1752,9 +2533,9 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
         provenance,
     )
 
-    expected = provenance.resume_run.await_args.args[1]
+    expected = provenance.admit_run.await_args.args[3]
     assert metrics.total_in_scope == 2
-    assert expected.schema_version == 5
+    assert expected.schema_version == 1
     assert expected.sample_manifest_identity == sample.identity
     assert expected.config_version == "nested-definition-v2"
     assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)

@@ -44,6 +44,10 @@ class UnsupportedDefinitionConstructorError(CompleteDefinitionError):
     """A valid OWL constructor is outside the decomposition representation."""
 
 
+class DefinitionBoundExceededError(CompleteDefinitionError):
+    """A valid definition exceeds an explicit traversal or shape bound."""
+
+
 class SelectRows(Protocol):
     def __call__(
         self,
@@ -200,7 +204,7 @@ def _member_key(row: Row) -> Member:
 
 def _definition_position(row: Row) -> int:
     if row.get("overflow") in {"true", "1"}:
-        raise CompleteDefinitionError(
+        raise DefinitionBoundExceededError(
             f"definition exceeds the {_MAX_INTERSECTION_MEMBERS} member list bound"
         )
     try:
@@ -208,7 +212,7 @@ def _definition_position(row: Row) -> int:
     except ValueError as exc:
         raise CompleteDefinitionError("definition position is not an integer") from exc
     if position < 0 or position >= _MAX_INTERSECTION_MEMBERS:
-        raise CompleteDefinitionError("definition position exceeds list bound")
+        raise DefinitionBoundExceededError("definition position exceeds list bound")
     return position
 
 
@@ -239,7 +243,7 @@ def _linked_group_depths(
         )
         visiting.remove(expression)
         if resolved > _MAX_NESTING_DEPTH:
-            raise CompleteDefinitionError(
+            raise DefinitionBoundExceededError(
                 f"definition exceeds nesting depth bound {_MAX_NESTING_DEPTH}"
             )
         depths[expression] = resolved
@@ -327,7 +331,7 @@ def _linked_cell(
     if current in visited:
         raise CompleteDefinitionError("definition RDF list contains a cycle")
     if position >= _MAX_INTERSECTION_MEMBERS:
-        raise CompleteDefinitionError(
+        raise DefinitionBoundExceededError(
             f"definition exceeds the {_MAX_INTERSECTION_MEMBERS} member list bound"
         )
     row = cells.get(current)
@@ -816,12 +820,12 @@ def _schedule_defined_genus(
     if genus_code in scheduled:
         return
     if depth >= max_depth:
-        raise CompleteDefinitionError(
+        raise DefinitionBoundExceededError(
             f"{root_code} complete definition exceeds depth bound "
             f"{max_depth} at {genus_code}"
         )
     if len(scheduled) >= max_nodes:
-        raise CompleteDefinitionError(
+        raise DefinitionBoundExceededError(
             f"{root_code} complete definition exceeds node bound {max_nodes}"
         )
     scheduled.add(genus_code)
@@ -898,7 +902,7 @@ async def _read_anchor_definition_rows(
         if not _level_requires_nested_query(current, nesting_depth):
             break
         if nesting_depth == _MAX_NESTING_DEPTH:
-            raise CompleteDefinitionError(
+            raise DefinitionBoundExceededError(
                 f"definition exceeds nesting depth bound {_MAX_NESTING_DEPTH}"
             )
     return rows

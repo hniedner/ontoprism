@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import json
 import os
@@ -30,7 +29,11 @@ from ontolib.decomposition.evaluation import (
     grouping_difference_pairs,
 )
 from ontolib.decomposition.models import ConceptOutcome
-from ontolib.decomposition.r101_conservation import R82PathEdge, R101ConservationReport
+from ontolib.decomposition.r101_conservation import (
+    HistoricalR101ConservationReport,
+    R82PathEdge,
+    load_historical_r101_review_report,
+)
 
 try:
     from scripts.research.current_evidence import (
@@ -808,7 +811,7 @@ def _available_occurrences(
 def _machine_rule_evidence(  # noqa: C901
     concepts: tuple[GroupReviewConcept, ...],
     evidence: CurrentEngineEvidence,
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
 ) -> tuple[RuleEvidenceRow, ...]:
     result: list[RuleEvidenceRow] = []
     evidence_by_code = {row.code: row for row in evidence.concepts}
@@ -990,7 +993,7 @@ def build_group_review_packet(
     *,
     evidence: CurrentEngineEvidence,
     comparison: CurrentComparison,
-    r101_report: R101ConservationReport,
+    r101_report: HistoricalR101ConservationReport,
 ) -> GroupReviewPacket:
     """Derive the current disagreement packet without making an SME decision."""
     _validate_inputs(evidence, comparison)
@@ -1091,9 +1094,7 @@ def build_machine_group_review_packet(
     r101_report_path: Path,
 ) -> GroupReviewPacket:
     """Build the complete machine boundary while leaving all SME fields absent."""
-    report = R101ConservationReport.model_validate_json(
-        gzip.decompress(r101_report_path.read_bytes())
-    )
+    report = load_historical_r101_review_report(r101_report_path)
     return build_group_review_packet(
         evidence=evidence, comparison=comparison, r101_report=report
     )
@@ -2289,9 +2290,7 @@ def generate_group_review_packet(
     packet = build_group_review_packet(
         evidence=CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes()),
         comparison=CurrentComparison.model_validate_json(comparison_path.read_bytes()),
-        r101_report=R101ConservationReport.model_validate_json(
-            gzip.decompress(r101_report_path.read_bytes())
-        ),
+        r101_report=load_historical_r101_review_report(r101_report_path),
     )
     _write_json(output, packet.model_dump(mode="json"))
     if load_group_review_packet(output) != packet:

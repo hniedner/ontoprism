@@ -149,7 +149,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     selection_misses = [
         row for row in report.candidate_rows if row.classification == "selection-miss"
     ]
-    assert len(selection_misses) == 16
+    assert len(selection_misses) == comparison.row_replay.aggregates.selection_miss
     assert report.range_diagnostics[0].verdict.model_dump(mode="json") == {
         "status": range_verdict.status,
         "axis": range_verdict.axis,
@@ -299,7 +299,7 @@ def test_current_projection_status_is_typed_and_independent_from_range_verdict()
     }
     assert statuses == {
         "C47806": "review-bearing-release-bound",
-        "C41444": "not-emitted",
+        "C41444": "review-bearing-release-bound",
     }
     baseline = report.range_diagnostics[0]
     changed_verdict = baseline.model_copy(

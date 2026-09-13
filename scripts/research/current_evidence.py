@@ -23,7 +23,7 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome
+from ontolib.decomposition.models import ConceptOutcome, SemanticRoute
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -120,7 +120,7 @@ class CurrentSourceOccurrence(_StrictModel):
 
 
 class CurrentConstituent(_StrictModel):
-    axis: str = Field(pattern=r"^op:[A-Za-z][A-Za-z0-9]*$")
+    axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
     relationship_group: str | None
     needs_review: bool
@@ -162,12 +162,67 @@ class CurrentConstituent(_StrictModel):
         return self
 
 
+class CurrentSpecificityPathEdge(_StrictModel):
+    kind: Literal["is-a", "r82"]
+    broader_code: str = Field(pattern=r"^C[0-9]+$")
+    narrower_code: str = Field(pattern=r"^C[0-9]+$")
+    source_identity: str = Field(pattern=_SHA256)
+
+
+class CurrentOccurrenceDisposition(_StrictModel):
+    kind: Literal[
+        "retained-routed",
+        "retained-unknown",
+        "collapsed-is-a",
+        "collapsed-r82",
+        "collapsed-mixed",
+        "retained-policy-veto",
+    ]
+    source_occurrence: CurrentSourceOccurrence
+    normalized_axis: str
+    semantic_route: SemanticRoute
+    semantic_type: str | None
+    retained_pair: tuple[str, str]
+    r82_part: str | None
+    r82_whole: str | None
+    specificity_path: tuple[CurrentSpecificityPathEdge, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    policy_decision_identity: str | None
+
+    @model_validator(mode="after")
+    def _evidence_matches_kind(self) -> Self:
+        if self.retained_pair[0] != self.normalized_axis:
+            raise ValueError("retained pair axis differs from normalized axis")
+        retained = self.kind.startswith("retained-")
+        if retained != (self.retained_pair[1] == self.source_occurrence.filler_code):
+            raise ValueError("retained pair filler equality differs from disposition")
+        if (self.kind == "collapsed-r82") != (
+            self.r82_part is not None and self.r82_whole is not None
+        ):
+            raise ValueError("R82 evidence presence differs from disposition")
+        if self.kind == "collapsed-r82" and (
+            self.r82_part,
+            self.r82_whole,
+        ) != (self.retained_pair[1], self.source_occurrence.filler_code):
+            raise ValueError("R82 endpoints differ from disposition")
+        mixed = self.kind == "collapsed-mixed"
+        if mixed != bool(self.specificity_path):
+            raise ValueError("mixed specificity path presence differs from disposition")
+        if (self.kind == "retained-policy-veto") != (
+            self.policy_decision_identity is not None
+        ):
+            raise ValueError("policy evidence presence differs from disposition")
+        return self
+
+
 class CurrentConceptEvidence(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
     all_source_occurrences: tuple[CurrentSourceOccurrence, ...]
     constituents: tuple[CurrentConstituent, ...]
+    occurrence_dispositions: tuple[CurrentOccurrenceDisposition, ...]
 
     @model_validator(mode="after")
     def _selected_occurrences_are_a_subset(self) -> Self:
@@ -181,16 +236,37 @@ class CurrentConceptEvidence(_StrictModel):
             raise ValueError(
                 "selected source occurrences must be a subset of all source occurrences"
             )
+        r101_occurrences = {
+            item.occurrence_id
+            for item in self.all_source_occurrences
+            if item.role_code == "R101"
+        }
+        disposition_ids = {
+            item.source_occurrence.occurrence_id
+            for item in self.occurrence_dispositions
+            if item.source_occurrence.role_code == "R101"
+        }
+        if len(disposition_ids) != len(
+            [
+                item
+                for item in self.occurrence_dispositions
+                if item.source_occurrence.role_code == "R101"
+            ]
+        ):
+            raise ValueError("R101 occurrence has duplicate dispositions")
+        if not disposition_ids <= r101_occurrences:
+            raise ValueError("R101 disposition references a non-R101 occurrence")
         return self
 
 
 class CurrentEngineEvidence(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
     run_id: str
     run_fingerprint_identity: str = Field(pattern=_SHA256)
+    walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
     representation_identity: str = Field(pattern=_SHA256)
     detector_identity: str = Field(pattern=_SHA256)
@@ -203,6 +279,21 @@ class CurrentEngineEvidence(_StrictModel):
 
     @model_validator(mode="after")
     def _validate_identity(self) -> Self:
+        for concept in self.concepts:
+            expected = {
+                item.occurrence_id
+                for item in concept.all_source_occurrences
+                if item.role_code == "R101" and item.depth < self.walker_max_depth
+            }
+            actual = {
+                item.source_occurrence.occurrence_id
+                for item in concept.occurrence_dispositions
+                if item.source_occurrence.role_code == "R101"
+            }
+            if actual != expected:
+                raise ValueError(
+                    "projected-depth R101 occurrences require exactly one disposition"
+                )
         expected = _identity(
             self.model_dump(mode="json", exclude={"evidence_identity"})
         )
@@ -447,6 +538,7 @@ class CurrentComparison(_StrictModel):
     sample_manifest_identity: str = Field(pattern=_SHA256)
     run_id: str
     run_fingerprint_identity: str = Field(pattern=_SHA256)
+    walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
     representation_identity: str = Field(pattern=_SHA256)
     detector_identity: str = Field(pattern=_SHA256)
@@ -536,6 +628,58 @@ def _occurrence(value: SourceDefinitionOccurrence) -> CurrentSourceOccurrence:
     )
 
 
+def _disposition_documents(
+    decomposition: Decomposition | None,
+    occurrences: dict[str, CurrentSourceOccurrence],
+    retained_pairs: set[tuple[str, str]],
+) -> tuple[CurrentOccurrenceDisposition, ...]:
+    documents: list[CurrentOccurrenceDisposition] = []
+    for item in (
+        decomposition.occurrence_dispositions if decomposition is not None else ()
+    ):
+        source_occurrence = occurrences.get(item.source_occurrence_id)
+        if source_occurrence is None:
+            raise CurrentEvidenceValidationError(
+                "disposition source occurrence is absent"
+            )
+        if source_occurrence.source_fact_id != item.source_fact_id:
+            raise CurrentEvidenceValidationError(
+                "disposition source fact differs from occurrence"
+            )
+        if source_occurrence.filler_code != item.source_filler:
+            raise CurrentEvidenceValidationError(
+                "disposition source filler differs from occurrence"
+            )
+        retained_pair = (item.normalized_axis, item.retained_filler)
+        if retained_pair not in retained_pairs:
+            raise CurrentEvidenceValidationError(
+                "disposition retained pair is absent from engine output"
+            )
+        documents.append(
+            CurrentOccurrenceDisposition(
+                kind=item.kind,
+                source_occurrence=source_occurrence,
+                normalized_axis=item.normalized_axis,
+                semantic_route=item.semantic_route,
+                semantic_type=item.semantic_type,
+                retained_pair=retained_pair,
+                r82_part=item.r82_part,
+                r82_whole=item.r82_whole,
+                specificity_path=tuple(
+                    CurrentSpecificityPathEdge(
+                        kind=edge.kind,
+                        broader_code=edge.broader_code,
+                        narrower_code=edge.narrower_code,
+                        source_identity=edge.source_identity,
+                    )
+                    for edge in item.specificity_path
+                ),
+                policy_decision_identity=item.policy_decision_identity,
+            )
+        )
+    return tuple(documents)
+
+
 def _concepts(
     outcomes: list[WorkItemOutcome], decompositions: list[Decomposition]
 ) -> tuple[CurrentConceptEvidence, ...]:
@@ -578,8 +722,18 @@ def _concepts(
                 ),
             )
             for item in (
-                decomposition.constituents if decomposition is not None else ()
+                sorted(
+                    decomposition.constituents,
+                    key=lambda row: (row.axis, row.filler_code, row.group or ""),
+                )
+                if decomposition is not None
+                else ()
             )
+        )
+        disposition_documents = _disposition_documents(
+            decomposition,
+            occurrences,
+            {(item.axis, item.filler) for item in constituents},
         )
         concepts.append(
             CurrentConceptEvidence(
@@ -588,6 +742,7 @@ def _concepts(
                 semantic_types=outcome.semantic_types or (),
                 all_source_occurrences=all_occurrences,
                 constituents=constituents,
+                occurrence_dispositions=disposition_documents,
             )
         )
     if decompositions_by_code:
@@ -928,6 +1083,11 @@ def validate_current_comparison(
             evidence.run_fingerprint_identity,
             comparison.run_fingerprint_identity,
         ),
+        (
+            "walker max depth",
+            evidence.walker_max_depth,
+            comparison.walker_max_depth,
+        ),
         ("artifact", evidence.artifact_identity, comparison.artifact_identity),
         (
             "representation",
@@ -1003,6 +1163,7 @@ def _build_current_comparison(
             "sample_manifest_identity",
             "run_id",
             "run_fingerprint_identity",
+            "walker_max_depth",
             "artifact_identity",
             "representation_identity",
             "detector_identity",
@@ -1261,12 +1422,13 @@ async def generate_current_evidence(
         )
     concepts = _concepts(outcomes, await store.decompositions_for_run(run_id))
     common = {
-        "schema_version": 2,
+        "schema_version": 3,
         "ncit_version": run.ncit_version,
         "source_identity": manifest.source_identity,
         "sample_manifest_identity": manifest.identity,
         "run_id": run_id,
         "run_fingerprint_identity": run.fingerprint.identity,
+        "walker_max_depth": run.fingerprint.walker_max_depth,
         "artifact_identity": representation_identity,
         "representation_identity": representation_identity,
         "detector_identity": _detector_identity(run),

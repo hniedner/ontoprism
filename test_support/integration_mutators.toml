@@ -182,6 +182,10 @@ path = "ontolib/tests/decomposition/test_run_lifecycle_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_run_admission_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_read_integration.py"
 fixtures = ["isolated_qlever_settings"]
 

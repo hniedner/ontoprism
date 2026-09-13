@@ -18,6 +18,7 @@ from ontolib.decomposition.corpus_baseline import (
 from ontolib.decomposition.pre_resume import pre_resume_proof_identity
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
     CompletedRunForEvidence,
     CorpusBaselineAggregate,
     RunFingerprint,
@@ -28,6 +29,9 @@ def _fingerprint(**changes: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
+        "routing_implementation_identity": "1" * 64,
+        "mixed_chain_inventory_identity": "2" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -35,7 +39,7 @@ def _fingerprint(**changes: object) -> RunFingerprint:
         "worklist": ("C1", "C2", "C3", "C4", "C5"),
         "total_limit": None,
         "sample_manifest_identity": None,
-        "algorithm_version": "decomposition-v4",
+        "algorithm_version": "decomposition-v5",
         "config_version": "nested-definition-v2",
         "walker_max_depth": 5,
         "output_mode": "file",
@@ -346,6 +350,12 @@ def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
             "full-run",
             "--new-run-id",
             "v4-full-run",
+            "--old-artifact",
+            "old.ttl",
+            "--new-artifact",
+            "new.ttl",
+            "--qualification-output",
+            "qualification.json",
             "--endpoint",
             "http://localhost:7888",
             "--output",
@@ -364,6 +374,9 @@ def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
     assert args.baseline == Path("baseline.json")
     assert args.run_id == "full-run"
     assert args.new_run_id == "v4-full-run"
+    assert args.old_artifact == Path("old.ttl")
+    assert args.new_artifact == Path("new.ttl")
+    assert args.qualification_output == Path("qualification.json")
     assert args.endpoint == "http://localhost:7888"
     assert args.output == Path("report.json.gz")
     assert args.pre_resume_proof_identity == "1" * 64
@@ -408,23 +421,23 @@ def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
         Path(__file__).with_name("golden") / "neoplasm-current-corpus-baseline.json"
     )
 
-    assert baseline.run_id == "neoplasm-f9686bb3-4729-4484-8d64-4a280b67b3cf"
+    assert baseline.run_id == "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
     assert baseline.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
     assert baseline.representation_identity == (
-        "e32f10264163bc27fa1bd85dbdb8a2f7c03938279618dab6444ecf43164bf8ce"
+        "8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2"
     )
     assert baseline.worklist_count == 15_633
     assert baseline.outcome_counts.model_dump() == {
-        "decomposed": 14_864,
+        "decomposed": 14_884,
         "residual": 1,
         "semantic_excluded": 3,
-        "atomic_noop": 626,
+        "atomic_noop": 606,
         "unknown": 139,
     }
-    assert baseline.emitted_constituent_pair_count == 104_424
-    assert baseline.complete_semantic_fact_count == 844_256
-    assert baseline.source_occurrence_count == 369_903
-    assert baseline.selected_occurrence_count == 95_508
-    assert baseline.minted_count == 2_719
+    assert baseline.emitted_constituent_pair_count == 144_231
+    assert baseline.complete_semantic_fact_count == 845_825
+    assert baseline.source_occurrence_count == 370_253
+    assert baseline.selected_occurrence_count == 108_217
+    assert baseline.minted_count == 2_649

@@ -510,7 +510,7 @@ its count is derived from those rows rather than accepted as an independent scal
 
 Mechanical completion, content authorization, and publication eligibility are independent states.
 The tracked report currently records `complete`, `pending`, and `blocked`, respectively
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
 2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
 review remains a final M1.6 milestone decision before publication.
 
@@ -626,6 +626,16 @@ normalized-group, and golden-cohort detectors and #127 owns total delta classifi
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
 2026-09-06). The current high-severity npm audit reports no vulnerabilities
 (`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
+
+**Current-status addition (2026-09-11):** `MachineReadinessReport` schema 3 and the R101
+conservation schema 4 no longer conflate complete enumeration with causal explanation. The exact
+v4→v5 pair certifies all 43,414 R101 occurrences and enumerates all 79,393 typed non-R101 delta
+rows exactly once, while explanation remains `incomplete`, semantic isolation remains
+`partial-unqualified`, execution comparability remains `unqualified`, causal attribution is
+prohibited, authorization is pending, and publication is blocked
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-11). Inventory completeness is therefore evidence that the bounded populations were
+exhaustively represented, not evidence that the treatment caused any observed delta.
 
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 

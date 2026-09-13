@@ -83,18 +83,10 @@ _SOURCE_IDENTITY = "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c3436
 _STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
 _METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
 _SOURCE_OCCURRENCE_COUNT = 304
+_MIN_MIXED_PATH_EDGES = 2
 _ANCHOR_PART_COUNT = 2
+_RETAINED_PAIR_PART_COUNT = 2
 _CORRECTION_PROVENANCE = frozenset(get_args(PairProvenance))
-_R101_SAME_AXIS_R82_COLLAPSES = {
-    ("C100051", "C12810"): "C12413",
-    ("C101539", "C12418"): "C13063",
-    ("C162226", "C12810"): "C12402",
-    ("C181564", "C12810"): "C12402",
-    ("C186620", "C12810"): "C12402",
-    ("C206219", "C12810"): "C12402",
-    ("C4791", "C12727"): "C13004",
-    ("C6135", "C12418"): "C13063",
-}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1209,6 +1201,105 @@ def _engine_outcomes(raw_engine: object) -> dict[str, ConceptOutcome]:
     return outcomes
 
 
+def _engine_r101_dispositions(  # noqa: C901, PLR0912
+    raw_engine: object,
+) -> dict[tuple[str, str], dict[str, object]]:
+    if not isinstance(raw_engine, dict) or not isinstance(
+        raw_engine.get("concepts"), list
+    ):
+        raise ValueError("engine evidence concepts must be a list")
+    result: dict[tuple[str, str], dict[str, object]] = {}
+    for concept in raw_engine["concepts"]:
+        if not isinstance(concept, dict) or not isinstance(concept.get("code"), str):
+            raise ValueError("engine evidence concept has an invalid shape")
+        code = cast("str", concept["code"])
+        raw_dispositions = concept.get("occurrence_dispositions")
+        if not isinstance(raw_dispositions, list | tuple):
+            raise ValueError(f"engine R101 dispositions are unavailable for {code}")
+        raw_constituents = concept.get("constituents")
+        if not isinstance(raw_constituents, list | tuple):
+            raise ValueError(f"engine constituents are unavailable for {code}")
+        retained_pairs = {
+            (item.get("axis"), item.get("filler"))
+            for item in raw_constituents
+            if isinstance(item, dict)
+            and isinstance(item.get("axis"), str)
+            and isinstance(item.get("filler"), str)
+        }
+        for raw in raw_dispositions:
+            if not isinstance(raw, dict) or not isinstance(
+                raw.get("source_occurrence"), dict
+            ):
+                raise ValueError("engine R101 disposition has an invalid shape")
+            source = cast("dict[str, object]", raw["source_occurrence"])
+            if source.get("role_code") != "R101":
+                continue
+            fact_id = source.get("source_fact_id")
+            occurrence_id = source.get("occurrence_id")
+            source_filler = source.get("filler_code")
+            retained_pair = raw.get("retained_pair")
+            if (
+                source.get("root_code") != code
+                or not isinstance(fact_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", fact_id) is None
+                or not isinstance(occurrence_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", occurrence_id) is None
+                or not isinstance(source_filler, str)
+                or not isinstance(retained_pair, list | tuple)
+                or len(retained_pair) != _RETAINED_PAIR_PART_COUNT
+                or not all(isinstance(item, str) for item in retained_pair)
+            ):
+                raise ValueError("engine R101 disposition source binding is invalid")
+            axis, retained_filler = cast("tuple[str, str]", tuple(retained_pair))
+            if (
+                raw.get("normalized_axis") != axis
+                or (axis, retained_filler) not in retained_pairs
+            ):
+                raise ValueError(
+                    "engine R101 disposition diverges from retained output"
+                )
+            kind = raw.get("kind")
+            if kind in {
+                "retained-routed",
+                "retained-unknown",
+                "retained-policy-veto",
+            }:
+                if retained_filler != source_filler:
+                    raise ValueError("retained engine R101 disposition changes filler")
+            elif kind == "collapsed-r82":
+                if (raw.get("r82_part"), raw.get("r82_whole")) != (
+                    retained_filler,
+                    source_filler,
+                ):
+                    raise ValueError(
+                        "engine R101 R82 evidence diverges from disposition"
+                    )
+            elif kind == "collapsed-mixed":
+                path = raw.get("specificity_path")
+                if not isinstance(path, list) or len(path) < _MIN_MIXED_PATH_EDGES:
+                    raise ValueError("engine R101 mixed specificity path is invalid")
+            elif kind != "collapsed-is-a":
+                raise ValueError("engine R101 disposition kind is invalid")
+            key = (code, fact_id)
+            if key in result:
+                raise ValueError(f"duplicate engine R101 disposition: {key!r}")
+            result[key] = {
+                "kind": kind,
+                "source_occurrence_id": occurrence_id,
+                "source_fact_id": fact_id,
+                "source_filler": source_filler,
+                "axis": axis,
+                "retained_filler": retained_filler,
+                "semantic_route": raw.get("semantic_route"),
+                "semantic_type": raw.get("semantic_type"),
+                "r82_part": raw.get("r82_part"),
+                "r82_whole": raw.get("r82_whole"),
+                "specificity_path": raw.get("specificity_path", []),
+                "policy_decision_identity": raw.get("policy_decision_identity"),
+            }
+    return result
+
+
 def _payload_identity(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -1302,30 +1393,32 @@ def _fact_contracted_key(fact: dict[str, object]) -> ContractedKey:
     )
 
 
+def _non_r101_provenance_disposition(
+    fact: dict[str, object],
+    contracted: dict[ContractedKey, str],
+) -> tuple[str, object, ContractedKey | None] | None:
+    if fact["role_code"] == "R88":
+        reason = "No stage bundle or context claim consumes this occurrence."
+        return "retained-unmodeled-r88", reason, None
+    contracted_key = _fact_contracted_key(fact)
+    if contracted_key in contracted:
+        return "contracted-role-disposition", contracted[contracted_key], contracted_key
+    return None
+
+
 def _provenance_disposition(
     fact: dict[str, object],
     semantic_owners: dict[tuple[str, str], tuple[str, ...]],
     contracted: dict[ContractedKey, str],
     concept_outcomes: Mapping[str, ConceptOutcome],
+    r101_dispositions: dict[tuple[str, str], dict[str, object]],
+    walker_max_depth: int,
 ) -> tuple[str, object, ContractedKey | None]:
     occurrence_key = cast("tuple[str, str]", (fact["root_code"], fact["fact_id"]))
     if owners := semantic_owners.get(occurrence_key):
         return "semantic-review-candidate", owners, None
-    if fact["role_code"] == "R88":
-        reason = "No stage bundle or context claim consumes this occurrence."
-        return "retained-unmodeled-r88", reason, None
-    r101_key = cast("tuple[str, str]", (fact["root_code"], fact["filler_code"]))
-    if fact["role_code"] == "R101" and r101_key in _R101_SAME_AXIS_R82_COLLAPSES:
-        retained = _R101_SAME_AXIS_R82_COLLAPSES[r101_key]
-        reference = {
-            "axis": "op:AssociatedRegion",
-            "retained_filler": retained,
-            "rule": "same-axis R82 collapse on a location axis",
-        }
-        return "collapsed-same-axis-r82", reference, None
-    contracted_key = _fact_contracted_key(fact)
-    if contracted_key in contracted:
-        return "contracted-role-disposition", contracted[contracted_key], contracted_key
+    if result := _non_r101_provenance_disposition(fact, contracted):
+        return result
     root_code = cast("str", fact["root_code"])
     if (outcome := concept_outcomes.get(root_code)) != "decomposed":
         if outcome is None:
@@ -1333,7 +1426,23 @@ def _provenance_disposition(
                 f"source occurrence concept has no engine outcome: {root_code}"
             )
         return "nondecomposed-concept-outcome", outcome, None
-    if fact["role_code"] in {"R101", "R126"}:
+    if fact["role_code"] == "R101":
+        disposition = r101_dispositions.get(occurrence_key)
+        if disposition is None:
+            depth = fact.get("depth")
+            if isinstance(depth, int) and depth >= walker_max_depth:
+                return (
+                    "engine-r101-depth-bound-unprojected",
+                    {"walker_max_depth": walker_max_depth},
+                    None,
+                )
+            raise ValueError(
+                f"source occurrence has no engine R101 disposition: {occurrence_key!r}"
+            )
+        if fact["filler_code"] != disposition["source_filler"]:
+            raise ValueError("engine R101 disposition diverges from source occurrence")
+        return "engine-r101-disposition", disposition, None
+    if fact["role_code"] == "R126":
         workbook = "M1-57_SME_Adjudication_Workbook_Adjudicated_v13.xlsx"
         return "constituent-workbook-review", workbook, None
     raise ValueError(f"source occurrence has no disposition: {occurrence_key!r}")
@@ -1359,13 +1468,24 @@ def build_provenance_ledger(
     semantic_owners = _semantic_fact_owners()
     contracted = _contracted_dispositions(raw_contracted_disposition)
     concept_outcomes = _engine_outcomes(raw_engine)
+    r101_dispositions = _engine_r101_dispositions(raw_engine)
+    walker_max_depth = (
+        raw_engine.get("walker_max_depth") if isinstance(raw_engine, dict) else None
+    )
+    if not isinstance(walker_max_depth, int) or walker_max_depth < 1:
+        raise ValueError("engine walker max depth is invalid")
 
     rows: list[dict[str, object]] = []
     counts: defaultdict[str, int] = defaultdict(int)
     used_contracted: set[ContractedKey] = set()
     for fact in facts:
         disposition, reference, contracted_key = _provenance_disposition(
-            fact, semantic_owners, contracted, concept_outcomes
+            fact,
+            semantic_owners,
+            contracted,
+            concept_outcomes,
+            r101_dispositions,
+            walker_max_depth,
         )
         if contracted_key is not None:
             used_contracted.add(contracted_key)

@@ -1343,6 +1343,7 @@ def _detector_role_projection(
             anchoring_genus=fact.anchor_code,
             source_definition_ids=(fact.fact_id,),
             source_occurrence_ids=tuple(occurrences_by_fact.get(fact.fact_id, ())),
+            source_kind="stated",
         )
         for fact in restrictions
         if _is_detector_role(fact)

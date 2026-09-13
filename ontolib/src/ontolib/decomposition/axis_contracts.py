@@ -265,8 +265,16 @@ _SOURCE_ROLE_TO_AXIS = {
         "op:StageSystem",
     }
 }
+_CONTRACT_SOURCE_ROLES = frozenset(
+    role for contract in _CONTRACT_SEQUENCE for role in contract.source_roles
+)
 
 
 def normalized_axis_for_role(role_code: str) -> str | None:
     """Return the direct normalized axis for a projectable NCIt source role."""
     return _SOURCE_ROLE_TO_AXIS.get(role_code)
+
+
+def is_contract_source_role(role_code: str) -> bool:
+    """Return whether a role participates in a declared projection contract."""
+    return role_code in _CONTRACT_SOURCE_ROLES

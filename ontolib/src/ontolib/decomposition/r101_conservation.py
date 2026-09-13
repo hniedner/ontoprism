@@ -1,4 +1,4 @@
-"""Occurrence-ledger evidence for the decomposition-v3 to v4 R101 change."""
+"""Occurrence-ledger evidence for the decomposition-v4 to v5 R101 change."""
 
 from __future__ import annotations
 
@@ -14,11 +14,13 @@ import tempfile
 import zlib
 from collections import Counter, defaultdict
 from contextlib import suppress
-from itertools import pairwise, product
-from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
+from itertools import pairwise
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import to_jsonable_python
+
+from ontolib.decomposition.models import SemanticRoute
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,7 +30,8 @@ if TYPE_CHECKING:
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _CODE = r"^C[0-9]+$"
-R101_CONSERVATION_SCHEMA_VERSION = 3
+_MIN_MIXED_PATH_EDGES = 2
+R101_CONSERVATION_SCHEMA_VERSION = 4
 _GZIP_HEADER_SIZE = 10
 
 STRUCTURAL_KEY_FIELDS = (
@@ -86,12 +89,21 @@ class Pair(_StrictModel):
 
 
 def r101_occurrence_ledger_query() -> str:
-    """Return the exact one-query occurrence and non-R101 delta contract."""
+    """Return the exact occurrence inventory query."""
     return (
         "WITH old_o AS (SELECT * FROM decomp_source_occurrence "
         "WHERE run_id=:old_run_id AND role_code='R101'), "
         "new_o AS (SELECT * FROM decomp_source_occurrence "
         "WHERE run_id=:new_run_id AND role_code='R101'), "
+        "new_d AS (SELECT concept_code,occurrence_id,jsonb_build_object("
+        "'kind',disposition,'source_occurrence_id',occurrence_id,"
+        "'source_fact_id',source_fact_id,'normalized_axis',normalized_axis,"
+        "'source_filler',source_filler,'retained_filler',retained_filler,"
+        "'semantic_route',semantic_route,'semantic_type',semantic_type,"
+        "'r82_part',r82_part,'r82_whole',r82_whole,"
+        "'specificity_path',specificity_path,"
+        "'policy_decision_identity',policy_decision_identity) disposition FROM "
+        "decomp_occurrence_disposition d WHERE run_id=:new_run_id), "
         "old_links AS (SELECT co.concept_code, co.occurrence_id, "
         "jsonb_agg(jsonb_build_object('axis',co.axis,'filler_code',co.filler_code) "
         "ORDER BY co.axis,co.filler_code) pairs "
@@ -108,45 +120,71 @@ def r101_occurrence_ledger_query() -> str:
         "jsonb_build_object('axis',co.axis,'filler_code',co.filler_code)) pairs "
         "FROM decomp_constituent_occurrence co JOIN new_o o USING "
         "(concept_code,occurrence_id) WHERE co.run_id=:new_run_id "
-        "GROUP BY co.concept_code), "
-        "old_non AS (SELECT concept_code,axis,filler_code FROM decomp_constituent "
-        "WHERE run_id=:old_run_id EXCEPT SELECT "
-        "co.concept_code,co.axis,co.filler_code "
-        "FROM decomp_constituent_occurrence co JOIN old_o o USING "
-        "(concept_code,occurrence_id) WHERE co.run_id=:old_run_id), "
-        "new_non AS (SELECT concept_code,axis,filler_code FROM decomp_constituent "
-        "WHERE run_id=:new_run_id EXCEPT SELECT "
-        "co.concept_code,co.axis,co.filler_code "
-        "FROM decomp_constituent_occurrence co JOIN new_o o USING "
-        "(concept_code,occurrence_id) WHERE co.run_id=:new_run_id), "
-        "non_delta AS (SELECT 'removed' change,concept_code,axis,filler_code FROM "
-        "(SELECT * FROM old_non EXCEPT SELECT * FROM new_non) removed UNION ALL "
-        "SELECT 'added' change,concept_code,axis,filler_code FROM "
-        "(SELECT * FROM new_non EXCEPT SELECT * FROM old_non) added), "
-        "delta_evidence AS (SELECT COALESCE(jsonb_agg(jsonb_build_object("
-        "'change',change,'concept_code',concept_code,'axis',axis,"
-        "'filler_code',filler_code) ORDER BY change,concept_code,axis,filler_code),"
-        "'[]'::jsonb) rows FROM non_delta) "
+        "GROUP BY co.concept_code) "
         "SELECT to_jsonb(o)-'run_id' AS old_occurrence, "
         "to_jsonb(n)-'run_id' AS new_occurrence, "
         "COALESCE(ol.pairs,'[]'::jsonb) old_links, "
         "COALESCE(nl.pairs,'[]'::jsonb) new_links, "
         "COALESCE(r.pairs,'[]'::jsonb) retained_links, "
-        "delta_evidence.rows non_r101_delta_rows "
+        "nd.disposition new_disposition "
         "FROM old_o o FULL OUTER JOIN new_o n USING (concept_code,occurrence_id) "
         "LEFT JOIN old_links ol ON ol.concept_code=o.concept_code AND "
         "ol.occurrence_id=o.occurrence_id LEFT JOIN new_links nl ON "
         "nl.concept_code=n.concept_code AND nl.occurrence_id=n.occurrence_id "
+        "LEFT JOIN new_d nd ON nd.concept_code=n.concept_code AND "
+        "nd.occurrence_id=n.occurrence_id "
         "LEFT JOIN retained r ON "
         "r.concept_code=COALESCE(o.concept_code,n.concept_code) "
-        "CROSS JOIN delta_evidence ORDER BY COALESCE(o.concept_code,n.concept_code), "
+        "ORDER BY COALESCE(o.concept_code,n.concept_code), "
         "COALESCE(o.occurrence_id,n.occurrence_id)"
     )
 
 
+def r101_non_r101_delta_query() -> str:
+    """Return the complete typed non-R101 constituent delta query."""
+    return (
+        "WITH supported AS (SELECT c.run_id,c.concept_code,c.axis,c.filler_code,"
+        "c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
+        "c.relationship_group,c.source_definition_ids,COALESCE(array_agg("
+        "co.occurrence_id ORDER BY co.occurrence_id) FILTER (WHERE o.role_code "
+        "IS NOT NULL AND o.role_code<>'R101'),ARRAY[]::text[]) "
+        "source_occurrence_ids,count(co.occurrence_id)=0 unbound,COALESCE("
+        "bool_or(o.role_code='R101'),false) r101_bound FROM "
+        "decomp_constituent c LEFT JOIN decomp_constituent_occurrence co USING "
+        "(run_id,concept_code,axis,filler_code) LEFT JOIN decomp_source_occurrence o "
+        "USING (run_id,concept_code,occurrence_id) WHERE c.run_id IN "
+        "(:old_run_id,:new_run_id) GROUP BY c.run_id,c.concept_code,c.axis,"
+        "c.filler_code,c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
+        "c.relationship_group,c.source_definition_ids), old_non AS (SELECT "
+        "concept_code,axis,filler_code,axis_source,source_roles,most_specific,"
+        "needs_review,relationship_group,source_definition_ids,source_occurrence_ids "
+        "FROM supported WHERE run_id=:old_run_id AND (unbound OR "
+        "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
+        "source_roles @> '[\"R101\"]'::jsonb), new_non AS (SELECT concept_code,"
+        "axis,filler_code,axis_source,source_roles,most_specific,needs_review,"
+        "relationship_group,source_definition_ids,source_occurrence_ids FROM "
+        "supported WHERE run_id=:new_run_id AND (unbound OR "
+        "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
+        "source_roles @> '[\"R101\"]'::jsonb) SELECT 'removed' change,* FROM "
+        "(SELECT * FROM old_non EXCEPT SELECT * FROM new_non) removed UNION ALL "
+        "SELECT 'added' change,* FROM (SELECT * FROM new_non EXCEPT SELECT * FROM "
+        "old_non) added ORDER BY change,concept_code,axis,filler_code,axis_source,"
+        "source_roles,most_specific,needs_review,relationship_group,"
+        "source_definition_ids,source_occurrence_ids"
+    )
+
+
 def r101_ledger_query_identity() -> str:
-    """Identify the exact SQL that produces occurrence and delta evidence."""
-    return hashlib.sha256(r101_occurrence_ledger_query().encode()).hexdigest()
+    """Identify the exact SQL and typed delta-classification semantics."""
+    return hashlib.sha256(
+        _canonical(
+            (
+                r101_occurrence_ledger_query(),
+                r101_non_r101_delta_query(),
+                inspect.getsource(classify_non_r101_delta_rows),
+            )
+        )
+    ).hexdigest()
 
 
 class StructuralOccurrence(_StrictModel):
@@ -180,6 +218,7 @@ class OccurrenceInput(_StrictModel):
     old_links: tuple[Pair, ...]
     new_links: tuple[Pair, ...]
     retained_new_r101_links: tuple[Pair, ...]
+    new_disposition: EngineOccurrenceDisposition | None
 
     @model_validator(mode="after")
     def _links_are_unique(self) -> Self:
@@ -193,15 +232,316 @@ class OccurrenceInput(_StrictModel):
         return self
 
 
+class EngineSpecificityPathEdge(_StrictModel):
+    kind: Literal["is-a", "r82"]
+    broader_code: str = Field(pattern=_CODE)
+    narrower_code: str = Field(pattern=_CODE)
+    source_identity: str = Field(pattern=_SHA256)
+
+
+def _engine_specificity_path(value: object) -> object:
+    if not isinstance(value, (tuple, list)):
+        return value
+    return tuple(
+        EngineSpecificityPathEdge.model_validate(
+            edge
+            if isinstance(edge, dict)
+            else {
+                "kind": edge.kind,
+                "broader_code": edge.broader_code,
+                "narrower_code": edge.narrower_code,
+                "source_identity": edge.source_identity,
+            }
+        )
+        for edge in value
+    )
+
+
+class EngineOccurrenceDisposition(_StrictModel):
+    """The new engine's source-bound disposition consumed by conservation."""
+
+    kind: Literal[
+        "retained-routed",
+        "retained-unknown",
+        "collapsed-is-a",
+        "collapsed-r82",
+        "collapsed-mixed",
+        "retained-policy-veto",
+    ]
+    source_occurrence_id: str = Field(pattern=_SHA256)
+    source_fact_id: str = Field(pattern=_SHA256)
+    normalized_axis: str = Field(min_length=1)
+    source_filler: str = Field(pattern=_CODE)
+    retained_filler: str = Field(pattern=_CODE)
+    semantic_route: SemanticRoute
+    semantic_type: str | None
+    r82_part: str | None = Field(default=None, pattern=_CODE)
+    r82_whole: str | None = Field(default=None, pattern=_CODE)
+    specificity_path: tuple[EngineSpecificityPathEdge, ...] = ()
+    policy_decision_identity: str | None = Field(default=None, pattern=_SHA256)
+
+    @field_validator("specificity_path", mode="before")
+    @classmethod
+    def _parse_specificity_path(cls, value: object) -> object:
+        return _engine_specificity_path(value)
+
+    @model_validator(mode="after")
+    def _evidence_matches_kind(self) -> Self:
+        _validate_engine_disposition(self)
+        return self
+
+
+def _validate_engine_disposition(disposition: EngineOccurrenceDisposition) -> None:
+    retained = disposition.kind.startswith("retained-")
+    has_r82_evidence = None not in (disposition.r82_part, disposition.r82_whole)
+    r82_endpoints = (disposition.r82_part, disposition.r82_whole)
+    expected_r82_endpoints = {
+        "collapsed-r82": (disposition.retained_filler, disposition.source_filler)
+    }.get(disposition.kind, r82_endpoints)
+    requirements = (
+        (
+            (disposition.kind == "collapsed-r82") == has_r82_evidence,
+            "engine R82 evidence differs from disposition",
+        ),
+        (
+            r82_endpoints == expected_r82_endpoints,
+            "engine R82 endpoints differ from disposition",
+        ),
+        (
+            (disposition.kind == "retained-policy-veto")
+            == (disposition.policy_decision_identity is not None),
+            "engine policy evidence differs from disposition",
+        ),
+        (
+            retained == (disposition.retained_filler == disposition.source_filler),
+            "engine retained filler equality differs from disposition",
+        ),
+    )
+    for valid, message in requirements:
+        if not valid:
+            raise ValueError(message)
+    _validate_engine_mixed_path(disposition)
+
+
+def _validate_engine_mixed_path(disposition: EngineOccurrenceDisposition) -> None:
+    path = disposition.specificity_path
+    if (disposition.kind == "collapsed-mixed") != bool(path):
+        raise ValueError("engine mixed specificity path differs from disposition")
+    if not path:
+        return
+    nodes = tuple((edge.broader_code, edge.narrower_code) for edge in path)
+    valid = all(
+        (
+            len(nodes) >= _MIN_MIXED_PATH_EDGES,
+            nodes[0][0] == disposition.source_filler,
+            nodes[-1][1] == disposition.retained_filler,
+            _engine_path_is_contiguous(nodes),
+        )
+    )
+    if not valid:
+        raise ValueError("engine mixed specificity path is not contiguous")
+
+
+def _engine_path_is_contiguous(nodes: tuple[tuple[str, str], ...]) -> bool:
+    return all(left[1] == right[0] for left, right in pairwise(nodes))
+
+
+SourceRoleCode = Annotated[str, Field(pattern=r"^R[0-9]+$")]
+SourceEvidenceIdentity = Annotated[str, Field(pattern=_SHA256)]
+
+
 class NonR101DeltaRow(_StrictModel):
     change: Literal["added", "removed"]
     concept_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    axis_source: Literal["role", "nlp", "parent"]
+    source_roles: tuple[SourceRoleCode, ...]
+    most_specific: bool
+    needs_review: bool
+    relationship_group: str | None
+    source_definition_ids: tuple[SourceEvidenceIdentity, ...]
+    source_occurrence_ids: tuple[SourceEvidenceIdentity, ...]
+
+    @model_validator(mode="after")
+    def _evidence_is_canonical(self) -> Self:
+        _validate_non_r101_row(self)
+        return self
 
 
-def _delta_row_key(row: NonR101DeltaRow) -> tuple[str, str, str, str]:
-    return row.change, row.concept_code, row.axis, row.filler_code
+_NON_R101_KEY_FIELDS = ("concept_code", "axis", "filler_code")
+_NON_R101_METADATA_FIELDS = (
+    "axis_source",
+    "source_roles",
+    "most_specific",
+    "needs_review",
+    "relationship_group",
+    "source_definition_ids",
+    "source_occurrence_ids",
+)
+NonR101MetadataField = Literal[
+    "axis_source",
+    "source_roles",
+    "most_specific",
+    "needs_review",
+    "relationship_group",
+    "source_definition_ids",
+    "source_occurrence_ids",
+]
+
+
+class NonR101MetadataDelta(_StrictModel):
+    old: NonR101DeltaRow
+    new: NonR101DeltaRow
+    changed_fields: tuple[NonR101MetadataField, ...]
+
+    @model_validator(mode="after")
+    def _rows_form_one_exact_metadata_change(self) -> Self:
+        _validate_metadata_delta(self)
+        return self
+
+
+def _validate_non_r101_row(row: NonR101DeltaRow) -> None:
+    for label, values in (
+        ("source roles", row.source_roles),
+        ("source definition IDs", row.source_definition_ids),
+        ("source occurrence IDs", row.source_occurrence_ids),
+    ):
+        if values != tuple(sorted(set(values))):
+            raise ValueError(f"non-R101 {label} are not canonical and unique")
+
+
+def _validate_metadata_delta(delta: NonR101MetadataDelta) -> None:
+    if delta.old.change != "removed" or delta.new.change != "added":
+        raise ValueError("metadata delta directions differ")
+    if not _metadata_rows_share_key(delta.old, delta.new):
+        raise ValueError("metadata delta constituent keys differ")
+    expected = _changed_metadata_fields(delta.old, delta.new)
+    if not expected or delta.changed_fields != expected:
+        raise ValueError("metadata delta changed fields differ")
+
+
+def _metadata_rows_share_key(old: NonR101DeltaRow, new: NonR101DeltaRow) -> bool:
+    return all(
+        getattr(old, field) == getattr(new, field) for field in _NON_R101_KEY_FIELDS
+    )
+
+
+def _changed_metadata_fields(
+    old: NonR101DeltaRow, new: NonR101DeltaRow
+) -> tuple[NonR101MetadataField, ...]:
+    return tuple(
+        cast("NonR101MetadataField", field)
+        for field in _NON_R101_METADATA_FIELDS
+        if getattr(old, field) != getattr(new, field)
+    )
+
+
+class ClassifiedNonR101Delta(_StrictModel):
+    row: NonR101DeltaRow
+    classification: Literal["r101-occurrence-linked-output-delta"]
+    r101_occurrence_ids: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _occurrences_are_canonical(self) -> Self:
+        if self.r101_occurrence_ids != tuple(
+            sorted(set(self.r101_occurrence_ids))
+        ) or any(
+            re.fullmatch(_SHA256, identity) is None
+            for identity in self.r101_occurrence_ids
+        ):
+            raise ValueError("classified R101 occurrence IDs are not canonical")
+        if not self.r101_occurrence_ids:
+            raise ValueError(
+                "classified output delta lacks changed R101 occurrence IDs"
+            )
+        if not set(self.row.source_occurrence_ids) & set(self.r101_occurrence_ids):
+            raise ValueError(
+                "classified output delta is not linked to changed R101 evidence"
+            )
+        return self
+
+
+def classify_non_r101_delta_rows(
+    rows: tuple[NonR101DeltaRow, ...],
+    *,
+    r101_changed_occurrences: dict[str, tuple[str, ...]],
+) -> tuple[
+    tuple[NonR101DeltaRow, ...],
+    tuple[NonR101MetadataDelta, ...],
+    tuple[ClassifiedNonR101Delta, ...],
+]:
+    """Separate pair additions/removals from metadata changes on retained pairs."""
+    by_key: dict[tuple[str, str, str], list[NonR101DeltaRow]] = defaultdict(list)
+    for row in rows:
+        key = cast(
+            "tuple[str, str, str]",
+            tuple(getattr(row, field) for field in _NON_R101_KEY_FIELDS),
+        )
+        by_key[key].append(row)
+    structural: list[NonR101DeltaRow] = []
+    metadata: list[NonR101MetadataDelta] = []
+    classified: list[ClassifiedNonR101Delta] = []
+    for key in sorted(by_key):
+        group_structural, group_metadata, group_classified = _classify_delta_group(
+            tuple(by_key[key]),
+            r101_occurrence_ids=r101_changed_occurrences.get(key[0], ()),
+        )
+        structural.extend(group_structural)
+        metadata.extend(group_metadata)
+        classified.extend(group_classified)
+    return (
+        tuple(sorted(structural, key=_delta_row_key)),
+        tuple(metadata),
+        tuple(sorted(classified, key=lambda item: _delta_row_key(item.row))),
+    )
+
+
+def _delta_row_key(row: NonR101DeltaRow) -> tuple[str, bytes]:
+    return row.change, _canonical(row.model_dump(mode="json"))
+
+
+def _classify_delta_group(
+    rows: tuple[NonR101DeltaRow, ...],
+    *,
+    r101_occurrence_ids: tuple[str, ...],
+) -> tuple[
+    tuple[NonR101DeltaRow, ...],
+    tuple[NonR101MetadataDelta, ...],
+    tuple[ClassifiedNonR101Delta, ...],
+]:
+    metadata = _paired_metadata_delta(rows)
+    if metadata is not None:
+        return (), (metadata,), ()
+    changed = set(r101_occurrence_ids)
+    classified = tuple(
+        ClassifiedNonR101Delta(
+            row=row,
+            classification="r101-occurrence-linked-output-delta",
+            r101_occurrence_ids=tuple(
+                sorted(changed.intersection(row.source_occurrence_ids))
+            ),
+        )
+        for row in rows
+        if changed.intersection(row.source_occurrence_ids)
+    )
+    explained_rows = tuple(item.row for item in classified)
+    return tuple(row for row in rows if row not in explained_rows), (), classified
+
+
+def _paired_metadata_delta(
+    rows: tuple[NonR101DeltaRow, ...],
+) -> NonR101MetadataDelta | None:
+    removed = tuple(row for row in rows if row.change == "removed")
+    added = tuple(row for row in rows if row.change == "added")
+    if len(removed) != 1 or len(added) != 1:
+        return None
+    old, new = removed[0], added[0]
+    return NonR101MetadataDelta(
+        old=old,
+        new=new,
+        changed_fields=_changed_metadata_fields(old, new),
+    )
 
 
 class NonR101DeltaEvidence(_StrictModel):
@@ -209,28 +549,96 @@ class NonR101DeltaEvidence(_StrictModel):
     new_run_id: str = Field(min_length=1)
     query_identity: str = Field(pattern=_SHA256)
     rows: tuple[NonR101DeltaRow, ...]
+    metadata_deltas: tuple[NonR101MetadataDelta, ...] = ()
+    classified_rows: tuple[ClassifiedNonR101Delta, ...] = ()
+    raw_typed_delta_count: int = Field(ge=0)
+
+    @property
+    def unexplained_structural_delta_count(self) -> int:
+        return len(self.rows)
+
+    @property
+    def semantic_metadata_delta_count(self) -> int:
+        return len(self.metadata_deltas)
 
     @model_validator(mode="after")
     def _is_exact_canonical_query_result(self) -> Self:
-        if self.query_identity != r101_ledger_query_identity():
-            raise ValueError("non-R101 delta query identity differs")
-        ordered = tuple(sorted(self.rows, key=_delta_row_key))
-        if self.rows != ordered or len(self.rows) != len(set(self.rows)):
-            raise ValueError("non-R101 delta rows are not canonical and unique")
+        _validate_non_r101_delta_evidence(self)
         return self
 
 
+def _validate_non_r101_delta_evidence(evidence: NonR101DeltaEvidence) -> None:
+    current_identity = r101_ledger_query_identity()
+    if evidence.query_identity != current_identity:
+        raise ValueError("non-R101 delta query identity differs")
+    expected_raw = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    if evidence.raw_typed_delta_count != expected_raw:
+        raise ValueError("raw typed non-R101 delta count differs")
+    _require_canonical_unique(
+        evidence.rows,
+        tuple(sorted(evidence.rows, key=_delta_row_key)),
+        "non-R101 delta rows",
+    )
+    metadata_ordered = tuple(
+        sorted(
+            evidence.metadata_deltas,
+            key=lambda row: tuple(
+                getattr(row.old, field) for field in _NON_R101_KEY_FIELDS
+            ),
+        )
+    )
+    _require_canonical_unique(
+        evidence.metadata_deltas,
+        metadata_ordered,
+        "non-R101 metadata deltas",
+    )
+    classified_ordered = tuple(
+        sorted(evidence.classified_rows, key=lambda item: _delta_row_key(item.row))
+    )
+    _require_canonical_unique(
+        evidence.classified_rows,
+        classified_ordered,
+        "classified non-R101 deltas",
+    )
+    _validate_exhaustive_delta_partition(evidence)
+
+
+def _validate_exhaustive_delta_partition(evidence: NonR101DeltaEvidence) -> None:
+    represented_rows = [*evidence.rows]
+    represented_rows.extend(item.row for item in evidence.classified_rows)
+    represented_rows.extend(
+        row
+        for metadata_delta in evidence.metadata_deltas
+        for row in (metadata_delta.old, metadata_delta.new)
+    )
+    if len(represented_rows) != len(set(represented_rows)):
+        raise ValueError("each typed non-R101 delta must be represented exactly once")
+
+
+def _require_canonical_unique(
+    values: tuple[object, ...], ordered: tuple[object, ...], label: str
+) -> None:
+    if values != ordered or len(values) != len(set(values)):
+        raise ValueError(f"{label} are not canonical and unique")
+
+
 class R101LedgerSource(_StrictModel):
-    """One-query Postgres boundary result before stated-R82 acquisition."""
+    """Bounded Postgres boundary result before stated-R82 acquisition."""
 
     occurrences: tuple[OccurrenceInput, ...]
     non_r101_delta_evidence: NonR101DeltaEvidence
-    postgres_query_count: Literal[1] = 1
+    postgres_query_count: Literal[2] = 2
 
 
 class R101LedgerConsumerStore(Protocol):
     async def r101_occurrence_ledger(
-        self, old_run_id: str, new_run_id: str
+        self,
+        old_run_id: str,
+        new_run_id: str,
     ) -> R101LedgerSource: ...
 
 
@@ -300,27 +708,32 @@ class LedgerBuildContext(_StrictModel):
     adapter_id: str = Field(min_length=1)
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
+    comparator_qualification_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _proof_binds_prerequisites(self) -> Self:
-        if self.detector_identity != r101_detector_identity():
-            raise ValueError(
-                "detector identity does not match current ledger semantics"
-            )
-        if self.proof_identity != r101_proof_identity(
-            self.pre_resume_proof_identity,
-            self.resume_dry_run_identity,
-            self.mixed_cohort_identity,
-        ):
-            raise ValueError(
-                "proof identity does not bind prerequisite proof identities"
-            )
-        if (
-            self.non_r101_delta_evidence.old_run_id != self.old_run_id
-            or self.non_r101_delta_evidence.new_run_id != self.new_run_id
-        ):
-            raise ValueError("non-R101 delta evidence does not bind report runs")
+        _validate_ledger_build_context(self)
         return self
+
+
+def _validate_ledger_build_context(context: LedgerBuildContext) -> None:
+    if context.non_r101_delta_evidence.query_identity != r101_ledger_query_identity():
+        raise ValueError("current ledger query identity differs")
+    if context.detector_identity != r101_detector_identity():
+        raise ValueError("detector identity does not match current ledger semantics")
+    expected_proof = r101_proof_identity(
+        context.pre_resume_proof_identity,
+        context.resume_dry_run_identity,
+        context.mixed_cohort_identity,
+    )
+    if context.proof_identity != expected_proof:
+        raise ValueError("proof identity does not bind prerequisite proof identities")
+    evidence = context.non_r101_delta_evidence
+    if (
+        evidence.old_run_id != context.old_run_id
+        or evidence.new_run_id != context.new_run_id
+    ):
+        raise ValueError("non-R101 delta evidence does not bind report runs")
 
 
 class LedgerOccurrence(StructuralOccurrence):
@@ -359,24 +772,70 @@ class LedgerCounts(_StrictModel):
     non_r101_delta: int = Field(ge=0)
 
 
-class ContentAuthorization(_StrictModel):
-    status: Literal["pending", "authorized", "digest-mismatch"]
-    authorized_digest: str | None
-
-    @model_validator(mode="after")
-    def _digest_shape(self) -> Self:
-        _validate_content_authorization(self)
-        return self
-
-
 class GroupingPattern(_StrictModel):
     old_filler_code: str = Field(pattern=_CODE)
     retained_filler_code: str = Field(pattern=_CODE)
     occurrence_count: int = Field(gt=0)
 
 
-class R101ConservationReport(_StrictModel):
+class HistoricalR101DeltaEvidence(_StrictModel):
+    """Closed delta shape embedded in the certified v3-to-v4 review evidence."""
+
+    old_run_id: str = Field(min_length=1)
+    new_run_id: str = Field(min_length=1)
+    query_identity: Literal[
+        "2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1"
+    ]
+    rows: tuple[NonR101DeltaRow, ...]
+
+
+class HistoricalContentAuthorization(_StrictModel):
+    status: Literal["pending"]
+    authorized_digest: None
+
+
+class HistoricalR101ConservationReport(_StrictModel):
+    """Exact schema-3 evidence retained solely for its historical review boundary."""
+
     schema_version: Literal[3]
+    source_identity: str = Field(pattern=_SHA256)
+    source_release_id: str
+    old_run_id: Literal["neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a"]
+    old_run_fingerprint_identity: Literal[
+        "e0d54a70a9a58c6165e30bb0918a08617beade6b0ae2512d5c1ae0053deed81e"
+    ]
+    old_representation_identity: str = Field(pattern=_SHA256)
+    old_baseline_identity: str = Field(pattern=_SHA256)
+    new_run_id: Literal["neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"]
+    new_run_fingerprint_identity: Literal[
+        "d50fb846dd56fff591b148abab4c0f03adf8e41bc38ef5909d8eb9a4f728d67a"
+    ]
+    new_representation_identity: str = Field(pattern=_SHA256)
+    detector_identity: Literal[
+        "d5305c53e2b75fa5a273317f2ce1060a50dc8b72525ccbfa1c8d17caf8dba24e"
+    ]
+    pre_resume_proof_identity: str = Field(pattern=_SHA256)
+    resume_dry_run_identity: str = Field(pattern=_SHA256)
+    mixed_cohort_identity: str = Field(pattern=_SHA256)
+    proof_identity: str = Field(pattern=_SHA256)
+    structural_key_fields: tuple[str, ...]
+    mechanical_status: Literal["complete"]
+    content_authorization: HistoricalContentAuthorization
+    publication_gate: Literal["blocked"]
+    counts: LedgerCounts
+    query_metrics: QueryMetrics
+    non_r101_delta_evidence: HistoricalR101DeltaEvidence
+    grouping_presentation: tuple[GroupingPattern, ...]
+    occurrences: tuple[LedgerOccurrence, ...]
+    json_identity: str = Field(pattern=_SHA256)
+    tsv_identity: str = Field(pattern=_SHA256)
+    report_identity: Literal[
+        "53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132"
+    ]
+
+
+class R101ConservationReport(_StrictModel):
+    schema_version: Literal[4]
     source_identity: str = Field(pattern=_SHA256)
     source_release_id: str
     old_run_id: str
@@ -392,12 +851,22 @@ class R101ConservationReport(_StrictModel):
     mixed_cohort_identity: str = Field(pattern=_SHA256)
     proof_identity: str = Field(pattern=_SHA256)
     structural_key_fields: tuple[str, ...]
-    mechanical_status: Literal["complete", "incomplete"]
-    content_authorization: ContentAuthorization
-    publication_gate: Literal["blocked", "eligible"]
+    r101_occurrence_inventory_identity: str = Field(pattern=_SHA256)
+    non_r101_typed_inventory_identity: str = Field(pattern=_SHA256)
+    r101_occurrence_certification: Literal["complete", "blocked"]
+    non_r101_enumeration: Literal["complete"]
+    explanation: Literal["complete", "incomplete", "blocked"]
+    semantic_isolation: Literal["partial-unqualified", "blocked"]
+    execution_comparability: Literal["unqualified"]
+    fully_controlled: Literal[False]
+    all_controls_equal: Literal[False]
+    causal_attribution: Literal["prohibited"]
+    authorization: Literal["pending"]
+    publication_gate: Literal["blocked"]
     counts: LedgerCounts
     query_metrics: QueryMetrics
     non_r101_delta_evidence: NonR101DeltaEvidence
+    comparator_qualification_identity: str = Field(pattern=_SHA256)
     grouping_presentation: tuple[GroupingPattern, ...]
     occurrences: tuple[LedgerOccurrence, ...]
     json_identity: str = Field(pattern=_SHA256)
@@ -408,25 +877,14 @@ class R101ConservationReport(_StrictModel):
     def _report_is_self_consistent(self) -> Self:
         _validate_report_bindings(self)
         _validate_report_paths(self)
-        complete = _validate_report_counts(self)
-        _validate_report_authorization(self, complete)
+        _validate_report_counts(self)
+        _validate_report_conclusions(self)
         _validate_report_identities(self)
         return self
 
 
-def _validate_content_authorization(authorization: ContentAuthorization) -> None:
-    digest = authorization.authorized_digest
-    if digest is not None and not re.fullmatch(_SHA256, digest):
-        raise ValueError("authorization digest must be SHA-256")
-    if authorization.status == "pending" and digest is not None:
-        raise ValueError("pending authorization cannot carry a digest")
-    if authorization.status != "pending" and digest is None:
-        raise ValueError(f"{authorization.status} authorization requires a digest")
-
-
 def _validate_report_bindings(report: R101ConservationReport) -> None:
-    if report.detector_identity != r101_detector_identity():
-        raise ValueError("detector identity does not match current ledger semantics")
+    _validate_current_report_binding(report)
     expected_proof = r101_proof_identity(
         report.pre_resume_proof_identity,
         report.resume_dry_run_identity,
@@ -441,6 +899,11 @@ def _validate_report_bindings(report: R101ConservationReport) -> None:
         or report.non_r101_delta_evidence.new_run_id != report.new_run_id
     ):
         raise ValueError("non-R101 delta evidence does not bind report runs")
+
+
+def _validate_current_report_binding(report: R101ConservationReport) -> None:
+    if report.detector_identity != r101_detector_identity():
+        raise ValueError("detector identity does not match current ledger semantics")
 
 
 def _validate_report_paths(report: R101ConservationReport) -> None:
@@ -496,29 +959,43 @@ def _old_pair_at_path_endpoint(
     )
 
 
-def _validate_report_counts(report: R101ConservationReport) -> bool:
+def _validate_report_counts(report: R101ConservationReport) -> None:
     expected = _ledger_counts(
         report.occurrences, len(report.non_r101_delta_evidence.rows)
     )
     if report.counts != expected:
         raise ValueError("count-mismatch: report counts differ from occurrences")
-    complete = expected.unresolved == 0 and expected.non_r101_delta == 0
-    expected_status = "complete" if complete else "incomplete"
-    if report.mechanical_status != expected_status:
-        raise ValueError("count-mismatch: mechanical status differs from counts")
-    return complete
+    if report.r101_occurrence_inventory_identity != _sha256(
+        _canonical(report.occurrences)
+    ):
+        raise ValueError("source-identity-mismatch: R101 occurrence inventory differs")
+    if report.non_r101_typed_inventory_identity != _sha256(
+        _canonical(report.non_r101_delta_evidence)
+    ):
+        raise ValueError("source-identity-mismatch: non-R101 inventory differs")
 
 
-def _validate_report_authorization(
-    report: R101ConservationReport, complete: bool
-) -> None:
-    authorization_matches = (
-        report.content_authorization.status == "authorized"
-        and report.content_authorization.authorized_digest == report.json_identity
-    )
-    expected_gate = "eligible" if complete and authorization_matches else "blocked"
-    if report.publication_gate != expected_gate:
-        raise ValueError("content authorization does not match publication gate")
+def _validate_report_conclusions(report: R101ConservationReport) -> None:
+    occurrence_complete = report.counts.unresolved == 0
+    expected_occurrence = "complete" if occurrence_complete else "blocked"
+    if report.r101_occurrence_certification != expected_occurrence:
+        raise ValueError("R101 occurrence certification differs from counts")
+    expected_explanation = _expected_explanation(report, occurrence_complete)
+    if report.explanation != expected_explanation:
+        raise ValueError("explanation status differs from replay evidence")
+    expected_isolation = "partial-unqualified" if occurrence_complete else "blocked"
+    if report.semantic_isolation != expected_isolation:
+        raise ValueError("semantic isolation status differs")
+
+
+def _expected_explanation(
+    report: R101ConservationReport, occurrence_complete: bool
+) -> Literal["complete", "incomplete", "blocked"]:
+    if not occurrence_complete:
+        return "blocked"
+    if report.non_r101_delta_evidence.raw_typed_delta_count == 0:
+        return "complete"
+    return "incomplete"
 
 
 def _validate_report_identities(report: R101ConservationReport) -> None:
@@ -528,6 +1005,17 @@ def _validate_report_identities(report: R101ConservationReport) -> None:
         raise ValueError("source-identity-mismatch: TSV ledger identity differs")
     if report.report_identity != _report_identity(report):
         raise ValueError("source-identity-mismatch: report identity differs")
+
+
+def recompute_r101_report_identities(
+    report: R101ConservationReport,
+) -> tuple[str, str, str]:
+    """Recompute the JSON, TSV, and complete report identities in that order."""
+    return (
+        _json_identity(report),
+        _sha256(_tsv_content(report.occurrences)),
+        _report_identity(report),
+    )
 
 
 def _canonical(value: object) -> bytes:
@@ -572,7 +1060,7 @@ def _semantic_payload(
         else dict(report)
     )
     for field in (
-        "content_authorization",
+        "authorization",
         "publication_gate",
         "json_identity",
         "tsv_identity",
@@ -666,63 +1154,120 @@ def _path_is_connected(edges: tuple[R82PathEdge, ...]) -> bool:
     return all(left.whole_code == right.part_code for left, right in pairwise(edges))
 
 
-def _classify(
+def _projected_occurrence(
+    occurrence: StructuralOccurrence,
+    item: OccurrenceInput,
+    context: LedgerBuildContext,
+) -> LedgerOccurrence:
+    return LedgerOccurrence(
+        **occurrence.model_dump(),
+        disposition="projected",
+        disposition_reason="persisted-new-r101-link",
+        old_links=item.old_links,
+        new_links=item.new_links,
+        retained_r82_target=None,
+        r82_evidence_kind="none",
+        r82_path=(),
+        path_length=0,
+        source_release_id=context.source_release_id,
+        adapter_id=context.adapter_id,
+        proof_id=context.proof_identity,
+    )
+
+
+def _unchanged_occurrence(
+    occurrence: StructuralOccurrence, context: LedgerBuildContext
+) -> LedgerOccurrence:
+    return LedgerOccurrence(
+        **occurrence.model_dump(),
+        disposition="unchanged-unprojected",
+        disposition_reason="explicit-no-old-or-new-links",
+        old_links=(),
+        new_links=(),
+        retained_r82_target=None,
+        r82_evidence_kind="none",
+        r82_path=(),
+        path_length=0,
+        source_release_id=context.source_release_id,
+        adapter_id=context.adapter_id,
+        proof_id=context.proof_identity,
+    )
+
+
+def _covered_occurrence(
+    occurrence: StructuralOccurrence,
+    item: OccurrenceInput,
+    context: LedgerBuildContext,
+    retained: Pair,
+    path: R82Path,
+) -> LedgerOccurrence:
+    kind: Literal["one-step", "closure-only"] = (
+        "one-step" if len(path.edges) == 1 else "closure-only"
+    )
+    return LedgerOccurrence(
+        **occurrence.model_dump(),
+        disposition="covered-by-retained-r82",
+        disposition_reason="retained-r82-path",
+        old_links=item.old_links,
+        new_links=(),
+        retained_r82_target=retained,
+        r82_evidence_kind=kind,
+        r82_path=path.edges,
+        path_length=len(path.edges),
+        source_release_id=context.source_release_id,
+        adapter_id=context.adapter_id,
+        proof_id=context.proof_identity,
+    )
+
+
+def _retained_target(item: OccurrenceInput) -> Pair | None:
+    disposition = item.new_disposition
+    if disposition is None:
+        return None
+    if disposition.kind not in {
+        "retained-routed",
+        "retained-unknown",
+        "retained-policy-veto",
+    }:
+        return None
+    target = Pair(
+        axis=disposition.normalized_axis,
+        filler_code=disposition.retained_filler,
+    )
+    return target if target in item.new_links else None
+
+
+def _classify_new_links(
+    occurrence: StructuralOccurrence,
+    item: OccurrenceInput,
+    context: LedgerBuildContext,
+) -> LedgerOccurrence:
+    if _retained_target(item) is None:
+        return _unresolved(occurrence, item, context, "unresolved-disposition")
+    return _projected_occurrence(occurrence, item, context)
+
+
+def _classify_without_links(
+    occurrence: StructuralOccurrence,
+    item: OccurrenceInput,
+    context: LedgerBuildContext,
+) -> LedgerOccurrence:
+    disposition = item.new_disposition
+    if disposition is not None and disposition.kind.startswith("retained-"):
+        return _unresolved(occurrence, item, context, "unresolved-disposition")
+    return _unchanged_occurrence(occurrence, context)
+
+
+def _classify_r82(
+    occurrence: StructuralOccurrence,
     item: OccurrenceInput,
     paths: dict[tuple[str, str], R82Path],
     context: LedgerBuildContext,
 ) -> LedgerOccurrence:
-    occurrence = item.old_occurrence
-    if item.new_links:
-        return LedgerOccurrence(
-            **occurrence.model_dump(),
-            disposition="projected",
-            disposition_reason="persisted-new-r101-link",
-            old_links=item.old_links,
-            new_links=item.new_links,
-            retained_r82_target=None,
-            r82_evidence_kind="none",
-            r82_path=(),
-            path_length=0,
-            source_release_id=context.source_release_id,
-            adapter_id=context.adapter_id,
-            proof_id=context.proof_identity,
-        )
-    if not item.old_links:
-        return LedgerOccurrence(
-            **occurrence.model_dump(),
-            disposition="unchanged-unprojected",
-            disposition_reason="explicit-no-old-or-new-links",
-            old_links=(),
-            new_links=(),
-            retained_r82_target=None,
-            r82_evidence_kind="none",
-            r82_path=(),
-            path_length=0,
-            source_release_id=context.source_release_id,
-            adapter_id=context.adapter_id,
-            proof_id=context.proof_identity,
-        )
-
-    covered, first_refusal = _find_r82_coverage(item, paths, context)
+    covered, first_refusal = _engine_r82_coverage(item, paths, context)
     if covered is not None:
         retained, path = covered
-        kind: Literal["one-step", "closure-only"] = (
-            "one-step" if len(path.edges) == 1 else "closure-only"
-        )
-        return LedgerOccurrence(
-            **occurrence.model_dump(),
-            disposition="covered-by-retained-r82",
-            disposition_reason="retained-r82-path",
-            old_links=item.old_links,
-            new_links=(),
-            retained_r82_target=retained,
-            r82_evidence_kind=kind,
-            r82_path=path.edges,
-            path_length=len(path.edges),
-            source_release_id=context.source_release_id,
-            adapter_id=context.adapter_id,
-            proof_id=context.proof_identity,
-        )
+        return _covered_occurrence(occurrence, item, context, retained, path)
     return _unresolved(
         occurrence,
         item,
@@ -731,35 +1276,78 @@ def _classify(
     )
 
 
-def _find_r82_coverage(
+def _classify(
+    item: OccurrenceInput,
+    paths: dict[tuple[str, str], R82Path],
+    context: LedgerBuildContext,
+) -> LedgerOccurrence:
+    occurrence = item.old_occurrence
+    disposition = item.new_disposition
+    if disposition is not None and not _disposition_matches_occurrence(
+        disposition, item.new_occurrence
+    ):
+        return _unresolved(occurrence, item, context, "structural-key-mismatch")
+    if item.new_links:
+        return _classify_new_links(occurrence, item, context)
+    if not item.old_links:
+        return _classify_without_links(occurrence, item, context)
+    return _classify_r82(occurrence, item, paths, context)
+
+
+def _disposition_matches_occurrence(
+    disposition: EngineOccurrenceDisposition,
+    occurrence: StructuralOccurrence,
+) -> bool:
+    return (
+        disposition.source_occurrence_id,
+        disposition.source_fact_id,
+        disposition.source_filler,
+    ) == (
+        occurrence.occurrence_id,
+        occurrence.source_fact_id,
+        occurrence.filler_code,
+    )
+
+
+def _engine_r82_coverage(
     item: OccurrenceInput,
     paths: dict[tuple[str, str], R82Path],
     context: LedgerBuildContext,
 ) -> tuple[tuple[Pair, R82Path] | None, DispositionReason | None]:
-    old_links = sorted(item.old_links, key=lambda pair: (pair.axis, pair.filler_code))
-    retained_links = sorted(
-        item.retained_new_r101_links,
-        key=lambda pair: (pair.axis, pair.filler_code),
+    disposition = item.new_disposition
+    if disposition is None or disposition.kind != "collapsed-r82":
+        return None, "unresolved-disposition"
+    retained = Pair(
+        axis=disposition.normalized_axis,
+        filler_code=disposition.retained_filler,
     )
-    first_refusal: DispositionReason | None = None
-    for old, retained in product(old_links, retained_links):
-        if retained.axis != old.axis:
-            first_refusal = first_refusal or "cross-axis-coverage"
-            continue
-        path = paths.get((retained.filler_code, old.filler_code))
-        if path is None:
-            continue
-        refusal = _path_refusal(
-            path,
-            expected_part=retained.filler_code,
-            expected_whole=old.filler_code,
-            source_identity=context.source_identity,
-            max_r82_hops=context.query_metrics.max_r82_hops,
-        )
-        if refusal is None:
-            return (retained, path), first_refusal
-        first_refusal = first_refusal or refusal
-    return None, first_refusal
+    if retained not in item.retained_new_r101_links:
+        return None, "unresolved-disposition"
+    refusal = _old_link_refusal(item, retained, disposition.source_filler)
+    if refusal is not None:
+        return None, refusal
+    path = paths.get((disposition.retained_filler, disposition.source_filler))
+    if path is None:
+        return None, "unresolved-disposition"
+    path_refusal = _path_refusal(
+        path,
+        expected_part=disposition.retained_filler,
+        expected_whole=disposition.source_filler,
+        source_identity=context.source_identity,
+        max_r82_hops=context.query_metrics.max_r82_hops,
+    )
+    if path_refusal is not None:
+        return None, path_refusal
+    return (retained, path), None
+
+
+def _old_link_refusal(
+    item: OccurrenceInput, retained: Pair, source_filler: str
+) -> DispositionReason | None:
+    same_axis = tuple(pair for pair in item.old_links if pair.axis == retained.axis)
+    if any(pair.filler_code == source_filler for pair in same_axis):
+        return None
+    return "cross-axis-coverage" if not same_axis else "unresolved-disposition"
 
 
 def _ledger_counts(
@@ -881,38 +1469,44 @@ def build_r101_occurrence_ledger(
     _validate_input_inventory(ordered)
     occurrences = tuple(_classify(item, paths, context) for item in ordered)
     non_r101_delta_count = len(context.non_r101_delta_evidence.rows)
-    if non_r101_delta_count:
-        occurrences = tuple(
-            item.model_copy(
-                update={
-                    "disposition": "unresolved",
-                    "disposition_reason": "non-r101-delta",
-                    "retained_r82_target": None,
-                    "r82_evidence_kind": "none",
-                    "r82_path": (),
-                    "path_length": 0,
-                }
-            )
-            for item in occurrences
-        )
     counts = _ledger_counts(occurrences, non_r101_delta_count)
     payload: dict[str, object] = {
         "schema_version": R101_CONSERVATION_SCHEMA_VERSION,
         **context.model_dump(exclude={"adapter_id"}),
         "structural_key_fields": STRUCTURAL_KEY_FIELDS,
-        "mechanical_status": "complete"
-        if counts.unresolved == 0 and counts.non_r101_delta == 0
-        else "incomplete",
+        "r101_occurrence_inventory_identity": _sha256(_canonical(occurrences)),
+        "non_r101_typed_inventory_identity": _sha256(
+            _canonical(context.non_r101_delta_evidence)
+        ),
+        "r101_occurrence_certification": (
+            "complete" if counts.unresolved == 0 else "blocked"
+        ),
+        "non_r101_enumeration": "complete",
+        "explanation": (
+            "blocked"
+            if counts.unresolved
+            else (
+                "complete"
+                if context.non_r101_delta_evidence.raw_typed_delta_count == 0
+                else "incomplete"
+            )
+        ),
+        "semantic_isolation": (
+            "partial-unqualified" if counts.unresolved == 0 else "blocked"
+        ),
+        "execution_comparability": "unqualified",
+        "fully_controlled": False,
+        "all_controls_equal": False,
+        "causal_attribution": "prohibited",
+        "authorization": "pending",
         "counts": counts,
         "grouping_presentation": _grouping(occurrences),
         "occurrences": occurrences,
     }
     json_identity = _json_identity(payload)
     tsv_identity = _sha256(_tsv_content(occurrences))
-    authorization = ContentAuthorization(status="pending", authorized_digest=None)
     complete: dict[str, object] = {
         **payload,
-        "content_authorization": authorization,
         "publication_gate": "blocked",
         "json_identity": json_identity,
         "tsv_identity": tsv_identity,
@@ -936,14 +1530,17 @@ def validate_r101_publication(report: R101ConservationReport) -> None:
     """Refuse publication unless mechanics and exact-digest authorization both pass."""
     if report.counts.non_r101_delta:
         raise R101ConservationValidationError("non-r101-delta")
-    if report.mechanical_status != "complete":
+    if report.r101_occurrence_certification != "complete":
         raise R101ConservationValidationError("unresolved-disposition")
-    if report.content_authorization.status == "pending":
-        raise R101ConservationValidationError("content-authorization-missing")
-    if report.content_authorization.status == "digest-mismatch":
-        raise R101ConservationValidationError("content-authorization-digest-mismatch")
-    if report.publication_gate != "eligible":
-        raise R101ConservationValidationError("content-authorization-missing")
+    raise R101ConservationValidationError("content-authorization-missing")
+
+
+def validate_historical_r101_publication(
+    report: HistoricalR101ConservationReport,
+) -> None:
+    """Keep the certified historical review evidence permanently non-publishing."""
+    del report
+    raise R101ConservationValidationError("content-authorization-missing")
 
 
 async def validate_r101_consumer_dry_run(
@@ -951,7 +1548,10 @@ async def validate_r101_consumer_dry_run(
     store: R101LedgerConsumerStore,
 ) -> str:
     """Reload the persisted inventory and return the ledger digest readied for use."""
-    source = await store.r101_occurrence_ledger(report.old_run_id, report.new_run_id)
+    source = await store.r101_occurrence_ledger(
+        report.old_run_id,
+        report.new_run_id,
+    )
     source_by_key = _index_source_inventory(source)
     _validate_consumer_inventory(report, source, source_by_key)
     return report.json_identity
@@ -1013,9 +1613,9 @@ def r101_detector_identity() -> str:
                         R82PathEdge,
                         LedgerBuildContext,
                         LedgerOccurrence,
-                        ContentAuthorization,
                         R101ConservationReport,
                         r101_occurrence_ledger_query,
+                        r101_non_r101_delta_query,
                         r101_ledger_query_identity,
                         r82_fact_identity,
                         _json_identity,
@@ -1061,7 +1661,7 @@ def r101_proof_identity(*identities: str) -> str:
 
 
 def load_r101_conservation_report(path: Path) -> R101ConservationReport:
-    """Load one metadata-free gzip member containing a strict schema-3 report."""
+    """Load one metadata-free gzip member containing a strict current report."""
     if not path.name.endswith(".json.gz"):
         raise R101ConservationValidationError("report path must end in .json.gz")
     content = _decompress_report(path.read_bytes())
@@ -1070,6 +1670,26 @@ def load_r101_conservation_report(path: Path) -> R101ConservationReport:
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise R101ConservationValidationError("invalid JSON report") from error
     return R101ConservationReport.model_validate_json(content)
+
+
+def load_historical_r101_review_report(
+    path: Path,
+) -> HistoricalR101ConservationReport:
+    """Load only the byte-certified schema-3 artifact that defines historical review."""
+    raw = path.read_bytes()
+    if (
+        _sha256(raw)
+        != "2ca4e259b26c31bad0ba41e724c3d8631a493d59f90680a6b15af2cfb97111f3"
+    ):
+        raise R101ConservationValidationError("historical R101 review artifact differs")
+    content = _decompress_report(raw)
+    try:
+        json.loads(content, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise R101ConservationValidationError(
+            "invalid historical JSON report"
+        ) from error
+    return HistoricalR101ConservationReport.model_validate_json(content)
 
 
 def _decompress_report(compressed: bytes) -> bytes:

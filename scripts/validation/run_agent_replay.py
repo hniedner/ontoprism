@@ -20,6 +20,7 @@ import socket
 import stat
 import subprocess
 import sys
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -38,10 +39,19 @@ _RUN_ID = re.compile(
 )
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
+_MAX_INSPECTED_RUNS = 8
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
+_EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
+_MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
+_MAX_R101_STRUCTURAL_ROWS = 2_500
+_MAX_R101_METADATA_PAIRS = 40_000
+_MAX_R101_METADATA_TRANSITIONS = 100
+_MAX_R101_METADATA_CONCEPTS = 16_000
+_MAX_R101_INSPECTION_BYTES = 5_000_000
+_R101_PAIR_ARGUMENT_COUNT = 2
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = "ontoprism-podman-poc"
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
@@ -130,6 +140,803 @@ class ConsolidationContext:
     manifest_bytes: bytes
     manifest_digest: str
     source_specs: tuple[dict[str, object], ...]
+
+
+async def _inspect_decomposition_runs_async(
+    run_ids: tuple[str, ...],
+) -> list[dict[str, object]]:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    inspect = importlib.import_module(
+        "ontolib.decomposition.run_inspection"
+    ).inspect_decomposition_runs
+    engine = database.make_engine(settings.database_url)
+    try:
+        return [item.model_dump(mode="json") for item in await inspect(engine, run_ids)]
+    finally:
+        await database.dispose_engine(engine)
+
+
+def _inspect_decomposition_runs(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del root, runner
+    if not values or len(values) > _MAX_INSPECTED_RUNS:
+        raise AgentReplayInputError("inspect-decomposition-runs requires 1-8 run IDs")
+    if any(_RUN_ID.fullmatch(value) is None for value in values):
+        raise AgentReplayInputError("invalid decomposition run ID")
+    payload = asyncio.run(_inspect_decomposition_runs_async(tuple(values)))
+    print(json.dumps(payload, sort_keys=True, indent=2))
+    return 0
+
+
+def _validated_r101_pair(values: list[str], *, operation: str) -> tuple[str, str]:
+    if (
+        len(values) != _R101_PAIR_ARGUMENT_COUNT
+        or any(_RUN_ID.fullmatch(value) is None for value in values)
+        or values[0] == values[1]
+    ):
+        raise AgentReplayInputError(f"{operation} requires two distinct run IDs")
+    return values[0], values[1]
+
+
+async def _qualify_current_r101_comparator_async(
+    old_run_id: str,
+    new_run_id: str,
+    baseline: Path,
+    old_artifact: Path,
+    new_artifact: Path,
+    output: Path,
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    comparator = importlib.import_module("ontolib.decomposition.r101_comparator")
+    corpus = importlib.import_module("ontolib.decomposition.corpus_baseline")
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        old_run = await store.completed_comparator_run_for_evidence(old_run_id)
+        new_run = await store.completed_comparator_run_for_evidence(new_run_id)
+        qualification = comparator.qualify_r101_comparator(
+            old_run=old_run,
+            new_run=new_run,
+            old_baseline=corpus.load_corpus_baseline(baseline),
+            old_artifact=old_artifact,
+            new_artifact=new_artifact,
+        )
+        comparator.write_r101_comparator_qualification(output, qualification)
+        print(
+            json.dumps(
+                {
+                    "old_run_id": qualification.old.run_id,
+                    "new_run_id": qualification.new.run_id,
+                    "query_identity": qualification.query_identity,
+                    "shared_canary_constituents": len(
+                        qualification.shared_canary_constituents
+                    ),
+                    "qualification_identity": qualification.qualification_identity,
+                },
+                sort_keys=True,
+                indent=2,
+            )
+        )
+    finally:
+        await database.dispose_engine(engine)
+
+
+def _qualify_current_r101_comparator(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    old_run_id, new_run_id = _validated_r101_pair(
+        values, operation="qualify-current-r101-comparator"
+    )
+    baseline, old_artifact, new_artifact = (
+        Path(path)
+        for path in _require_files(
+            root,
+            (
+                "tmp/m1-6-prechange-v4-corpus-baseline.json",
+                "tmp/m1-6-prechange-v4-full-corpus.ttl",
+                "tmp/m1-6-current-full-corpus.ttl",
+            ),
+        )
+    )
+    asyncio.run(
+        _qualify_current_r101_comparator_async(
+            old_run_id,
+            new_run_id,
+            baseline,
+            old_artifact,
+            new_artifact,
+            root / "tmp/m1-6-r101-v5-comparator-qualification.json",
+        )
+    )
+    return 0
+
+
+def _generate_current_r101_conservation(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    old_run_id, new_run_id = _validated_r101_pair(
+        values, operation="generate-current-r101-conservation"
+    )
+    _script, source_manifest, baseline, old_artifact, new_artifact = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "tmp/m1-6-prechange-v4-corpus-baseline.json",
+            "tmp/m1-6-prechange-v4-full-corpus.ttl",
+            "tmp/m1-6-current-full-corpus.ttl",
+        ),
+    )
+    return _run(
+        [
+            _PDM,
+            "run",
+            "adjudication",
+            "generate-r101-conservation",
+            "--source-manifest",
+            source_manifest,
+            "--baseline",
+            baseline,
+            "--run-id",
+            old_run_id,
+            "--new-run-id",
+            new_run_id,
+            "--old-artifact",
+            old_artifact,
+            "--new-artifact",
+            new_artifact,
+            "--qualification-output",
+            str(root / "tmp/m1-6-r101-v5-comparator-qualification.json"),
+            "--endpoint",
+            "http://localhost:7888",
+            "--output",
+            str(root / "tmp/m1-6-r101-v5-conservation.json.gz"),
+            "--pre-resume-proof-identity",
+            "f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018",
+            "--resume-dry-run-identity",
+            "2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98",
+            "--mixed-cohort-identity",
+            "dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a",
+        ],
+        root,
+        runner,
+    )
+
+
+def _generate_current_corpus_baseline(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if len(values) != 1 or _RUN_ID.fullmatch(values[0]) is None:
+        raise AgentReplayInputError(
+            "generate-current-corpus-baseline requires one valid run ID"
+        )
+    (run_id,) = values
+    _script, source_manifest, artifact = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "tmp/m1-6-current-full-corpus.ttl",
+        ),
+    )
+    return _run(
+        [
+            _PDM,
+            "run",
+            "adjudication",
+            "generate-corpus-baseline",
+            "--source-manifest",
+            source_manifest,
+            "--run-id",
+            run_id,
+            "--artifact",
+            artifact,
+            "--output",
+            str(root / "tmp/m1-6-current-corpus-baseline.json"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _promote_current_r101_evidence(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "promote-current-r101-evidence accepts no arguments"
+        )
+    report_path, baseline_path, qualification_path = (
+        Path(item)
+        for item in _require_files(
+            root,
+            (
+                "tmp/m1-6-r101-v5-conservation.json.gz",
+                "tmp/m1-6-current-corpus-baseline.json",
+                "tmp/m1-6-r101-v5-comparator-qualification.json",
+            ),
+        )
+    )
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    baseline_module = importlib.import_module("ontolib.decomposition.corpus_baseline")
+    comparator_module = importlib.import_module("ontolib.decomposition.r101_comparator")
+    report = conservation.load_r101_conservation_report(report_path)
+    baseline = baseline_module.load_corpus_baseline(baseline_path)
+    qualification = comparator_module.load_r101_comparator_qualification(
+        qualification_path
+    )
+    if (
+        report.old_run_id != qualification.old.run_id
+        or report.new_run_id != qualification.new.run_id
+        or report.old_run_id == report.new_run_id
+        or report.r101_occurrence_certification != "complete"
+        or report.non_r101_enumeration != "complete"
+        or report.explanation != "incomplete"
+        or report.semantic_isolation != "partial-unqualified"
+        or report.execution_comparability != "unqualified"
+        or report.fully_controlled
+        or report.all_controls_equal
+        or report.causal_attribution != "prohibited"
+        or report.authorization != "pending"
+        or report.publication_gate != "blocked"
+        or report.comparator_qualification_identity
+        != qualification.qualification_identity
+    ):
+        raise AgentReplayInputError(
+            "current R101 report does not certify the fixed comparator pair"
+        )
+    if (
+        baseline.run_id != report.new_run_id
+        or baseline.run_fingerprint_identity != report.new_run_fingerprint_identity
+        or baseline.representation_identity != report.new_representation_identity
+    ):
+        raise AgentReplayInputError(
+            "current corpus baseline does not bind the qualified new run"
+        )
+    golden = root / "ontolib/tests/decomposition/golden"
+    if not golden.is_dir():
+        raise AgentReplayInputError("golden evidence directory does not exist")
+    (golden / "neoplasm-r101-v5-conservation.json.gz").write_bytes(
+        report_path.read_bytes()
+    )
+    (golden / "neoplasm-current-corpus-baseline.json").write_bytes(
+        baseline_path.read_bytes()
+    )
+    return 0
+
+
+def _record_current_r101_diagnostic(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    """Record incomplete fixed-pair evidence without representing it as promoted."""
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "record-current-r101-diagnostic accepts no arguments"
+        )
+    (report_path_raw,) = _require_files(
+        root, ("tmp/m1-6-r101-v5-conservation.json.gz",)
+    )
+    report_path = Path(report_path_raw)
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    report = conservation.load_r101_conservation_report(report_path)
+    evidence = report.non_r101_delta_evidence
+    expected_raw = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    if (
+        _RUN_ID.fullmatch(report.old_run_id) is None
+        or _RUN_ID.fullmatch(report.new_run_id) is None
+        or report.old_run_id == report.new_run_id
+        or report.r101_occurrence_certification != "blocked"
+        or report.publication_gate != "blocked"
+        or evidence.raw_typed_delta_count != expected_raw
+        or not (evidence.rows or evidence.metadata_deltas)
+    ):
+        raise AgentReplayInputError(
+            "current R101 diagnostic is not an incomplete fixed-pair report"
+        )
+    golden = root / "ontolib/tests/decomposition/golden"
+    if not golden.is_dir():
+        raise AgentReplayInputError("golden evidence directory does not exist")
+    (golden / "neoplasm-r101-v5-conservation.json.gz").write_bytes(
+        report_path.read_bytes()
+    )
+    return 0
+
+
+def _r101_structural_rows(evidence: Any) -> list[dict[str, Any]]:
+    if len(evidence.rows) > _MAX_R101_STRUCTURAL_ROWS:
+        raise AgentReplayInputError("R101 structural row output exceeds bounded limit")
+    result: list[dict[str, Any]] = []
+    for row in evidence.rows:
+        item = row.model_dump(mode="json")
+        item["direction"] = item.pop("change")
+        result.append(item)
+    result.sort(
+        key=lambda item: (
+            item["direction"],
+            item["concept_code"],
+            item["axis"],
+            item["filler_code"],
+            json.dumps(item, sort_keys=True, separators=(",", ":")),
+        )
+    )
+    return result
+
+
+def _r101_metadata_summary(evidence: Any) -> dict[str, object]:
+    if len(evidence.metadata_deltas) > _MAX_R101_METADATA_PAIRS:
+        raise AgentReplayInputError("R101 metadata pair output exceeds bounded limit")
+    transitions: Counter[tuple[str, str, str]] = Counter()
+    per_concept: Counter[str] = Counter()
+    for delta in evidence.metadata_deltas:
+        old = delta.old.model_dump(mode="json")
+        new = delta.new.model_dump(mode="json")
+        per_concept[delta.old.concept_code] += 1
+        for field in delta.changed_fields:
+            old_value = json.dumps(old[field], sort_keys=True, separators=(",", ":"))
+            new_value = json.dumps(new[field], sort_keys=True, separators=(",", ":"))
+            transitions[(field, old_value, new_value)] += 1
+    if len(transitions) > _MAX_R101_METADATA_TRANSITIONS:
+        raise AgentReplayInputError(
+            "R101 metadata transition output exceeds bounded limit"
+        )
+    if len(per_concept) > _MAX_R101_METADATA_CONCEPTS:
+        raise AgentReplayInputError(
+            "R101 metadata concept output exceeds bounded limit"
+        )
+    return {
+        "pair_count": len(evidence.metadata_deltas),
+        "transition_cross_tab": [
+            {
+                "changed_field": field,
+                "old_value": json.loads(old),
+                "new_value": json.loads(new),
+                "pair_count": count,
+            }
+            for (field, old, new), count in sorted(transitions.items())
+        ],
+        "per_concept_counts": [
+            {"concept_code": concept, "pair_count": count}
+            for concept, count in sorted(per_concept.items())
+        ],
+    }
+
+
+def _r101_verification(report: Any, conservation: Any) -> dict[str, object]:
+    evidence = report.non_r101_delta_evidence
+    raw_recomputed = (
+        len(evidence.rows)
+        + len(evidence.classified_rows)
+        + 2 * len(evidence.metadata_deltas)
+    )
+    raw_verified = evidence.raw_typed_delta_count == raw_recomputed
+    recomputed_json, recomputed_tsv, recomputed_report = (
+        conservation.recompute_r101_report_identities(report)
+    )
+    identities_verified = (
+        recomputed_json == report.json_identity
+        and recomputed_tsv == report.tsv_identity
+        and recomputed_report == report.report_identity
+    )
+    if not identities_verified or not raw_verified:
+        raise AgentReplayInputError(
+            "R101 report recomputation differs from recorded evidence"
+        )
+    return {
+        "count_reconciliation": {
+            "structural_row_count": len(evidence.rows),
+            "metadata_pair_count": len(evidence.metadata_deltas),
+            "classified_row_count": len(evidence.classified_rows),
+            "raw_typed_delta_count": evidence.raw_typed_delta_count,
+            "recomputed_raw_typed_delta_count": raw_recomputed,
+            "verified": raw_verified,
+        },
+        "identity_verification": {
+            "status": "verified",
+            "model_validation": "verified",
+            "json_identity": {
+                "recorded": report.json_identity,
+                "recomputed": recomputed_json,
+                "verified": recomputed_json == report.json_identity,
+            },
+            "tsv_identity": {
+                "recorded": report.tsv_identity,
+                "recomputed": recomputed_tsv,
+                "verified": recomputed_tsv == report.tsv_identity,
+            },
+            "report_identity": {
+                "recorded": report.report_identity,
+                "recomputed": recomputed_report,
+                "verified": recomputed_report == report.report_identity,
+            },
+        },
+    }
+
+
+def _inspect_r101_report(values: list[str], root: Path, runner: CommandRunner) -> int:
+    del runner
+    if len(values) != 1:
+        raise AgentReplayInputError("inspect-r101-report requires one report path")
+    relative = _validated_repository_relative(values[0], label="R101 report")
+    path = root / relative
+    _require_no_symlink_components(path, root=root, label="R101 report")
+    if not path.is_file() or not path.name.endswith(".json.gz"):
+        raise AgentReplayInputError("R101 report must be an existing .json.gz file")
+    conservation = importlib.import_module("ontolib.decomposition.r101_conservation")
+    try:
+        report = conservation.load_r101_conservation_report(path)
+    except (OSError, ValueError) as exc:
+        raise AgentReplayInputError(
+            f"R101 report failed strict validation: {exc}"
+        ) from exc
+    evidence = report.non_r101_delta_evidence
+    result = {
+        "report_binding": {
+            "old_run_id": report.old_run_id,
+            "new_run_id": report.new_run_id,
+            "query_identity": evidence.query_identity,
+            "report_identity": report.report_identity,
+            "r101_occurrence_inventory_identity": (
+                report.r101_occurrence_inventory_identity
+            ),
+            "non_r101_typed_inventory_identity": (
+                report.non_r101_typed_inventory_identity
+            ),
+        },
+        "statuses": {
+            "r101_occurrence_certification": report.r101_occurrence_certification,
+            "non_r101_enumeration": report.non_r101_enumeration,
+            "explanation": report.explanation,
+            "semantic_isolation": report.semantic_isolation,
+            "execution_comparability": report.execution_comparability,
+            "fully_controlled": report.fully_controlled,
+            "all_controls_equal": report.all_controls_equal,
+            "causal_attribution": report.causal_attribution,
+            "authorization": report.authorization,
+            "publication": report.publication_gate,
+        },
+        **_r101_verification(report, conservation),
+        "structural_rows": _r101_structural_rows(evidence),
+        "metadata_pairs": _r101_metadata_summary(evidence),
+        "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    output = json.dumps(result, sort_keys=True, indent=2)
+    if len(output.encode()) > _MAX_R101_INSPECTION_BYTES:
+        raise AgentReplayInputError("R101 inspection output exceeds bounded byte limit")
+    print(output)
+    return 0
+
+
+async def _classify_mixed_chain_delta(
+    *,
+    delta: Any,
+    rows: tuple[Any, ...],
+    client: Any,
+    source_identity: str,
+    extract: Any,
+    fs: Any,
+    inventory_module: Any,
+    models: Any,
+    stated: Any,
+) -> Any | None:
+    fillers = {row.source_filler for row in rows}
+    if (
+        delta.filler_code not in fillers
+        or len(fillers) < _MIN_SPECIFICITY_FILLERS
+        or len(delta.source_roles) != 1
+    ):
+        return None
+    ancestor_rows = await client.select(
+        stated.build_ancestor_pairs_query(fillers),
+        required_variables={"ancestor", "descendant"},
+    )
+    ancestor_pairs = extract.ancestor_pairs_from_rows(ancestor_rows)
+    part_pairs = await stated.resolve_part_of_pairs(client, fillers)
+    occurrences = tuple(
+        fs.RoutedOccurrence(
+            restriction=models.RoleRestriction(
+                role_code=row.source_role,
+                filler_code=row.source_filler,
+                anchoring_genus=row.anchoring_genus,
+                source_definition_ids=(row.source_fact_id,),
+                source_occurrence_ids=(row.source_occurrence_id,),
+                source_kind="stated",
+            ),
+            normalized_axis=row.normalized_axis,
+            semantic_route=row.semantic_route,
+            semantic_type=row.semantic_type,
+            source_fact_id=row.source_fact_id,
+            source_occurrence_id=row.source_occurrence_id,
+        )
+        for row in rows
+    )
+    plan = fs.RoutedPlan(
+        occurrences=occurrences,
+        parent_morphologies=(),
+        specificity_groups=((delta.axis, tuple(sorted(fillers))),),
+        comparison_groups=((delta.axis, tuple(sorted(fillers))),),
+        protected_pairs=frozenset(
+            (row.normalized_axis, row.source_filler)
+            for row in rows
+            if row.policy_decision_identity is not None
+        ),
+        policy_decisions=tuple(
+            (row.source_occurrence_id, row.policy_decision_identity)
+            for row in rows
+            if row.policy_decision_identity is not None
+        ),
+        source_identity=source_identity,
+    )
+    part_of = {(pair.part, pair.whole) for pair in part_pairs}
+    selected = fs.select_routed_plan(
+        plan,
+        extract.make_is_ancestor(set(ancestor_pairs)),
+        is_part_of=lambda part, whole, pairs=part_of: (part, whole) in pairs,
+    )
+    broad = tuple(
+        item
+        for item in selected.dispositions
+        if item.source_filler == delta.filler_code
+    )
+    if not broad or any(item.kind != "collapsed-mixed" for item in broad):
+        return None
+    first = broad[0]
+    if any(
+        item.retained_filler != first.retained_filler
+        or item.specificity_path != first.specificity_path
+        for item in broad
+    ):
+        return None
+    return inventory_module.MixedChainCandidate(
+        concept_code=delta.concept_code,
+        axis=delta.axis,
+        source_role=delta.source_roles[0],
+        broad_filler=delta.filler_code,
+        terminal_filler=first.retained_filler,
+        source_occurrence_ids=tuple(
+            sorted(item.source_occurrence_id for item in broad)
+        ),
+        specificity_path=first.specificity_path,
+    )
+
+
+async def _generate_mixed_chain_inventory_async(
+    report_path: Path, output: Path
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    extract = importlib.import_module("ontolib.decomposition.extract")
+    fs = importlib.import_module("ontolib.decomposition.filler_selection")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    models = importlib.import_module("ontolib.decomposition.models")
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    stated = importlib.import_module("ontolib.decomposition.stated_queries")
+    ncit_client = importlib.import_module("ontolib.terminologies.ncit.client")
+    report = inventory_module.load_historical_mixed_chain_source_report(report_path)
+    structural = report.non_r101_delta_evidence.rows
+    if len(structural) != _EXPECTED_R101_STRUCTURAL_ADDITIONS or any(
+        row.change != "added" for row in structural
+    ):
+        raise AgentReplayInputError("mixed-chain inventory requires exact 39 additions")
+    codes = tuple(sorted({row.concept_code for row in structural}))
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        run = await store.historical_mixed_chain_run_for_evidence(report.new_run_id)
+        persisted = await store.selector_occurrences_for_codes(report.new_run_id, codes)
+    finally:
+        await database.dispose_engine(engine)
+    by_concept_axis: dict[tuple[str, str], list[Any]] = defaultdict(list)
+    for row in persisted:
+        by_concept_axis[(row.concept_code, row.normalized_axis)].append(row)
+    candidates = []
+    unclassified: set[str] = set()
+    async with ncit_client.ncit_sparql_client(settings.ncit_sparql_url) as client:
+        for delta in structural:
+            rows = tuple(by_concept_axis[(delta.concept_code, delta.axis)])
+            candidate = await _classify_mixed_chain_delta(
+                delta=delta,
+                rows=rows,
+                client=client,
+                source_identity=run.fingerprint.source_identity,
+                extract=extract,
+                fs=fs,
+                inventory_module=inventory_module,
+                models=models,
+                stated=stated,
+            )
+            if candidate is None:
+                unclassified.add(delta.concept_code)
+                continue
+            candidates.append(candidate)
+    inventory = inventory_module.MixedChainInventory.create(
+        source_identity=run.fingerprint.source_identity,
+        worklist_identity=inventory_module.mixed_chain_worklist_identity(
+            run.fingerprint.worklist
+        ),
+        worklist_count=len(run.fingerprint.worklist),
+        selector_identity=inventory_module.HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY,
+        source_run_id=run.run_id,
+        source_report_identity=report.report_identity,
+        candidates=tuple(candidates),
+        unclassified_codes=tuple(unclassified),
+    )
+    inventory_module.write_mixed_chain_inventory(output, inventory)
+    print(json.dumps(inventory.model_dump(mode="json"), sort_keys=True, indent=2))
+
+
+def _generate_mixed_chain_inventory(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-mixed-chain-inventory accepts no arguments"
+        )
+    report = (
+        root / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+    )
+    output = root / "tmp/m1-6-mixed-chain-inventory.json"
+    output.unlink(missing_ok=True)
+    asyncio.run(_generate_mixed_chain_inventory_async(report, output))
+    return 0
+
+
+def _record_mixed_chain_inventory(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError("record-mixed-chain-inventory accepts no arguments")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    source = root / "tmp/m1-6-mixed-chain-inventory.json"
+    target = (
+        root / "ontolib/src/ontolib/decomposition/data/"
+        "neoplasm_mixed_chain_inventory.json"
+    )
+    inventory = inventory_module.load_mixed_chain_inventory(source)
+    if (
+        inventory.candidate_count != _EXPECTED_R101_STRUCTURAL_ADDITIONS
+        or inventory.unclassified_codes
+    ):
+        raise AgentReplayInputError("mixed-chain inventory is not complete")
+    inventory_module.write_mixed_chain_inventory(target, inventory)
+    print(f"recorded {inventory.identity} at {target.relative_to(root)}")
+    return 0
+
+
+async def _generate_mixed_chain_corrected_projection_async(
+    inventory_path: Path, report_path: Path, output: Path
+) -> None:
+    settings = importlib.import_module("backend.config").get_settings()
+    database = importlib.import_module("backend.db")
+    inventory_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_inventory"
+    )
+    projection_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_projection"
+    )
+    provenance = importlib.import_module("ontolib.decomposition.provenance")
+    inventory = inventory_module.load_mixed_chain_inventory(inventory_path)
+    report = inventory_module.load_historical_mixed_chain_source_report(report_path)
+    if (
+        inventory.source_run_id != report.new_run_id
+        or inventory.source_report_identity != report.report_identity
+    ):
+        raise AgentReplayInputError("projection inventory source report differs")
+    selector_identity = inventory.selector_identity
+    engine = database.make_engine(settings.database_url)
+    try:
+        store = provenance.ProvenanceStore(database.make_sessionmaker(engine))
+        occurrences = await store.selector_occurrences_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+        states = await store.projection_state_for_codes(
+            inventory.source_run_id, inventory.candidate_codes
+        )
+    finally:
+        await database.dispose_engine(engine)
+    occurrences_by_code: dict[str, list[Any]] = defaultdict(list)
+    for row in occurrences:
+        occurrences_by_code[row.concept_code].append(row)
+    states_by_code = {row.concept_code: row for row in states}
+    projections = tuple(
+        projection_module.project_mixed_chain_candidate(
+            candidate=candidate,
+            occurrences=tuple(occurrences_by_code[candidate.concept_code]),
+            before_constituents=states_by_code[candidate.concept_code].constituents,
+            before_dispositions=states_by_code[candidate.concept_code].dispositions,
+            source_identity=inventory.source_identity,
+        )
+        for candidate in inventory.candidates
+    )
+    artifact = projection_module.create_corrected_projection(
+        source_run_id=inventory.source_run_id,
+        source_report_identity=inventory.source_report_identity,
+        source_identity=inventory.source_identity,
+        selector_identity=selector_identity,
+        inventory_identity=inventory.identity,
+        expected_candidate_codes=inventory.candidate_codes,
+        projections=projections,
+    )
+    projection_module.write_corrected_projection(output, artifact)
+    print(
+        json.dumps(
+            {
+                "projection_identity": artifact.projection_identity,
+                "candidate_count": artifact.candidate_count,
+                "constituent_transition_counts": (
+                    artifact.constituent_transition_counts.model_dump(mode="json")
+                ),
+                "metadata_transition_counts": (
+                    artifact.metadata_transition_counts.model_dump(mode="json")
+                ),
+                "disposition_transition_count": (artifact.disposition_transition_count),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def _generate_mixed_chain_corrected_projection(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-mixed-chain-corrected-projection accepts no arguments"
+        )
+    output = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
+    output.unlink(missing_ok=True)
+    asyncio.run(
+        _generate_mixed_chain_corrected_projection_async(
+            root / "ontolib/src/ontolib/decomposition/data/"
+            "neoplasm_mixed_chain_inventory.json",
+            root / "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-2b39-historical-conservation.json.gz",
+            output,
+        )
+    )
+    return 0
+
+
+def _record_mixed_chain_corrected_projection(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "record-mixed-chain-corrected-projection accepts no arguments"
+        )
+    projection_module = importlib.import_module(
+        "ontolib.decomposition.mixed_chain_projection"
+    )
+    generated = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
+    if not generated.is_file():
+        raise AgentReplayInputError("generated corrected projection does not exist")
+    artifact = projection_module.load_corrected_projection(generated)
+    destination = (
+        root / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-corrected-projection.json"
+    )
+    projection_module.write_corrected_projection(destination, artifact)
+    print(f"recorded {artifact.projection_identity} at {destination.relative_to(root)}")
+    return 0
 
 
 def _subprocess_runner(
@@ -875,6 +1682,8 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
             "neoplasm",
             "--sample-manifest",
             sample,
+            "--walker-max-depth",
+            "7",
             "--out",
             str(root / "tmp/m1-6-current-replay.ttl"),
         ],
@@ -1479,7 +2288,7 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
         "tmp/m1-6-current-full-corpus.ttl",
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         "tmp/r101-review-reuse-validation.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
@@ -2698,6 +3507,21 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
+    "inspect-decomposition-runs": _inspect_decomposition_runs,
+    "qualify-current-r101-comparator": _qualify_current_r101_comparator,
+    "generate-current-r101-conservation": _generate_current_r101_conservation,
+    "generate-current-corpus-baseline": _generate_current_corpus_baseline,
+    "promote-current-r101-evidence": _promote_current_r101_evidence,
+    "record-current-r101-diagnostic": _record_current_r101_diagnostic,
+    "inspect-r101-report": _inspect_r101_report,
+    "generate-mixed-chain-inventory": _generate_mixed_chain_inventory,
+    "record-mixed-chain-inventory": _record_mixed_chain_inventory,
+    "generate-mixed-chain-corrected-projection": (
+        _generate_mixed_chain_corrected_projection
+    ),
+    "record-mixed-chain-corrected-projection": (
+        _record_mixed_chain_corrected_projection
+    ),
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,

@@ -66,6 +66,26 @@ def test_progress_message_suppresses_nonmilestone_completions() -> None:
 
 
 @pytest.mark.unit
+def test_direct_script_exposes_no_admission_bypass_flag() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decompose.py",
+            "--source-manifest",
+            "missing.json",
+            "--force",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "No such option: --force" in unstyle(result.stderr)
+
+
+@pytest.mark.unit
 def test_residual_progress_prints_milestones(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -716,6 +736,37 @@ def test_main_prints_metrics_and_forwards_resume_options(
         "in_scope=4 decomposed=2 residual=0 semantic_excluded=1 atomic_noop=1 "
         "unknown=0 minted=1 coverage=50.00% "
         "residual_precoordination=50.00% (1/2)\n"
+    )
+
+
+@pytest.mark.unit
+def test_main_prints_unavailable_residual_rate_with_unknown_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def run_command(*_args: object) -> decompose.RunMetrics:
+        return decompose.RunMetrics(
+            total_in_scope=1,
+            decomposed=1,
+            residual_precoordination_unknown_count=1,
+        )
+
+    monkeypatch.setattr(decompose, "_run", run_command)
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=None,
+        load=False,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+        walker_max_depth=5,
+    )
+
+    assert "residual_precoordination=unavailable (unknown=1)" in (
+        capsys.readouterr().out
     )
 
 

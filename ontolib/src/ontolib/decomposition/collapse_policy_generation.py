@@ -22,14 +22,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from ontolib.decomposition.models import SourceDefinitionOccurrence
-    from ontolib.decomposition.r101_conservation import R101ConservationReport
+    from ontolib.decomposition.r101_conservation import HistoricalR101ConservationReport
     from ontolib.decomposition.r101_review import R101DecisionRegistry, R101ReviewPacket
 
 
 def _validate_registry(
     registry: R101DecisionRegistry,
     packet: R101ReviewPacket,
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
 ) -> None:
     _validate_authorized_accounting(registry)
     dry_run_r101_decision_expansion(report, packet, registry)
@@ -53,7 +53,7 @@ def _validate_authorized_accounting(registry: R101DecisionRegistry) -> None:
 def build_authorized_collapse_veto_policy(
     registry: R101DecisionRegistry,
     packet: R101ReviewPacket,
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport,
     live_occurrences: Iterable[SourceDefinitionOccurrence],
 ) -> CollapseVetoPolicy:
     """Join operationally allowlisted proposed registry atoms to their evidence."""

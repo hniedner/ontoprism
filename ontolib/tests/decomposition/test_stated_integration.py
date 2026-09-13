@@ -38,9 +38,7 @@ from ontolib.decomposition.extract import (
     part_of_pairs_from_rows,
     semantic_type_of_from_rows,
 )
-from ontolib.decomposition.filler_selection import (
-    select_constituents as _select_constituents,
-)
+from ontolib.decomposition.filler_selection import build_routed_plan, select_routed_plan
 from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
@@ -434,6 +432,18 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
         for item in selected
     ] == [
         (
+            "op:AssociatedRegion",
+            "C99752",
+            (facts_by_pair[("R101", "C99752")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R101"
+                )
+            ),
+        ),
+        (
             "op:CellType",
             "C99753",
             (facts_by_pair[("R105", "C99753")].fact_id,),
@@ -442,18 +452,6 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
                     item.occurrence_id
                     for item in complete.occurrences
                     if item.role_code == "R105"
-                )
-            ),
-        ),
-        (
-            "op:PrimarySite",
-            "C99752",
-            (facts_by_pair[("R101", "C99752")].fact_id,),
-            tuple(
-                sorted(
-                    item.occurrence_id
-                    for item in complete.occurrences
-                    if item.role_code == "R101"
                 )
             ),
         ),
@@ -1847,11 +1845,21 @@ async def test_ncit_role_metadata_contract_matches_normalization() -> None:
 
 
 def select_constituents(*args: Any, **kwargs: Any):
-    return _select_constituents(
-        *args,
-        **kwargs,
+    restrictions, is_ancestor = args
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
         source_identity=None,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    return list(
+        select_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
     )
 
 
