@@ -64,3 +64,25 @@ def test_inventory_is_read_only_and_reports_unmanaged_ignored_and_worktrees(
     assert report["compose_resources"][0]["project"] == "ontoprism-podman-poc"
     assert "delete" not in report
     assert "apply" not in report
+
+
+@pytest.mark.unit
+def test_inventory_reports_markerless_generation_directory_as_partial(
+    tmp_path: Path,
+) -> None:
+    partial = tmp_path / "tmp/artifacts/v1/generations/m1-6-current-replay/interrupted"
+    partial.mkdir(parents=True)
+    artifact = partial / "artifacts/decomposition.ttl"
+    artifact.parent.mkdir()
+    artifact.write_bytes(b"partial")
+
+    report = inventory_repository(
+        tmp_path, git_worktrees=(tmp_path,), compose_resources=()
+    )
+
+    assert {
+        "path": partial.relative_to(tmp_path).as_posix(),
+        "record_type": "artifact-generation",
+        "availability": "partial",
+    } in report["managed_records"]
+    assert artifact.is_file()

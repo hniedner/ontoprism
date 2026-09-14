@@ -1689,6 +1689,32 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
     family_root = root / "tmp/artifacts/v1/generations/m1-6-current-replay"
     staging = family_root / ".staging" / generation_id
     staging.mkdir(parents=True, exist_ok=False)
+    try:
+        return _decompose_current_staged(
+            root=root,
+            runner=runner,
+            script=script,
+            source=source,
+            sample=sample,
+            generation_id=generation_id,
+            family_root=family_root,
+            staging=staging,
+        )
+    finally:
+        shutil.rmtree(staging)
+
+
+def _decompose_current_staged(
+    *,
+    root: Path,
+    runner: CommandRunner,
+    script: str,
+    source: str,
+    sample: str,
+    generation_id: str,
+    family_root: Path,
+    staging: Path,
+) -> int:
     output = staging / "decomposition.ttl"
     command = [
         sys.executable,
@@ -1748,7 +1774,6 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
             expires_at=None,
         ),
     )
-    shutil.rmtree(staging)
     final = family_root / generation_id
     artifact = final / "artifacts/decomposition.ttl"
     print(
@@ -1876,7 +1901,10 @@ def _record_artifact_registry(
         ),
         last_known_path="tmp/m1-6-current-replay.ttl",
         reason="overwritten-before-immutable-retention",
-        references=(),
+        references=(
+            "tmp/m1-6-normalized-group-policy-candidate.json",
+            "tmp/m1-6-group-review-pre274-observations.json",
+        ),
     )
     write_unavailable_record(unavailable_path, unavailable)
     print(

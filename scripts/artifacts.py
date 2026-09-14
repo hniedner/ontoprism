@@ -172,6 +172,32 @@ def _managed_entry(
     )
 
 
+def _partial_generation_entries(
+    root: Path, artifacts_root: Path
+) -> list[dict[str, object]]:
+    generations_root = artifacts_root / "generations"
+    if not generations_root.is_dir():
+        return []
+    entries: list[dict[str, object]] = []
+    for family in sorted(generations_root.iterdir()):
+        if not family.is_dir() or family.name.startswith("."):
+            continue
+        for generation in sorted(family.iterdir()):
+            if (
+                generation.is_dir()
+                and not generation.name.startswith(".")
+                and not (generation / "manifest.json").is_file()
+            ):
+                entries.append(
+                    {
+                        "path": generation.relative_to(root).as_posix(),
+                        "record_type": "artifact-generation",
+                        "availability": "partial",
+                    }
+                )
+    return entries
+
+
 def inventory_repository(
     root: Path,
     *,
@@ -212,6 +238,7 @@ def inventory_repository(
                     }
                 )
             managed.append(entry)
+        managed.extend(_partial_generation_entries(root, artifacts_root))
     unknown: list[str] = []
     for base_name in ("tmp", "data"):
         base = root / base_name

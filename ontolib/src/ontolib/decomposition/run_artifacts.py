@@ -23,6 +23,7 @@ _RUN_ID = re.compile(
 _COMPLETE = ".complete"
 _MANIFEST = "manifest.json"
 _CLAIM = ".create-only-claim"
+_RESERVED_ARTIFACT_PARTS = {_COMPLETE, _MANIFEST, _CLAIM, ".claims", ".staging"}
 _CONCURRENT_WAIT_SECONDS = 10.0
 _CONTROL_CODEPOINT_LIMIT = 32
 
@@ -58,6 +59,13 @@ def _relative_path(value: str) -> str:
     if path.is_absolute() or not _has_normalized_parts(path):
         raise ArtifactPathError("artifact path must be normalized and relative")
     return path.as_posix()
+
+
+def _artifact_relative_path(value: str) -> str:
+    relative = _relative_path(value)
+    if any(part in _RESERVED_ARTIFACT_PARTS for part in PurePosixPath(relative).parts):
+        raise ArtifactPathError("artifact path uses a reserved control name")
+    return relative
 
 
 def _contains_control_character(value: str) -> bool:
@@ -102,7 +110,7 @@ class ArtifactRecord(BaseModel):
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
-        _relative_path(self.relative_path)
+        _artifact_relative_path(self.relative_path)
         if self.size < 0 or _SHA256.fullmatch(self.sha256) is None:
             raise ArtifactError("artifact size or SHA-256 is invalid")
 
@@ -565,6 +573,8 @@ def _record_source(path: Path, relative: str) -> ArtifactRecord:
 
 
 def _write_fsynced(path: Path, data: bytes) -> None:
+    # This is intentionally separate from replacement-style atomic_write helpers:
+    # immutable generation publication must fail if any destination already exists.
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         with os.fdopen(descriptor, "wb", closefd=False) as stream:
@@ -669,21 +679,11 @@ def publish_generation(
     _plain_token(family, "family")
     _plain_token(generation_id, "generation ID")
     normalized = [
-        (_relative_path(relative), path) for relative, path in artifact_sources.items()
+        (_artifact_relative_path(relative), path)
+        for relative, path in artifact_sources.items()
     ]
     if len(normalized) != len({relative for relative, _ in normalized}):
         raise ArtifactPathError("artifact paths contain a duplicate")
-    records = tuple(_record_source(path, relative) for relative, path in normalized)
-    manifest = ArtifactManifest.create(
-        family=family,
-        generation_id=generation_id,
-        run_id=run_id,
-        parents=parents,
-        generator=generator,
-        sources=sources,
-        artifact_records=records,
-        retention=retention,
-    )
     family_root = artifacts_root / family
     staging_root = family_root / ".staging"
     staging_root.mkdir(parents=True, exist_ok=True)
@@ -692,6 +692,20 @@ def publish_generation(
     claim: Path | None = None
     try:
         _stage_artifacts(staging, normalized)
+        records = tuple(
+            _record_source(staging / relative, relative)
+            for relative, _source in normalized
+        )
+        manifest = ArtifactManifest.create(
+            family=family,
+            generation_id=generation_id,
+            run_id=run_id,
+            parents=parents,
+            generator=generator,
+            sources=sources,
+            artifact_records=records,
+            retention=retention,
+        )
         manifest_bytes = _canonical_bytes(manifest.to_dict())
         _write_fsynced(staging / _MANIFEST, manifest_bytes)
         _fsync_directory(staging)
@@ -712,6 +726,7 @@ def publish_generation(
 
 def _stage_artifacts(staging: Path, sources: list[tuple[str, Path]]) -> None:
     for relative, source in sources:
+        _regular_source(source)
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         _write_fsynced(destination, source.read_bytes())
@@ -738,7 +753,7 @@ def _publish_claimed_generation(
     _write_fsynced(final / _COMPLETE, identity_bytes)
     _fsync_directory(final)
     _fsync_directory(family_root)
-    return manifest
+    return _verify_complete(final, manifest)
 
 
 def _copy_staged_artifacts(

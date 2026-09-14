@@ -25,10 +25,15 @@ tmp/artifacts/v1/generations/m1-6-current-replay/<generation-id>/
 
 The UUID generation ID is allocated once as a collision-resistant locator. It has no
 semantic meaning. Publication builds and fsyncs a unique staging tree, claims the final
-directory with exclusive `mkdir`, copies bytes only into that owned directory, fsyncs
-the manifest and directories, and writes and fsyncs `.complete` last. There is no
+directory with exclusive `mkdir`, derives the manifest records from the staged bytes,
+copies those bytes only into that owned directory, fsyncs the manifest and directories,
+writes and fsyncs `.complete` last, and byte-verifies the completed generation before
+reporting success. Artifact paths cannot occupy manifest, completion, claim, or staging
+control names. There is no
 `os.replace` of immutable generation content. Identical retries verify every byte;
 conflicts and markerless partial directories refuse without adoption or overwrite.
+The create-only fsynced writer is deliberately separate from general atomic-write
+helpers: replacement is valid for mutable files but would violate generation ownership.
 
 `generate-current-evidence` requires both the exact parent `manifest.json` path and its
 manifest identity. Resolution verifies the completion marker, manifest identity, and
@@ -48,7 +53,10 @@ Run `neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997` with expected artifact SHA-2
 `4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d` is unavailable:
 its last-known shared path was overwritten before immutable retention. Its unavailable
 record must claim no present file locator; the bytes must not be reconstructed or
-described as observed.
+described as observed. Its two known references are labels for the historical paths
+`tmp/m1-6-normalized-group-policy-candidate.json` and
+`tmp/m1-6-group-review-pre274-observations.json`; they do not claim those bytes are
+currently present.
 
 ## Retention and inventory
 
@@ -56,6 +64,7 @@ described as observed.
 budget. `pdm run artifacts inventory` is read-only. It reports logical and allocated
 usage for ignored `tmp/` and `data/`, registered Git worktrees, managed records,
 unmanaged paths, availability, references, retention classes, and Compose resources.
+Marker-less generation directories are reported as partial rather than omitted.
 Unknown large files are sized from filesystem metadata and are not digested. There is
 no delete, prune, apply, worktree-removal, adoption, or authorization mode.
 

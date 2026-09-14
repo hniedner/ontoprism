@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from ontolib.decomposition import run_artifacts
 from ontolib.decomposition.run_artifacts import (
     ArtifactConflictError,
     ArtifactManifest,
@@ -414,6 +415,76 @@ def test_artifact_paths_reject_traversal_controls_duplicates_and_symlinks(
                 expires_at=None,
             ),
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "relative",
+    ["manifest.json", ".complete", ".create-only-claim", ".claims/owner"],
+)
+def test_artifact_paths_reject_generation_control_names_before_publication(
+    tmp_path: Path, relative: str
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_bytes(b"safe")
+    final = tmp_path / "artifacts/m1-6-current-replay/reserved"
+
+    with pytest.raises(ArtifactPathError, match="reserved"):
+        publish_generation(
+            artifacts_root=tmp_path / "artifacts",
+            family="m1-6-current-replay",
+            generation_id="reserved",
+            run_id=RUN_ID,
+            artifact_sources={relative: source},
+            parents=(),
+            generator=GeneratorBinding(identity="git:abc", command=("test",)),
+            sources=(),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="tests",
+                expires_at=None,
+            ),
+        )
+
+    assert not final.exists()
+
+
+@pytest.mark.unit
+def test_source_mutation_before_staging_cannot_publish_mismatched_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "mutable.ttl"
+    source.write_bytes(b"before")
+    original_stage = run_artifacts._stage_artifacts
+
+    def mutate_then_stage(staging: Path, sources: list[tuple[str, Path]]) -> None:
+        source.write_bytes(b"after")
+        original_stage(staging, sources)
+
+    monkeypatch.setattr(run_artifacts, "_stage_artifacts", mutate_then_stage)
+
+    manifest = publish_generation(
+        artifacts_root=tmp_path / "artifacts",
+        family="m1-6-current-replay",
+        generation_id="source-mutated",
+        run_id=RUN_ID,
+        artifact_sources={"artifacts/decomposition.ttl": source},
+        parents=(),
+        generator=GeneratorBinding(identity="git:abc", command=("test",)),
+        sources=(),
+        retention=RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
+    )
+    final = tmp_path / "artifacts/m1-6-current-replay/source-mutated"
+    resolved = resolve_parent_manifest(
+        final / "manifest.json", manifest.manifest_identity
+    )
+
+    assert (final / "artifacts/decomposition.ttl").read_bytes() == b"after"
+    assert resolved == manifest
 
 
 @pytest.mark.unit

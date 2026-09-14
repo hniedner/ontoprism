@@ -797,6 +797,7 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(
     assert report["manifest_identity"] == manifest["manifest_identity"]
     assert report["artifact_sha256"] == manifest["artifact_records"][0]["sha256"]
     assert options["shell"] is False
+    assert not output.parent.exists()
 
     first_bytes = {
         path.relative_to(generation): path.read_bytes()
@@ -813,6 +814,61 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(
         path.parent for path in output.parents[2].glob("*/.complete") if path.is_file()
     ]
     assert len(completed) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["subprocess", "publish"])
+def test_current_replay_removes_only_its_staging_directory_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    for relative in (
+        "scripts/decompose.py",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "samples/ncit-26.07d-m1-current-replay.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    family_root = tmp_path / "tmp/artifacts/v1/generations/m1-6-current-replay"
+    published = family_root / "published/artifact.ttl"
+    published.parent.mkdir(parents=True)
+    published.write_bytes(b"published")
+    generation_id = "00000000-0000-0000-0000-000000000334"
+    monkeypatch.setattr(
+        replay.importlib.import_module("uuid"), "uuid4", lambda: generation_id
+    )
+    run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+
+    class FailingRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            output = Path(arguments[arguments.index("--out") + 1])
+            output.write_text(f"<{run_id}> <p> <o> .\n", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                arguments, 7 if failure == "subprocess" else 0, "", ""
+            )
+
+    monkeypatch.setattr(replay, "_verify_persisted_replay", lambda *_: "source-id")
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
+    if failure == "publish":
+        monkeypatch.setattr(
+            replay,
+            "publish_generation",
+            lambda **_: (_ for _ in ()).throw(RuntimeError("publish failed")),
+        )
+        with pytest.raises(RuntimeError, match="publish failed"):
+            run_agent_replay(["decompose-current"], tmp_path, runner=FailingRunner())
+    else:
+        assert (
+            run_agent_replay(["decompose-current"], tmp_path, runner=FailingRunner())
+            == 7
+        )
+
+    assert not (family_root / ".staging" / generation_id).exists()
+    assert published.read_bytes() == b"published"
 
 
 @pytest.mark.unit
@@ -948,6 +1004,10 @@ def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
     )
     assert unavailable["record_type"] == "unavailable-artifact"
     assert unavailable["reason"] == "overwritten-before-immutable-retention"
+    assert unavailable["references"] == [
+        "tmp/m1-6-normalized-group-policy-candidate.json",
+        "tmp/m1-6-group-review-pre274-observations.json",
+    ]
     assert "artifact_records" not in unavailable
 
 
