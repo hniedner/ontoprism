@@ -133,8 +133,8 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     assert len(report.revise_rows) == 42
     assert len(report.candidate_rows) == 64
     assert Counter(row.group_delta for row in report.revise_rows) == {
-        "unchanged": 13,
-        "changed": 29,
+        "unchanged": 15,
+        "changed": 27,
     }
     assert (
         hashlib.sha256(
@@ -143,7 +143,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
-        == "947ae783ab1c386a4fc5ebee1796add354fd8fe931cbc7f8d8f72301321cdfbe"
+        == "34d40a8243d6267623536e43d586246ee331f40d9a013d8fdf73da2c7e9b8fb3"
     )
     assert report.metrics.sme_include_rate.model_dump() == {
         "numerator": 48,

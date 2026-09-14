@@ -1,6 +1,6 @@
 {
-  "artifact_identity": "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa",
-  "comparison_identity": "b10dd0b4dd5dcb14c9dcd182f5886e69973f915957ccb59fe0613135d35822b6",
+  "artifact_identity": "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427",
+  "comparison_identity": "f0eb3088cf291b037d40c72e6d8100dab1512c2acdba6782352e97671d5ec3f8",
   "concepts": [
     {
       "code": "C27262",
@@ -16,9 +16,7 @@
             [
               "op:Morphology",
               "C35501"
-            ]
-          ],
-          [
+            ],
             [
               "op:Morphology",
               "C9290"
@@ -37,7 +35,7 @@
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [
@@ -85,52 +83,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C35501"
-              ]
-            },
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C9290"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:Morphology",
-              "C35501"
-            ],
-            [
-              "op:Morphology",
-              "C9290"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C35501"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9290"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -145,9 +98,7 @@
             [
               "op:Morphology",
               "C35501"
-            ]
-          ],
-          [
+            ],
             [
               "op:Morphology",
               "C9290"
@@ -230,52 +181,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C35501"
-              ]
-            },
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C9290"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:Morphology",
-              "C35501"
-            ],
-            [
-              "op:Morphology",
-              "C9290"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C35501"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9290"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -348,16 +254,14 @@
             [
               "op:Morphology",
               "C121619"
-            ]
-          ],
-          [
+            ],
             [
               "op:Morphology",
               "C39986"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [
@@ -397,52 +301,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C121619"
-              ]
-            },
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C39986"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:Morphology",
-              "C121619"
-            ],
-            [
-              "op:Morphology",
-              "C39986"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C121619"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C39986"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -469,9 +328,7 @@
             [
               "op:Morphology",
               "C121619"
-            ]
-          ],
-          [
+            ],
             [
               "op:Morphology",
               "C39986"
@@ -524,52 +381,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C121619"
-              ]
-            },
-            {
-              "availability": "unavailable-no-occurrence-evidence",
-              "pair": [
-                "op:Morphology",
-                "C39986"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:Morphology",
-              "C121619"
-            ],
-            [
-              "op:Morphology",
-              "C39986"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C121619"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C39986"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -697,16 +509,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:AssociatedRegion",
@@ -757,79 +567,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90529"
-            ],
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -866,9 +604,7 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
@@ -938,79 +674,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90529"
-            ],
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -1104,16 +768,14 @@
             [
               "op:StageSystem",
               "C140961"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:AssociatedLineageClassification",
@@ -1186,58 +848,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C140961"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C140961"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C140961"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "full_partition": {
@@ -1288,9 +899,7 @@
             [
               "op:StageSystem",
               "C140961"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
@@ -1394,58 +1003,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C140961"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C140961"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C140961"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "pair_relations": {
@@ -1538,16 +1096,14 @@
             [
               "op:StageSystem",
               "C132248"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [
@@ -1593,58 +1149,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C132248"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C132248"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C132248"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 4
       },
       "full_partition": {
@@ -1665,9 +1170,7 @@
             [
               "op:StageSystem",
               "C132248"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
@@ -1744,58 +1247,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C132248"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C132248"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C132248"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 4
       },
       "pair_relations": {
@@ -1878,16 +1330,14 @@
             [
               "op:StageSystem",
               "C180901"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:CellType",
@@ -1933,58 +1383,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C180901"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C180901"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C180901"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "full_partition": {
@@ -2023,9 +1422,7 @@
             [
               "op:StageSystem",
               "C180901"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
@@ -2078,58 +1475,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C180901"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C180901"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C180901"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -2208,16 +1554,14 @@
             [
               "op:StageSystem",
               "C186618"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:CellType",
@@ -2263,58 +1607,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C186618"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C186618"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C186618"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "full_partition": {
@@ -2353,9 +1646,7 @@
             [
               "op:StageSystem",
               "C186618"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27966"
@@ -2408,58 +1699,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C186618"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C186618"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C186618"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27966"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -2533,16 +1773,14 @@
             [
               "op:StageSystem",
               "C186617"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C96244"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:CellType",
@@ -2588,58 +1826,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C186617"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C186617"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C186617"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "full_partition": {
@@ -2678,9 +1865,7 @@
             [
               "op:StageSystem",
               "C186617"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C96244"
@@ -2733,58 +1918,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C186617"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C186617"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C186617"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -2864,16 +1998,14 @@
             [
               "op:StageSystem",
               "C206211"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C96244"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:CellType",
@@ -2925,58 +2057,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C206211"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C206211"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C206211"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "full_partition": {
@@ -3021,9 +2102,7 @@
             [
               "op:StageSystem",
               "C206211"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C96244"
@@ -3082,58 +2161,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C206211"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C206211"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C206211"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C96244"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "pair_relations": {
@@ -3681,7 +2709,9 @@
             [
               "op:AssociatedRegion",
               "C12413"
-            ],
+            ]
+          ],
+          [
             [
               "op:AssociatedRegion",
               "C49274"
@@ -3718,7 +2748,7 @@
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:WithFinding",
@@ -3778,58 +2808,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12413"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C49274"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedRegion",
-              "C12413"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C49274"
-            ]
-          ],
-          "diagnosis": "over-merge",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12413"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C49274"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 8
       },
       "full_partition": {
@@ -3844,7 +2823,9 @@
             [
               "op:AssociatedRegion",
               "C12413"
-            ],
+            ]
+          ],
+          [
             [
               "op:AssociatedRegion",
               "C49274"
@@ -3947,58 +2928,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12413"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C49274"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedRegion",
-              "C12413"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C49274"
-            ]
-          ],
-          "diagnosis": "over-merge",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12413"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C49274"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 8
       },
       "pair_relations": {
@@ -4092,16 +3022,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:AssociatedLineageClassification",
@@ -4192,58 +3120,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 8
       },
       "full_partition": {
@@ -4300,9 +3177,7 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
@@ -4442,58 +3317,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 8
       },
       "pair_relations": {
@@ -4590,7 +3414,9 @@
             [
               "op:AssociatedRegion",
               "C12905"
-            ],
+            ]
+          ],
+          [
             [
               "op:AssociatedRegion",
               "C13004"
@@ -4615,7 +3441,7 @@
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:AssociatedRegion",
@@ -4690,58 +3516,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12905"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C13004"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedRegion",
-              "C12905"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C13004"
-            ]
-          ],
-          "diagnosis": "over-merge",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12905"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C13004"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -4750,11 +3525,15 @@
             [
               "op:AssociatedRegion",
               "C12471"
-            ],
+            ]
+          ],
+          [
             [
               "op:AssociatedRegion",
               "C12905"
-            ],
+            ]
+          ],
+          [
             [
               "op:AssociatedRegion",
               "C13004"
@@ -4900,58 +3679,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12905"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C13004"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedRegion",
-              "C12905"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C13004"
-            ]
-          ],
-          "diagnosis": "over-merge",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12905"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C13004"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -5567,16 +4295,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:CellType",
@@ -5626,58 +4352,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "full_partition": {
@@ -5722,9 +4397,7 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
@@ -5781,58 +4454,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -5919,16 +4541,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [
           [
             "op:Morphology",
@@ -5978,79 +4598,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90529"
-            ],
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "full_partition": {
@@ -6093,9 +4641,7 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27970"
@@ -6152,79 +4698,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90529"
-            ],
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27970"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90529"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27970"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "pair_relations": {
@@ -6313,16 +4787,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27976"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [],
@@ -6369,58 +4841,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27976"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27976"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27976"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "full_partition": {
@@ -6459,16 +4880,14 @@
             [
               "op:StageSystem",
               "C90530"
-            ]
-          ],
-          [
+            ],
             [
               "op:StageValue",
               "C27976"
             ]
           ]
         ],
-        "agrees": false,
+        "agrees": true,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [],
@@ -6515,58 +4934,7 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "available",
-              "occurrence_ids": [
-                "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27976"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27976"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27976"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 7
       },
       "pair_relations": {
@@ -6613,14 +4981,14 @@
       }
     }
   ],
-  "current_evidence_identity": "3ea7735684c9eed2675e8270573ce9f78067ecb2c7ed5b44a11b70a5d1dd31c9",
+  "current_evidence_identity": "d9925651dabd1e87be19e493b9adb05699bc7b80ae43336c1c1ffe250bd72c97",
   "detector_identity": "149a975b5b0531c710da99e8976eb5cad2c037aea4b64ea2e307b3757df06645",
   "metrics": {
     "common_pair_partition_agreement": {
       "denominator": 18,
       "ineligible": 2,
-      "numerator": 3,
-      "rate": 0.16666666666666666
+      "numerator": 18,
+      "rate": 1.0
     },
     "exact_pair_precision": {
       "denominator": 132,
@@ -6634,15 +5002,15 @@
     },
     "full_partition_agreement": {
       "denominator": 20,
-      "numerator": 2,
-      "rate": 0.1
+      "numerator": 3,
+      "rate": 0.15
     }
   },
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
   "proposal_registry_migration_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
-  "representation_identity": "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa",
+  "representation_identity": "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
   "row_replay": {
     "aggregates": {
@@ -9150,8 +7518,8 @@
       }
     ]
   },
-  "run_fingerprint_identity": "1053168d93576f603581f4354cf955e16d332ae34dcde841dc16e80ad7890d8e",
-  "run_id": "neoplasm-378faaca-170e-4f1c-9d97-e5906e3efecd",
+  "run_fingerprint_identity": "f201b6f5bdf046d67f191f20d0afe05a3f30a12339e653911dfdda4646ca520b",
+  "run_id": "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 3,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",

@@ -1,5 +1,5 @@
 {
-  "artifact_identity": "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa",
+  "artifact_identity": "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427",
   "concepts": [
     {
       "all_source_occurrences": [
@@ -242,6 +242,17 @@
           "source_definition_ids": [
             "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9290",
+              "depth": 1,
+              "fact_id": "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391",
+              "filler_code": "C41063",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac"
+            }
+          ],
           "source_occurrence_ids": [
             "5963d7e8d61131f8005ca09faf840bf20d55771ea9c7725875802e908c197661"
           ],
@@ -267,9 +278,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C36220",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "cf4eabea128759e1f5963ef3f259fff602e5266988a9ea448b524eae069238b2",
           "source_definition_ids": [
             "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27262",
+              "depth": 0,
+              "fact_id": "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2",
+              "filler_code": "C36220",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+            }
           ],
           "source_occurrence_ids": [
             "21b168b9f6b50b9a7f3009732cf8a69e46afd6035cb59e12b965fa75df155856"
@@ -296,9 +318,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C41397",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "cf4eabea128759e1f5963ef3f259fff602e5266988a9ea448b524eae069238b2",
           "source_definition_ids": [
             "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27262",
+              "depth": 0,
+              "fact_id": "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542",
+              "filler_code": "C41397",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+            }
           ],
           "source_occurrence_ids": [
             "508585754f14fe7cd1d8b87f5f27e44fbc4bc0ee416085122ea5961daba8c595"
@@ -325,9 +358,20 @@
           "axis": "op:Morphology",
           "filler": "C35501",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "2bf0e948efa8ab9482ac873d9c98adb3301cf6d12c6dfdff2dd80989501d4b0f",
           "source_definition_ids": [
             "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27262",
+              "depth": 0,
+              "fact_id": "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6",
+              "filler_code": "C35501",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+            }
           ],
           "source_occurrence_ids": [],
           "source_occurrences": []
@@ -336,9 +380,20 @@
           "axis": "op:Morphology",
           "filler": "C9290",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "2bf0e948efa8ab9482ac873d9c98adb3301cf6d12c6dfdff2dd80989501d4b0f",
           "source_definition_ids": [
             "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27262",
+              "depth": 0,
+              "fact_id": "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf",
+              "filler_code": "C9290",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+            }
           ],
           "source_occurrence_ids": [],
           "source_occurrences": []
@@ -350,6 +405,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9290",
+              "depth": 1,
+              "fact_id": "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb",
+              "filler_code": "C13051",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac"
+            }
           ],
           "source_occurrence_ids": [
             "b9b698311f2a4cc98704e0680a3c217a747473cac9bec53d35426c27d6b97cba"
@@ -379,6 +445,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27262",
+              "depth": 0,
+              "fact_id": "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48",
+              "filler_code": "C12431",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+            }
           ],
           "source_occurrence_ids": [
             "a179003aa9fa26595b62ea62954de625d86f4a28ad8fcb853c441252d1e931a5"
@@ -755,6 +832,17 @@
           "source_definition_ids": [
             "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C212117",
+              "depth": 5,
+              "fact_id": "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108",
+              "filler_code": "C12321",
+              "kind": "restriction",
+              "role_code": "R100",
+              "source_group_id": "c32231c44794b40c087a185533ac7fd62ae69d9e63fe0cee968f829cfa6ffae2"
+            }
+          ],
           "source_occurrence_ids": [
             "f057b8377b9c3e4af97855d4bef3787b7201449109acb37cf8eb2b8ecaae2414"
           ],
@@ -783,6 +871,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3708",
+              "depth": 2,
+              "fact_id": "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419",
+              "filler_code": "C36903",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e"
+            }
           ],
           "source_occurrence_ids": [
             "750af9c3ecfad72067bfacee6bd7ca52c2a21f69f3af8d4a1578de9bb1094269"
@@ -813,6 +912,17 @@
           "source_definition_ids": [
             "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C39986",
+              "depth": 1,
+              "fact_id": "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7",
+              "filler_code": "C156460",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "3036c38564926e396e33c3831ef992d9ba3cb50c8003e734ba3b6c6748cebe0d"
+            }
+          ],
           "source_occurrence_ids": [
             "656f522f95cd941b8a3faf2f468bd98ea61b49a2055df8800ad0b706228746bd"
           ],
@@ -838,9 +948,20 @@
           "axis": "op:Morphology",
           "filler": "C121619",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "11a9270905d023fc19e4855f20afb2e3ee6210001b0f74db76f8c11d6d950d2f",
           "source_definition_ids": [
             "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C102870",
+              "depth": 0,
+              "fact_id": "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5",
+              "filler_code": "C121619",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "a8e1145a4deef02ec96acf63ecbca92a88069177a1519553409ce73c4d5eb11f"
+            }
           ],
           "source_occurrence_ids": [],
           "source_occurrences": []
@@ -849,9 +970,20 @@
           "axis": "op:Morphology",
           "filler": "C39986",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "11a9270905d023fc19e4855f20afb2e3ee6210001b0f74db76f8c11d6d950d2f",
           "source_definition_ids": [
             "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C102870",
+              "depth": 0,
+              "fact_id": "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac",
+              "filler_code": "C39986",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "a8e1145a4deef02ec96acf63ecbca92a88069177a1519553409ce73c4d5eb11f"
+            }
           ],
           "source_occurrence_ids": [],
           "source_occurrences": []
@@ -1309,6 +1441,17 @@
           "source_definition_ids": [
             "baacfcf4ae3916d0cf1043ebc1ef90acd221c322aebdf70582471529d7fade2d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9315",
+              "depth": 2,
+              "fact_id": "baacfcf4ae3916d0cf1043ebc1ef90acd221c322aebdf70582471529d7fade2d",
+              "filler_code": "C54224",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "2cb076c89d22def1f14c87e869a9982e54a118ecac0eb4b34de620696761a598"
+            }
+          ],
           "source_occurrence_ids": [
             "c006a946abc8baa3bd96939717305bcb9d73fa1fc25d3eab55d6a3a7f22993d3"
           ],
@@ -1337,6 +1480,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "ff17e569adccf6e96cacb1c2428ad38a4beb82a5f2300a895a4072d69dfd18bc"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C2929",
+              "depth": 3,
+              "fact_id": "ff17e569adccf6e96cacb1c2428ad38a4beb82a5f2300a895a4072d69dfd18bc",
+              "filler_code": "C36771",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "ab394998531ecfa418a0005a5de3c1277d9c80edb6a3de4e4f4f9ae63c783c3e"
+            }
           ],
           "source_occurrence_ids": [
             "9df99119f52a36d8e0639f73b1dd6f14b61f1bb5b40059a95a313cc6b7ddf27d"
@@ -1367,6 +1521,17 @@
           "source_definition_ids": [
             "99c8c401171443a3f95d69bedc661b4f8d6b9ca8aa15c61f42a5c7012387b739"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C115057",
+              "depth": 0,
+              "fact_id": "99c8c401171443a3f95d69bedc661b4f8d6b9ca8aa15c61f42a5c7012387b739",
+              "filler_code": "C42690",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "1c2896797523cbd78e922a24979766682bf081ac30f8f24f497f255fe474a002"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -1379,6 +1544,26 @@
             "6128e7d4182160b6a7c01dfc16d899d83a2f08a5c595b98f981cbd6407980f8d",
             "89cefef3dad9031262ca3684c0f67612865ef6bbdd8eec2ae492b3e49535c47b"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C42690",
+              "depth": 1,
+              "fact_id": "6128e7d4182160b6a7c01dfc16d899d83a2f08a5c595b98f981cbd6407980f8d",
+              "filler_code": "C9315",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "eba642c189e6624b3d24d31cd4e586c9aa2784f44f353c9fbd8419d0313e48de"
+            },
+            {
+              "anchor_code": "C132736",
+              "depth": 2,
+              "fact_id": "89cefef3dad9031262ca3684c0f67612865ef6bbdd8eec2ae492b3e49535c47b",
+              "filler_code": "C9315",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -1386,9 +1571,20 @@
           "axis": "op:StageSystem",
           "filler": "C90529",
           "needs_review": false,
-          "relationship_group": "op:StageSystem",
+          "relationship_group": "773cbc7a191d76224d322a2e5ec05c2d40341212b25763abc3f712985c418958",
           "source_definition_ids": [
             "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C132736",
+              "depth": 2,
+              "fact_id": "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191",
+              "filler_code": "C90529",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454"
+            }
           ],
           "source_occurrence_ids": [
             "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
@@ -1415,9 +1611,20 @@
           "axis": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "relationship_group": "op:StageSystem",
+          "relationship_group": "773cbc7a191d76224d322a2e5ec05c2d40341212b25763abc3f712985c418958",
           "source_definition_ids": [
             "f3fa83b96bb1fa3ab2cfc2c1b7aea4f1012fbb47a5088867cf7bf79f241d4915"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C132736",
+              "depth": 2,
+              "fact_id": "f3fa83b96bb1fa3ab2cfc2c1b7aea4f1012fbb47a5088867cf7bf79f241d4915",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454"
+            }
           ],
           "source_occurrence_ids": [
             "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
@@ -1445,6 +1652,7 @@
           "filler": "MINT-d104509874ed",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -1452,9 +1660,20 @@
           "axis": "op:StageValue",
           "filler": "C27966",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "773cbc7a191d76224d322a2e5ec05c2d40341212b25763abc3f712985c418958",
           "source_definition_ids": [
             "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C8033",
+              "depth": 1,
+              "fact_id": "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944",
+              "filler_code": "C27966",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "aae21beea65bfffe56c6588e65262894bf6edcf8f9f2bf47eac6b70f2cac3726"
+            }
           ],
           "source_occurrence_ids": [
             "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
@@ -2247,6 +2466,17 @@
           "source_definition_ids": [
             "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 5,
+              "fact_id": "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
+              "filler_code": "C12704",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            }
+          ],
           "source_occurrence_ids": [
             "0397c8c7117d677dd9b9106da0ada8cd23340bc7fcbfd45e157d2de071a32389"
           ],
@@ -2275,6 +2505,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 5,
+              "fact_id": "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3",
+              "filler_code": "C12705",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            }
           ],
           "source_occurrence_ids": [
             "2ee6f11ff4d84f057ff5e50e456ea557ac4e7071941af0f6cbab00c7305e71c2"
@@ -2305,6 +2546,17 @@
           "source_definition_ids": [
             "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C6077",
+              "depth": 6,
+              "fact_id": "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae",
+              "filler_code": "C13063",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf"
+            }
+          ],
           "source_occurrence_ids": [
             "1f6e60f15d54117746fe185dfd51d0461fa6fd3b572a5607ae0f984f290ffa9d"
           ],
@@ -2333,6 +2585,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "059ba6574dd377658f9376da9f479213f6031d5cbf31c5e786a5b142a406385b"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27380",
+              "depth": 4,
+              "fact_id": "059ba6574dd377658f9376da9f479213f6031d5cbf31c5e786a5b142a406385b",
+              "filler_code": "C36836",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+            }
           ],
           "source_occurrence_ids": [
             "2adf52c827a8998a0636db6045f4c58968c93b0bd1e29ef14607de47f37cdf2d"
@@ -2363,6 +2626,17 @@
           "source_definition_ids": [
             "b47f80e2854e5ee79ad54e2a290aeaadb1602e28dbc280dd8187b7b1b5c3ff82"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 5,
+              "fact_id": "b47f80e2854e5ee79ad54e2a290aeaadb1602e28dbc280dd8187b7b1b5c3ff82",
+              "filler_code": "C188014",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            }
+          ],
           "source_occurrence_ids": [
             "4667f1be8b3293853211124a674a2d1481202011999e4a27ba69c760d9279a1c"
           ],
@@ -2391,6 +2665,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "b5ca2b3a9f08d1b19d359abb68e4dfdf88b9a9931d0a1cb4ba1192fc8f8ae9ad"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27380",
+              "depth": 4,
+              "fact_id": "b5ca2b3a9f08d1b19d359abb68e4dfdf88b9a9931d0a1cb4ba1192fc8f8ae9ad",
+              "filler_code": "C47806",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+            }
           ],
           "source_occurrence_ids": [
             "e2b994c622f65572033946f0473f9382a7208a15f39796b8592f11c663109e76"
@@ -2421,6 +2706,17 @@
           "source_definition_ids": [
             "0b4c96af6c59f52c06663a5eef2de1739e70911889b37a68791aeef9b99dbdad"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C7153",
+              "depth": 3,
+              "fact_id": "0b4c96af6c59f52c06663a5eef2de1739e70911889b37a68791aeef9b99dbdad",
+              "filler_code": "C47817",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "ecbceafaedd79063cc7ee4d69173a4f053bdb6835ee9204e012b603a0575859e"
+            }
+          ],
           "source_occurrence_ids": [
             "d700115f29b5cbb582c52499e7bf1298276c4141415e686d1ef7480d6eaeb3a2"
           ],
@@ -2450,6 +2746,17 @@
           "source_definition_ids": [
             "0ab83e6c0fe60fb77987f93579c69f421c06afc693ffa12a24a1dbe1232f9e05"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C140959",
+              "depth": 2,
+              "fact_id": "0ab83e6c0fe60fb77987f93579c69f421c06afc693ffa12a24a1dbe1232f9e05",
+              "filler_code": "C7153",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "6a003e36a519da0d15afaf7a211a5dd62a375cab4afbe4e1c4f48a88f2e26d62"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -2460,6 +2767,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "a8fb83cd25081439e8d3c4e6bff49d9a7768d7a2267eb0ce3a51ffba88cda101"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C27380",
+              "depth": 4,
+              "fact_id": "a8fb83cd25081439e8d3c4e6bff49d9a7768d7a2267eb0ce3a51ffba88cda101",
+              "filler_code": "C33782",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+            }
           ],
           "source_occurrence_ids": [
             "d8e9eddd825edd558856a710ff668a433150fd441c05040b6f6e5d4f92dda1fb"
@@ -2490,6 +2808,17 @@
           "source_definition_ids": [
             "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4815",
+              "depth": 5,
+              "fact_id": "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249",
+              "filler_code": "C12400",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d"
+            }
+          ],
           "source_occurrence_ids": [
             "f5a5d2e60ec78d4362c91ac9bab24ae8cdbf121d9fafcb0e73915f29084fef7f"
           ],
@@ -2515,9 +2844,20 @@
           "axis": "op:StageSystem",
           "filler": "C140961",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "9db523e1919146053dcfa634addce2aa82dc36062abfad88ef93a92ad70363df",
           "source_definition_ids": [
             "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C101539",
+              "depth": 0,
+              "fact_id": "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3",
+              "filler_code": "C140961",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "2c871f775d0fad5572b10f0df1f62aa9be26d04a5f023de0f529105184690cce"
+            }
           ],
           "source_occurrence_ids": [
             "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
@@ -2545,6 +2885,7 @@
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -2552,9 +2893,20 @@
           "axis": "op:StageValue",
           "filler": "C27966",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "9db523e1919146053dcfa634addce2aa82dc36062abfad88ef93a92ad70363df",
           "source_definition_ids": [
             "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C87543",
+              "depth": 1,
+              "fact_id": "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c",
+              "filler_code": "C27966",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "4e04d8d24287f1200e60bc5fb443fd569b06864d083e25299398e2ab6914e66c"
+            }
           ],
           "source_occurrence_ids": [
             "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
@@ -3226,6 +3578,17 @@
           "source_definition_ids": [
             "d0246df08f875b00ddb91c0054b4afc4664d71e59ef361535b4aa8f359c3dc6e"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3261",
+              "depth": 4,
+              "fact_id": "d0246df08f875b00ddb91c0054b4afc4664d71e59ef361535b4aa8f359c3dc6e",
+              "filler_code": "C40557",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "17c79808c6e747b865b3c9ca3e56e9cacc5377d914c7384aca860de2330e43a1"
+            }
+          ],
           "source_occurrence_ids": [
             "d533253cd19721ae14631ba62034321a2936116316e02c64e0be10885d692594"
           ],
@@ -3254,6 +3617,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "e86f5b2a97ff500e37a3bd73d1f41f8dd7b3623b28b1d567d236d12b40f6d807"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C132676",
+              "depth": 1,
+              "fact_id": "e86f5b2a97ff500e37a3bd73d1f41f8dd7b3623b28b1d567d236d12b40f6d807",
+              "filler_code": "C40989",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+            }
           ],
           "source_occurrence_ids": [
             "3cf592ed311a646f7018a124e2700c11b5bf5d52df924a5d3bb332c00a372cc9"
@@ -3284,6 +3658,17 @@
           "source_definition_ids": [
             "7cd1761d4a97e7c9276e1293fed57436cd6e13a44042a0551c340dc89e7b6a19"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C36255",
+              "depth": 5,
+              "fact_id": "7cd1761d4a97e7c9276e1293fed57436cd6e13a44042a0551c340dc89e7b6a19",
+              "filler_code": "C41444",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "9e2974598f6ca053be220be95162e2eb2dfb00c8048ad114fa4d5eac3fcf2bb5"
+            }
+          ],
           "source_occurrence_ids": [
             "54e329148d1417ca86b4fc1db2d834b7bfe2bb334b5cdac97b8ac4371931e768"
           ],
@@ -3312,6 +3697,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "97e0b052436064799f24135e0d9bf31b1df9857d2e30857bd909923dbfec6405"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C8566",
+              "depth": 2,
+              "fact_id": "97e0b052436064799f24135e0d9bf31b1df9857d2e30857bd909923dbfec6405",
+              "filler_code": "C48322",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "d0c937fa288534823a720bb19974a01f76e54aebd36eacce8d0f5ed52a58311c"
+            }
           ],
           "source_occurrence_ids": [
             "a324e113d1f0de37e8ad1632295eabb4e47e4dce1e7896abf9c335f5acb754d9"
@@ -3342,6 +3738,17 @@
           "source_definition_ids": [
             "342a8ecbac03180a4a5adef2b15ef3e3ca7e8f99373e7bfa5f4cf0249c7e041d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C132676",
+              "depth": 1,
+              "fact_id": "342a8ecbac03180a4a5adef2b15ef3e3ca7e8f99373e7bfa5f4cf0249c7e041d",
+              "filler_code": "C32298",
+              "kind": "restriction",
+              "role_code": "R102",
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+            }
+          ],
           "source_occurrence_ids": [
             "e5440c640fe4266bcac13927814b31a90ccd2704f940a806562784c47371f017"
           ],
@@ -3371,6 +3778,17 @@
           "source_definition_ids": [
             "bbb8077d5a636c744900f435744bb38023bd7fac8126b13716e3ad27685df7f8"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C132676",
+              "depth": 1,
+              "fact_id": "bbb8077d5a636c744900f435744bb38023bd7fac8126b13716e3ad27685df7f8",
+              "filler_code": "C8566",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -3378,9 +3796,20 @@
           "axis": "op:StageSystem",
           "filler": "C132248",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "c2025efbd7a2452df81b713654ebfbe5c7e7768ce2c9f07d9e6d6011f151c76d",
           "source_definition_ids": [
             "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C132676",
+              "depth": 1,
+              "fact_id": "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326",
+              "filler_code": "C132248",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+            }
           ],
           "source_occurrence_ids": [
             "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
@@ -3408,6 +3837,7 @@
           "filler": "MINT-4563e6974906",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -3415,9 +3845,20 @@
           "axis": "op:StageValue",
           "filler": "C27970",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "c2025efbd7a2452df81b713654ebfbe5c7e7768ce2c9f07d9e6d6011f151c76d",
           "source_definition_ids": [
             "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C132677",
+              "depth": 0,
+              "fact_id": "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360",
+              "filler_code": "C27970",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "c4ba770a80dc43b78a3b9f7a66b78e3d34eacaed1f6d7ab879870a6b63be5bd5"
+            }
           ],
           "source_occurrence_ids": [
             "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
@@ -4017,6 +4458,17 @@
           "source_definition_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C181162",
+              "depth": 3,
+              "fact_id": "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1",
+              "filler_code": "C12402",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+            }
+          ],
           "source_occurrence_ids": [
             "eab378d9909169887a4748a5738eece35b28317271004def2c0726de24136401"
           ],
@@ -4045,6 +4497,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3709",
+              "depth": 6,
+              "fact_id": "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c",
+              "filler_code": "C36753",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+            }
           ],
           "source_occurrence_ids": [
             "3bb6d6c37495029c7cf8c76f0b26ef35b8c101d87b1e2dfbb3d558b9713859d7"
@@ -4075,6 +4538,17 @@
           "source_definition_ids": [
             "f6e475f1e224f8a8d8ee0a5c7acbd2275d77b0fcc8b28ac6fefb40f3f07ec3c4"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C181562",
+              "depth": 1,
+              "fact_id": "f6e475f1e224f8a8d8ee0a5c7acbd2275d77b0fcc8b28ac6fefb40f3f07ec3c4",
+              "filler_code": "C9039",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4085,6 +4559,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9",
+              "filler_code": "C49218",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
           ],
           "source_occurrence_ids": [
             "6f5908f98b7995ee30f01d64398cd6072f09cfeb5d6cfe37c4988577463c686b"
@@ -4115,6 +4600,17 @@
           "source_definition_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f",
+              "filler_code": "C12311",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
+          ],
           "source_occurrence_ids": [
             "ca1c93057eb5c0dfb9a83f2e7ab135e0ed7ae7b4671eb775f907a44868de03b7"
           ],
@@ -4140,9 +4636,20 @@
           "axis": "op:StageSystem",
           "filler": "C180901",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "46adb3406cd290ee5f3eaec45bef76dfe02f2dad7e25d02eb54ef62799044d1c",
           "source_definition_ids": [
             "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C181562",
+              "depth": 1,
+              "fact_id": "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c",
+              "filler_code": "C180901",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
+            }
           ],
           "source_occurrence_ids": [
             "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
@@ -4170,6 +4677,7 @@
           "filler": "MINT-27f8060dd413",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4177,9 +4685,20 @@
           "axis": "op:StageValue",
           "filler": "C27966",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "46adb3406cd290ee5f3eaec45bef76dfe02f2dad7e25d02eb54ef62799044d1c",
           "source_definition_ids": [
             "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C181564",
+              "depth": 0,
+              "fact_id": "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52",
+              "filler_code": "C27966",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
+            }
           ],
           "source_occurrence_ids": [
             "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
@@ -4779,6 +5298,17 @@
           "source_definition_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C181162",
+              "depth": 3,
+              "fact_id": "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1",
+              "filler_code": "C12402",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+            }
+          ],
           "source_occurrence_ids": [
             "27f5ae2594d5f2832953ea53a0700d66b85de86ad45a82293b48113d8f0f6acc"
           ],
@@ -4807,6 +5337,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3709",
+              "depth": 6,
+              "fact_id": "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c",
+              "filler_code": "C36753",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+            }
           ],
           "source_occurrence_ids": [
             "63daf8ad408f39a9d010c949859be7abcc875967b8e9253112c8d23009583e53"
@@ -4837,6 +5378,17 @@
           "source_definition_ids": [
             "d46e40a463d10ddc9e491590d7f25f1d6456dd04e06aab5d614c9ede8d294ac9"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C186619",
+              "depth": 1,
+              "fact_id": "d46e40a463d10ddc9e491590d7f25f1d6456dd04e06aab5d614c9ede8d294ac9",
+              "filler_code": "C9039",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4847,6 +5399,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9",
+              "filler_code": "C49218",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
           ],
           "source_occurrence_ids": [
             "f33f6e689f9f12ea6212c7bd7e6356a2087853f2200f1d9a7f2f1fc201c88e88"
@@ -4877,6 +5440,17 @@
           "source_definition_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f",
+              "filler_code": "C12311",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
+          ],
           "source_occurrence_ids": [
             "08cdcf0be327aec3ea647a140090ba9d2acb2350f6a40f0e9153f22a983b3059"
           ],
@@ -4902,9 +5476,20 @@
           "axis": "op:StageSystem",
           "filler": "C186618",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "55b7be2b4044112e911e07733ca1cbc9146703201c3fc2d75736534e3f94ca2a",
           "source_definition_ids": [
             "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C186619",
+              "depth": 1,
+              "fact_id": "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47",
+              "filler_code": "C186618",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
+            }
           ],
           "source_occurrence_ids": [
             "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
@@ -4931,9 +5516,20 @@
           "axis": "op:StageValue",
           "filler": "C27966",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "55b7be2b4044112e911e07733ca1cbc9146703201c3fc2d75736534e3f94ca2a",
           "source_definition_ids": [
             "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C186620",
+              "depth": 0,
+              "fact_id": "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15",
+              "filler_code": "C27966",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a"
+            }
           ],
           "source_occurrence_ids": [
             "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
@@ -5533,6 +6129,17 @@
           "source_definition_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C181162",
+              "depth": 3,
+              "fact_id": "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1",
+              "filler_code": "C12402",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+            }
+          ],
           "source_occurrence_ids": [
             "1d9b7f223b178343ceefe66f0ae06a3e926b48c519e3fd5f529fe9d1aceb409e"
           ],
@@ -5561,6 +6168,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3709",
+              "depth": 6,
+              "fact_id": "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c",
+              "filler_code": "C36753",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+            }
           ],
           "source_occurrence_ids": [
             "4d95047b6e78be5ef737cc260facaa34be9934ff9ff69e996ffaa9d4dc200d6d"
@@ -5591,6 +6209,17 @@
           "source_definition_ids": [
             "4da08cb43c7a483edc8300bda180252c7d7f8ba069e86e85164f4f41f1c50072"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C162225",
+              "depth": 1,
+              "fact_id": "4da08cb43c7a483edc8300bda180252c7d7f8ba069e86e85164f4f41f1c50072",
+              "filler_code": "C9039",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -5601,6 +6230,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9",
+              "filler_code": "C49218",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
           ],
           "source_occurrence_ids": [
             "c31213ae0e5b401d796e494ace4b3328f3ec30d0c3cf258be9e2eb5dde1c72fb"
@@ -5631,6 +6271,17 @@
           "source_definition_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9039",
+              "depth": 2,
+              "fact_id": "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f",
+              "filler_code": "C12311",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+            }
+          ],
           "source_occurrence_ids": [
             "18946e2719ec23ee768611559e7a422c19451c5f156b9a72334ec3b89b298fe3"
           ],
@@ -5656,9 +6307,20 @@
           "axis": "op:StageSystem",
           "filler": "C186617",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "a26b09d2e1ca0d5213654bca050525c02fb59fee936fa8c33d33bf4102964cb4",
           "source_definition_ids": [
             "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C162225",
+              "depth": 1,
+              "fact_id": "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d",
+              "filler_code": "C186617",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+            }
           ],
           "source_occurrence_ids": [
             "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
@@ -5685,9 +6347,20 @@
           "axis": "op:StageValue",
           "filler": "C96244",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "a26b09d2e1ca0d5213654bca050525c02fb59fee936fa8c33d33bf4102964cb4",
           "source_definition_ids": [
             "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C162226",
+              "depth": 0,
+              "fact_id": "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc",
+              "filler_code": "C96244",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2"
+            }
           ],
           "source_occurrence_ids": [
             "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
@@ -6242,6 +6915,17 @@
           "source_definition_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C181162",
+              "depth": 3,
+              "fact_id": "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1",
+              "filler_code": "C12402",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+            }
+          ],
           "source_occurrence_ids": [
             "d3887be8b25ac5cff1027bb3f08ba89909b3217fe8c3b900fd29e0a620d17012"
           ],
@@ -6270,6 +6954,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3709",
+              "depth": 6,
+              "fact_id": "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c",
+              "filler_code": "C36753",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+            }
           ],
           "source_occurrence_ids": [
             "fb8d80d4a7414a13e9ac749177fd0cad29e18db25aef83b2ab3f542cc42bbc33"
@@ -6300,6 +6995,17 @@
           "source_definition_ids": [
             "0495cfa51b024a60be90cac301ef7177f4a55710b98a4ca66f06c35f4a210c63"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C206217",
+              "depth": 1,
+              "fact_id": "0495cfa51b024a60be90cac301ef7177f4a55710b98a4ca66f06c35f4a210c63",
+              "filler_code": "C7558",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -6310,6 +7016,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "7412b61de9fd295c8da66e8a39fafa8271d19a66908e47dbdf3c9ecaebe43214"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C7558",
+              "depth": 2,
+              "fact_id": "7412b61de9fd295c8da66e8a39fafa8271d19a66908e47dbdf3c9ecaebe43214",
+              "filler_code": "C12313",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4"
+            }
           ],
           "source_occurrence_ids": [
             "735d47f4b8fcd861e408a13e087ac5c9c33be20ac07c9dd137b0fc1870a6df15"
@@ -6340,6 +7057,17 @@
           "source_definition_ids": [
             "041980221e621246700ed819eec38e761033792e1fc75f088d80deab91f25a1c"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C6300",
+              "depth": 5,
+              "fact_id": "041980221e621246700ed819eec38e761033792e1fc75f088d80deab91f25a1c",
+              "filler_code": "C12316",
+              "kind": "restriction",
+              "role_code": "R100",
+              "source_group_id": "befc0b6dcfc539854e031feb42bbf934f1564a52f2207d69ea5b0ea51e858493"
+            }
+          ],
           "source_occurrence_ids": [
             "71947d3ffd85147e7514e53f7e1646c42faab85ac453813d5e7037a628c54063"
           ],
@@ -6369,6 +7097,17 @@
           "source_definition_ids": [
             "0e38ef60361ccc458d6e86c7ba05275705ebb63747937eab4dbadc5664a92caf"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C7558",
+              "depth": 2,
+              "fact_id": "0e38ef60361ccc458d6e86c7ba05275705ebb63747937eab4dbadc5664a92caf",
+              "filler_code": "C32514",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4"
+            }
+          ],
           "source_occurrence_ids": [
             "93ec07edcccc397b839214ea4e34a0abb19d7b50aa04e9b2aba4e143f51415cb"
           ],
@@ -6394,9 +7133,20 @@
           "axis": "op:StageSystem",
           "filler": "C206211",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "6c5be7c5d9ef2943cfbd27be8cc10419dfabfaec4b8a6d648fe1c3fa4f6d650d",
           "source_definition_ids": [
             "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C206217",
+              "depth": 1,
+              "fact_id": "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c",
+              "filler_code": "C206211",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b"
+            }
           ],
           "source_occurrence_ids": [
             "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
@@ -6423,9 +7173,20 @@
           "axis": "op:StageValue",
           "filler": "C96244",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "6c5be7c5d9ef2943cfbd27be8cc10419dfabfaec4b8a6d648fe1c3fa4f6d650d",
           "source_definition_ids": [
             "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C206219",
+              "depth": 0,
+              "fact_id": "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978",
+              "filler_code": "C96244",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "558cfd1c54a0ec108027aee0739c6f50150af2fceaa017781ebe207f8244eb75"
+            }
           ],
           "source_occurrence_ids": [
             "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
@@ -7098,6 +7859,17 @@
           "source_definition_ids": [
             "db6b493a0b1d0fc343cd578a2c65f038e49240c6fc4a70c0bfaf2c17c1abb1cb"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9308",
+              "depth": 6,
+              "fact_id": "db6b493a0b1d0fc343cd578a2c65f038e49240c6fc4a70c0bfaf2c17c1abb1cb",
+              "filler_code": "C12746",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "61b00a7226e4e6c804dd8b4b708715d239fb745f58fa57b38b924feaa52a3f61"
+            }
+          ],
           "source_occurrence_ids": [
             "7c75bb453c70598fa92e013865eeffa06f195237b50f1accc2ae2eee9da03920"
           ],
@@ -7127,6 +7899,26 @@
           "source_definition_ids": [
             "0a41ad9e1a49f98d0475d3a01408f6510be802c159827b36324381fb3e849373",
             "fbe448a7f6bb7dd1f50c81d5f014f6c0a40b4c976556a54cacba30b029fd17ca"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C7055",
+              "depth": 4,
+              "fact_id": "0a41ad9e1a49f98d0475d3a01408f6510be802c159827b36324381fb3e849373",
+              "filler_code": "C12914",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "31fa65712b98363c2d7650db980d7094b4dae385516c031e87c07f8186b3c563"
+            },
+            {
+              "anchor_code": "C3167",
+              "depth": 3,
+              "fact_id": "fbe448a7f6bb7dd1f50c81d5f014f6c0a40b4c976556a54cacba30b029fd17ca",
+              "filler_code": "C12914",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "69602d7c85549f17b55b5c00418f6452671960ef7740bde5684f7795faf3d90f"
+            }
           ],
           "source_occurrence_ids": [
             "01704062ba9ea6833c0d9b4e978ddce48e3be970050398ffc4bec5b7109a3841",
@@ -7173,6 +7965,17 @@
           "source_definition_ids": [
             "78a2ab26f0e07c9a6c604f065c35c0e61f18a5f739b8cd50d9c1a17694a55485"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C6283",
+              "depth": 4,
+              "fact_id": "78a2ab26f0e07c9a6c604f065c35c0e61f18a5f739b8cd50d9c1a17694a55485",
+              "filler_code": "C60644",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "f25e00310f02aa2c07c641f7635a7436a00d8adfeeb7a49efd9f8f38b0fbedb5"
+            }
+          ],
           "source_occurrence_ids": [
             "6c9e7b61751dffe82f97b30b071f0ccecf7677c0114ba5c01b036186429cb951"
           ],
@@ -7202,6 +8005,17 @@
           "source_definition_ids": [
             "46c71c70bb8e0e48d2cde0a78e95e58b0c7af7888bbabea6a6a02ce8a719544d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C198030",
+              "depth": 1,
+              "fact_id": "46c71c70bb8e0e48d2cde0a78e95e58b0c7af7888bbabea6a6a02ce8a719544d",
+              "filler_code": "C3168",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "ee04b814e0112b915ef3b2682c166c5d4c3b3d9fd29b79cba1c16980f46c6558"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -7214,6 +8028,26 @@
             "a5054af02bf5861944ee4874ee54cdcc0ec76f243ccb37a52dec3b87457c3081",
             "cba6717db914d8473246b00d74d56bd0b2f005f22caac317d678065643310ae3"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C198027",
+              "depth": 2,
+              "fact_id": "a5054af02bf5861944ee4874ee54cdcc0ec76f243ccb37a52dec3b87457c3081",
+              "filler_code": "C4005",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "9db6bec1165fc57a2f40270d30144c2bf7896430f7b04521fff37cb10a89732b"
+            },
+            {
+              "anchor_code": "C4989",
+              "depth": 4,
+              "fact_id": "cba6717db914d8473246b00d74d56bd0b2f005f22caac317d678065643310ae3",
+              "filler_code": "C4005",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "d5ca0f4d47af2ed53de8a69e13323e73c95fd71699b434abc873a965e107c9d4"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -7224,6 +8058,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "2e5440c32978f850c30bc427497e37e6bd6f78877ba39a8a9d150cde4efd03a9"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9308",
+              "depth": 6,
+              "fact_id": "2e5440c32978f850c30bc427497e37e6bd6f78877ba39a8a9d150cde4efd03a9",
+              "filler_code": "C13049",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "61b00a7226e4e6c804dd8b4b708715d239fb745f58fa57b38b924feaa52a3f61"
+            }
           ],
           "source_occurrence_ids": [
             "5d8414a1c3df24e5a06558730738b53e8253f8caf9087f23a533aee3678addea"
@@ -7254,6 +8099,17 @@
           "source_definition_ids": [
             "634064d17f7cf634d29ed89d31c3274b47b95a1284ded252ef91f1f9b86b5bbe"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3161",
+              "depth": 5,
+              "fact_id": "634064d17f7cf634d29ed89d31c3274b47b95a1284ded252ef91f1f9b86b5bbe",
+              "filler_code": "C12431",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "bb942337f7443bfeef99c70c711f9d309eb1e1577d2822543dd7fc4a440fa274"
+            }
+          ],
           "source_occurrence_ids": [
             "c0060855fa201a81cc224817ab5720196b45b8baa44806152b6aa28ac27a2007"
           ],
@@ -7283,6 +8139,17 @@
           "source_definition_ids": [
             "14cd4a3eb490f3b547e5da1774ffd7162d7fddf4271e57a2ed85d2fbd16c9b6e"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C198031",
+              "depth": 0,
+              "fact_id": "14cd4a3eb490f3b547e5da1774ffd7162d7fddf4271e57a2ed85d2fbd16c9b6e",
+              "filler_code": "C198023",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "0d414f8ad31ecc05baa4617d99f8aa622c9c1a684f55f49120ffe79e78b594cf"
+            }
+          ],
           "source_occurrence_ids": [
             "3fe3cc28bfb2e87a557d266cfd0489ae27dedd27f7bb8117770fb2fe6e80d461"
           ],
@@ -7311,6 +8178,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "98f9c8a1f4bf0cc453ce1315bf8770f6985e5ed10060879ca211d94539a94e39"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C198027",
+              "depth": 2,
+              "fact_id": "98f9c8a1f4bf0cc453ce1315bf8770f6985e5ed10060879ca211d94539a94e39",
+              "filler_code": "C198022",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "9db6bec1165fc57a2f40270d30144c2bf7896430f7b04521fff37cb10a89732b"
+            }
           ],
           "source_occurrence_ids": [
             "0ae676ea4977397d291f84849ee0bd37562902f1472a559608d9c0cfb9711f96"
@@ -7853,6 +8731,17 @@
           "source_definition_ids": [
             "4d19cf4e019d6ce829ebb24e8512f018c438062d022ca5bfb09d73ecc50b9d5d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C212119",
+              "depth": 4,
+              "fact_id": "4d19cf4e019d6ce829ebb24e8512f018c438062d022ca5bfb09d73ecc50b9d5d",
+              "filler_code": "C137974",
+              "kind": "restriction",
+              "role_code": "R100",
+              "source_group_id": "fc54381e6760c92b1d28e8dee0bd32087cbd3912773a7e63ad363a9c439b9099"
+            }
+          ],
           "source_occurrence_ids": [
             "1425611db994a0bae8f9cdcae4fb0aa326bcc37c26d8ee26af46854581625721"
           ],
@@ -7882,6 +8771,17 @@
           "source_definition_ids": [
             "2293155ecd2cbf8f6ea58c056a6e4577c94a5fe9c9f4cd4e6243c19bcf9be547"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C7058",
+              "depth": 2,
+              "fact_id": "2293155ecd2cbf8f6ea58c056a6e4577c94a5fe9c9f4cd4e6243c19bcf9be547",
+              "filler_code": "C36862",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "1c4ef79a4f9254963988cab6acaef54d76c4aa57ed8d650abf1a592e823f9a6b"
+            }
+          ],
           "source_occurrence_ids": [
             "8b78b6f96bfcfcb4094ee01dfb0d8a610eec35d802973910c3571e741b1bb622"
           ],
@@ -7907,9 +8807,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C36027",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "a409f8078770fe4030c338e83cb9ea24bd9dd7dce308e029b5d9dcb16a8fc10d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C100054",
+              "depth": 0,
+              "fact_id": "a409f8078770fe4030c338e83cb9ea24bd9dd7dce308e029b5d9dcb16a8fc10d",
+              "filler_code": "C36027",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "c6f2d052043b0929b5db25d49a3752c573a0d06b1c51d6d9e438a1b9297c4ddb"
+            }
           ],
           "source_occurrence_ids": [
             "94d7a2ac20d3402263bc70ec98c0708ac14af7c818a48ab0076c0130df66706d"
@@ -7936,9 +8847,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C8326",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "48d92d5130e8551da98705fa9e8d655475f06b406cf0812a526a4d586e05ab08"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C100054",
+              "depth": 0,
+              "fact_id": "48d92d5130e8551da98705fa9e8d655475f06b406cf0812a526a4d586e05ab08",
+              "filler_code": "C8326",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "c6f2d052043b0929b5db25d49a3752c573a0d06b1c51d6d9e438a1b9297c4ddb"
+            }
           ],
           "source_occurrence_ids": [
             "46d5e2d3aea0ead5550e60938499aee8ee0df59b40c6510a0d4d4f07d2978b37"
@@ -7969,6 +8891,17 @@
           "source_definition_ids": [
             "052f44ff48c60b7164cf10f36564bb34eb973c512671992a56187b1947a5aea1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C100054",
+              "depth": 0,
+              "fact_id": "052f44ff48c60b7164cf10f36564bb34eb973c512671992a56187b1947a5aea1",
+              "filler_code": "C204977",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "c6f2d052043b0929b5db25d49a3752c573a0d06b1c51d6d9e438a1b9297c4ddb"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -7979,6 +8912,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "2a7c4c33a8e01cd87126fae4c96868dc8332784657b791ef76937cf42045e848"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C100054",
+              "depth": 0,
+              "fact_id": "2a7c4c33a8e01cd87126fae4c96868dc8332784657b791ef76937cf42045e848",
+              "filler_code": "C32365",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "c6f2d052043b0929b5db25d49a3752c573a0d06b1c51d6d9e438a1b9297c4ddb"
+            }
           ],
           "source_occurrence_ids": [
             "3d1813c97c216c223a66e66d0d42fdee6a9acae5077a94b126e02e8446f6ed5e"
@@ -8008,6 +8952,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "63706d15ae385e738b7e5d1ae4d43c21e7e2dba9830aea600713a427b2d098ce"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C204977",
+              "depth": 1,
+              "fact_id": "63706d15ae385e738b7e5d1ae4d43c21e7e2dba9830aea600713a427b2d098ce",
+              "filler_code": "C12341",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "54263b3566170f383745b8a027daed097e6f8d78f58471316f6f0143ba51708e"
+            }
           ],
           "source_occurrence_ids": [
             "f890b333619896455d492325b056c10dc6d2b4ec24be12190b220ccb70c00165"
@@ -8609,6 +9564,17 @@
           "source_definition_ids": [
             "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C100051",
+              "depth": 0,
+              "fact_id": "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe",
+              "filler_code": "C3270",
+              "kind": "restriction",
+              "role_code": "R126",
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278"
+            }
+          ],
           "source_occurrence_ids": [
             "db6fcda4433f56c28f0479031903bfb8bd3d78e5d17aa237f66437f3213d3dbe"
           ],
@@ -8634,9 +9600,20 @@
           "axis": "op:AssociatedRegion",
           "filler": "C12413",
           "needs_review": false,
-          "relationship_group": "op:AssociatedRegion",
+          "relationship_group": null,
           "source_definition_ids": [
             "246eb9972957d917e2f7aca476d028e05b92b06584d973aa6d94d7f159617dcc"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C181197",
+              "depth": 3,
+              "fact_id": "246eb9972957d917e2f7aca476d028e05b92b06584d973aa6d94d7f159617dcc",
+              "filler_code": "C12413",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "e58de76415496ab3b299092ca3bc2558cda6799f5f4051bc73440ca6c4562781"
+            }
           ],
           "source_occurrence_ids": [
             "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
@@ -8663,9 +9640,20 @@
           "axis": "op:AssociatedRegion",
           "filler": "C49274",
           "needs_review": false,
-          "relationship_group": "op:AssociatedRegion",
+          "relationship_group": null,
           "source_definition_ids": [
             "949c33a4924949b9530ff0d7ee68a42038af88d2654a6f9c60ff1e8adb9b6b33"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9385",
+              "depth": 1,
+              "fact_id": "949c33a4924949b9530ff0d7ee68a42038af88d2654a6f9c60ff1e8adb9b6b33",
+              "filler_code": "C49274",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0"
+            }
           ],
           "source_occurrence_ids": [
             "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
@@ -8696,6 +9684,17 @@
           "source_definition_ids": [
             "26c89418ae90338d8c1ea9a74bd4472308fa8c509bc86abf994aa4e8d8429669"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C7514",
+              "depth": 5,
+              "fact_id": "26c89418ae90338d8c1ea9a74bd4472308fa8c509bc86abf994aa4e8d8429669",
+              "filler_code": "C61107",
+              "kind": "restriction",
+              "role_code": "R100",
+              "source_group_id": "995cfd34dfd8b8ae396b72d474d801ed272937c29d5d618ea49135e22b461c48"
+            }
+          ],
           "source_occurrence_ids": [
             "fe1cd8090902a44c79d094a3e437252c2c530e6ae2e7a372a312fa791f07542d"
           ],
@@ -8724,6 +9723,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "b2aa8ed41d1c3db3bcc34a29ef7d0273b03116693bcf4d20320b27e1b3bd0612"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C2852",
+              "depth": 3,
+              "fact_id": "b2aa8ed41d1c3db3bcc34a29ef7d0273b03116693bcf4d20320b27e1b3bd0612",
+              "filler_code": "C36773",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f18e00fdfde8f163dd63457336e74f157155bda6d52f2ca7764800f99a2354b7"
+            }
           ],
           "source_occurrence_ids": [
             "dece1ed8c7d2cc44b9bc4fa48667ba3639e861741c5890d6bdd77a6cf31f217d"
@@ -8754,6 +9764,17 @@
           "source_definition_ids": [
             "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C100051",
+              "depth": 0,
+              "fact_id": "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375",
+              "filler_code": "C9385",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -8764,6 +9785,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "fedfc67b8a8d2db49c71f86dd924f4304a802e46725ed4d4e7085c7f36d6e1b3"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9385",
+              "depth": 1,
+              "fact_id": "fedfc67b8a8d2db49c71f86dd924f4304a802e46725ed4d4e7085c7f36d6e1b3",
+              "filler_code": "C49276",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0"
+            }
           ],
           "source_occurrence_ids": [
             "2fc6ef801af40825bb12995d826e0eeb37794c42d93700e3c02d75f40c866a70"
@@ -8794,6 +9826,17 @@
           "source_definition_ids": [
             "7e71bb2bbf37209aceb2944ba1cd1c6b0450402267e0c198bf3f3f2bc6bffbb8"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9384",
+              "depth": 2,
+              "fact_id": "7e71bb2bbf37209aceb2944ba1cd1c6b0450402267e0c198bf3f3f2bc6bffbb8",
+              "filler_code": "C12415",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "119e21679b22f3c14157d2f9e4e0ea1ebd4518fd3cd3d551c22e307001f1aa2c"
+            }
+          ],
           "source_occurrence_ids": [
             "72302ce53f55af176d91203d88a514aec714fe0e9115fe8cd31f4f0cf696f574"
           ],
@@ -8820,6 +9863,7 @@
           "filler": "C3270",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         }
@@ -9875,6 +10919,26 @@
             "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
             "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 6,
+              "fact_id": "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
+              "filler_code": "C12704",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            },
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f",
+              "filler_code": "C12704",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
+          ],
           "source_occurrence_ids": [
             "9e2640f1c0391fff77214701762298f7e7e50efc2e124f0cbb7bd2eda729d085",
             "e4a974118b2542dce0bc9fbb76eb7d3e21d4d7119f41d1320e984baea335779d"
@@ -9920,6 +10984,17 @@
           "source_definition_ids": [
             "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 6,
+              "fact_id": "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3",
+              "filler_code": "C12705",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            }
+          ],
           "source_occurrence_ids": [
             "067478591fd54e785a7474dca6170168f71568558d4c2fb8eb0e49e9c8ed60d2"
           ],
@@ -9948,6 +11023,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C6077",
+              "depth": 4,
+              "fact_id": "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae",
+              "filler_code": "C13063",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf"
+            }
           ],
           "source_occurrence_ids": [
             "84fb0595ef601ca70fa5efa3b45d0d2a7513d87d9b28dc9e9a7f6df7db89ab04"
@@ -9978,6 +11064,17 @@
           "source_definition_ids": [
             "795370efb8fd7f3a0c4e968c2ffc0f0c1a01e2afcde736bd68a805d62669bd1f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3773",
+              "depth": 5,
+              "fact_id": "795370efb8fd7f3a0c4e968c2ffc0f0c1a01e2afcde736bd68a805d62669bd1f",
+              "filler_code": "C36825",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4"
+            }
+          ],
           "source_occurrence_ids": [
             "b86c2a6bab283332168740b9233220ff7403e9b6df9f5061b22fe2ba4d999728"
           ],
@@ -10006,6 +11103,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3773",
+              "depth": 5,
+              "fact_id": "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f",
+              "filler_code": "C155863",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4"
+            }
           ],
           "source_occurrence_ids": [
             "6039fb1a8bba759ff32f94fa22df38a5f001dc6c13d95b73d3a1a24a4665978f"
@@ -10036,6 +11144,17 @@
           "source_definition_ids": [
             "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d",
+              "filler_code": "C207031",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
+          ],
           "source_occurrence_ids": [
             "a65a5d1e066dc8b5e829a2af18ce47e62f122577ef55c21e8a40dfa7eaffcec1"
           ],
@@ -10064,6 +11183,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "d86b85d9a359e6c38cad01d1faa121b7fe632ea4a5f321e1d433a50b76deb8b7"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3879",
+              "depth": 2,
+              "fact_id": "d86b85d9a359e6c38cad01d1faa121b7fe632ea4a5f321e1d433a50b76deb8b7",
+              "filler_code": "C41457",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+            }
           ],
           "source_occurrence_ids": [
             "a12f27e094c312931bd917a5696e0b6f118de43f641f9ca7daee0136964567eb"
@@ -10094,6 +11224,17 @@
           "source_definition_ids": [
             "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb",
+              "filler_code": "C43574",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
+          ],
           "source_occurrence_ids": [
             "a1d33088eaf06a737a272b71bc811b886cc3592f397425283593b9c7f62428cc"
           ],
@@ -10122,6 +11263,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "4d6e62c2bdfbf8b630d30a26d8e9f9f654f4876155165d22d26786c2dfa8a1ef"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3879",
+              "depth": 2,
+              "fact_id": "4d6e62c2bdfbf8b630d30a26d8e9f9f654f4876155165d22d26786c2dfa8a1ef",
+              "filler_code": "C47804",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+            }
           ],
           "source_occurrence_ids": [
             "4d1b85d4878cdc5b66d3a9ea4b026c1be057530a7905052743992f28b97636a0"
@@ -10152,6 +11304,17 @@
           "source_definition_ids": [
             "35b321c75270afa1638815f2724dfa2bcb1772414c08cb9b2687bfd67aed402b"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3879",
+              "depth": 2,
+              "fact_id": "35b321c75270afa1638815f2724dfa2bcb1772414c08cb9b2687bfd67aed402b",
+              "filler_code": "C47807",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+            }
+          ],
           "source_occurrence_ids": [
             "3047d3c62592f73767534fa0e3ad4b8a586f93bc900cb62a97a9130f37683fd8"
           ],
@@ -10180,6 +11343,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "c601e8dd27b3f713f8c6bcfd705f497e4fb6c476f3d23a85ce2d6a44cd3889db"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3879",
+              "depth": 2,
+              "fact_id": "c601e8dd27b3f713f8c6bcfd705f497e4fb6c476f3d23a85ce2d6a44cd3889db",
+              "filler_code": "C129702",
+              "kind": "restriction",
+              "role_code": "R106",
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+            }
           ],
           "source_occurrence_ids": [
             "e9136e8325c3756e98676097e7f6065d2fd72fccab70ca25a1b9a34e0ebf8185"
@@ -10210,6 +11384,17 @@
           "source_definition_ids": [
             "34c6e41351ade34938903605b763b4b2bb4ef99e58d12d122de5bf25466904a4"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C141041",
+              "depth": 1,
+              "fact_id": "34c6e41351ade34938903605b763b4b2bb4ef99e58d12d122de5bf25466904a4",
+              "filler_code": "C3879",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -10220,6 +11405,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "aaf07968613ffce3573154662bb0ad740772bbbeccd7e104ba42c18d5306354c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3879",
+              "depth": 2,
+              "fact_id": "aaf07968613ffce3573154662bb0ad740772bbbeccd7e104ba42c18d5306354c",
+              "filler_code": "C33782",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+            }
           ],
           "source_occurrence_ids": [
             "6e840fafe8ff71b80bcadc8f92ee99666732af73218b9512bac71ba5ba601807"
@@ -10250,6 +11446,17 @@
           "source_definition_ids": [
             "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4815",
+              "depth": 3,
+              "fact_id": "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249",
+              "filler_code": "C12400",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d"
+            }
+          ],
           "source_occurrence_ids": [
             "4450fe6c4d02d660a009e2c76f18842b39ada47bdd690dce19c41a6f7fd812d9"
           ],
@@ -10275,9 +11482,20 @@
           "axis": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "eadcdadce8099854c258bae285a0605f84549c071e9fe0b6f5167818751a872b",
           "source_definition_ids": [
             "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C141041",
+              "depth": 1,
+              "fact_id": "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45"
+            }
           ],
           "source_occurrence_ids": [
             "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
@@ -10305,6 +11523,7 @@
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -10312,9 +11531,20 @@
           "axis": "op:StageValue",
           "filler": "C27970",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "eadcdadce8099854c258bae285a0605f84549c071e9fe0b6f5167818751a872b",
           "source_definition_ids": [
             "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C6135",
+              "depth": 0,
+              "fact_id": "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5",
+              "filler_code": "C27970",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "71b0af99dd55fb44e10b66a6b17e6efa926455cf2b4ff7788680968fa28c5723"
+            }
           ],
           "source_occurrence_ids": [
             "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
@@ -11373,10 +12603,30 @@
           "axis": "op:AssociatedRegion",
           "filler": "C12471",
           "needs_review": false,
-          "relationship_group": "op:AssociatedRegion",
+          "relationship_group": null,
           "source_definition_ids": [
             "cc1866b123466f3528992d811a60f1cf9c095297502a44b58dcedeb24b8a1b28",
             "e70b4ae2fec2de1e20673ae5ee481362d7396f6d03016d42c6f56b58e1ff023f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4242",
+              "depth": 5,
+              "fact_id": "cc1866b123466f3528992d811a60f1cf9c095297502a44b58dcedeb24b8a1b28",
+              "filler_code": "C12471",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "eb735d468c9ec4987bfe0fdc5f3965c8314bb189cebe8ef079c082e73f8ec599"
+            },
+            {
+              "anchor_code": "C7148",
+              "depth": 5,
+              "fact_id": "e70b4ae2fec2de1e20673ae5ee481362d7396f6d03016d42c6f56b58e1ff023f",
+              "filler_code": "C12471",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546"
+            }
           ],
           "source_occurrence_ids": [
             "7620dc228d53b8807b90c98330b4c2ece5dc9d2f7dea718af5e1b1bdbcee2d2d",
@@ -11419,9 +12669,20 @@
           "axis": "op:AssociatedRegion",
           "filler": "C12905",
           "needs_review": false,
-          "relationship_group": "op:AssociatedRegion",
+          "relationship_group": null,
           "source_definition_ids": [
             "5d3f8ff41a7933313cb93a051c30007cc455eafbe4cb59f587aaaa4ac9cdcf90"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4565",
+              "depth": 4,
+              "fact_id": "5d3f8ff41a7933313cb93a051c30007cc455eafbe4cb59f587aaaa4ac9cdcf90",
+              "filler_code": "C12905",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "06d802a4b698bb549c1f66d2dfc5ad8af3baf636cc9e26ebecde0e8e194de61e"
+            }
           ],
           "source_occurrence_ids": [
             "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
@@ -11448,9 +12709,20 @@
           "axis": "op:AssociatedRegion",
           "filler": "C13004",
           "needs_review": false,
-          "relationship_group": "op:AssociatedRegion",
+          "relationship_group": null,
           "source_definition_ids": [
             "350a0ba239b888a51f518f981625283b9e22475c1d56ca58d1ede0a27ddd6f67"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4608",
+              "depth": 3,
+              "fact_id": "350a0ba239b888a51f518f981625283b9e22475c1d56ca58d1ede0a27ddd6f67",
+              "filler_code": "C13004",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "262cdb4460c7bc97d03447eed365c72d26557ccaa855d4fab88890f65bdbade4"
+            }
           ],
           "source_occurrence_ids": [
             "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
@@ -11481,6 +12753,17 @@
           "source_definition_ids": [
             "49992b81f021b4c1f3b6a5ea7ee24f88625882ac0a619254a833f0a90e2e5e94"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C5346",
+              "depth": 4,
+              "fact_id": "49992b81f021b4c1f3b6a5ea7ee24f88625882ac0a619254a833f0a90e2e5e94",
+              "filler_code": "C13004",
+              "kind": "restriction",
+              "role_code": "R100",
+              "source_group_id": "943f26d505f9aafc09749eb8e4aa2514a45fcbe2c1c0c75036bb825df35ffe62"
+            }
+          ],
           "source_occurrence_ids": [
             "a12e22fc0ed6443fc2b6ecee89ca569228f3014d3adb4064c818d2256be4b990"
           ],
@@ -11506,9 +12789,20 @@
           "axis": "op:CellType",
           "filler": "C36899",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "493655c6ce427d747f9bd730d2d1a9a4dea817efad45baabf773148677b2abf9",
           "source_definition_ids": [
             "c5ac94b1b709b1906377c5f71d91cb8c22c6810d847c558f6632b566ef86d17c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C6577",
+              "depth": 3,
+              "fact_id": "c5ac94b1b709b1906377c5f71d91cb8c22c6810d847c558f6632b566ef86d17c",
+              "filler_code": "C36899",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b"
+            }
           ],
           "source_occurrence_ids": [
             "7d0e04ec4b5c2089943da97753e6dd0bc6a8d6b98c5531e2d6942c770729ac4f"
@@ -11535,9 +12829,20 @@
           "axis": "op:CellType",
           "filler": "C36954",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "493655c6ce427d747f9bd730d2d1a9a4dea817efad45baabf773148677b2abf9",
           "source_definition_ids": [
             "1c67b6f080144081793a5fe25f846cfb08ddb2241edb1b070032698eb4fb4d8d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C6577",
+              "depth": 3,
+              "fact_id": "1c67b6f080144081793a5fe25f846cfb08ddb2241edb1b070032698eb4fb4d8d",
+              "filler_code": "C36954",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b"
+            }
           ],
           "source_occurrence_ids": [
             "cbcdb80a5feab660b45fc3d423fca991d9036a1734e475bcbb56234291604ce1"
@@ -11568,6 +12873,17 @@
           "source_definition_ids": [
             "2bdfcbc7729a80daf44e198aae13783f1f58e0e33389cf36034afde85e8ea8b1"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C6577",
+              "depth": 3,
+              "fact_id": "2bdfcbc7729a80daf44e198aae13783f1f58e0e33389cf36034afde85e8ea8b1",
+              "filler_code": "C35998",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b"
+            }
+          ],
           "source_occurrence_ids": [
             "59023e6049fa3f27c1720e9d16dfb3756cb2d12d256cec4b15fa16755cadc8d0"
           ],
@@ -11596,6 +12912,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "3dc6152ed1edca1d923cb7f0a1f024fda7b69db84b31ed190ebe026ec4165786"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C53684",
+              "depth": 6,
+              "fact_id": "3dc6152ed1edca1d923cb7f0a1f024fda7b69db84b31ed190ebe026ec4165786",
+              "filler_code": "C36105",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "44e0017ffff77ab98bf6ba3da05be5c8d745c83a901565e5ecc663bb6cc51c8e"
+            }
           ],
           "source_occurrence_ids": [
             "fd8d41f3bb8af0e51b2ed03d5913de2754cd6002b802e89912afd2c888ab4234"
@@ -11626,6 +12953,17 @@
           "source_definition_ids": [
             "da38fccb0e9a44ad22e12bbaab89866ff671b450f223911e912565025b812d17"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3677",
+              "depth": 5,
+              "fact_id": "da38fccb0e9a44ad22e12bbaab89866ff671b450f223911e912565025b812d17",
+              "filler_code": "C36122",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "c9ef5ff1ad761c2dbb281c02a63d2d0922c23e135b0300bfe2d8d9dcebd11d9d"
+            }
+          ],
           "source_occurrence_ids": [
             "f3876c7f228baacf57a2cfa0fd7f3d29991ebfb57a96a3fe9412bfc3bc94092f"
           ],
@@ -11655,6 +12993,17 @@
           "source_definition_ids": [
             "c66644aabd10d0b5ed72ce0e779935f2fd970fc25f439c184cc96a4c648583b7"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C7148",
+              "depth": 5,
+              "fact_id": "c66644aabd10d0b5ed72ce0e779935f2fd970fc25f439c184cc96a4c648583b7",
+              "filler_code": "C53583",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546"
+            }
+          ],
           "source_occurrence_ids": [
             "38b3eea3b71bc1bc24eb65a6a8abecde47c688f3915695cd52ab55d6e8315a32"
           ],
@@ -11681,6 +13030,7 @@
           "filler": "C25229",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -11692,6 +13042,17 @@
           "source_definition_ids": [
             "0c9d646865fe858945e4b1ef347a24261fc4d5245d81f4b8f4ee4fdd5fb4ddf8"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4791",
+              "depth": 0,
+              "fact_id": "0c9d646865fe858945e4b1ef347a24261fc4d5245d81f4b8f4ee4fdd5fb4ddf8",
+              "filler_code": "C3499",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -11702,6 +13063,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "84c7d2975fddeedaccb2169f147f046fdca3f113764e533f2160f4beabf22fc2"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4791",
+              "depth": 0,
+              "fact_id": "84c7d2975fddeedaccb2169f147f046fdca3f113764e533f2160f4beabf22fc2",
+              "filler_code": "C12869",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9"
+            }
           ],
           "source_occurrence_ids": [
             "1f214cd4567028ac813a7e104cd605a56d0bc4f80207b3e74b7d2d5e035d3722"
@@ -13351,6 +14723,26 @@
             "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
             "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 5,
+              "fact_id": "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
+              "filler_code": "C12704",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            },
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f",
+              "filler_code": "C12704",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
+          ],
           "source_occurrence_ids": [
             "6cb09eda679d525a0e74b4dace29849b8dffe793c2325fdcdb4650d4f03204ea",
             "e7e069e4ab17295bd09224229662170e4b5a82782aee1ca57223a531e2e686ed"
@@ -13396,6 +14788,17 @@
           "source_definition_ids": [
             "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C215715",
+              "depth": 5,
+              "fact_id": "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3",
+              "filler_code": "C12705",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+            }
+          ],
           "source_occurrence_ids": [
             "dded7423aa82fc299fa1a3ee76c4873847db3740001dede717809f24c98c3598"
           ],
@@ -13425,6 +14828,17 @@
           "source_definition_ids": [
             "ec627cdedc6ae4348954527a1deb536452259d2ffdfb0c0bcf64f398a0c39e06"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3915",
+              "depth": 3,
+              "fact_id": "ec627cdedc6ae4348954527a1deb536452259d2ffdfb0c0bcf64f398a0c39e06",
+              "filler_code": "C36820",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "7f0c4fd329dd8bb5b671b03908d3187335c140b2d3b66a88b1dfe7b199970449"
+            }
+          ],
           "source_occurrence_ids": [
             "1d2979d8056b2f28b2a6d568ebc6ccf8f70c0cce5e7bbd6569877c86a8b74921"
           ],
@@ -13450,9 +14864,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C155863",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3773",
+              "depth": 4,
+              "fact_id": "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f",
+              "filler_code": "C155863",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4"
+            }
           ],
           "source_occurrence_ids": [
             "e1f7cf7d057279413f1c43f563411fa14bfd0dc14159db8f10cecdfa2779ccf5"
@@ -13479,9 +14904,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C207031",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d",
+              "filler_code": "C207031",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
           ],
           "source_occurrence_ids": [
             "bd6678faf637049399096215cd6f42e087e896ba6c7d55ae8fb44c35447d5fec"
@@ -13508,9 +14944,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C3331",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "c22a853fff2cf0fadc45d881efb33edc258f9b6893c95fb4055291635ff5fdb0"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C35756",
+              "depth": 0,
+              "fact_id": "c22a853fff2cf0fadc45d881efb33edc258f9b6893c95fb4055291635ff5fdb0",
+              "filler_code": "C3331",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "a89e096677ad887e2315d7912cf5eb6bbf0afe5f8950fedeb6da10cd3ac44ec7"
+            }
           ],
           "source_occurrence_ids": [
             "dc82c0605ae0ed6b3de0f7bd0a40a54d78be9253c72c5125c38ed0a2483ee4ef"
@@ -13537,9 +14984,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C36129",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "e9c35829194de67c1c838d1fa214b4378ae2632ed7f5979712656760da22beb1"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C45569",
+              "depth": 3,
+              "fact_id": "e9c35829194de67c1c838d1fa214b4378ae2632ed7f5979712656760da22beb1",
+              "filler_code": "C36129",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "26f877fa42e4926f4ca20e20fa98dd635752f1f7caf6233e596a0affac0da871"
+            }
           ],
           "source_occurrence_ids": [
             "34813796152b2688f15d266cee695de18a6819c9733c8a8b0b8c13113c5b7204"
@@ -13566,9 +15024,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C36184",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "fbfb25c3c1b7dba517b6e7c4db7c01f5a528f53fcbc59ccd3fb24f80bf1ce26e"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3915",
+              "depth": 3,
+              "fact_id": "fbfb25c3c1b7dba517b6e7c4db7c01f5a528f53fcbc59ccd3fb24f80bf1ce26e",
+              "filler_code": "C36184",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "7f0c4fd329dd8bb5b671b03908d3187335c140b2d3b66a88b1dfe7b199970449"
+            }
           ],
           "source_occurrence_ids": [
             "4ee101bb649d2936607280b583da8698e163e67f52a1b8824048e7a8550572ba"
@@ -13595,9 +15064,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C43574",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3809",
+              "depth": 5,
+              "fact_id": "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb",
+              "filler_code": "C43574",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+            }
           ],
           "source_occurrence_ids": [
             "8c1ebb85f16b0ae129ca8b30665c894abce88f285d391585bdd9884c6d6cc202"
@@ -13624,9 +15104,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C54209",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "a0bce7445b9877aedc47e3a61cfbe3f086f8159dee3562d5afb3a9a58a23210f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4917",
+              "depth": 2,
+              "fact_id": "a0bce7445b9877aedc47e3a61cfbe3f086f8159dee3562d5afb3a9a58a23210f",
+              "filler_code": "C54209",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "917eaab53a32ea6d95878c0281f78794b143c5c777cc2b3bcda51c479a98c9f8"
+            }
           ],
           "source_occurrence_ids": [
             "ccde95d77f554494cf73c73d0694e35dcaafef666d27dcde2acca2e919b00187"
@@ -13653,9 +15144,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C55817",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "be4316b20e1fb8a798068e2fcaefcc8f51d5099d717cf97bd63fe71cfe342e8f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4917",
+              "depth": 2,
+              "fact_id": "be4316b20e1fb8a798068e2fcaefcc8f51d5099d717cf97bd63fe71cfe342e8f",
+              "filler_code": "C55817",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "917eaab53a32ea6d95878c0281f78794b143c5c777cc2b3bcda51c479a98c9f8"
+            }
           ],
           "source_occurrence_ids": [
             "7de3387ce1c54228967bbc3837d1f226fc9a3f008eaf5d4d00ee377c0f78b5e0"
@@ -13682,9 +15184,20 @@
           "axis": "op:ClinicalFinding",
           "filler": "C60308",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:ClinicalFinding",
           "source_definition_ids": [
             "178bea9dbc48cbc8b64279549510e16645e5a1646150ed13d9c9269fe8897ed9"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C4917",
+              "depth": 2,
+              "fact_id": "178bea9dbc48cbc8b64279549510e16645e5a1646150ed13d9c9269fe8897ed9",
+              "filler_code": "C60308",
+              "kind": "restriction",
+              "role_code": "R108",
+              "source_group_id": "917eaab53a32ea6d95878c0281f78794b143c5c777cc2b3bcda51c479a98c9f8"
+            }
           ],
           "source_occurrence_ids": [
             "639907cfde2637caa53d301e5ebea3ede157a2d7c355cb6e1db80fff42de746d"
@@ -13716,6 +15229,26 @@
             "212d22bcc36de35aeeace4be14aa303967bf5a9134fc0f6bfba0b6502b4e11e6",
             "24fac221a4aeca80502778cc92225d81cda5630527a29a694c9c13b84d06513a"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C91232",
+              "depth": 4,
+              "fact_id": "212d22bcc36de35aeeace4be14aa303967bf5a9134fc0f6bfba0b6502b4e11e6",
+              "filler_code": "C4878",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "a1aaa29d4b372c7e7138d244e3ebcb6637f9b86926dfa0486140c67ddcd0e3e7"
+            },
+            {
+              "anchor_code": "C45569",
+              "depth": 3,
+              "fact_id": "24fac221a4aeca80502778cc92225d81cda5630527a29a694c9c13b84d06513a",
+              "filler_code": "C4878",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "26f877fa42e4926f4ca20e20fa98dd635752f1f7caf6233e596a0affac0da871"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -13728,6 +15261,26 @@
             "3587ecd8e355ff29a169e69f0fbd65cecd7a5a82eac8a9d014fd002d99ac9df2",
             "35bf110f3d4a7359ed39856aeda34b3f21f4caf1b7e11760abbf87fe17a6659d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C9049",
+              "depth": 1,
+              "fact_id": "3587ecd8e355ff29a169e69f0fbd65cecd7a5a82eac8a9d014fd002d99ac9df2",
+              "filler_code": "C4917",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "5a86123986099e1e3e3223f922abfc601887daeb2f2b5046f9589d477300d6e0"
+            },
+            {
+              "anchor_code": "C136496",
+              "depth": 3,
+              "fact_id": "35bf110f3d4a7359ed39856aeda34b3f21f4caf1b7e11760abbf87fe17a6659d",
+              "filler_code": "C4917",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "ef4b5c3028fb943ed5bccaf2f39eca6070203680a3a06bfce30ba74c99e0b5a5"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -13738,6 +15291,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "f885b1809b89f1369363fe542cacf5f920bf3a76541f39396dc4855a4d95ef0f"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C35756",
+              "depth": 0,
+              "fact_id": "f885b1809b89f1369363fe542cacf5f920bf3a76541f39396dc4855a4d95ef0f",
+              "filler_code": "C9049",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "a89e096677ad887e2315d7912cf5eb6bbf0afe5f8950fedeb6da10cd3ac44ec7"
+            }
           ],
           "source_occurrence_ids": [],
           "source_occurrences": []
@@ -13750,6 +15314,26 @@
           "source_definition_ids": [
             "8d4265430e41f417e451520f88c8268e8ec18575d699531742d275d89c45c3ba",
             "d814516feebab403b65c0502f56cf4ed02e9a5d2154c20f33178404b4f61b07d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C5670",
+              "depth": 4,
+              "fact_id": "8d4265430e41f417e451520f88c8268e8ec18575d699531742d275d89c45c3ba",
+              "filler_code": "C12468",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "204c0912e20f7a411b9035ac0b3710328a3c7cd8a4b51eaa4d45fc6548cab3d2"
+            },
+            {
+              "anchor_code": "C4878",
+              "depth": 4,
+              "fact_id": "d814516feebab403b65c0502f56cf4ed02e9a5d2154c20f33178404b4f61b07d",
+              "filler_code": "C12468",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "b7526f49d2debd6bbe20848674b4e9ba8560e1e09b133ff558ee39b56b1259bd"
+            }
           ],
           "source_occurrence_ids": [
             "1903251f5f0abee5e71973ece2ecfae4f9ef6264224821eac2bebbe29d545b00",
@@ -13796,6 +15380,17 @@
           "source_definition_ids": [
             "a860e60b399915d7047c48680146b971e24ca91bfa84020a94c3161dd10af09f"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4917",
+              "depth": 2,
+              "fact_id": "a860e60b399915d7047c48680146b971e24ca91bfa84020a94c3161dd10af09f",
+              "filler_code": "C12683",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "917eaab53a32ea6d95878c0281f78794b143c5c777cc2b3bcda51c479a98c9f8"
+            }
+          ],
           "source_occurrence_ids": [
             "b9b0d5d250f4bac82dd43fae70b52ed06d9d2cbb4984e4d7d784d1080acf2a17"
           ],
@@ -13825,6 +15420,17 @@
           "source_definition_ids": [
             "f89766bd06ccb8f32acf95b2bc760243ab4ef3f558924555b1dead747947b851"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C91232",
+              "depth": 4,
+              "fact_id": "f89766bd06ccb8f32acf95b2bc760243ab4ef3f558924555b1dead747947b851",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "a1aaa29d4b372c7e7138d244e3ebcb6637f9b86926dfa0486140c67ddcd0e3e7"
+            }
+          ],
           "source_occurrence_ids": [
             "ddc956ac9e3edcfe5f15f751e39c6e705bf51a6785408896c585cd4052ca6dfb"
           ],
@@ -13851,6 +15457,7 @@
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -13858,9 +15465,20 @@
           "axis": "op:StageValue",
           "filler": "C27978",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:StageValue",
           "source_definition_ids": [
             "2389a7321148aa2b0240db43ea496c1a5140ac77b2a7dfddf0d043de95e46512"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C5647",
+              "depth": 2,
+              "fact_id": "2389a7321148aa2b0240db43ea496c1a5140ac77b2a7dfddf0d043de95e46512",
+              "filler_code": "C27978",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "dd345e6d5490e8217b1453e6549a6de96c6a41d3c3851cc67b4606f224d036dd"
+            }
           ],
           "source_occurrence_ids": [
             "1832ec27cb135d510ba604388be209fe666a8411d790a13e5fc07d8631f2e9d2"
@@ -13887,9 +15505,20 @@
           "axis": "op:StageValue",
           "filler": "C28064",
           "needs_review": true,
-          "relationship_group": null,
+          "relationship_group": "op:StageValue",
           "source_definition_ids": [
             "7c9fe069dde8a2ca8218a330d9f214d568481cd2667ef46f2575cd85b5b42df7"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9049",
+              "depth": 1,
+              "fact_id": "7c9fe069dde8a2ca8218a330d9f214d568481cd2667ef46f2575cd85b5b42df7",
+              "filler_code": "C28064",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "5a86123986099e1e3e3223f922abfc601887daeb2f2b5046f9589d477300d6e0"
+            }
           ],
           "source_occurrence_ids": [
             "f3713eac76b9ec284a5fe2d697b75ce0066c6b760dfa1a03f578ceb1aea4f217"
@@ -13917,6 +15546,7 @@
           "filler": "C3331",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         }
@@ -15117,6 +16747,17 @@
           "source_definition_ids": [
             "c9edb03d918c00729f3db2464bd2b7936fe7a93a0bf34cc6d899cede91d55c29"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C2955",
+              "depth": 3,
+              "fact_id": "c9edb03d918c00729f3db2464bd2b7936fe7a93a0bf34cc6d899cede91d55c29",
+              "filler_code": "C54189",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60"
+            }
+          ],
           "source_occurrence_ids": [
             "b71e9ef2922838dabdeb7236b615bd446e7ef8958f007c1cbb03be9aa59b00f6"
           ],
@@ -15145,6 +16786,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3709",
+              "depth": 6,
+              "fact_id": "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c",
+              "filler_code": "C36753",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+            }
           ],
           "source_occurrence_ids": [
             "b8d4da7110c21c744c6e837660439e3d6fd7587156c35a4c49144ff6cd53e215"
@@ -15176,6 +16828,26 @@
             "15353dff8804eb1aed42b903ac21e5acfc453da3018553aae6f26bc58d7b8b8b",
             "40e2c9d03b096d1fef6c36be557f136106272bc8e491debd554e8e16192d6f9a"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4910",
+              "depth": 2,
+              "fact_id": "15353dff8804eb1aed42b903ac21e5acfc453da3018553aae6f26bc58d7b8b8b",
+              "filler_code": "C2955",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676"
+            },
+            {
+              "anchor_code": "C91223",
+              "depth": 2,
+              "fact_id": "40e2c9d03b096d1fef6c36be557f136106272bc8e491debd554e8e16192d6f9a",
+              "filler_code": "C2955",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -15187,6 +16859,17 @@
           "source_definition_ids": [
             "01c4ecc1dc7e9f37bf4970c16e2942b0859deeb404b321bbb398294b1be45221"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C91224",
+              "depth": 1,
+              "fact_id": "01c4ecc1dc7e9f37bf4970c16e2942b0859deeb404b321bbb398294b1be45221",
+              "filler_code": "C4910",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "2cc56731bc58804ddfc1c3f1d61ad89f145f2062c103158b0957f31caaa94456"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -15197,6 +16880,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "dcb4a61f2e982a0d54f831767f430b754d5b6b50ef623a080c0e0b4f6a4b4385"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C2955",
+              "depth": 3,
+              "fact_id": "dcb4a61f2e982a0d54f831767f430b754d5b6b50ef623a080c0e0b4f6a4b4385",
+              "filler_code": "C32926",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60"
+            }
           ],
           "source_occurrence_ids": [
             "2c0718a7ebe78e994f9afdaa69f4d3e04c7ddc6f40e8696d199157034b6295ef"
@@ -15227,6 +16921,17 @@
           "source_definition_ids": [
             "fe27952b3270bc8b6f1555ff0e51a99dd1e13560f17883a9383973960fa6cb35"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C4910",
+              "depth": 2,
+              "fact_id": "fe27952b3270bc8b6f1555ff0e51a99dd1e13560f17883a9383973960fa6cb35",
+              "filler_code": "C12382",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676"
+            }
+          ],
           "source_occurrence_ids": [
             "1a77e5cb1b1cd5a5b12a91240de7953e1753c4d0f4b5757e4ba2310a1511c8c1"
           ],
@@ -15252,9 +16957,20 @@
           "axis": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "3ee95e2542a4a7441045a7ebe0867447d287fcfc4eba3e527bf6a1c3785a9f19",
           "source_definition_ids": [
             "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C91223",
+              "depth": 2,
+              "fact_id": "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac"
+            }
           ],
           "source_occurrence_ids": [
             "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
@@ -15282,6 +16998,7 @@
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -15289,9 +17006,20 @@
           "axis": "op:StageValue",
           "filler": "C27970",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "3ee95e2542a4a7441045a7ebe0867447d287fcfc4eba3e527bf6a1c3785a9f19",
           "source_definition_ids": [
             "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C89994",
+              "depth": 1,
+              "fact_id": "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01",
+              "filler_code": "C27970",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "363cefec5569b1888778f6d9d210df0acc474b68c5038322c61119fea994ea47"
+            }
           ],
           "source_occurrence_ids": [
             "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
@@ -15846,6 +17574,17 @@
           "source_definition_ids": [
             "0c74f1f5322afde963d9ff2aca2f11c1e59e4a0d0aa1e8adc3486e52cb1ed8d9"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C8591",
+              "depth": 3,
+              "fact_id": "0c74f1f5322afde963d9ff2aca2f11c1e59e4a0d0aa1e8adc3486e52cb1ed8d9",
+              "filler_code": "C12722",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373"
+            }
+          ],
           "source_occurrence_ids": [
             "7675f15cea665e1d2bd05042d8fb9df397a5c49cf26468966562dd2f0ef1a40c"
           ],
@@ -15874,6 +17613,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3708",
+              "depth": 4,
+              "fact_id": "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419",
+              "filler_code": "C36903",
+              "kind": "restriction",
+              "role_code": "R105",
+              "source_group_id": "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e"
+            }
           ],
           "source_occurrence_ids": [
             "8c0d38ae52aa0b3e39166c27c7263bd5af21c8ccc338605052f81e24b76c8051"
@@ -15904,6 +17654,17 @@
           "source_definition_ids": [
             "a91774d7fa1aabfe1d9ee776d9c3b52e7c4fbf3595a04e4153a8167b40a6455b"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C27787",
+              "depth": 0,
+              "fact_id": "a91774d7fa1aabfe1d9ee776d9c3b52e7c4fbf3595a04e4153a8167b40a6455b",
+              "filler_code": "C5027",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "b88319fe5262a285d1c3e0b15934592f31170c4c0cf554e5b01cfc2680715a3f"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -15916,6 +17677,26 @@
             "89597aee5fea970f8056b19063d1ff46d2db1e61fb6db2eef7c84997bac5430a",
             "f8107c01fb7a2fb5708eb19c7eef8bc7e523b0cc470fd20bbf792c46617ea7c2"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C140241",
+              "depth": 2,
+              "fact_id": "89597aee5fea970f8056b19063d1ff46d2db1e61fb6db2eef7c84997bac5430a",
+              "filler_code": "C7251",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f"
+            },
+            {
+              "anchor_code": "C9063",
+              "depth": 2,
+              "fact_id": "f8107c01fb7a2fb5708eb19c7eef8bc7e523b0cc470fd20bbf792c46617ea7c2",
+              "filler_code": "C7251",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "426fd4ccedf433d2bf76c86e93b02f5c1a5511edc80fa2c80bb8ccf47cfb4266"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -15926,6 +17707,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "4484d86e2dc7986f217c88b195fc1068649fb4d45d1aff931d1b5daf46249b91"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C8591",
+              "depth": 3,
+              "fact_id": "4484d86e2dc7986f217c88b195fc1068649fb4d45d1aff931d1b5daf46249b91",
+              "filler_code": "C12412",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373"
+            }
           ],
           "source_occurrence_ids": [
             "eead016c0563bb696e2f1787b7e929e66c7ffc2ca9dfc43a291101c1a43a5f5d"
@@ -15952,9 +17744,20 @@
           "axis": "op:StageSystem",
           "filler": "C90529",
           "needs_review": false,
-          "relationship_group": "op:StageSystem",
+          "relationship_group": "13c9c6081e9e707ba920b669c0090d019db8d1d021b8400a193ac11b62228a8e",
           "source_definition_ids": [
             "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C140241",
+              "depth": 2,
+              "fact_id": "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30",
+              "filler_code": "C90529",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f"
+            }
           ],
           "source_occurrence_ids": [
             "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
@@ -15981,9 +17784,20 @@
           "axis": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "relationship_group": "op:StageSystem",
+          "relationship_group": "13c9c6081e9e707ba920b669c0090d019db8d1d021b8400a193ac11b62228a8e",
           "source_definition_ids": [
             "8c0734fad6e28903e2b64be66be514fd16797b3caf48fb4847f5501d518bbfe8"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C140241",
+              "depth": 2,
+              "fact_id": "8c0734fad6e28903e2b64be66be514fd16797b3caf48fb4847f5501d518bbfe8",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f"
+            }
           ],
           "source_occurrence_ids": [
             "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
@@ -16011,6 +17825,7 @@
           "filler": "MINT-d104509874ed",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -16018,9 +17833,20 @@
           "axis": "op:StageValue",
           "filler": "C27970",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "13c9c6081e9e707ba920b669c0090d019db8d1d021b8400a193ac11b62228a8e",
           "source_definition_ids": [
             "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C9074",
+              "depth": 1,
+              "fact_id": "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1",
+              "filler_code": "C27970",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "73f53459b912b33478b591c3ac93958b7f413cb5f39cf6e11e7102eef18309ac"
+            }
           ],
           "source_occurrence_ids": [
             "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
@@ -16547,6 +18373,17 @@
           "source_definition_ids": [
             "0544b3ea0fc737ee55e7336cd6703b93b7405e08ea5631ac368ecbf812617d95"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C96963",
+              "depth": 5,
+              "fact_id": "0544b3ea0fc737ee55e7336cd6703b93b7405e08ea5631ac368ecbf812617d95",
+              "filler_code": "C12378",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "82ca793adfa0c198b2533183b5e2bab9380f2002184bd02c9b14d6d0a80df04a"
+            }
+          ],
           "source_occurrence_ids": [
             "fbba26d315a0ef1a2f1c3e578c1f8e47e5bdb42d1ef046977978c9745aff22be"
           ],
@@ -16576,6 +18413,17 @@
           "source_definition_ids": [
             "023e612042e8850c9eab252caf6fb75b5c19eb299e74331be6495e100e1ea0cb"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C91221",
+              "depth": 2,
+              "fact_id": "023e612042e8850c9eab252caf6fb75b5c19eb299e74331be6495e100e1ea0cb",
+              "filler_code": "C3513",
+              "kind": "genus",
+              "role_code": null,
+              "source_group_id": "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa"
+            }
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -16586,6 +18434,17 @@
           "relationship_group": null,
           "source_definition_ids": [
             "cd47e629176caff77ff0f06547f426fd042ef034ff03a5fcc691cdc77a2e5789"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C3513",
+              "depth": 3,
+              "fact_id": "cd47e629176caff77ff0f06547f426fd042ef034ff03a5fcc691cdc77a2e5789",
+              "filler_code": "C49221",
+              "kind": "restriction",
+              "role_code": "R103",
+              "source_group_id": "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e"
+            }
           ],
           "source_occurrence_ids": [
             "abaf6fc5278aba33dd85689cf21149c8e842e8b711a699967b7ca6f91bbfee2f"
@@ -16616,6 +18475,17 @@
           "source_definition_ids": [
             "59abf178ae5fff9b391937113d46dcc8a10cb72bbe371328a3b0eb46d192019a"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C203673",
+              "depth": 4,
+              "fact_id": "59abf178ae5fff9b391937113d46dcc8a10cb72bbe371328a3b0eb46d192019a",
+              "filler_code": "C203674",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "347a39e99749b4871a7e37afde8b0aebb863d13d335161333495964dfc0244d1"
+            }
+          ],
           "source_occurrence_ids": [
             "1940a05c69cb464eb5901ca13109d608cd36311ae60ae3c15800c81c5c6ec8ce"
           ],
@@ -16645,6 +18515,17 @@
           "source_definition_ids": [
             "ed00db472320b91d71023b9c7a29235015d6a13185ef21b5a29095b285d8e38d"
           ],
+          "source_facts": [
+            {
+              "anchor_code": "C3513",
+              "depth": 3,
+              "fact_id": "ed00db472320b91d71023b9c7a29235015d6a13185ef21b5a29095b285d8e38d",
+              "filler_code": "C12389",
+              "kind": "restriction",
+              "role_code": "R101",
+              "source_group_id": "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e"
+            }
+          ],
           "source_occurrence_ids": [
             "a72ad3ffc285554cc4a01f9306d2c59a35b504874db3ea3aed6af1989a0a5945"
           ],
@@ -16670,9 +18551,20 @@
           "axis": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "f29107aca64729854ca71371d3b8847a7a861fdec7d8940a04317aaece84392a",
           "source_definition_ids": [
             "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C91221",
+              "depth": 2,
+              "fact_id": "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b",
+              "filler_code": "C90530",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa"
+            }
           ],
           "source_occurrence_ids": [
             "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
@@ -16700,6 +18592,7 @@
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "relationship_group": null,
+          "source_facts": [],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -16707,9 +18600,20 @@
           "axis": "op:StageValue",
           "filler": "C27976",
           "needs_review": false,
-          "relationship_group": null,
+          "relationship_group": "f29107aca64729854ca71371d3b8847a7a861fdec7d8940a04317aaece84392a",
           "source_definition_ids": [
             "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d"
+          ],
+          "source_facts": [
+            {
+              "anchor_code": "C115118",
+              "depth": 0,
+              "fact_id": "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d",
+              "filler_code": "C27976",
+              "kind": "restriction",
+              "role_code": "R88",
+              "source_group_id": "95549abf4674043e4470fd7002ab0fcdc5030b5786eb5080122a75670f5f4869"
+            }
           ],
           "source_occurrence_ids": [
             "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
@@ -16938,15 +18842,15 @@
     }
   ],
   "detector_identity": "149a975b5b0531c710da99e8976eb5cad2c037aea4b64ea2e307b3757df06645",
-  "evidence_identity": "3ea7735684c9eed2675e8270573ce9f78067ecb2c7ed5b44a11b70a5d1dd31c9",
+  "evidence_identity": "d9925651dabd1e87be19e493b9adb05699bc7b80ae43336c1c1ffe250bd72c97",
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
   "proposal_registry_migration_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
-  "representation_identity": "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa",
+  "representation_identity": "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
-  "run_fingerprint_identity": "1053168d93576f603581f4354cf955e16d332ae34dcde841dc16e80ad7890d8e",
-  "run_id": "neoplasm-378faaca-170e-4f1c-9d97-e5906e3efecd",
+  "run_fingerprint_identity": "f201b6f5bdf046d67f191f20d0afe05a3f30a12339e653911dfdda4646ca520b",
+  "run_id": "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 3,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",

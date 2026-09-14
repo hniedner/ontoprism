@@ -528,14 +528,15 @@ def test_documents_frontend_development_uses_supported_root_command() -> None:
 
 
 @pytest.mark.unit
-def test_documents_d86_is_newest_and_preserves_d60_verbatim() -> None:
+def test_documents_decisions_are_descending_and_preserve_d60_verbatim() -> None:
     decisions = _read("docs/DECISIONS.md")
     ids = [
         int(value) for value in re.findall(r"^### D(\d+)\.", decisions, re.MULTILINE)
     ]
-    assert ids[:2] == [86, 85]
+    assert ids[:2] == [87, 86]
+    assert ids.count(87) == 1
     assert ids.count(86) == 1
-    assert max(ids) == 86
+    assert max(ids) == 87
 
     current_d60 = _decision_section(decisions, "D60")
     fixture = _read(_D60_FIXTURE)

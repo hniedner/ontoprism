@@ -15,6 +15,9 @@ from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.models import GenusDefinitionFact
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.run import _decompose_one
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -27,6 +30,45 @@ _TRACKED_EVIDENCE = Path(__file__).with_name("golden") / (
     "neoplasm-current-engine-evidence.json"
 )
 _C9290_FACT_ID = "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_c27262_runtime_applies_packaged_normalized_groups() -> None:
+    evidence = CurrentEngineEvidence.model_validate_json(_TRACKED_EVIDENCE.read_bytes())
+
+    async def no_label_match(_surface: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(
+        "http://localhost:7888", query_timeout=180.0
+    ) as client:
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, evidence.source_identity
+        )
+        result = await _decompose_one(
+            _CONCEPT,
+            cast("Any", _CountingClient(client)),
+            label=None,
+            label_lookup=no_label_match,
+            source_identity=evidence.source_identity,
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            diagnostic_source=diagnostic_source,
+            detector_identity=evidence.detector_identity,
+            walker_max_depth=5,
+        )
+
+    assert result.decomposition is not None
+    policy_row = load_packaged_normalized_group_policy().by_code[_CONCEPT]
+    observed = {
+        (item.axis, item.filler_code): item.group
+        for item in result.decomposition.constituents
+    }
+    assert observed == {
+        pair: policy_row.block_for(pair).normalized_group_id
+        for block in policy_row.blocks
+        for pair in block.pairs
+    }
 
 
 def _morphology_projection(decomposition) -> tuple[tuple[str, tuple[str, ...]], ...]:

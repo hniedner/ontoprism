@@ -960,6 +960,57 @@ def test_group_review_candidate_consumes_candidate_inputs_only(tmp_path: Path) -
 
 
 @pytest.mark.unit
+def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidates = {
+        "tmp/m1-6-current-engine-evidence-candidate.json": b"new-evidence",
+        "tmp/m1-6-current-comparison-candidate.json": b"new-comparison",
+        "tmp/m1-6-normalized-group-policy-candidate.json": b"new-policy",
+    }
+    targets = {
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-current-engine-evidence.json": b"old-evidence",
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-current-comparison.json": b"old-comparison",
+        "ontolib/src/ontolib/decomposition/data/"
+        "normalized-group-policy.json": b"old-policy",
+    }
+    for relative, payload in (candidates | targets).items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    real_import = replay.importlib.import_module
+
+    def fake_import(name: str):
+        if name == "ontolib.decomposition.normalized_group_policy":
+            return SimpleNamespace(
+                load_normalized_group_policy=lambda _path: SimpleNamespace(
+                    rows=tuple(range(15))
+                )
+            )
+        if name == "scripts.research.normalized_group_policy":
+            return SimpleNamespace(
+                validate_promotion_bundle=lambda **_kwargs: None,
+                promote_bundle_atomically=lambda replacements: [
+                    target.write_bytes(source.read_bytes())
+                    for source, target in replacements
+                ],
+            )
+        return real_import(name)
+
+    monkeypatch.setattr(replay.importlib, "import_module", fake_import)
+
+    assert (
+        run_agent_replay(["promote-normalized-group-policy-candidate"], tmp_path) == 0
+    )
+    assert [path.read_bytes() for path in map(tmp_path.__truediv__, targets)] == list(
+        candidates.values()
+    )
+
+
+@pytest.mark.unit
 def test_axis_diagnostics_reject_unsafe_fillers_without_an_arbitrary_count_cap(
     tmp_path: Path,
 ) -> None:

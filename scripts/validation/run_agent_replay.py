@@ -81,12 +81,13 @@ _URL_CREDENTIALS = re.compile(
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_CODEPOINT_LIMIT = 32
 _CONSOLIDATION_VALUE_COUNT = 3
-_CURRENT_REPLAY_RUN_ID = "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"
+_NORMALIZED_GROUP_POLICY_ROW_COUNT = 15
+_CURRENT_REPLAY_RUN_ID = "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50"
 _CURRENT_REPLAY_SAMPLE_SHA256 = (
     "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
 )
 _CURRENT_REPLAY_ARTIFACT_SHA256 = (
-    "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d"
+    "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427"
 )
 
 
@@ -1699,6 +1700,39 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
     )
 
 
+def _inspect_current_replay(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError("inspect-current-replay accepts no arguments")
+    artifact, sample = _require_files(
+        root,
+        (
+            "tmp/m1-6-current-replay.ttl",
+            "samples/ncit-26.07d-m1-current-replay.json",
+        ),
+    )
+    payload = Path(artifact).read_bytes()
+    run_ids = sorted(
+        {
+            match.decode()
+            for match in re.findall(rb'"(neoplasm-[0-9a-f-]{36})"', payload)
+        }
+    )
+    print(
+        json.dumps(
+            {
+                "artifact_sha256": hashlib.sha256(payload).hexdigest(),
+                "run_ids": run_ids,
+                "sample_sha256": hashlib.sha256(Path(sample).read_bytes()).hexdigest(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _generate_current_evidence(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -1987,6 +2021,98 @@ def _generate_group_review_rev2_candidate(
         root,
         runner,
     )
+
+
+def _generate_normalized_group_policy_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "generate-normalized-group-policy-candidate accepts no arguments"
+        )
+    required = _require_files(
+        root,
+        (
+            "tmp/m1-6-current-engine-evidence-candidate.json",
+            "tmp/m1-6-current-comparison-candidate.json",
+            "evidence/group-review-packet-26.07d-schema3.json",
+            "evidence/group-review-packet-26.07d-schema3.json",
+            "evidence/group-review-rationale-26.07d.md",
+            "evidence/group-review-rationale-26.07d.json",
+        ),
+    )
+    output = root / "tmp/m1-6-normalized-group-policy-candidate.json"
+    for path in (*required, output):
+        _require_no_symlink_components(
+            Path(path), root=root, label="normalized group policy candidate path"
+        )
+    sys.path.insert(0, str(root))
+    generator = importlib.import_module(
+        "scripts.research.normalized_group_policy"
+    ).generate_active_normalized_group_policy
+    generator(
+        evidence_path=Path(required[0]),
+        comparison_path=Path(required[1]),
+        packet_path=Path(required[2]),
+        historical_packet_path=Path(required[3]),
+        rationale_markdown_path=Path(required[4]),
+        rationale_sidecar_path=Path(required[5]),
+        output=output,
+    )
+    return 0
+
+
+def _promote_normalized_group_policy_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "promote-normalized-group-policy-candidate accepts no arguments"
+        )
+    candidates = tuple(
+        root / relative
+        for relative in (
+            "tmp/m1-6-current-engine-evidence-candidate.json",
+            "tmp/m1-6-current-comparison-candidate.json",
+            "tmp/m1-6-normalized-group-policy-candidate.json",
+        )
+    )
+    targets = tuple(
+        root / relative
+        for relative in (
+            "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+            "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+            "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json",
+        )
+    )
+    _require_files(
+        root, tuple(candidate.relative_to(root).as_posix() for candidate in candidates)
+    )
+    for path in (*candidates, *targets):
+        _require_no_symlink_components(
+            path, root=root, label="normalized group policy promotion path"
+        )
+    sys.path.insert(0, str(root))
+    module = importlib.import_module("ontolib.decomposition.normalized_group_policy")
+    policy = module.load_normalized_group_policy(candidates[2])
+    if len(policy.rows) != _NORMALIZED_GROUP_POLICY_ROW_COUNT:
+        raise AgentReplayInputError("normalized group policy row count differs")
+    generator = importlib.import_module("scripts.research.normalized_group_policy")
+    try:
+        generator.validate_promotion_bundle(
+            evidence_path=candidates[0],
+            comparison_path=candidates[1],
+            policy_path=candidates[2],
+            current_evidence_path=targets[0],
+        )
+        generator.promote_bundle_atomically(
+            tuple(zip(candidates, targets, strict=True))
+        )
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
 
 
 def _generate_specialist_review_packets(
@@ -3620,12 +3746,19 @@ _OPERATIONS: dict[str, Operation] = {
     "consolidate-obsolete": _consolidate_obsolete,
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
+    "inspect-current-replay": _inspect_current_replay,
     "generate-current-evidence": _generate_current_evidence,
     "generate-current-evidence-candidate": _generate_current_evidence_candidate,
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review-rev2": _generate_group_review_rev2,
     "generate-group-review-rev2-candidate": _generate_group_review_rev2_candidate,
+    "generate-normalized-group-policy-candidate": (
+        _generate_normalized_group_policy_candidate
+    ),
+    "promote-normalized-group-policy-candidate": (
+        _promote_normalized_group_policy_candidate
+    ),
     "generate-specialist-literature-context": _generate_specialist_literature_context,
     "generate-specialist-cadsr-usage": _generate_specialist_cadsr_usage,
     "generate-specialist-review-packets": _generate_specialist_review_packets,

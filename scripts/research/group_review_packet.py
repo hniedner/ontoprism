@@ -105,6 +105,16 @@ class SourceOccurrenceDocument(StrictFrozenBoundaryModel):
     member_position: int = Field(ge=0)
 
 
+class SourceFactDocument(StrictFrozenBoundaryModel):
+    fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str
+    depth: int = Field(ge=0)
+    kind: Literal["genus", "restriction"]
+    filler_code: str
+    role_code: str | None
+
+
 class ControlConcept(StrictFrozenBoundaryModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     outcome: Literal["semantic-excluded", "atomic-no-op"]
@@ -202,8 +212,25 @@ class ActualPairEvidenceUnavailable(StrictFrozenBoundaryModel):
     reason: Literal["source-occurrence-unavailable-upstream"]
 
 
+class ActualGenusFactEvidence(StrictFrozenBoundaryModel):
+    availability: Literal["not-applicable-genus-fact"]
+    pair: Pair
+    occurrence_ids: tuple[()] = ()
+    occurrences: tuple[()] = ()
+    source_facts: tuple[SourceFactDocument, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _facts_match_pair(self) -> Self:
+        if any(
+            item.kind != "genus" or item.filler_code != self.pair[1]
+            for item in self.source_facts
+        ):
+            raise ValueError("genus source facts do not match normalized pair")
+        return self
+
+
 ActualPairEvidenceDocument = Annotated[
-    ActualPairEvidence | ActualPairEvidenceUnavailable,
+    ActualPairEvidence | ActualGenusFactEvidence | ActualPairEvidenceUnavailable,
     Field(discriminator="availability"),
 ]
 
@@ -228,8 +255,13 @@ class ActualNormalizedGroup(StrictFrozenBoundaryModel):
                 {
                     item.source_group_id
                     for pair in self.pairs
-                    if isinstance(pair, ActualPairEvidence)
-                    for item in pair.occurrences
+                    for item in (
+                        pair.occurrences
+                        if isinstance(pair, ActualPairEvidence)
+                        else pair.source_facts
+                        if isinstance(pair, ActualGenusFactEvidence)
+                        else ()
+                    )
                 }
             )
         )
@@ -600,6 +632,13 @@ def _occurrence_document(value: object) -> SourceOccurrenceDocument:
     return SourceOccurrenceDocument.model_validate(model_dump())
 
 
+def _fact_document(value: object) -> SourceFactDocument:
+    model_dump = getattr(value, "model_dump", None)
+    if model_dump is None:
+        raise TypeError("source fact must be a boundary model")
+    return SourceFactDocument.model_validate(model_dump())
+
+
 def _expected_groups(
     code: str, partition: Partition
 ) -> tuple[ExpectedNormalizedGroup, ...]:
@@ -642,6 +681,18 @@ def _actual_groups(
                         ),
                     )
                 )
+            elif constituent.source_facts and all(
+                item.kind == "genus" for item in constituent.source_facts
+            ):
+                pairs.append(
+                    ActualGenusFactEvidence(
+                        availability="not-applicable-genus-fact",
+                        pair=pair,
+                        source_facts=tuple(
+                            _fact_document(item) for item in constituent.source_facts
+                        ),
+                    )
+                )
             else:
                 pairs.append(
                     ActualPairEvidenceUnavailable(
@@ -655,8 +706,13 @@ def _actual_groups(
                 {
                     item.source_group_id
                     for pair in pairs
-                    if isinstance(pair, ActualPairEvidence)
-                    for item in pair.occurrences
+                    for item in (
+                        pair.occurrences
+                        if isinstance(pair, ActualPairEvidence)
+                        else pair.source_facts
+                        if isinstance(pair, ActualGenusFactEvidence)
+                        else ()
+                    )
                 }
             )
         )
@@ -2081,14 +2137,6 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
             raise ValueError("immutable review cells differ")
         pair_decision = observed[-1]
         decision = sheet.cell(index, headers["Decision"]).value
-        if expected.review_type == "pair-only" and (
-            pair_decision is None or str(pair_decision).strip() == ""
-        ):
-            raise ValueError("pair decision is required for pair-only rows")
-        if pair_decision is not None and pair_decision not in _DECISIONS:
-            raise ValueError("pair decision is not one of the closed values")
-        if pair_decision is not None and pair_decision != decision:
-            raise ValueError("pair and grouping decisions are contradictory")
         values = (
             decision,
             sheet.cell(index, headers["Rationale"]).value,
@@ -2097,6 +2145,14 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
         )
         if any(value is None or str(value).strip() == "" for value in values):
             raise ValueError("all human fields are required")
+        if expected.review_type == "pair-only" and (
+            pair_decision is None or str(pair_decision).strip() == ""
+        ):
+            raise ValueError("pair decision is required for pair-only rows")
+        if pair_decision is not None and pair_decision not in _DECISIONS:
+            raise ValueError("pair decision is not one of the closed values")
+        if pair_decision is not None and pair_decision != decision:
+            raise ValueError("pair and grouping decisions are contradictory")
         if decision not in _DECISIONS:
             raise ValueError("decision is not one of the closed values")
         rationale = str(values[1]).strip()

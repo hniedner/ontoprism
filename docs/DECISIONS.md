@@ -7,6 +7,37 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-14 — approved normalized relationship groups are active policy
+
+### D87. Group correction is additive, source-bound, pair-preserving, and separately governed
+
+**Decision:** the 15 approved concept-level grouping corrections are a strict packaged policy,
+split into four source-evidence rules and eleven reviewed regrouping rules; the three pair-only
+concepts remain outside that policy (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py -v`, 2026-09-14: 4 passed). Runtime
+applies a row only after its exact concept pair inventory and source-definition/occurrence evidence
+match. The policy changes only `relationship_group`; it neither changes constituent pairs nor
+authorizes publication or NCI adoption.
+
+The current decision provenance identifies `project-owner-current-conversation` on `2026-09-14`.
+It supersedes the two historical abstentions and activates the eight previously unapproved reviewed
+rows; the three historical approvals and every historical rationale remain unchanged. Each current
+decision binds pre-change packet identity
+`0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f`
+(`grep -n basis_packet_identity
+ontolib/src/ontolib/decomposition/data/normalized-group-policy.json`, 2026-09-14).
+
+The bounded corrected replay is `neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50`; its tracked
+evidence identity is `d9925651dabd1e87be19e493b9adb05699bc7b80ae43336c1c1ffe250bd72c97`
+and comparison identity is `f0eb3088cf291b037d40c72e6d8100dab1512c2acdba6782352e97671d5ec3f8`
+(`grep -n evidence_identity
+ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json` and
+`grep -n comparison_identity
+ontolib/tests/decomposition/golden/neoplasm-current-comparison.json`, 2026-09-14). Exact pair
+precision remains 111/132 and recall remains 111/153, while every remaining review row is pair-only
+and agrees on common-pair grouping (`pdm run agent-test
+ontolib/tests/decomposition/test_group_review_packet.py -v`, 2026-09-14: 37 passed).
+
 ## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
 
 ### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered

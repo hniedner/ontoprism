@@ -19,6 +19,7 @@ from scripts.research.current_evidence import (
     CurrentEvidenceValidationError,
     CurrentMetrics,
     CurrentRateMetric,
+    CurrentSourceFact,
     CurrentSourceOccurrence,
     HistoricalOraclePairCitation,
     PairRelationSummary,
@@ -316,12 +317,22 @@ def _repeated_occurrence_decomposition() -> Decomposition:
 @pytest.mark.unit
 def test_current_constituent_preserves_and_validates_source_fact_citations() -> None:
     fact_id = "a" * 64
+    fact = CurrentSourceFact(
+        fact_id=fact_id,
+        source_group_id="b" * 64,
+        anchor_code="C1",
+        depth=0,
+        kind="genus",
+        filler_code="C9290",
+        role_code=None,
+    )
     constituent = CurrentConstituent(
         axis="op:Morphology",
         filler="C9290",
         relationship_group=None,
         needs_review=False,
         source_definition_ids=(fact_id,),
+        source_facts=(fact,),
         source_occurrence_ids=(),
         source_occurrences=(),
     )
@@ -334,6 +345,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
             relationship_group=None,
             needs_review=False,
             source_definition_ids=(fact_id, fact_id),
+            source_facts=(fact, fact),
             source_occurrence_ids=(),
             source_occurrences=(),
         )
@@ -357,6 +369,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
             relationship_group=None,
             needs_review=False,
             source_definition_ids=(fact_id,),
+            source_facts=(fact,),
             source_occurrence_ids=(occurrence.occurrence_id,),
             source_occurrences=(occurrence,),
         )
@@ -936,6 +949,17 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                     relationship_group=None,
                     needs_review=False,
                     source_definition_ids=(occurrence.source_fact_id,),
+                    source_facts=(
+                        CurrentSourceFact(
+                            fact_id=occurrence.source_fact_id,
+                            source_group_id=occurrence.source_group_id,
+                            anchor_code=occurrence.anchor_code,
+                            depth=occurrence.depth,
+                            kind="restriction",
+                            filler_code=occurrence.filler_code,
+                            role_code=occurrence.role_code,
+                        ),
+                    ),
                     source_occurrence_ids=(occurrence.occurrence_id,),
                     source_occurrences=(occurrence,),
                 ),
@@ -1230,10 +1254,10 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-378faaca-170e-4f1c-9d97-e5906e3efecd"
+    assert evidence.run_id == "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50"
     assert evidence.walker_max_depth == 7
     assert evidence.representation_identity == (
-        "69b149c961c025e61ed58fcb47f5b32087a08a7717b8f21a53035c8b626c05fa"
+        "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427"
     )
     assert comparison.metrics.exact_pair_precision.model_dump() == {
         "numerator": 111,

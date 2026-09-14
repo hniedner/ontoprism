@@ -100,27 +100,17 @@ def test_packet_derives_current_cohort_metrics_and_controls() -> None:
 def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> None:
     packet = _packet()
 
-    assert len(packet.concepts) == 18
+    assert len(packet.concepts) == 17
     assert packet.schema_version == 4
     assert any(item.pair_relations.expected_not_emitted for item in packet.concepts)
     assert any(item.pair_relations.current_only_scoreable for item in packet.concepts)
-    assert {item.grouping_diagnosis.kind for item in packet.concepts} >= {
-        "agrees-on-common-pairs",
-        "over-merge",
-        "over-split",
+    assert {item.grouping_diagnosis.kind for item in packet.concepts} == {
+        "agrees-on-common-pairs"
     }
     a, b, c = ("op:A", "C1"), ("op:B", "C2"), ("op:C", "C3")
     assert diagnose_grouping(((a, b), (c,)), ((a, c), (b,))).kind == "misassignment"
     assert all(item.disposition.status != "accepted" for item in packet.concepts)
-    assert any(
-        (
-            item.pair_relations.expected_not_emitted
-            or item.pair_relations.current_only_scoreable
-        )
-        and item.grouping_diagnosis.kind
-        in {"over-merge", "over-split", "misassignment"}
-        for item in packet.concepts
-    )
+    assert all(item.review_type == "pair-only" for item in packet.review_rows)
     assert {item.disposition.status for item in packet.concepts} == {
         "human-review-pending"
     }
@@ -207,6 +197,11 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
                 if pair.availability == "unavailable-upstream":
                     assert pair.reason == "source-occurrence-unavailable-upstream"
                     continue
+                if pair.availability == "not-applicable-genus-fact":
+                    assert not pair.occurrences
+                    assert pair.source_facts
+                    assert all(item.kind == "genus" for item in pair.source_facts)
+                    continue
                 assert pair.occurrences
                 assert pair.occurrence_ids == tuple(
                     item.occurrence_id for item in pair.occurrences
@@ -219,6 +214,30 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
                 assert all(
                     item.filler_code == pair.pair[1] for item in pair.occurrences
                 )
+
+
+def test_genus_groups_carry_fact_coordinates_without_fabricated_occurrences() -> None:
+    packet = build_group_review_packet(
+        evidence=CurrentEngineEvidence.model_validate_json(_EVIDENCE.read_bytes()),
+        comparison=CurrentComparison.model_validate_json(_COMPARISON.read_bytes()),
+        r101_report=load_historical_r101_review_report(_R101),
+    )
+    concept = next(item for item in packet.concepts if item.code == "C27262")
+    morphology = next(
+        pair
+        for group in concept.actual_groups
+        for pair in group.pairs
+        if pair.pair == ("op:Morphology", "C35501")
+    )
+
+    assert morphology.availability == "not-applicable-genus-fact"
+    assert morphology.occurrence_ids == ()
+    assert morphology.occurrences == ()
+    assert morphology.source_facts
+    assert all(item.kind == "genus" for item in morphology.source_facts)
+    assert all(
+        item.source_group_id and item.anchor_code for item in morphology.source_facts
+    )
 
 
 def test_rule_boundary_names_complete_catalog_without_fabricating_evidence() -> None:
@@ -756,7 +775,9 @@ def test_import_closes_decisions_and_dry_run_reports_deferred_without_writes(
     book = load_workbook(path)
     sheet = book["Group Review"]
     sheet.cell(2, headers["Decision"], ABSTAIN)
+    sheet.cell(2, headers["Pair Decision"], ABSTAIN)
     sheet.cell(3, headers["Decision"], CORRECT)
+    sheet.cell(3, headers["Pair Decision"], CORRECT)
     book.save(path)
     registry = group_review.import_group_review_decisions(
         packet, path, tmp_path / "decisions.json"

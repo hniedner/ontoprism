@@ -23,7 +23,12 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome, SemanticRoute
+from ontolib.decomposition.models import (
+    ConceptOutcome,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+    SemanticRoute,
+)
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -119,6 +124,22 @@ class CurrentSourceOccurrence(_StrictModel):
     member_position: int = Field(ge=0)
 
 
+class CurrentSourceFact(_StrictModel):
+    fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str
+    depth: int = Field(ge=0)
+    kind: Literal["genus", "restriction"]
+    filler_code: str
+    role_code: str | None
+
+    @model_validator(mode="after")
+    def _kind_matches_role(self) -> Self:
+        if (self.kind == "restriction") != (self.role_code is not None):
+            raise ValueError("source fact kind differs from role availability")
+        return self
+
+
 class CurrentConstituent(_StrictModel):
     axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
@@ -127,6 +148,7 @@ class CurrentConstituent(_StrictModel):
     source_definition_ids: tuple[str, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
+    source_facts: tuple[CurrentSourceFact, ...] = ()
     source_occurrence_ids: tuple[str, ...]
     source_occurrences: tuple[CurrentSourceOccurrence, ...]
 
@@ -154,6 +176,11 @@ class CurrentConstituent(_StrictModel):
             raise ValueError("source occurrence citations do not match selected IDs")
         if self.source_occurrences and not self.source_definition_ids:
             raise ValueError("source occurrences require source definition citations")
+        if (
+            tuple(item.fact_id for item in self.source_facts)
+            != self.source_definition_ids
+        ):
+            raise ValueError("source facts do not match selected definition citations")
         occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
         if self.source_definition_ids and not occurrence_fact_ids <= set(
             self.source_definition_ids
@@ -708,6 +735,15 @@ def _concepts(
             )
         )
         occurrences = {item.occurrence_id: item for item in all_occurrences}
+        facts = {
+            item.fact_id: item
+            for item in (
+                decomposition.complete_definition.facts
+                if decomposition is not None
+                and decomposition.complete_definition is not None
+                else ()
+            )
+        }
         constituents = tuple(
             CurrentConstituent(
                 axis=item.axis,
@@ -715,6 +751,30 @@ def _concepts(
                 relationship_group=item.group,
                 needs_review=item.needs_review,
                 source_definition_ids=item.source_definition_ids,
+                source_facts=tuple(
+                    CurrentSourceFact(
+                        fact_id=fact.fact_id,
+                        source_group_id=fact.group_id,
+                        anchor_code=fact.anchor_code,
+                        depth=fact.depth,
+                        kind=(
+                            "genus"
+                            if isinstance(fact, GenusDefinitionFact)
+                            else "restriction"
+                        ),
+                        filler_code=(
+                            fact.genus_code
+                            if isinstance(fact, GenusDefinitionFact)
+                            else fact.filler_code
+                        ),
+                        role_code=(
+                            fact.role_code
+                            if isinstance(fact, RestrictionDefinitionFact)
+                            else None
+                        ),
+                    )
+                    for fact in (facts[value] for value in item.source_definition_ids)
+                ),
                 source_occurrence_ids=item.source_occurrence_ids,
                 source_occurrences=tuple(
                     occurrences[occurrence_id]

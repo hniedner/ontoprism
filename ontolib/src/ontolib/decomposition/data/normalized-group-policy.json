@@ -1,0 +1,5429 @@
+{
+  "schema_version": 4,
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+  "ncit_version": "26.07d",
+  "basis_run_id": "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50",
+  "basis_artifact_identity": "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427",
+  "basis_evidence_identity": "d9925651dabd1e87be19e493b9adb05699bc7b80ae43336c1c1ffe250bd72c97",
+  "basis_comparison_identity": "f0eb3088cf291b037d40c72e6d8100dab1512c2acdba6782352e97671d5ec3f8",
+  "basis_packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
+  "prechange_artifact_identity": "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+  "prechange_evidence_identity": "4475f9ec231e5f5fc6714eb5e7c899ec894d65c6075ca402b851c1bed70c2a32",
+  "prechange_comparison_identity": "4be29eb27325d533415048773253392a97c30a119f20e6afb06ea14ae703c87e",
+  "prechange_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+  "historical_packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
+  "historical_packet_sha256": "7f671e5a1bae98067219043aecef0dab344cfc1406c3a09725c3faa6559fea6b",
+  "rationale_markdown_sha256": "f9af04f2852fa66000506a572ca973f6b5ad9bb1294e5132bdda0a502b0740dd",
+  "rationale_sidecar_identity": "510492aea6a50f64fc940256ff815c52f3074ac36c69c60255c64efdcf420522",
+  "rationale_sidecar_sha256": "e82d5895d9239cf2ba02753c98db23224f97a3b20d86ff48ec87c32f9796ce35",
+  "rows": [
+    {
+      "concept_code": "C100051",
+      "rule_kind": "source-evidence-grouping",
+      "input_diagnosis": "over-merge",
+      "diagnosis_pairs": [
+        [
+          "op:AssociatedRegion",
+          "C12413"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C49274"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedPriorDisease",
+            "C3270"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12413"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C49274"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36773"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9385"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49276"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12415"
+          ]
+        ],
+        [
+          [
+            "op:WithFinding",
+            "C3270"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedPriorDisease",
+            "C3270"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12413"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C49274"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36773"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9385"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49276"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12415"
+          ]
+        ],
+        [
+          [
+            "op:WithFinding",
+            "C3270"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "63243782fa8baaf6fab7efa73ad94343f5446f6d1a859565521a4d3e939e8dd8",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedPriorDisease",
+              "C3270"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
+          ],
+          "source_occurrence_ids": [
+            "db6fcda4433f56c28f0479031903bfb8bd3d78e5d17aa237f66437f3213d3dbe"
+          ],
+          "source_group_ids": [
+            "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278",
+              "anchor_code": "C100051",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12413"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "246eb9972957d917e2f7aca476d028e05b92b06584d973aa6d94d7f159617dcc"
+          ],
+          "source_occurrence_ids": [
+            "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
+          ],
+          "source_group_ids": [
+            "e58de76415496ab3b299092ca3bc2558cda6799f5f4051bc73440ca6c4562781"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "e58de76415496ab3b299092ca3bc2558cda6799f5f4051bc73440ca6c4562781",
+              "anchor_code": "C181197",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C49274"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "949c33a4924949b9530ff0d7ee68a42038af88d2654a6f9c60ff1e8adb9b6b33"
+          ],
+          "source_occurrence_ids": [
+            "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
+          ],
+          "source_group_ids": [
+            "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0",
+              "anchor_code": "C9385",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedSite",
+              "C61107"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "26c89418ae90338d8c1ea9a74bd4472308fa8c509bc86abf994aa4e8d8429669"
+          ],
+          "source_occurrence_ids": [
+            "fe1cd8090902a44c79d094a3e437252c2c530e6ae2e7a372a312fa791f07542d"
+          ],
+          "source_group_ids": [
+            "995cfd34dfd8b8ae396b72d474d801ed272937c29d5d618ea49135e22b461c48"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "995cfd34dfd8b8ae396b72d474d801ed272937c29d5d618ea49135e22b461c48",
+              "anchor_code": "C7514",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36773"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "b2aa8ed41d1c3db3bcc34a29ef7d0273b03116693bcf4d20320b27e1b3bd0612"
+          ],
+          "source_occurrence_ids": [
+            "dece1ed8c7d2cc44b9bc4fa48667ba3639e861741c5890d6bdd77a6cf31f217d"
+          ],
+          "source_group_ids": [
+            "f18e00fdfde8f163dd63457336e74f157155bda6d52f2ca7764800f99a2354b7"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f18e00fdfde8f163dd63457336e74f157155bda6d52f2ca7764800f99a2354b7",
+              "anchor_code": "C2852",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C9385"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278",
+              "anchor_code": "C100051",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C49276"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "fedfc67b8a8d2db49c71f86dd924f4304a802e46725ed4d4e7085c7f36d6e1b3"
+          ],
+          "source_occurrence_ids": [
+            "2fc6ef801af40825bb12995d826e0eeb37794c42d93700e3c02d75f40c866a70"
+          ],
+          "source_group_ids": [
+            "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "7f95d2952f5a9344a6b473504ef860b2d7ac3187772397b840a204d68da82be0",
+              "anchor_code": "C9385",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12415"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7e71bb2bbf37209aceb2944ba1cd1c6b0450402267e0c198bf3f3f2bc6bffbb8"
+          ],
+          "source_occurrence_ids": [
+            "72302ce53f55af176d91203d88a514aec714fe0e9115fe8cd31f4f0cf696f574"
+          ],
+          "source_group_ids": [
+            "119e21679b22f3c14157d2f9e4e0ea1ebd4518fd3cd3d551c22e307001f1aa2c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "119e21679b22f3c14157d2f9e4e0ea1ebd4518fd3cd3d551c22e307001f1aa2c",
+              "anchor_code": "C9384",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:WithFinding",
+              "C3270"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "a2c1d82b2f3fb2dd1b80afbe037e0d1077dbb3a97ccd5f6adc575b099c56bd43",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the associated site (C61107) strips away critical \nanatomical context necessary to fully define this complex, dual-disease presentation. Furthermore, the two associated \nregions (C12413 and C49274) must remain independently grouped. Merging them falsely implies a single tumor spanning a \nblended or composite anatomical space; in reality, this concept describes two distinct pathophysiological entities \n(Renal Cell Carcinoma and Neuroblastoma) that each originate in and occupy their own distinct anatomical compartments \n(e.g., kidney vs. sympathetic nervous tissue). Keeping the regions separated strictly preserves the unique anatomical \nprovenance of each distinct disease component.",
+        "rationale_sha256": "16b80d3969d57ef824afbd66f882364801cac7dba857a5e56425beaa5e241b5e"
+      },
+      "current_decision": null,
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "34e5314dd75851cb9a61ccf0fbef51034978e4f11373bf3081c76bc05b4e2348"
+    },
+    {
+      "concept_code": "C101539",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C140961"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36836"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7153"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C140961"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36836"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7153"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C140961"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "a6d735e7cb0f9c8806cd1c4f9a30d900f3190c99db432b9a552a056b491e5d78",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C13063"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
+          ],
+          "source_occurrence_ids": [
+            "1f6e60f15d54117746fe185dfd51d0461fa6fd3b572a5607ae0f984f290ffa9d"
+          ],
+          "source_group_ids": [
+            "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf",
+              "anchor_code": "C6077",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36836"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "059ba6574dd377658f9376da9f479213f6031d5cbf31c5e786a5b142a406385b"
+          ],
+          "source_occurrence_ids": [
+            "2adf52c827a8998a0636db6045f4c58968c93b0bd1e29ef14607de47f37cdf2d"
+          ],
+          "source_group_ids": [
+            "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9",
+              "anchor_code": "C27380",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C188014"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "b47f80e2854e5ee79ad54e2a290aeaadb1602e28dbc280dd8187b7b1b5c3ff82"
+          ],
+          "source_occurrence_ids": [
+            "4667f1be8b3293853211124a674a2d1481202011999e4a27ba69c760d9279a1c"
+          ],
+          "source_group_ids": [
+            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
+              "anchor_code": "C215715",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C47806"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "b5ca2b3a9f08d1b19d359abb68e4dfdf88b9a9931d0a1cb4ba1192fc8f8ae9ad"
+          ],
+          "source_occurrence_ids": [
+            "e2b994c622f65572033946f0473f9382a7208a15f39796b8592f11c663109e76"
+          ],
+          "source_group_ids": [
+            "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9",
+              "anchor_code": "C27380",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C47817"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0b4c96af6c59f52c06663a5eef2de1739e70911889b37a68791aeef9b99dbdad"
+          ],
+          "source_occurrence_ids": [
+            "d700115f29b5cbb582c52499e7bf1298276c4141415e686d1ef7480d6eaeb3a2"
+          ],
+          "source_group_ids": [
+            "ecbceafaedd79063cc7ee4d69173a4f053bdb6835ee9204e012b603a0575859e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "ecbceafaedd79063cc7ee4d69173a4f053bdb6835ee9204e012b603a0575859e",
+              "anchor_code": "C7153",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C7153"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0ab83e6c0fe60fb77987f93579c69f421c06afc693ffa12a24a1dbe1232f9e05"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "6a003e36a519da0d15afaf7a211a5dd62a375cab4afbe4e1c4f48a88f2e26d62"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "6a003e36a519da0d15afaf7a211a5dd62a375cab4afbe4e1c4f48a88f2e26d62",
+              "anchor_code": "C140959",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C33782"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "a8fb83cd25081439e8d3c4e6bff49d9a7768d7a2267eb0ce3a51ffba88cda101"
+          ],
+          "source_occurrence_ids": [
+            "d8e9eddd825edd558856a710ff668a433150fd441c05040b6f6e5d4f92dda1fb"
+          ],
+          "source_group_ids": [
+            "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "72b0abe41654c947fabb24f54bca4f6cd2bc0875ac701ad2196f0ce4f74d5eb9",
+              "anchor_code": "C27380",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12400"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
+          ],
+          "source_occurrence_ids": [
+            "f5a5d2e60ec78d4362c91ac9bab24ae8cdbf121d9fafcb0e73915f29084fef7f"
+          ],
+          "source_group_ids": [
+            "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d",
+              "anchor_code": "C4815",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C140961"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "normalized_group_id": "9db523e1919146053dcfa634addce2aa82dc36062abfad88ef93a92ad70363df",
+          "source_fact_ids": [
+            "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3",
+            "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
+          ],
+          "source_occurrence_ids": [
+            "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679",
+            "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
+          ],
+          "source_group_ids": [
+            "2c871f775d0fad5572b10f0df1f62aa9be26d04a5f023de0f529105184690cce",
+            "4e04d8d24287f1200e60bc5fb443fd569b06864d083e25299398e2ab6914e66c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2c871f775d0fad5572b10f0df1f62aa9be26d04a5f023de0f529105184690cce",
+              "anchor_code": "C101539",
+              "depth": 0
+            },
+            {
+              "source_group_id": "4e04d8d24287f1200e60bc5fb443fd569b06864d083e25299398e2ab6914e66c",
+              "anchor_code": "C87543",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedLineageClassification",
+              "C12704"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3"
+          ],
+          "source_occurrence_ids": [
+            "0397c8c7117d677dd9b9106da0ada8cd23340bc7fcbfd45e157d2de071a32389"
+          ],
+          "source_group_ids": [
+            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
+              "anchor_code": "C215715",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedLineageClassification",
+              "C12705"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
+          ],
+          "source_occurrence_ids": [
+            "2ee6f11ff4d84f057ff5e50e456ea557ac4e7071941af0f6cbab00c7305e71c2"
+          ],
+          "source_group_ids": [
+            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
+              "anchor_code": "C215715",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-8512b41a844d"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the anatomical pairs (primary site and associated \nregions) and clinical findings completely strips the disease of its defining identity—specifically, its thyroid \norigin, its \"differentiated\" pathology, and the critical \"under 45 years\" demographic constraint. Furthermore, \nthe stage result (Stage I) must remain logically bound to the staging method (AJCC v7). Because AJCC v7 thyroid \ncancer staging is fundamentally age-dependent, decoupling the stage value from this evaluation framework destroys \nthe critical clinical context that this specific severity grade is governed by the rules for patients under 45.",
+        "rationale_sha256": "ea15462b9ecddb43339473f02ea342f6fc049ff6f2238b6ff2a84e2c90a94e19"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
+        "decision_identity": "b49962e51a77c2500a767ee6330a0cfe2d17b188a3d4af7ab696496df8cb05e9"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "2d4125f3484fccaf89882650b52e46211d5aa38ec9a48afdf144aaa59af7df55"
+    },
+    {
+      "concept_code": "C102870",
+      "rule_kind": "source-evidence-grouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:Morphology",
+          "C121619"
+        ],
+        [
+          "op:Morphology",
+          "C39986"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C156460"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C121619"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C39986"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C156460"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C121619"
+          ],
+          [
+            "op:Morphology",
+            "C39986"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "ebd81779326f9f169a8139f82382c805c4f2beaee4bce5782c580ac6f01f2399",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedSite",
+              "C12321"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108"
+          ],
+          "source_occurrence_ids": [
+            "f057b8377b9c3e4af97855d4bef3787b7201449109acb37cf8eb2b8ecaae2414"
+          ],
+          "source_group_ids": [
+            "c32231c44794b40c087a185533ac7fd62ae69d9e63fe0cee968f829cfa6ffae2"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "c32231c44794b40c087a185533ac7fd62ae69d9e63fe0cee968f829cfa6ffae2",
+              "anchor_code": "C212117",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36903"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
+          "source_occurrence_ids": [
+            "750af9c3ecfad72067bfacee6bd7ca52c2a21f69f3af8d4a1578de9bb1094269"
+          ],
+          "source_group_ids": [
+            "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e",
+              "anchor_code": "C3708",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C156460"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
+          ],
+          "source_occurrence_ids": [
+            "656f522f95cd941b8a3faf2f468bd98ea61b49a2055df8800ad0b706228746bd"
+          ],
+          "source_group_ids": [
+            "3036c38564926e396e33c3831ef992d9ba3cb50c8003e734ba3b6c6748cebe0d"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "3036c38564926e396e33c3831ef992d9ba3cb50c8003e734ba3b6c6748cebe0d",
+              "anchor_code": "C39986",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C121619"
+            ],
+            [
+              "op:Morphology",
+              "C39986"
+            ]
+          ],
+          "normalized_group_id": "11a9270905d023fc19e4855f20afb2e3ee6210001b0f74db76f8c11d6d950d2f",
+          "source_fact_ids": [
+            "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac",
+            "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "a8e1145a4deef02ec96acf63ecbca92a88069177a1519553409ce73c4d5eb11f"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a8e1145a4deef02ec96acf63ecbca92a88069177a1519553409ce73c4d5eb11f",
+              "anchor_code": "C102870",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "e47c025fcc59e337826cbf666ef2526ce447d3b82d63007868f088a9928bd2bb",
+        "decision": "Abstain / escalate",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "An escalation is required because the simultaneous omission of the primary site (C12404) and associated site (C12321) \ncreates topological ambiguity; structural rules alone cannot resolve which exact anatomical relationship—or \ncombination thereof—is required to definitively represent the \"Ovarian\" origin. Furthermore, gynecologic pathology \nexpertise is necessary to resolve the morphology grouping. Because \"non-dysgerminomatous\" is a complex, \nexclusion-based classification that often involves mixed tumor components, an SME must determine whether the two \nmorphology codes (C121619 and C39986) must be grouped to form a single, indivisible composite pathological profile, \nor if they are validly asserted as separate histological features.",
+        "rationale_sha256": "700dc64e733535974738b616cb847ba0fa1d0e0b79cb2a6b0a4c4cfd9782b165"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "supersede-abstention-with-source-evidence-grouping",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "e47c025fcc59e337826cbf666ef2526ce447d3b82d63007868f088a9928bd2bb",
+        "decision_identity": "0c099c2e4e65542e857b2f9327ebaeded835980c1cf29a123f6bd0c01c69d829"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "f3ab75a2b9ea4a9f014d058b825588c5f329616c2b4b4723b136abc12532a114"
+    },
+    {
+      "concept_code": "C115057",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C90529"
+        ],
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C54224"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36771"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C42690"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9315"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:CellType",
+            "C36771"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C42690"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C54224"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9315"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "b25159176f8efe3275a8f43e2e15247ef6cef2032618e18e8034aeb34d90bd85",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36771"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "ff17e569adccf6e96cacb1c2428ad38a4beb82a5f2300a895a4072d69dfd18bc"
+          ],
+          "source_occurrence_ids": [
+            "9df99119f52a36d8e0639f73b1dd6f14b61f1bb5b40059a95a313cc6b7ddf27d"
+          ],
+          "source_group_ids": [
+            "ab394998531ecfa418a0005a5de3c1277d9c80edb6a3de4e4f4f9ae63c783c3e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "ab394998531ecfa418a0005a5de3c1277d9c80edb6a3de4e4f4f9ae63c783c3e",
+              "anchor_code": "C2929",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C42690"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "99c8c401171443a3f95d69bedc661b4f8d6b9ca8aa15c61f42a5c7012387b739"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "1c2896797523cbd78e922a24979766682bf081ac30f8f24f497f255fe474a002"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "1c2896797523cbd78e922a24979766682bf081ac30f8f24f497f255fe474a002",
+              "anchor_code": "C115057",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C90529"
+            ],
+            [
+              "op:StageSystem",
+              "C90530"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "normalized_group_id": "773cbc7a191d76224d322a2e5ec05c2d40341212b25763abc3f712985c418958",
+          "source_fact_ids": [
+            "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191",
+            "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944",
+            "f3fa83b96bb1fa3ab2cfc2c1b7aea4f1012fbb47a5088867cf7bf79f241d4915"
+          ],
+          "source_occurrence_ids": [
+            "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b",
+            "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd",
+            "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
+          ],
+          "source_group_ids": [
+            "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454",
+            "aae21beea65bfffe56c6588e65262894bf6edcf8f9f2bf47eac6b70f2cac3726"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454",
+              "anchor_code": "C132736",
+              "depth": 2
+            },
+            {
+              "source_group_id": "aae21beea65bfffe56c6588e65262894bf6edcf8f9f2bf47eac6b70f2cac3726",
+              "anchor_code": "C8033",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C54224"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "baacfcf4ae3916d0cf1043ebc1ef90acd221c322aebdf70582471529d7fade2d"
+          ],
+          "source_occurrence_ids": [
+            "c006a946abc8baa3bd96939717305bcb9d73fa1fc25d3eab55d6a3a7f22993d3"
+          ],
+          "source_group_ids": [
+            "2cb076c89d22def1f14c87e869a9982e54a118ecac0eb4b34de620696761a598"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2cb076c89d22def1f14c87e869a9982e54a118ecac0eb4b34de620696761a598",
+              "anchor_code": "C9315",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C9315"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "6128e7d4182160b6a7c01dfc16d899d83a2f08a5c595b98f981cbd6407980f8d",
+            "89cefef3dad9031262ca3684c0f67612865ef6bbdd8eec2ae492b3e49535c47b"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454",
+            "eba642c189e6624b3d24d31cd4e586c9aa2784f44f353c9fbd8419d0313e48de"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "247877db9643ab31d55755ee76369cdcac320a5573ca31b3b7971f53998ad454",
+              "anchor_code": "C132736",
+              "depth": 2
+            },
+            {
+              "source_group_id": "eba642c189e6624b3d24d31cd4e586c9aa2784f44f353c9fbd8419d0313e48de",
+              "anchor_code": "C42690",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-d104509874ed"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because demoting the explicit primary site (C54224) to a mere associated \nregion conflates the tumor's distinct anatomical origin with merely involved adjacent structures, degrading the core \noncological definition. Furthermore, introducing an unstated morphology pair (C9315) imposes diagnostic constraints \nnot supported by the source concept. Finally, the stage result (Stage I) must remain logically bound to both staging \nmethods (AJCC v6 and v7). Because this concept explicitly asserts that this severity grade is equivalent under both \nhistorical guideline editions, separating the stage value from its systems destroys this specific clinical alignment.",
+        "rationale_sha256": "bff3b6cfd4333d51b3e8ba6aeb412bad325c0358ead853216333cb327d357cf5"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
+        "decision_identity": "0a4a3ad079e3656843b03a4a62a52309c7fb0b66aeb64f29caaf4147fb14d257"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "dc4cd8f983e07e4d564840c4ffa834c92a96b49776928757bd9af675d4895daa"
+    },
+    {
+      "concept_code": "C115118",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27976"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3513"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49221"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C203674"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C12389"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27976"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3513"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49221"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C203674"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C12389"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27976"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "df70b2c91f9ddb13f60b4d10e4a63c4abef5fc17c80f09f2d64bf281a2a7ba1c",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12378"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0544b3ea0fc737ee55e7336cd6703b93b7405e08ea5631ac368ecbf812617d95"
+          ],
+          "source_occurrence_ids": [
+            "fbba26d315a0ef1a2f1c3e578c1f8e47e5bdb42d1ef046977978c9745aff22be"
+          ],
+          "source_group_ids": [
+            "82ca793adfa0c198b2533183b5e2bab9380f2002184bd02c9b14d6d0a80df04a"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "82ca793adfa0c198b2533183b5e2bab9380f2002184bd02c9b14d6d0a80df04a",
+              "anchor_code": "C96963",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C3513"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "023e612042e8850c9eab252caf6fb75b5c19eb299e74331be6495e100e1ea0cb"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa",
+              "anchor_code": "C91221",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C49221"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "cd47e629176caff77ff0f06547f426fd042ef034ff03a5fcc691cdc77a2e5789"
+          ],
+          "source_occurrence_ids": [
+            "abaf6fc5278aba33dd85689cf21149c8e842e8b711a699967b7ca6f91bbfee2f"
+          ],
+          "source_group_ids": [
+            "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e",
+              "anchor_code": "C3513",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C203674"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "59abf178ae5fff9b391937113d46dcc8a10cb72bbe371328a3b0eb46d192019a"
+          ],
+          "source_occurrence_ids": [
+            "1940a05c69cb464eb5901ca13109d608cd36311ae60ae3c15800c81c5c6ec8ce"
+          ],
+          "source_group_ids": [
+            "347a39e99749b4871a7e37afde8b0aebb863d13d335161333495964dfc0244d1"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "347a39e99749b4871a7e37afde8b0aebb863d13d335161333495964dfc0244d1",
+              "anchor_code": "C203673",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySubsite",
+              "C12389"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "ed00db472320b91d71023b9c7a29235015d6a13185ef21b5a29095b285d8e38d"
+          ],
+          "source_occurrence_ids": [
+            "a72ad3ffc285554cc4a01f9306d2c59a35b504874db3ea3aed6af1989a0a5945"
+          ],
+          "source_group_ids": [
+            "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "1ea3a654af1b34f2fc0152740c15a354c761f982eb12500c6287ca5cd6ca8d7e",
+              "anchor_code": "C3513",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C90530"
+            ],
+            [
+              "op:StageValue",
+              "C27976"
+            ]
+          ],
+          "normalized_group_id": "f29107aca64729854ca71371d3b8847a7a861fdec7d8940a04317aaece84392a",
+          "source_fact_ids": [
+            "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d",
+            "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
+          ],
+          "source_occurrence_ids": [
+            "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7",
+            "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
+          ],
+          "source_group_ids": [
+            "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa",
+            "95549abf4674043e4470fd7002ab0fcdc5030b5786eb5080122a75670f5f4869"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "9456e4903fb8cdf39f626ddd74a95be4b269ee7e379156c29099aa8c671aacaa",
+              "anchor_code": "C91221",
+              "depth": 2
+            },
+            {
+              "source_group_id": "95549abf4674043e4470fd7002ab0fcdc5030b5786eb5080122a75670f5f4869",
+              "anchor_code": "C115118",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-8512b41a844d"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the associated region (C12378) strips critical \nanatomical context that is intrinsically necessary to define esophageal cancer and correctly apply its anatomical \nstaging guidelines. Once the region is restored, the relationship between the staging method (AJCC v7) and the \nstage result (Stage IB) must be explicitly preserved as distinct, post-coordinated relational edges attached to the \ncore diagnosis. This ensures the clinical severity remains strictly bound to its evaluation framework, maintaining \nfull semantic integrity and interoperability.",
+        "rationale_sha256": "10c4c958e870f45cd58d972d545d37e17d571e926f1f9fe01d67a02697ffd9a0"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
+        "decision_identity": "ce86d17f4ebe64b7c4f55637f836183b60bf1a009e61798a17307b5e867768bb"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "3f0f0f6aef7658f318bb936404bab3fff93e4e11b6aad4dbcc037b61700fafcb"
+    },
+    {
+      "concept_code": "C132677",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C132248"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
+        ],
+        [
+          [
+            "op:MetastaticSite",
+            "C32298"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C8566"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C132248"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-4563e6974906"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
+        ],
+        [
+          [
+            "op:MetastaticSite",
+            "C32298"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C8566"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C132248"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-4563e6974906"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "0b04efc07e373da4c740899ff5f95b876d32340cab7839e2ec5bc46854ebdca8",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C40557"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "d0246df08f875b00ddb91c0054b4afc4664d71e59ef361535b4aa8f359c3dc6e"
+          ],
+          "source_occurrence_ids": [
+            "d533253cd19721ae14631ba62034321a2936116316e02c64e0be10885d692594"
+          ],
+          "source_group_ids": [
+            "17c79808c6e747b865b3c9ca3e56e9cacc5377d914c7384aca860de2330e43a1"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "17c79808c6e747b865b3c9ca3e56e9cacc5377d914c7384aca860de2330e43a1",
+              "anchor_code": "C3261",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C40989"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "e86f5b2a97ff500e37a3bd73d1f41f8dd7b3623b28b1d567d236d12b40f6d807"
+          ],
+          "source_occurrence_ids": [
+            "3cf592ed311a646f7018a124e2700c11b5bf5d52df924a5d3bb332c00a372cc9"
+          ],
+          "source_group_ids": [
+            "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802",
+              "anchor_code": "C132676",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C41444"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7cd1761d4a97e7c9276e1293fed57436cd6e13a44042a0551c340dc89e7b6a19"
+          ],
+          "source_occurrence_ids": [
+            "54e329148d1417ca86b4fc1db2d834b7bfe2bb334b5cdac97b8ac4371931e768"
+          ],
+          "source_group_ids": [
+            "9e2974598f6ca053be220be95162e2eb2dfb00c8048ad114fa4d5eac3fcf2bb5"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "9e2974598f6ca053be220be95162e2eb2dfb00c8048ad114fa4d5eac3fcf2bb5",
+              "anchor_code": "C36255",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C48322"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "97e0b052436064799f24135e0d9bf31b1df9857d2e30857bd909923dbfec6405"
+          ],
+          "source_occurrence_ids": [
+            "a324e113d1f0de37e8ad1632295eabb4e47e4dce1e7896abf9c335f5acb754d9"
+          ],
+          "source_group_ids": [
+            "d0c937fa288534823a720bb19974a01f76e54aebd36eacce8d0f5ed52a58311c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "d0c937fa288534823a720bb19974a01f76e54aebd36eacce8d0f5ed52a58311c",
+              "anchor_code": "C8566",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:MetastaticSite",
+              "C32298"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "342a8ecbac03180a4a5adef2b15ef3e3ca7e8f99373e7bfa5f4cf0249c7e041d"
+          ],
+          "source_occurrence_ids": [
+            "e5440c640fe4266bcac13927814b31a90ccd2704f940a806562784c47371f017"
+          ],
+          "source_group_ids": [
+            "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802",
+              "anchor_code": "C132676",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C8566"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "bbb8077d5a636c744900f435744bb38023bd7fac8126b13716e3ad27685df7f8"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802",
+              "anchor_code": "C132676",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C132248"
+            ],
+            [
+              "op:StageValue",
+              "C27970"
+            ]
+          ],
+          "normalized_group_id": "c2025efbd7a2452df81b713654ebfbe5c7e7768ce2c9f07d9e6d6011f151c76d",
+          "source_fact_ids": [
+            "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326",
+            "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
+          ],
+          "source_occurrence_ids": [
+            "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1",
+            "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
+          ],
+          "source_group_ids": [
+            "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802",
+            "c4ba770a80dc43b78a3b9f7a66b78e3d34eacaed1f6d7ab879870a6b63be5bd5"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b1b92d49c5fb310194984326ad672d6ecd31068739420acafaeb2dfc5cad3802",
+              "anchor_code": "C132676",
+              "depth": 1
+            },
+            {
+              "source_group_id": "c4ba770a80dc43b78a3b9f7a66b78e3d34eacaed1f6d7ab879870a6b63be5bd5",
+              "anchor_code": "C132677",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-4563e6974906"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the clinical finding pairs completely strips the disease \nof its complex defining criteria—specifically, the unknown primary origin, the metastatic cervical adenopathy, and the \ncritical exclusions for EBV- and HPV-related tumors. Furthermore, the stage result (Stage III) must remain logically \nbound to the staging method (AJCC v8). Because AJCC v8 introduced highly specific, viral-status-dependent staging \nrules for head and neck cancers with unknown primaries, decoupling the stage value from this evaluation framework \ndestroys the essential clinical context that this specific severity grade is defined by those exact v8 criteria.",
+        "rationale_sha256": "36252e1f64dc326f9d436b4faeb8e20a5f801e744b51ce645d51fcda906ca9d8"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
+        "decision_identity": "c6484d8f210c72fe8b89acc5a94687169dd26bbcbc2263878d7eb3c060360036"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "b280c696cf7f24669f41b71697b88306e6fb596207d7f4706226e36d300c40ba"
+    },
+    {
+      "concept_code": "C162226",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C186617"
+        ],
+        [
+          "op:StageValue",
+          "C96244"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C186617"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C186617"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "95576d567436382d23dd2473fbad2df45aa146ebf9e80f98b81a40f053e3705e",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
+          "source_occurrence_ids": [
+            "1d9b7f223b178343ceefe66f0ae06a3e926b48c519e3fd5f529fe9d1aceb409e"
+          ],
+          "source_group_ids": [
+            "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051",
+              "anchor_code": "C181162",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "4da08cb43c7a483edc8300bda180252c7d7f8ba069e86e85164f4f41f1c50072"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a",
+              "anchor_code": "C162225",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_occurrence_ids": [
+            "c31213ae0e5b401d796e494ace4b3328f3ec30d0c3cf258be9e2eb5dde1c72fb"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
+          "source_occurrence_ids": [
+            "18946e2719ec23ee768611559e7a422c19451c5f156b9a72334ec3b89b298fe3"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C186617"
+            ],
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ],
+          "normalized_group_id": "a26b09d2e1ca0d5213654bca050525c02fb59fee936fa8c33d33bf4102964cb4",
+          "source_fact_ids": [
+            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d",
+            "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
+          ],
+          "source_occurrence_ids": [
+            "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b",
+            "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
+          ],
+          "source_group_ids": [
+            "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2",
+            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2",
+              "anchor_code": "C162226",
+              "depth": 0
+            },
+            {
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a",
+              "anchor_code": "C162225",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_occurrence_ids": [
+            "4d95047b6e78be5ef737cc260facaa34be9934ff9ff69e996ffaa9d4dc200d6d"
+          ],
+          "source_group_ids": [
+            "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027",
+              "anchor_code": "C3709",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+        "decision": "Approve intentional normalization",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "Normalizing C162226 aligns with HL7 FHIR mCODE and modern post-coordination standards by structurally decoupling \nthe staging method (FIGO 2018) from the stage result (Stage I). This separation preserves the precise clinical \nassessment via distinct relational edges rather than a rigid text string. It eliminates pre-coordinated terminology \nbloat while explicitly connecting the core diagnosis to earlier editions (like FIGO 2009), enabling seamless \nlongitudinal queries for \"Stage I Cervical Cancer\" cohorts while strictly maintaining the 2018 guideline provenance.",
+        "rationale_sha256": "79e9ce48bf08ed3fc87d22d2cb569363c7be5ca24033583a8fac581a78204eb1"
+      },
+      "current_decision": null,
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "eead308abd16b4f3adef1fa85a123e630d23ffa7f5a739da185e6020aa7846ed"
+    },
+    {
+      "concept_code": "C181564",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C180901"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C180901"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-27f8060dd413"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C180901"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-27f8060dd413"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "d196afe755dddbfb1a9b3a8d6afca9397ddf6e2b2a5c35829d83276f362779a4",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
+          "source_occurrence_ids": [
+            "eab378d9909169887a4748a5738eece35b28317271004def2c0726de24136401"
+          ],
+          "source_group_ids": [
+            "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051",
+              "anchor_code": "C181162",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "f6e475f1e224f8a8d8ee0a5c7acbd2275d77b0fcc8b28ac6fefb40f3f07ec3c4"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754",
+              "anchor_code": "C181562",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_occurrence_ids": [
+            "6f5908f98b7995ee30f01d64398cd6072f09cfeb5d6cfe37c4988577463c686b"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
+          "source_occurrence_ids": [
+            "ca1c93057eb5c0dfb9a83f2e7ab135e0ed7ae7b4671eb775f907a44868de03b7"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C180901"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "normalized_group_id": "46adb3406cd290ee5f3eaec45bef76dfe02f2dad7e25d02eb54ef62799044d1c",
+          "source_fact_ids": [
+            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c",
+            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
+          ],
+          "source_occurrence_ids": [
+            "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1",
+            "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
+          ],
+          "source_group_ids": [
+            "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
+            "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
+              "anchor_code": "C181564",
+              "depth": 0
+            },
+            {
+              "source_group_id": "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754",
+              "anchor_code": "C181562",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_occurrence_ids": [
+            "3bb6d6c37495029c7cf8c76f0b26ef35b8c101d87b1e2dfbb3d558b9713859d7"
+          ],
+          "source_group_ids": [
+            "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027",
+              "anchor_code": "C3709",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-27f8060dd413"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+        "decision": "Approve intentional normalization",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "HL7 FHIR mCODE interoperability standards explicitly require separating the staging method (AJCC v9) \nfrom the staging result (Stage I). Decomposing C181564 breaks the rigid pre-coordinated silo, aligning the concept \nwith modern EHR data models and SNOMED CT post-coordination principles to prevent a combinatorial explosion of \nversion-specific codes.\nThe exact clinical context is fully preserved through structural graph edges rather than a single text string. \nThe patient is still definitively recorded as having \"Stage I Cervical Cancer evaluated via AJCC v9 criteria,\" \nbut this normalization allows researchers to query orthogonally: they can now pull a broad cohort of all \n\"Stage I Cervical Cancers\" across AJCC editions, while retaining the ability to filter strictly for the \nv9 provenance.\nNo diagnostic or prognostic specificity is lost. Instead, the semantic meaning is enhanced because the data becomes \northogonally queryable. Researchers can now query all \"Stage I\" tumors across multiple staging versions to find \nbroader clinical cohorts, while still being able to strictly filter for the exact \"AJCC v9\" criteria when required.",
+        "rationale_sha256": "2d45651cf10729da3be40e7f964380a3bcb05ef0a60764aa5ba53ca4921e89a7"
+      },
+      "current_decision": null,
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "9fe36d4ceaeea0e78a6a781b5873140aed30a33dfdf3e57a53bc2cf4730e5c08"
+    },
+    {
+      "concept_code": "C186620",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C186618"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C186618"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C186618"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "e63c7ccf6fcee234f08588e90445f9b16c0399e0e187c123e004726f24bf6550",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
+          "source_occurrence_ids": [
+            "27f5ae2594d5f2832953ea53a0700d66b85de86ad45a82293b48113d8f0f6acc"
+          ],
+          "source_group_ids": [
+            "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051",
+              "anchor_code": "C181162",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "d46e40a463d10ddc9e491590d7f25f1d6456dd04e06aab5d614c9ede8d294ac9"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c",
+              "anchor_code": "C186619",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
+          "source_occurrence_ids": [
+            "f33f6e689f9f12ea6212c7bd7e6356a2087853f2200f1d9a7f2f1fc201c88e88"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
+          "source_occurrence_ids": [
+            "08cdcf0be327aec3ea647a140090ba9d2acb2350f6a40f0e9153f22a983b3059"
+          ],
+          "source_group_ids": [
+            "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "46a8681479353b809b4df3cafb6254796075638291f5f9530baa7e235177f2e9",
+              "anchor_code": "C9039",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C186618"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "normalized_group_id": "55b7be2b4044112e911e07733ca1cbc9146703201c3fc2d75736534e3f94ca2a",
+          "source_fact_ids": [
+            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47",
+            "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
+          ],
+          "source_occurrence_ids": [
+            "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158",
+            "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
+          ],
+          "source_group_ids": [
+            "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a",
+            "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a",
+              "anchor_code": "C186620",
+              "depth": 0
+            },
+            {
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c",
+              "anchor_code": "C186619",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_occurrence_ids": [
+            "63daf8ad408f39a9d010c949859be7abcc875967b8e9253112c8d23009583e53"
+          ],
+          "source_group_ids": [
+            "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027",
+              "anchor_code": "C3709",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+        "decision": "Approve intentional normalization",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "HL7 FHIR mCODE standards explicitly model gynecologic oncology by separating the staging method (FIGO 2009) from \nthe staging result (Stage I). Normalizing C186620 eliminates redundant pre-coordinated silos, allowing the \ncore \"Stage I\" concept to be cleanly reused across different FIGO editions without causing terminology bloat.\nThe precise historical and clinical context—\"Stage I Cervical Cancer evaluated via FIGO 2009 criteria\"—is completely \npreserved through distinct structural relationships. This semantic integrity enables researchers to execute \nlongitudinal queries for all \"Stage I Cervical Cancers\" spanning multiple FIGO guideline revisions \n(e.g., comparing 2009 to 2018 cohorts), while still strictly retaining the exact historical provenance of this \nspecific assessment.\nNormalizing C186620 aligns with HL7 FHIR mCODE and SNOMED CT post-coordination guidelines by structurally decoupling \nthe staging method (FIGO 2009) from the stage result (Stage I). This separation preserves the precise clinical context \nvia relational edges, eliminating pre-coordinated terminology bloat while unlocking the ability to execute \nlongitudinal cohort queries for \"Stage I Cervical Cancer\" across multiple FIGO guideline revisions.",
+        "rationale_sha256": "958a5d041a2faf2894af54d7d0f090ab6723ac9ba0641501cfb1113f75c9104f"
+      },
+      "current_decision": null,
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "356066574d35192bf12a165d4c71963a15169e7c5e63698909d89708408975a6"
+    },
+    {
+      "concept_code": "C206219",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C206211"
+        ],
+        [
+          "op:StageValue",
+          "C96244"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7558"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C12313"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C32514"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C206211"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7558"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C12313"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C32514"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C206211"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "352b03e6d6dee59dc6079502b576bdfe706d5db6f1a1fabc7a03d963d5da0666",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
+          "source_occurrence_ids": [
+            "d3887be8b25ac5cff1027bb3f08ba89909b3217fe8c3b900fd29e0a620d17012"
+          ],
+          "source_group_ids": [
+            "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a53a0b2514b5f89c5177da42fbba4698e72874e79572a18ed85923659c01e051",
+              "anchor_code": "C181162",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C7558"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0495cfa51b024a60be90cac301ef7177f4a55710b98a4ca66f06c35f4a210c63"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b",
+              "anchor_code": "C206217",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C12313"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7412b61de9fd295c8da66e8a39fafa8271d19a66908e47dbdf3c9ecaebe43214"
+          ],
+          "source_occurrence_ids": [
+            "735d47f4b8fcd861e408a13e087ac5c9c33be20ac07c9dd137b0fc1870a6df15"
+          ],
+          "source_group_ids": [
+            "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4",
+              "anchor_code": "C7558",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12316"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "041980221e621246700ed819eec38e761033792e1fc75f088d80deab91f25a1c"
+          ],
+          "source_occurrence_ids": [
+            "71947d3ffd85147e7514e53f7e1646c42faab85ac453813d5e7037a628c54063"
+          ],
+          "source_group_ids": [
+            "befc0b6dcfc539854e031feb42bbf934f1564a52f2207d69ea5b0ea51e858493"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "befc0b6dcfc539854e031feb42bbf934f1564a52f2207d69ea5b0ea51e858493",
+              "anchor_code": "C6300",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySubsite",
+              "C32514"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0e38ef60361ccc458d6e86c7ba05275705ebb63747937eab4dbadc5664a92caf"
+          ],
+          "source_occurrence_ids": [
+            "93ec07edcccc397b839214ea4e34a0abb19d7b50aa04e9b2aba4e143f51415cb"
+          ],
+          "source_group_ids": [
+            "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8a088e83fd8eece2acc6354e45aab601581a6eaea52b5c3820697e8a4de83b4",
+              "anchor_code": "C7558",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C206211"
+            ],
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ],
+          "normalized_group_id": "6c5be7c5d9ef2943cfbd27be8cc10419dfabfaec4b8a6d648fe1c3fa4f6d650d",
+          "source_fact_ids": [
+            "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c",
+            "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
+          ],
+          "source_occurrence_ids": [
+            "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0",
+            "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
+          ],
+          "source_group_ids": [
+            "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b",
+            "558cfd1c54a0ec108027aee0739c6f50150af2fceaa017781ebe207f8244eb75"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "24a061ad6be30f67c8ab0fdbd73987f4baf0be8c8805b52a755e6a77495a184b",
+              "anchor_code": "C206217",
+              "depth": 1
+            },
+            {
+              "source_group_id": "558cfd1c54a0ec108027aee0739c6f50150af2fceaa017781ebe207f8244eb75",
+              "anchor_code": "C206219",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_occurrence_ids": [
+            "fb8d80d4a7414a13e9ac749177fd0cad29e18db25aef83b2ab3f542cc42bbc33"
+          ],
+          "source_group_ids": [
+            "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027",
+              "anchor_code": "C3709",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the primary site (C12316) completely strips the disease \nof its defining anatomical origin (the endometrium), degrading the concept to an unlocated and clinically ambiguous \nneoplasm. Furthermore, the stage result (Stage I) must remain logically bound to the staging method (FIGO 2023). \nBecause staging definitions and anatomical spread criteria evolve between guideline editions, separating the stage \nvalue from its specific evaluation framework breaks this semantic dependency, destroying the critical context that \nthis severity grade is defined exactly by the 2023 FIGO rules.",
+        "rationale_sha256": "167ddac202a5bc540747b59e4d5865bd284e2502096f5d123ee7273718467b81"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
+        "decision_identity": "602f31e20de376395bf39b2035ef1c8bbd526806acb478d81328d774c51274b2"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "10e42b50eb127926f6a571144661d9badc9bfb30281f9c37750b1817cf616a9b"
+    },
+    {
+      "concept_code": "C27262",
+      "rule_kind": "source-evidence-grouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:Morphology",
+          "C35501"
+        ],
+        [
+          "op:Morphology",
+          "C9290"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:CellType",
+            "C41063"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C35501"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9290"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C13051"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:CellType",
+            "C41063"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C35501"
+          ],
+          [
+            "op:Morphology",
+            "C9290"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C13051"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "d3d0d95fd9775718ee53c33345be64cbe3e3f4b71b59b9e7f676e2f74907dc29",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C41063"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
+          ],
+          "source_occurrence_ids": [
+            "5963d7e8d61131f8005ca09faf840bf20d55771ea9c7725875802e908c197661"
+          ],
+          "source_group_ids": [
+            "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac",
+              "anchor_code": "C9290",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C36220"
+            ],
+            [
+              "op:ClinicalFinding",
+              "C41397"
+            ]
+          ],
+          "normalized_group_id": "cf4eabea128759e1f5963ef3f259fff602e5266988a9ea448b524eae069238b2",
+          "source_fact_ids": [
+            "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2",
+            "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
+          ],
+          "source_occurrence_ids": [
+            "21b168b9f6b50b9a7f3009732cf8a69e46afd6035cb59e12b965fa75df155856",
+            "508585754f14fe7cd1d8b87f5f27e44fbc4bc0ee416085122ea5961daba8c595"
+          ],
+          "source_group_ids": [
+            "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6",
+              "anchor_code": "C27262",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C35501"
+            ],
+            [
+              "op:Morphology",
+              "C9290"
+            ]
+          ],
+          "normalized_group_id": "2bf0e948efa8ab9482ac873d9c98adb3301cf6d12c6dfdff2dd80989501d4b0f",
+          "source_fact_ids": [
+            "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6",
+            "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6",
+              "anchor_code": "C27262",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C13051"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
+          ],
+          "source_occurrence_ids": [
+            "b9b698311f2a4cc98704e0680a3c217a747473cac9bec53d35426c27d6b97cba"
+          ],
+          "source_group_ids": [
+            "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "7bce88fa95f16d0dd1c6ad3f3de9cafcb691182b4795062ea4eee74549e2d0ac",
+              "anchor_code": "C9290",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12431"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
+          ],
+          "source_occurrence_ids": [
+            "a179003aa9fa26595b62ea62954de625d86f4a28ad8fcb853c441252d1e931a5"
+          ],
+          "source_group_ids": [
+            "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "031618fa9a721f3a35606fd9875ffffc92f2c9b8c7ed315e819ed1c58a7061b6",
+              "anchor_code": "C27262",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "fcd473503a580a0f3c69becb46094389fef17bcb91312aa95f0c4d24523d00a4",
+        "decision": "Abstain / escalate",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "An escalation is required because Myelodysplastic/Myeloproliferative Neoplasms (MDS/MPN) are complex hematologic \noverlap syndromes, and structural review alone cannot resolve the discrepancies. It is clinically uncertain whether \nthe omitted anatomical region (e.g., bone marrow) and clinical findings (e.g., specific cytopenias or proliferative \ntraits) are universally definitional for this broad diagnostic class or only applicable to specific subtypes. \nFurthermore, hematopathology expertise is required to determine the correct representation of the dual morphologies: \nthe expert must clarify whether the WHO classification requires the dysplastic and proliferative features to be \ngrouped as a single, indivisible composite morphologic profile, or if they are validly represented as separate, \nconcurrent pathological processes.",
+        "rationale_sha256": "43aef56271ec7b123d782b90d91e5438d38342d209c360d567cec783f9245505"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "supersede-abstention-with-source-evidence-grouping",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "fcd473503a580a0f3c69becb46094389fef17bcb91312aa95f0c4d24523d00a4",
+        "decision_identity": "f445c29e3af48a82f829d3ebae220beff52e315cd66ba2a75579fb98bd25357b"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "a95b852274d0043a57f6beb9e68cfcbec1669db0abd6bcbf573d24b3a10bb35c"
+    },
+    {
+      "concept_code": "C27787",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C90529"
+        ],
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12722"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C5027"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12412"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12722"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C5027"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12412"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-d104509874ed"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "a80dca7af30dab47eecaf082255d20b58bf42b6e89b3736810ade389c7338aef",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12722"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0c74f1f5322afde963d9ff2aca2f11c1e59e4a0d0aa1e8adc3486e52cb1ed8d9"
+          ],
+          "source_occurrence_ids": [
+            "7675f15cea665e1d2bd05042d8fb9df397a5c49cf26468966562dd2f0ef1a40c"
+          ],
+          "source_group_ids": [
+            "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373",
+              "anchor_code": "C8591",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36903"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
+          "source_occurrence_ids": [
+            "8c0d38ae52aa0b3e39166c27c7263bd5af21c8ccc338605052f81e24b76c8051"
+          ],
+          "source_group_ids": [
+            "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2dae5d36d6e6464826e92ccb72c76d72070d7528050af4fd6f32e80dc8eb7f1e",
+              "anchor_code": "C3708",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C5027"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "a91774d7fa1aabfe1d9ee776d9c3b52e7c4fbf3595a04e4153a8167b40a6455b"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "b88319fe5262a285d1c3e0b15934592f31170c4c0cf554e5b01cfc2680715a3f"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b88319fe5262a285d1c3e0b15934592f31170c4c0cf554e5b01cfc2680715a3f",
+              "anchor_code": "C27787",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12412"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "4484d86e2dc7986f217c88b195fc1068649fb4d45d1aff931d1b5daf46249b91"
+          ],
+          "source_occurrence_ids": [
+            "eead016c0563bb696e2f1787b7e929e66c7ffc2ca9dfc43a291101c1a43a5f5d"
+          ],
+          "source_group_ids": [
+            "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a8edfbd6792e876507317ab5ca86cbbf1b05114de428546e8f646fccf8c80373",
+              "anchor_code": "C8591",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C90529"
+            ],
+            [
+              "op:StageSystem",
+              "C90530"
+            ],
+            [
+              "op:StageValue",
+              "C27970"
+            ]
+          ],
+          "normalized_group_id": "13c9c6081e9e707ba920b669c0090d019db8d1d021b8400a193ac11b62228a8e",
+          "source_fact_ids": [
+            "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1",
+            "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30",
+            "8c0734fad6e28903e2b64be66be514fd16797b3caf48fb4847f5501d518bbfe8"
+          ],
+          "source_occurrence_ids": [
+            "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36",
+            "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b",
+            "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
+          ],
+          "source_group_ids": [
+            "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f",
+            "73f53459b912b33478b591c3ac93958b7f413cb5f39cf6e11e7102eef18309ac"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f",
+              "anchor_code": "C140241",
+              "depth": 2
+            },
+            {
+              "source_group_id": "73f53459b912b33478b591c3ac93958b7f413cb5f39cf6e11e7102eef18309ac",
+              "anchor_code": "C9074",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C7251"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "89597aee5fea970f8056b19063d1ff46d2db1e61fb6db2eef7c84997bac5430a",
+            "f8107c01fb7a2fb5708eb19c7eef8bc7e523b0cc470fd20bbf792c46617ea7c2"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f",
+            "426fd4ccedf433d2bf76c86e93b02f5c1a5511edc80fa2c80bb8ccf47cfb4266"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "0214f14693f059aae2d41b1b8426552f57dabe5cb2633ba455f21a52a5c4216f",
+              "anchor_code": "C140241",
+              "depth": 2
+            },
+            {
+              "source_group_id": "426fd4ccedf433d2bf76c86e93b02f5c1a5511edc80fa2c80bb8ccf47cfb4266",
+              "anchor_code": "C9063",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-d104509874ed"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required to remove the unsupported morphology pair (C7251). \"Non-seminomatous\" \nis a specific, exclusion-based pathological classification; injecting an unstated morphology alters this strict \ndefinitional boundary and introduces unwarranted diagnostic constraints not present in the source concept. \nAdditionally, the stage result (Stage III) must remain logically bound to both staging methods (AJCC v6 and v7). \nBecause this concept explicitly spans two editions that share equivalent staging criteria for this disease, \nseparating the value from the systems destroys the core clinical assertion that this specific severity grade \nis valid under either historical framework.",
+        "rationale_sha256": "ccc80a21f29296082b14582093ab5c66a643771dee0ea628018fa2f68140a881"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
+        "decision_identity": "3cd1826f9da3e4e0a8ad89320cf013da4d516d197ea51612e5c77d259479b229"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "c557ecde96ff2d9927f196c16d1219792ec0fcb513c039c501796b8e943f49e2"
+    },
+    {
+      "concept_code": "C4791",
+      "rule_kind": "source-evidence-grouping",
+      "input_diagnosis": "over-merge",
+      "diagnosis_pairs": [
+        [
+          "op:AssociatedRegion",
+          "C12905"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C13004"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12471"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12905"
+          ],
+          [
+            "op:AssociatedRegion",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C35998"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
+        ],
+        [
+          [
+            "op:Laterality",
+            "C25229"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3499"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12869"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12905"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C35998"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3499"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12869"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12471"
+          ]
+        ],
+        [
+          [
+            "op:Laterality",
+            "C25229"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "09a47c421307992eb4be37e330f29ebd8cf7956eb574bd5f8f5af6f6cca74e3a",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12905"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "5d3f8ff41a7933313cb93a051c30007cc455eafbe4cb59f587aaaa4ac9cdcf90"
+          ],
+          "source_occurrence_ids": [
+            "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
+          ],
+          "source_group_ids": [
+            "06d802a4b698bb549c1f66d2dfc5ad8af3baf636cc9e26ebecde0e8e194de61e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "06d802a4b698bb549c1f66d2dfc5ad8af3baf636cc9e26ebecde0e8e194de61e",
+              "anchor_code": "C4565",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C13004"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "350a0ba239b888a51f518f981625283b9e22475c1d56ca58d1ede0a27ddd6f67"
+          ],
+          "source_occurrence_ids": [
+            "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
+          ],
+          "source_group_ids": [
+            "262cdb4460c7bc97d03447eed365c72d26557ccaa855d4fab88890f65bdbade4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "262cdb4460c7bc97d03447eed365c72d26557ccaa855d4fab88890f65bdbade4",
+              "anchor_code": "C4608",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedSite",
+              "C13004"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "49992b81f021b4c1f3b6a5ea7ee24f88625882ac0a619254a833f0a90e2e5e94"
+          ],
+          "source_occurrence_ids": [
+            "a12e22fc0ed6443fc2b6ecee89ca569228f3014d3adb4064c818d2256be4b990"
+          ],
+          "source_group_ids": [
+            "943f26d505f9aafc09749eb8e4aa2514a45fcbe2c1c0c75036bb825df35ffe62"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "943f26d505f9aafc09749eb8e4aa2514a45fcbe2c1c0c75036bb825df35ffe62",
+              "anchor_code": "C5346",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36899"
+            ],
+            [
+              "op:CellType",
+              "C36954"
+            ]
+          ],
+          "normalized_group_id": "493655c6ce427d747f9bd730d2d1a9a4dea817efad45baabf773148677b2abf9",
+          "source_fact_ids": [
+            "1c67b6f080144081793a5fe25f846cfb08ddb2241edb1b070032698eb4fb4d8d",
+            "c5ac94b1b709b1906377c5f71d91cb8c22c6810d847c558f6632b566ef86d17c"
+          ],
+          "source_occurrence_ids": [
+            "7d0e04ec4b5c2089943da97753e6dd0bc6a8d6b98c5531e2d6942c770729ac4f",
+            "cbcdb80a5feab660b45fc3d423fca991d9036a1734e475bcbb56234291604ce1"
+          ],
+          "source_group_ids": [
+            "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b",
+              "anchor_code": "C6577",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C35998"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "2bdfcbc7729a80daf44e198aae13783f1f58e0e33389cf36034afde85e8ea8b1"
+          ],
+          "source_occurrence_ids": [
+            "59023e6049fa3f27c1720e9d16dfb3756cb2d12d256cec4b15fa16755cadc8d0"
+          ],
+          "source_group_ids": [
+            "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "1dc32e76486f72ef2c5c1f74633f7d0c84e73c3c1bf97cdb51d293ea779cad9b",
+              "anchor_code": "C6577",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C36105"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "3dc6152ed1edca1d923cb7f0a1f024fda7b69db84b31ed190ebe026ec4165786"
+          ],
+          "source_occurrence_ids": [
+            "fd8d41f3bb8af0e51b2ed03d5913de2754cd6002b802e89912afd2c888ab4234"
+          ],
+          "source_group_ids": [
+            "44e0017ffff77ab98bf6ba3da05be5c8d745c83a901565e5ecc663bb6cc51c8e"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "44e0017ffff77ab98bf6ba3da05be5c8d745c83a901565e5ecc663bb6cc51c8e",
+              "anchor_code": "C53684",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C36122"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "da38fccb0e9a44ad22e12bbaab89866ff671b450f223911e912565025b812d17"
+          ],
+          "source_occurrence_ids": [
+            "f3876c7f228baacf57a2cfa0fd7f3d29991ebfb57a96a3fe9412bfc3bc94092f"
+          ],
+          "source_group_ids": [
+            "c9ef5ff1ad761c2dbb281c02a63d2d0922c23e135b0300bfe2d8d9dcebd11d9d"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "c9ef5ff1ad761c2dbb281c02a63d2d0922c23e135b0300bfe2d8d9dcebd11d9d",
+              "anchor_code": "C3677",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C53583"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c66644aabd10d0b5ed72ce0e779935f2fd970fc25f439c184cc96a4c648583b7"
+          ],
+          "source_occurrence_ids": [
+            "38b3eea3b71bc1bc24eb65a6a8abecde47c688f3915695cd52ab55d6e8315a32"
+          ],
+          "source_group_ids": [
+            "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546",
+              "anchor_code": "C7148",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C3499"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "0c9d646865fe858945e4b1ef347a24261fc4d5245d81f4b8f4ee4fdd5fb4ddf8"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9",
+              "anchor_code": "C4791",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12869"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "84c7d2975fddeedaccb2169f147f046fdca3f113764e533f2160f4beabf22fc2"
+          ],
+          "source_occurrence_ids": [
+            "1f214cd4567028ac813a7e104cd605a56d0bc4f80207b3e74b7d2d5e035d3722"
+          ],
+          "source_group_ids": [
+            "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "782db8ed7c3cac6512f8eafb2adb5cc87a8a6cc8fe265311d9d1b58ba6f6c3a9",
+              "anchor_code": "C4791",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C12471"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "cc1866b123466f3528992d811a60f1cf9c095297502a44b58dcedeb24b8a1b28",
+            "e70b4ae2fec2de1e20673ae5ee481362d7396f6d03016d42c6f56b58e1ff023f"
+          ],
+          "source_occurrence_ids": [
+            "7620dc228d53b8807b90c98330b4c2ece5dc9d2f7dea718af5e1b1bdbcee2d2d",
+            "b9de145732c3f8d16b94d8884028e667366cb161f29bd01f3c5cb88e82ad1b2e"
+          ],
+          "source_group_ids": [
+            "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546",
+            "eb735d468c9ec4987bfe0fdc5f3965c8314bb189cebe8ef079c082e73f8ec599"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "e91a2963ff87dd0cb4b6eb27700eed374844d77cf28d80b89ae68c59fc091546",
+              "anchor_code": "C7148",
+              "depth": 5
+            },
+            {
+              "source_group_id": "eb735d468c9ec4987bfe0fdc5f3965c8314bb189cebe8ef079c082e73f8ec599",
+              "anchor_code": "C4242",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Laterality",
+              "C25229"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "757bdda95288ca65e6655334cb395d8d45e403fa0021a02bd6cdb1024dcc5293",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the cell types, lineage classification, and clinical \nfindings completely strips the tumor of its fundamental histological and phenotypic identity—specifically, its precise \nnature as a distinct mesenchymal neoplasm (myxoma) rather than a generic cardiac mass. Furthermore, the two associated \nanatomical regions (C12905 and C13004) must remain independently grouped. Merging them falsely implies a single, \nconflated composite structure; keeping them separate correctly preserves distinct spatial attributes (e.g., the \nspecific left atrial chamber versus the broader cardiac region), maintaining the exact locational granularity required \nto define this specific tumor.",
+        "rationale_sha256": "4baa01123b084a40d958ea1393d241ab3aa5682241f7eef3077f05dbcf870df0"
+      },
+      "current_decision": null,
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "547cedbed4e5b9d6b721f7757ccc480dd45301b1b8f81d67d8dd84268d2445aa"
+    },
+    {
+      "concept_code": "C6135",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36825"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
+        ],
+        [
+          [
+            "op:MolecularAbnormality",
+            "C129702"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3879"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36825"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
+        ],
+        [
+          [
+            "op:MolecularAbnormality",
+            "C129702"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3879"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12704"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "64d6ece399d7f77e4b58033d528c5fc230d96ae5735f8248ccfcdcb44eb5b377",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C13063"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
+          ],
+          "source_occurrence_ids": [
+            "84fb0595ef601ca70fa5efa3b45d0d2a7513d87d9b28dc9e9a7f6df7db89ab04"
+          ],
+          "source_group_ids": [
+            "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "e23aede1176133a1e0a99e1abd991b55ce5c39a38dfe195e6ce7000108449dbf",
+              "anchor_code": "C6077",
+              "depth": 4
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36825"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "795370efb8fd7f3a0c4e968c2ffc0f0c1a01e2afcde736bd68a805d62669bd1f"
+          ],
+          "source_occurrence_ids": [
+            "b86c2a6bab283332168740b9233220ff7403e9b6df9f5061b22fe2ba4d999728"
+          ],
+          "source_group_ids": [
+            "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4",
+              "anchor_code": "C3773",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C155863"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f"
+          ],
+          "source_occurrence_ids": [
+            "6039fb1a8bba759ff32f94fa22df38a5f001dc6c13d95b73d3a1a24a4665978f"
+          ],
+          "source_group_ids": [
+            "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a021ab97ea6492f332dc3979484d928006e2ab879b6ea3f687b7f7d7d2ee5bf4",
+              "anchor_code": "C3773",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C207031"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d"
+          ],
+          "source_occurrence_ids": [
+            "a65a5d1e066dc8b5e829a2af18ce47e62f122577ef55c21e8a40dfa7eaffcec1"
+          ],
+          "source_group_ids": [
+            "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2",
+              "anchor_code": "C3809",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C41457"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "d86b85d9a359e6c38cad01d1faa121b7fe632ea4a5f321e1d433a50b76deb8b7"
+          ],
+          "source_occurrence_ids": [
+            "a12f27e094c312931bd917a5696e0b6f118de43f641f9ca7daee0136964567eb"
+          ],
+          "source_group_ids": [
+            "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455",
+              "anchor_code": "C3879",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C43574"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb"
+          ],
+          "source_occurrence_ids": [
+            "a1d33088eaf06a737a272b71bc811b886cc3592f397425283593b9c7f62428cc"
+          ],
+          "source_group_ids": [
+            "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2",
+              "anchor_code": "C3809",
+              "depth": 5
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C47804"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "4d6e62c2bdfbf8b630d30a26d8e9f9f654f4876155165d22d26786c2dfa8a1ef"
+          ],
+          "source_occurrence_ids": [
+            "4d1b85d4878cdc5b66d3a9ea4b026c1be057530a7905052743992f28b97636a0"
+          ],
+          "source_group_ids": [
+            "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455",
+              "anchor_code": "C3879",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:ClinicalFinding",
+              "C47807"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "35b321c75270afa1638815f2724dfa2bcb1772414c08cb9b2687bfd67aed402b"
+          ],
+          "source_occurrence_ids": [
+            "3047d3c62592f73767534fa0e3ad4b8a586f93bc900cb62a97a9130f37683fd8"
+          ],
+          "source_group_ids": [
+            "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455",
+              "anchor_code": "C3879",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:MolecularAbnormality",
+              "C129702"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c601e8dd27b3f713f8c6bcfd705f497e4fb6c476f3d23a85ce2d6a44cd3889db"
+          ],
+          "source_occurrence_ids": [
+            "e9136e8325c3756e98676097e7f6065d2fd72fccab70ca25a1b9a34e0ebf8185"
+          ],
+          "source_group_ids": [
+            "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455",
+              "anchor_code": "C3879",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C3879"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "34c6e41351ade34938903605b763b4b2bb4ef99e58d12d122de5bf25466904a4"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45",
+              "anchor_code": "C141041",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C33782"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "aaf07968613ffce3573154662bb0ad740772bbbeccd7e104ba42c18d5306354c"
+          ],
+          "source_occurrence_ids": [
+            "6e840fafe8ff71b80bcadc8f92ee99666732af73218b9512bac71ba5ba601807"
+          ],
+          "source_group_ids": [
+            "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8f93c17201c66f04ef68224cabc6ff3a9e6e5aa05ae41fd88a78201c8829c455",
+              "anchor_code": "C3879",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12400"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
+          ],
+          "source_occurrence_ids": [
+            "4450fe6c4d02d660a009e2c76f18842b39ada47bdd690dce19c41a6f7fd812d9"
+          ],
+          "source_group_ids": [
+            "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2b6056dbcb135ece2e93bc4ec43d6d00044a02fe81fd89fdd0f2b2d41ea8c13d",
+              "anchor_code": "C4815",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C90530"
+            ],
+            [
+              "op:StageValue",
+              "C27970"
+            ]
+          ],
+          "normalized_group_id": "eadcdadce8099854c258bae285a0605f84549c071e9fe0b6f5167818751a872b",
+          "source_fact_ids": [
+            "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022",
+            "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
+          ],
+          "source_occurrence_ids": [
+            "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be",
+            "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
+          ],
+          "source_group_ids": [
+            "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45",
+            "71b0af99dd55fb44e10b66a6b17e6efa926455cf2b4ff7788680968fa28c5723"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "6f9a00ec0975f63a9213951a287752ee720de86ae997c95f5c0655d1e8551c45",
+              "anchor_code": "C141041",
+              "depth": 1
+            },
+            {
+              "source_group_id": "71b0af99dd55fb44e10b66a6b17e6efa926455cf2b4ff7788680968fa28c5723",
+              "anchor_code": "C6135",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedLineageClassification",
+              "C12704"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
+            "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f"
+          ],
+          "source_occurrence_ids": [
+            "9e2640f1c0391fff77214701762298f7e7e50efc2e124f0cbb7bd2eda729d085",
+            "e4a974118b2542dce0bc9fbb76eb7d3e21d4d7119f41d1320e984baea335779d"
+          ],
+          "source_group_ids": [
+            "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2",
+            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "4e6b3648046bd05d9d63c72bd7a52bd5522e466dffc6ea2362713b98135ee1f2",
+              "anchor_code": "C3809",
+              "depth": 5
+            },
+            {
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
+              "anchor_code": "C215715",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:AssociatedLineageClassification",
+              "C12705"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
+          ],
+          "source_occurrence_ids": [
+            "067478591fd54e785a7474dca6170168f71568558d4c2fb8eb0e49e9c8ed60d2"
+          ],
+          "source_group_ids": [
+            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
+              "anchor_code": "C215715",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-8512b41a844d"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required because omitting the specific cell type, anatomical region, and clinical \nfindings strips the disease of its defining histological identity—most critically, its \"medullary\" (parafollicular \nC-cell) origin, which behaves and is staged completely differently from other thyroid cancers. Furthermore, the stage \nresult (Stage III) must remain logically bound to the staging method (AJCC v7). Because AJCC v7 applies entirely \ndistinct staging criteria for medullary thyroid carcinoma compared to differentiated thyroid subtypes, decoupling \nthe stage value from its evaluation framework destroys the essential clinical context that this severity grade is \ndefined by those exact histology-specific rules.",
+        "rationale_sha256": "6a2f7f28c2ad395d980d0b14f35c29d35f5dc079ac45f3f11719030e19530af7"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
+        "decision_identity": "4bd0a7c99e22ac271e6ef00287a66e5b7dc74ee741463163852396c257f1b4c0"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "a29880f6f162f2ad54307129446812645aa2f0cffcf9aa14e779838fd85341bf"
+    },
+    {
+      "concept_code": "C89995",
+      "rule_kind": "reviewed-regrouping",
+      "input_diagnosis": "over-split",
+      "diagnosis_pairs": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "input_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C54189"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C2955"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C4910"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C32926"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12382"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "output_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C54189"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C4910"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C32926"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12382"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C2955"
+          ]
+        ],
+        [
+          [
+            "op:StageSystem",
+            "MINT-8512b41a844d"
+          ]
+        ]
+      ],
+      "input_pair_evidence_identity": "b58cb070e0d404099c3507f5e22e2cac81f2d849ff7e22501f6dda8a4d67b5f6",
+      "blocks": [
+        {
+          "pairs": [
+            [
+              "op:AssociatedRegion",
+              "C54189"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "c9edb03d918c00729f3db2464bd2b7936fe7a93a0bf34cc6d899cede91d55c29"
+          ],
+          "source_occurrence_ids": [
+            "b71e9ef2922838dabdeb7236b615bd446e7ef8958f007c1cbb03be9aa59b00f6"
+          ],
+          "source_group_ids": [
+            "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60",
+              "anchor_code": "C2955",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C4910"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "01c4ecc1dc7e9f37bf4970c16e2942b0859deeb404b321bbb398294b1be45221"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "2cc56731bc58804ddfc1c3f1d61ad89f145f2062c103158b0957f31caaa94456"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2cc56731bc58804ddfc1c3f1d61ad89f145f2062c103158b0957f31caaa94456",
+              "anchor_code": "C91224",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:NormalTissueOrigin",
+              "C32926"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "dcb4a61f2e982a0d54f831767f430b754d5b6b50ef623a080c0e0b4f6a4b4385"
+          ],
+          "source_occurrence_ids": [
+            "2c0718a7ebe78e994f9afdaa69f4d3e04c7ddc6f40e8696d199157034b6295ef"
+          ],
+          "source_group_ids": [
+            "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "8b3d71b5a1842817f194155b6a9dffd874430640ad4b4032dbb827105f398c60",
+              "anchor_code": "C2955",
+              "depth": 3
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:PrimarySite",
+              "C12382"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "fe27952b3270bc8b6f1555ff0e51a99dd1e13560f17883a9383973960fa6cb35"
+          ],
+          "source_occurrence_ids": [
+            "1a77e5cb1b1cd5a5b12a91240de7953e1753c4d0f4b5757e4ba2310a1511c8c1"
+          ],
+          "source_group_ids": [
+            "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676",
+              "anchor_code": "C4910",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "C90530"
+            ],
+            [
+              "op:StageValue",
+              "C27970"
+            ]
+          ],
+          "normalized_group_id": "3ee95e2542a4a7441045a7ebe0867447d287fcfc4eba3e527bf6a1c3785a9f19",
+          "source_fact_ids": [
+            "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01",
+            "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
+          ],
+          "source_occurrence_ids": [
+            "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a",
+            "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
+          ],
+          "source_group_ids": [
+            "363cefec5569b1888778f6d9d210df0acc474b68c5038322c61119fea994ea47",
+            "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "363cefec5569b1888778f6d9d210df0acc474b68c5038322c61119fea994ea47",
+              "anchor_code": "C89994",
+              "depth": 1
+            },
+            {
+              "source_group_id": "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac",
+              "anchor_code": "C91223",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
+          ],
+          "source_occurrence_ids": [
+            "b8d4da7110c21c744c6e837660439e3d6fd7587156c35a4c49144ff6cd53e215"
+          ],
+          "source_group_ids": [
+            "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "f8cf84101f1b54a0d29bd3a8e22a5f44bc1cb1d979ac96ddd7bd8add72158027",
+              "anchor_code": "C3709",
+              "depth": 6
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:Morphology",
+              "C2955"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [
+            "15353dff8804eb1aed42b903ac21e5acfc453da3018553aae6f26bc58d7b8b8b",
+            "40e2c9d03b096d1fef6c36be557f136106272bc8e491debd554e8e16192d6f9a"
+          ],
+          "source_occurrence_ids": [],
+          "source_group_ids": [
+            "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676",
+            "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "35b8ee45d040481123b8d86c9e370d44ce99045363787999bead48b5c8b66676",
+              "anchor_code": "C4910",
+              "depth": 2
+            },
+            {
+              "source_group_id": "f6b9daa0a913a0de40a4ae40520bf4fbda77b8a5c6ff26892513aeb79eaac7ac",
+              "anchor_code": "C91223",
+              "depth": 2
+            }
+          ],
+          "occurrence_availability": "not-applicable-genus-fact"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageSystem",
+              "MINT-8512b41a844d"
+            ]
+          ],
+          "normalized_group_id": null,
+          "source_fact_ids": [],
+          "source_occurrence_ids": [],
+          "source_group_ids": [],
+          "source_coordinates": [],
+          "occurrence_availability": "mixed"
+        }
+      ],
+      "historical_decision": {
+        "review_row_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
+        "decision": "Require source-reproducible correction",
+        "pair_decision": null,
+        "reviewer": "R. Hannes Niedner, M.D.",
+        "review_date": "2026-08-28",
+        "rationale": "A source-reproducible correction is required to remove the unsupported morphology pair (C2955), which inappropriately \ninjects specific morphological constraints not stated in the broader \"Colon Cancer\" source concept. Additionally, \nwhile the staging method (AJCC v7) and stage result (Stage III) may be modeled as distinct attributes, their logical \nco-membership to the exact same evaluation event must be preserved. Breaking this semantic dependency strips the \nseverity grade of its defining criteria, risking clinical misinterpretation of the stage value outside its strict \nv7 rules.",
+        "rationale_sha256": "624632d397bbbbf4e2f56a4614e91797326e76d47c37e71987fcc3c95c2c4886"
+      },
+      "current_decision": {
+        "authority_identifier": "project-owner-current-conversation",
+        "decision_date": "2026-09-14",
+        "decision": "activate-reviewed-normalized-group-policy",
+        "basis_packet_identity": "0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f",
+        "supersedes_review_row_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
+        "decision_identity": "74b2f3d5a9210c26178a6d8872e9155b24db7c0f896060da8c2d0661c9f8cb3f"
+      },
+      "limitations": [
+        "changes-normalized-grouping-only",
+        "does-not-authorize-publication-or-ncit-adoption"
+      ],
+      "row_identity": "fc978c55a83b0b45cee3f9354d9c2f3fbb174e57715917a7e7fe05a80f11b03c"
+    }
+  ],
+  "pair_only_codes": [
+    "C100054",
+    "C198031",
+    "C35756"
+  ],
+  "policy_identity": "a68d99252a48826c15090fd0941ae92a7c1f983a4bc4602de8d79eb7f7c5bd00"
+}
