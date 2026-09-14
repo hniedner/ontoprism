@@ -29,12 +29,14 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, assert_neve
 
 import yaml
 
+from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT
 from ontolib.decomposition.run_artifacts import (
     ArtifactUnavailableRecord,
     GeneratorBinding,
     RetentionBinding,
     SourceIdentity,
     publish_generation,
+    reconcile_missing_unavailable_references,
     resolve_parent_manifest,
     write_legacy_in_place_manifest,
     write_unavailable_record,
@@ -65,7 +67,7 @@ _MAX_R101_METADATA_CONCEPTS = 16_000
 _MAX_R101_INSPECTION_BYTES = 5_000_000
 _R101_PAIR_ARGUMENT_COUNT = 2
 _POC_DIR = Path("tmp/podman-poc")
-_PODMAN_PROJECT = "ontoprism-podman-poc"
+_PODMAN_PROJECT = COMPOSE_PROJECT
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
 _PODMAN_MACHINE = "ontoprism-vm"
 _PODMAN_DOCKER_CONTEXT = "ontoprism-podman"
@@ -1885,13 +1887,15 @@ def _record_artifact_registry(
             {
                 "manifest_path": sidecar.relative_to(root).as_posix(),
                 "manifest_identity": manifest.manifest_identity,
+                "artifact_path": manifest.artifact_records[0].relative_path,
+                "artifact_sha256": manifest.artifact_records[0].sha256,
             }
         )
     unavailable_path = (
         root / "tmp/artifacts/v1/unavailable/"
         "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
     )
-    unavailable = ArtifactUnavailableRecord(
+    stale_unavailable = ArtifactUnavailableRecord(
         schema_version=1,
         record_type="unavailable-artifact",
         family="m1-6-current-replay",
@@ -1901,17 +1905,45 @@ def _record_artifact_registry(
         ),
         last_known_path="tmp/m1-6-current-replay.ttl",
         reason="overwritten-before-immutable-retention",
-        references=(
-            "tmp/m1-6-normalized-group-policy-candidate.json",
-            "tmp/m1-6-group-review-pre274-observations.json",
-        ),
+        references=(),
     )
-    write_unavailable_record(unavailable_path, unavailable)
+    unavailable = stale_unavailable.model_copy(
+        update={
+            "references": (
+                "tmp/m1-6-normalized-group-policy-candidate.json",
+                "tmp/m1-6-group-review-pre274-observations.json",
+            )
+        }
+    )
+    audit: Path | None = None
+    if unavailable_path.exists():
+        try:
+            audit = reconcile_missing_unavailable_references(
+                path=unavailable_path,
+                expected_stale=stale_unavailable,
+                corrected=unavailable,
+            )
+        except ValueError as exc:
+            raise AgentReplayInputError(str(exc)) from exc
+    else:
+        write_unavailable_record(unavailable_path, unavailable)
+    unavailable_bytes = unavailable_path.read_bytes()
     print(
         json.dumps(
             {
                 "legacy_manifests": reported,
                 "unavailable_record": unavailable_path.relative_to(root).as_posix(),
+                "unavailable_record_sha256": hashlib.sha256(
+                    unavailable_bytes
+                ).hexdigest(),
+                "superseded_audit": audit.relative_to(root).as_posix()
+                if audit is not None
+                else None,
+                "superseded_audit_sha256": hashlib.sha256(
+                    audit.read_bytes()
+                ).hexdigest()
+                if audit is not None
+                else None,
             },
             sort_keys=True,
         )

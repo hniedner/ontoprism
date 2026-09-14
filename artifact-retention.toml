@@ -1,19 +1,34 @@
 schema_version = 1
 
+[managed]
+generation_root = "tmp/artifacts/v1/generations"
+cleanup_plan_root = "tmp/artifacts/v1/cleanup-plans"
+
 [classes.critical-full-corpus]
 owner = "decomposition"
 expiry = "none"
 description = "Full-corpus artifacts and certified evidence are retained without expiry."
 
 [classes.referenced-bounded-run]
-owner = "referencing-workflow"
+owner = "decomposition"
 expiry = "while-referenced"
 description = "Bounded runs remain retained while a manifest, report, or review references them."
 
 [classes.unreferenced-bounded-derived]
 owner = "artifact-review"
-expiry = "review-required"
-description = "Unreferenced bounded runs and derived candidates are only eligible after explicit inventory and review."
+expiry = "manifest-expires-at"
+cleanup_eligible = true
+description = "Only complete immutable generations whose manifest expiry has passed and which have no incoming generation parent are cleanup-eligible."
+
+[classes.cleanup-plan]
+owner = "artifact-review"
+expiry = "superseded-or-session-end"
+description = "Content-identified cleanup plans remain auditable through their bounded issue session and may then be removed when superseded."
+
+[classes.superseded-unavailable-audit]
+owner = "artifact-review"
+expiry = "none"
+description = "Superseded unavailable-record bytes are immutable reconciliation audit evidence retained without expiry."
 
 [classes.session-ephemeral]
 owner = "issue-session"
