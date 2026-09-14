@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -33,8 +35,12 @@ generation_root = "tmp/artifacts/v1/generations"
 
 [classes.unreferenced-bounded-derived]
 owner = "artifact-review"
-expiry = "cleanup-eligible"
+expiry = "manifest-expires-at"
 cleanup_eligible = true
+
+[classes.cleanup-plan]
+owner = "artifact-review"
+expiry = "superseded-or-session-end"
 
 [classes.referenced-bounded-run]
 owner = "decomposition"
@@ -62,6 +68,7 @@ def _publish(
     owner: str = "artifact-review",
     parents: tuple[ParentManifestBinding, ...] = (),
     content: bytes = b"payload",
+    expires_at: str | None = "2000-01-01T00:00:00Z",
 ) -> tuple[Path, str]:
     source = root / f"{generation}.source"
     source.write_bytes(content)
@@ -75,7 +82,7 @@ def _publish(
         generator=GeneratorBinding(identity="git:abc", command=("generate",)),
         sources=(SourceIdentity(name="fixture", identity="exact"),),
         retention=RetentionBinding(
-            retention_class=retention_class, owner=owner, expires_at=None
+            retention_class=retention_class, owner=owner, expires_at=expires_at
         ),
     )
     directory = root / f"tmp/artifacts/v1/generations/{family}/{generation}"
@@ -326,9 +333,12 @@ def test_cleanup_plan_is_deterministic_managed_only_and_excludes_references(
     action = first["actions"][0]
     assert action["manifest_identity"] == identity
     assert action["owner"] == "artifact-review"
-    assert action["references"] == []
+    assert action["references"] == {
+        "coverage": "all-managed-record-roots",
+        "incoming_generation_parents": [],
+    }
     assert action["logical_bytes"] > len(b"eligible")
-    assert action["reason"] == "policy-cleanup-eligible-and-unreferenced"
+    assert action["reason"] == "retention-expired-and-no-incoming-generation-parent"
     assert "unmanaged" not in json.dumps(first)
 
 
@@ -346,7 +356,13 @@ def test_cleanup_plan_refuses_protected_or_unknown_manifest_contracts(
     tmp_path: Path, retention_class: str, owner: str, message: str
 ) -> None:
     _policy(tmp_path)
-    _publish(tmp_path, "candidate", retention_class=retention_class, owner=owner)
+    _publish(
+        tmp_path,
+        "candidate",
+        retention_class=retention_class,
+        owner=owner,
+        expires_at=None,
+    )
     with pytest.raises(ValueError, match=message):
         build_cleanup_plan(tmp_path)
 
@@ -424,10 +440,10 @@ def test_cleanup_partial_failure_never_reports_false_completion(
     plan = build_cleanup_plan(tmp_path)
     plan_path = write_cleanup_plan(tmp_path, plan)
 
-    def fail_second(path: Path) -> None:
+    def fail_second(path: Path, managed_root: Path) -> None:
         if path == second:
             raise OSError("injected removal failure")
-        artifacts._remove_generation_tree(path)
+        artifacts._remove_generation_tree(path, managed_root)
 
     report = apply_cleanup_plan(
         tmp_path, plan_path, plan["plan_identity"], remover=fail_second
@@ -436,6 +452,201 @@ def test_cleanup_partial_failure_never_reports_false_completion(
     assert [item["status"] for item in report["actions"]] == ["removed", "failed"]
     assert not first.exists()
     assert second.exists()
+
+
+@pytest.mark.unit
+def test_cleanup_partial_child_deletion_removes_completion_first_and_measures_remainder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _policy(tmp_path)
+    directory, _identity = _publish(tmp_path, "candidate", content=b"payload")
+    plan = build_cleanup_plan(tmp_path)
+    plan_path = write_cleanup_plan(tmp_path, plan)
+    original_unlink = Path.unlink
+    removed_child = False
+
+    def fail_after_child(path: Path, missing_ok: bool = False) -> None:
+        nonlocal removed_child
+        if path.name == "result.bin":
+            original_unlink(path, missing_ok=missing_ok)
+            removed_child = True
+            return
+        if removed_child and path.name == "manifest.json":
+            raise OSError("injected after child")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", fail_after_child)
+    report = apply_cleanup_plan(tmp_path, plan_path, plan["plan_identity"])
+
+    action = report["actions"][0]
+    assert action["status"] == "partially-removed"
+    assert not (directory / ".complete").exists()
+    assert action["reclaimed_logical_bytes"] > 0
+    assert action["remaining_logical_bytes"] > 0
+    assert (
+        action["reclaimed_logical_bytes"] + action["remaining_logical_bytes"]
+        == plan["actions"][0]["logical_bytes"]
+    )
+    assert report["reclaimed_logical_bytes"] == action["reclaimed_logical_bytes"]
+
+
+@pytest.mark.unit
+def test_cleanup_rejects_rebound_outside_actions_before_mutation(
+    tmp_path: Path,
+) -> None:
+    _policy(tmp_path)
+    _publish(tmp_path, "candidate")
+    plan = build_cleanup_plan(tmp_path)
+    for malicious in ("data", "../outside"):
+        payload = {**plan, "actions": [{**plan["actions"][0], "path": malicious}]}
+        payload.pop("plan_identity")
+        rebound = artifacts.bind_plan_identity(payload)
+        path = write_cleanup_plan(tmp_path, rebound)
+        called = False
+
+        def remover(_path: Path, _root: Path) -> None:
+            nonlocal called
+            called = True
+
+        with pytest.raises(ValueError, match=r"managed generation|drift|path"):
+            apply_cleanup_plan(
+                tmp_path, path, rebound["plan_identity"], remover=remover
+            )
+        assert called is False
+
+
+@pytest.mark.unit
+def test_generation_remover_rechecks_top_level_symlink_and_exact_root(
+    tmp_path: Path,
+) -> None:
+    managed = tmp_path / "tmp/artifacts/v1/generations"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    payload = outside / "keep.bin"
+    payload.write_bytes(b"keep")
+    family = managed / "family"
+    family.mkdir(parents=True)
+    link = family / "generation"
+    link.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        artifacts._remove_generation_tree(link, managed)
+    with pytest.raises(ValueError, match="managed generation"):
+        artifacts._remove_generation_tree(outside, managed)
+    assert payload.read_bytes() == b"keep"
+
+
+@pytest.mark.unit
+def test_cleanup_symlink_swap_after_global_preflight_refuses_before_tree_walk(
+    tmp_path: Path,
+) -> None:
+    _policy(tmp_path)
+    directory, _identity = _publish(tmp_path, "candidate")
+    plan = build_cleanup_plan(tmp_path)
+    plan_path = write_cleanup_plan(tmp_path, plan)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    keep = outside / "keep"
+    keep.write_bytes(b"keep")
+
+    def swap_then_remove(path: Path, managed_root: Path) -> None:
+        os.rename(path, path.with_name("original"))
+        path.symlink_to(outside, target_is_directory=True)
+        artifacts._remove_generation_tree(path, managed_root)
+
+    with pytest.raises(ValueError, match="symlink"):
+        apply_cleanup_plan(
+            tmp_path, plan_path, plan["plan_identity"], remover=swap_then_remove
+        )
+    assert keep.read_bytes() == b"keep"
+    assert directory.is_symlink()
+
+
+@pytest.mark.unit
+def test_cleanup_requires_reached_manifest_expiry_and_blocks_no_expiry(
+    tmp_path: Path,
+) -> None:
+    _policy(tmp_path)
+    _publish(tmp_path, "past", expires_at="2000-01-01T00:00:00Z")
+    _publish(tmp_path, "future", expires_at="2999-01-01T00:00:00Z")
+    _publish(
+        tmp_path,
+        "referenced",
+        retention_class="referenced-bounded-run",
+        owner="decomposition",
+        expires_at=None,
+    )
+
+    plan = build_cleanup_plan(tmp_path, now=datetime(2026, 1, 1, tzinfo=UTC))
+
+    assert [action["path"].rsplit("/", 1)[-1] for action in plan["actions"]] == ["past"]
+
+    other_root = tmp_path / "invalid"
+    other_root.mkdir()
+    _policy(other_root)
+    _publish(other_root, "no-expiry", expires_at=None)
+    with pytest.raises(ValueError, match="expiry differs"):
+        build_cleanup_plan(other_root, now=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+@pytest.mark.unit
+def test_inventory_reports_bounded_scan_errors_for_vanishing_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _policy(tmp_path)
+    root = tmp_path / "tmp/vanishing"
+    root.mkdir(parents=True)
+    vanished = root / "gone.bin"
+    vanished.write_bytes(b"gone")
+    path_type = type(vanished)
+    original_lstat = path_type.lstat
+
+    def unreliable_lstat(path: Path) -> os.stat_result:
+        if path.name == vanished.name:
+            raise FileNotFoundError("vanished during scan")
+        return original_lstat(path)
+
+    monkeypatch.setattr(path_type, "lstat", unreliable_lstat)
+    report = inventory_repository(
+        tmp_path,
+        git_worktrees={"status": "empty", "entries": []},
+        compose_resources={"status": "empty", "project": COMPOSE_PROJECT, "items": []},
+    )
+    summary = next(
+        item
+        for item in report["unmanaged_root_summaries"]
+        if item["path"] == "tmp/vanishing"
+    )
+    assert summary["status"] == "error"
+    assert summary["scan_errors"]["count"] == 1
+    assert len(summary["scan_errors"]["entries"]) == 1
+    assert report["ignored_usage"]["tmp"]["status"] == "error"
+
+
+@pytest.mark.unit
+def test_inventory_summarizes_cleanup_plan_registry_with_retention(
+    tmp_path: Path,
+) -> None:
+    _policy(tmp_path)
+    _publish(tmp_path, "candidate")
+    written = write_cleanup_plan(tmp_path, build_cleanup_plan(tmp_path))
+
+    report = inventory_repository(
+        tmp_path,
+        git_worktrees={"status": "empty", "entries": []},
+        compose_resources={"status": "empty", "project": COMPOSE_PROJECT, "items": []},
+    )
+    entry = next(
+        item
+        for item in report["managed_records"]
+        if item.get("record_type") == "managed-cleanup-plan-root"
+    )
+    assert entry["path"] == "tmp/artifacts/v1/cleanup-plans"
+    assert entry["retention_class"] == "cleanup-plan"
+    assert entry["owner"] == "artifact-review"
+    assert entry["expiry_policy"] == "superseded-or-session-end"
+    assert entry["files"] == 1
+    assert entry["logical_bytes"] == written.stat().st_size
 
 
 @pytest.mark.unit

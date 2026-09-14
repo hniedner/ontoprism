@@ -2,6 +2,7 @@ schema_version = 1
 
 [managed]
 generation_root = "tmp/artifacts/v1/generations"
+cleanup_plan_root = "tmp/artifacts/v1/cleanup-plans"
 
 [classes.critical-full-corpus]
 owner = "decomposition"
@@ -15,9 +16,14 @@ description = "Bounded runs remain retained while a manifest, report, or review 
 
 [classes.unreferenced-bounded-derived]
 owner = "artifact-review"
-expiry = "cleanup-eligible"
+expiry = "manifest-expires-at"
 cleanup_eligible = true
-description = "Only complete, unreferenced immutable generations in the managed root are cleanup-eligible."
+description = "Only complete immutable generations whose manifest expiry has passed and which have no incoming generation parent are cleanup-eligible."
+
+[classes.cleanup-plan]
+owner = "artifact-review"
+expiry = "superseded-or-session-end"
+description = "Content-identified cleanup plans remain auditable through their bounded issue session and may then be removed when superseded."
 
 [classes.session-ephemeral]
 owner = "issue-session"

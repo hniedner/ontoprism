@@ -13,6 +13,7 @@ import subprocess
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ from ontolib.decomposition.run_artifacts import (
 
 _PLAN_SCHEMA = 1
 _DEFAULT_TOP_N = 5
+_MAX_SCAN_ERRORS = 10
+_GENERATION_PATH_PARTS = 2
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class RetentionClassPolicy:
 @dataclass(frozen=True)
 class RetentionPolicy:
     generation_root: str
+    cleanup_plan_root: str
     classes: dict[str, RetentionClassPolicy]
     budgets: dict[str, object]
 
@@ -64,13 +68,21 @@ def load_retention_policy(path: Path) -> RetentionPolicy:
     generation_root = managed.get("generation_root", "tmp/artifacts/v1/generations")
     if generation_root != "tmp/artifacts/v1/generations":
         raise ValueError("managed generation root must be the v1 generation registry")
+    cleanup_plan_root = managed.get(
+        "cleanup_plan_root", "tmp/artifacts/v1/cleanup-plans"
+    )
+    if cleanup_plan_root != "tmp/artifacts/v1/cleanup-plans":
+        raise ValueError("managed cleanup plan root must be the v1 plan registry")
     classes = _parse_class_policies(payload.get("classes"))
     budgets = {
         name: payload.get("budgets", {}).get(name, "not-declared")
         for name in ("tmp", "data")
     }
     return RetentionPolicy(
-        generation_root=generation_root, classes=classes, budgets=budgets
+        generation_root=generation_root,
+        cleanup_plan_root=cleanup_plan_root,
+        classes=classes,
+        budgets=budgets,
     )
 
 
@@ -92,69 +104,140 @@ def _parse_class_policies(value: object) -> dict[str, RetentionClassPolicy]:
     return result
 
 
-def _usage(path: Path) -> dict[str, int | bool]:
-    logical = allocated = files = 0
-    if not path.exists():
+def _scan_error_payload(errors: list[dict[str, str]], count: int) -> dict[str, object]:
+    return {
+        "count": count,
+        "entries": errors,
+        "truncated": count > len(errors),
+    }
+
+
+def _record_scan_error(errors: list[dict[str, str]], path: Path, exc: OSError) -> None:
+    if len(errors) < _MAX_SCAN_ERRORS:
+        message = f"{type(exc).__name__}: {exc}"
+        errors.append({"path": str(path)[:500], "error": message[:500]})
+
+
+class _TreeScan:
+    __slots__ = (
+        "allocated",
+        "base",
+        "error_count",
+        "errors",
+        "files",
+        "largest",
+        "logical",
+        "top_n",
+    )
+
+    def __init__(self, base: Path, top_n: int) -> None:
+        self.base = base
+        self.top_n = top_n
+        self.logical = 0
+        self.allocated = 0
+        self.files = 0
+        self.error_count = 0
+        self.errors: list[dict[str, str]] = []
+        self.largest: list[tuple[int, str]] = []
+
+    def record_error(self, path: Path, exc: OSError) -> None:
+        self.error_count += 1
+        _record_scan_error(self.errors, path, exc)
+
+    def add_metadata(self, details: os.stat_result, relative: str) -> None:
+        if not stat.S_ISREG(details.st_mode):
+            return
+        self.logical += details.st_size
+        self.allocated += details.st_blocks * 512
+        self.files += 1
+        item = (details.st_size, relative)
+        if len(self.largest) < self.top_n:
+            heapq.heappush(self.largest, item)
+        elif item > self.largest[0]:
+            heapq.heapreplace(self.largest, item)
+
+    def add_file(self, candidate: Path, relative: str) -> None:
+        try:
+            details = candidate.lstat()
+        except OSError as exc:
+            self.record_error(candidate, exc)
+            return
+        self.add_metadata(details, relative)
+
+    def walk(self) -> None:
+        for root, directories, names in os.walk(
+            self.base, followlinks=False, onerror=self._walk_error
+        ):
+            directories[:] = self._regular_directories(Path(root), directories)
+            for name in names:
+                candidate = Path(root) / name
+                self.add_file(candidate, candidate.relative_to(self.base).as_posix())
+
+    def _walk_error(self, exc: OSError) -> None:
+        self.record_error(Path(exc.filename or self.base), exc)
+
+    def _regular_directories(self, root: Path, names: list[str]) -> list[str]:
+        retained: list[str] = []
+        for name in names:
+            candidate = root / name
+            try:
+                details = candidate.lstat()
+            except OSError as exc:
+                self.record_error(candidate, exc)
+                continue
+            if not stat.S_ISLNK(details.st_mode):
+                retained.append(name)
+        return retained
+
+    def result(self) -> dict[str, object]:
+        top = [
+            {"path": relative, "logical_bytes": size}
+            for size, relative in sorted(self.largest, reverse=True)
+        ]
+        result: dict[str, object] = {
+            "available": True,
+            "logical_bytes": self.logical,
+            "allocated_bytes": self.allocated,
+            "files": self.files,
+            "top_files": top,
+            "top_files_truncated": self.files > len(top),
+        }
+        if self.error_count:
+            result["status"] = "error"
+            result["scan_errors"] = _scan_error_payload(self.errors, self.error_count)
+        return result
+
+
+def _tree_summary(path: Path, *, top_n: int = _DEFAULT_TOP_N) -> dict[str, object]:
+    scan = _TreeScan(path, top_n)
+    try:
+        root_details = path.lstat()
+    except FileNotFoundError:
         return {
             "available": False,
             "logical_bytes": 0,
             "allocated_bytes": 0,
             "files": 0,
+            "top_files": [],
+            "top_files_truncated": False,
         }
-    details = path.lstat()
-    if stat.S_ISREG(details.st_mode):
+    except OSError as exc:
+        scan.record_error(path, exc)
         return {
-            "available": True,
-            "logical_bytes": details.st_size,
-            "allocated_bytes": details.st_blocks * 512,
-            "files": 1,
+            "available": False,
+            "logical_bytes": 0,
+            "allocated_bytes": 0,
+            "files": 0,
+            "top_files": [],
+            "top_files_truncated": False,
+            "status": "error",
+            "scan_errors": _scan_error_payload(scan.errors, scan.error_count),
         }
-    for root, directories, names in os.walk(path, followlinks=False):
-        directories[:] = [
-            name for name in directories if not (Path(root) / name).is_symlink()
-        ]
-        for name in names:
-            details = (Path(root) / name).lstat()
-            if stat.S_ISREG(details.st_mode):
-                logical += details.st_size
-                allocated += details.st_blocks * 512
-                files += 1
-    return {
-        "available": True,
-        "logical_bytes": logical,
-        "allocated_bytes": allocated,
-        "files": files,
-    }
-
-
-def _tree_summary(path: Path, *, top_n: int = _DEFAULT_TOP_N) -> dict[str, object]:
-    usage = _usage(path)
-    largest: list[tuple[int, str]] = []
-    if path.is_file() and not path.is_symlink():
-        largest.append((path.stat().st_size, path.name))
-    elif path.exists():
-        for root, directories, names in os.walk(path, followlinks=False):
-            directories[:] = [
-                name for name in directories if not (Path(root) / name).is_symlink()
-            ]
-            for name in names:
-                candidate = Path(root) / name
-                details = candidate.lstat()
-                if stat.S_ISREG(details.st_mode):
-                    item = (details.st_size, candidate.relative_to(path).as_posix())
-                    if len(largest) < top_n:
-                        heapq.heappush(largest, item)
-                    elif item > largest[0]:
-                        heapq.heapreplace(largest, item)
-    top = [
-        {"path": relative, "logical_bytes": size}
-        for size, relative in sorted(largest, reverse=True)
-    ]
-    return {
-        **usage,
-        "top_files": top,
-        "top_files_truncated": _required_int(usage["files"], "file count") > len(top),
-    }
+    if stat.S_ISREG(root_details.st_mode):
+        scan.add_metadata(root_details, path.name)
+    elif stat.S_ISDIR(root_details.st_mode):
+        scan.walk()
+    return scan.result()
 
 
 def _run_command(command: list[str], root: Path) -> subprocess.CompletedProcess[str]:
@@ -402,6 +485,25 @@ def _managed_records(
     return records, managed_paths
 
 
+def _cleanup_plan_entry(
+    root: Path, artifacts_root: Path, policy: RetentionPolicy, top_n: int
+) -> dict[str, object] | None:
+    path = artifacts_root / "cleanup-plans"
+    if not path.exists():
+        return None
+    declared = policy.classes.get("cleanup-plan")
+    if declared is None:
+        raise ValueError("cleanup-plan retention class is not declared")
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "record_type": "managed-cleanup-plan-root",
+        **_tree_summary(path, top_n=top_n),
+        "retention_class": "cleanup-plan",
+        "owner": declared.owner,
+        "expiry_policy": declared.expiry,
+    }
+
+
 def _partial_generation_entries(
     root: Path, artifacts_root: Path
 ) -> list[dict[str, object]]:
@@ -430,14 +532,31 @@ def _partial_generation_entries(
 
 def _unmanaged_summaries(
     root: Path, artifacts_root: Path, managed_paths: set[Path], top_n: int
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
     summaries: list[dict[str, object]] = []
+    usage: dict[str, dict[str, object]] = {}
     for base_name in ("tmp", "data"):
         base = root / base_name
         if not base.is_dir():
+            usage[base_name] = {
+                "available": False,
+                "logical_bytes": 0,
+                "allocated_bytes": 0,
+                "files": 0,
+            }
             continue
-        top_level_files: list[Path] = []
+        top_level_files: list[tuple[Path, dict[str, object]]] = []
+        root_totals: dict[str, object] = {
+            "available": True,
+            "logical_bytes": 0,
+            "allocated_bytes": 0,
+            "files": 0,
+        }
+        root_errors: list[dict[str, str]] = []
+        root_error_count = 0
         for path in sorted(base.iterdir()):
+            summary = _tree_summary(path, top_n=top_n)
+            root_error_count += _merge_root_summary(root_totals, root_errors, summary)
             if (
                 path == artifacts_root
                 or path in artifacts_root.parents
@@ -445,9 +564,8 @@ def _unmanaged_summaries(
             ):
                 continue
             if path.is_file() and not path.is_symlink():
-                top_level_files.append(path)
+                top_level_files.append((path, summary))
                 continue
-            summary = _tree_summary(path, top_n=top_n)
             summaries.append(
                 {
                     "path": path.relative_to(root).as_posix(),
@@ -461,26 +579,63 @@ def _unmanaged_summaries(
             summaries.append(
                 _top_level_file_summary(root, base, top_level_files, top_n)
             )
-    return summaries
+        if root_error_count:
+            root_totals["status"] = "error"
+            root_totals["scan_errors"] = _scan_error_payload(
+                root_errors, root_error_count
+            )
+        usage[base_name] = root_totals
+    return summaries, usage
+
+
+def _merge_root_summary(
+    totals: dict[str, object],
+    errors: list[dict[str, str]],
+    summary: dict[str, object],
+) -> int:
+    for field_name in ("logical_bytes", "allocated_bytes", "files"):
+        totals[field_name] = _required_int(
+            totals[field_name], field_name
+        ) + _required_int(summary[field_name], field_name)
+    scan_errors = summary.get("scan_errors")
+    if not isinstance(scan_errors, dict):
+        return 0
+    entries = scan_errors.get("entries")
+    if isinstance(entries, list):
+        errors.extend(item for item in entries if isinstance(item, dict))
+        del errors[_MAX_SCAN_ERRORS:]
+    return _required_int(scan_errors.get("count"), "scan error count")
 
 
 def _top_level_file_summary(
-    root: Path, base: Path, paths: list[Path], top_n: int
+    root: Path,
+    base: Path,
+    paths: list[tuple[Path, dict[str, object]]],
+    top_n: int,
 ) -> dict[str, object]:
-    details = [(path, path.stat()) for path in paths]
     largest = sorted(
-        ((item.st_size, path.name) for path, item in details), reverse=True
+        (
+            (_required_int(summary["logical_bytes"], "logical bytes"), path.name)
+            for path, summary in paths
+        ),
+        reverse=True,
     )[:top_n]
     return {
         "path": f"{base.relative_to(root).as_posix()}/[top-level-files]",
         "available": True,
-        "logical_bytes": sum(item.st_size for _path, item in details),
-        "allocated_bytes": sum(item.st_blocks * 512 for _path, item in details),
-        "files": len(details),
+        "logical_bytes": sum(
+            _required_int(summary["logical_bytes"], "logical bytes")
+            for _path, summary in paths
+        ),
+        "allocated_bytes": sum(
+            _required_int(summary["allocated_bytes"], "allocated bytes")
+            for _path, summary in paths
+        ),
+        "files": len(paths),
         "top_files": [
             {"path": relative, "logical_bytes": size} for size, relative in largest
         ],
-        "top_files_truncated": len(details) > len(largest),
+        "top_files_truncated": len(paths) > len(largest),
         "retention_class": "unknown",
         "owner": "unknown",
         "reference_status": "unknown",
@@ -498,11 +653,16 @@ def inventory_repository(
     policy = load_retention_policy(root / "artifact-retention.toml")
     artifacts_root = root / "tmp/artifacts/v1"
     managed, managed_paths = _managed_records(root, artifacts_root)
-    unmanaged = _unmanaged_summaries(root, artifacts_root, managed_paths, top_n)
+    cleanup_plans = _cleanup_plan_entry(root, artifacts_root, policy, top_n)
+    if cleanup_plans is not None:
+        managed.append(cleanup_plans)
+    unmanaged, ignored_usage = _unmanaged_summaries(
+        root, artifacts_root, managed_paths, top_n
+    )
     return {
         "mode": "read-only-inventory",
         "managed_generation_root": policy.generation_root,
-        "ignored_usage": {name: _usage(root / name) for name in ("tmp", "data")},
+        "ignored_usage": ignored_usage,
         "budgets": policy.budgets,
         "managed_records": managed,
         "unmanaged_root_summaries": unmanaged,
@@ -528,6 +688,14 @@ def inventory_repository(
 
 def _canonical_bytes(payload: dict[str, object]) -> bytes:
     return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _required_int(value: object, label: str) -> int:
@@ -573,6 +741,12 @@ def _validate_retention(
         raise ValueError(f"unknown retention class refuses cleanup: {name}")
     if declared.owner != record.retention.owner:
         raise ValueError(f"retention owner differs from policy for {name}")
+    if declared.expiry == "manifest-expires-at":
+        if record.retention.expires_at is None:
+            raise ValueError(f"retention expiry differs from policy for {name}")
+        _parse_expiry(record.retention.expires_at)
+    elif record.retention.expires_at is not None:
+        raise ValueError(f"retention expiry differs from policy for {name}")
     if name == "licensed-source":
         raise ValueError(
             "licensed-source cleanup is blocked pending #335 certification"
@@ -580,6 +754,35 @@ def _validate_retention(
     if name == "critical-full-corpus":
         raise ValueError("critical/full-corpus artifacts are protected")
     return declared
+
+
+def _parse_expiry(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("manifest retention expiry is not RFC 3339") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("manifest retention expiry must include a timezone")
+    return parsed.astimezone(UTC)
+
+
+def _managed_reference_index(
+    artifacts_root: Path,
+) -> tuple[set[str], dict[str, object]]:
+    incoming: set[str] = set()
+    for path in _record_paths(artifacts_root):
+        try:
+            record = load_artifact_record(path)
+        except ValueError as exc:
+            raise ValueError(
+                f"managed reference coverage is incomplete: {path}"
+            ) from exc
+        if isinstance(record, ArtifactManifest):
+            incoming.update(parent.manifest_identity for parent in record.parents)
+    return incoming, {
+        "coverage": "all-managed-record-roots",
+        "incoming_generation_parents": [],
+    }
 
 
 def _directory_logical_bytes(path: Path) -> int:
@@ -599,20 +802,23 @@ def _directory_logical_bytes(path: Path) -> int:
     return total
 
 
-def build_cleanup_plan(root: Path) -> dict[str, Any]:
+def build_cleanup_plan(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
     root = root.resolve()
+    current_time = now or datetime.now(UTC)
+    if current_time.tzinfo is None:
+        raise ValueError("cleanup planning time must include a timezone")
     policy = load_retention_policy(root / "artifact-retention.toml")
     manifests = _generation_manifests(root, policy)
-    incoming = {
-        parent.manifest_identity
-        for _directory, record in manifests
-        for parent in record.parents
-    }
+    incoming, reference_contract = _managed_reference_index(root / "tmp/artifacts/v1")
     actions: list[dict[str, object]] = []
     for directory, record in manifests:
         declared = _validate_retention(record, policy)
+        expires_at = record.retention.expires_at
         if (
             not declared.cleanup_eligible
+            or declared.expiry != "manifest-expires-at"
+            or expires_at is None
+            or _parse_expiry(expires_at) > current_time.astimezone(UTC)
             or record.parents
             or record.manifest_identity in incoming
         ):
@@ -627,8 +833,8 @@ def build_cleanup_plan(root: Path) -> dict[str, Any]:
                 "logical_bytes": _directory_logical_bytes(directory),
                 "owner": record.retention.owner,
                 "retention_class": record.retention.retention_class,
-                "references": [],
-                "reason": "policy-cleanup-eligible-and-unreferenced",
+                "references": reference_contract,
+                "reason": "retention-expired-and-no-incoming-generation-parent",
             }
         )
     payload: dict[str, object] = {
@@ -662,6 +868,7 @@ def write_cleanup_plan(root: Path, plan: dict[str, object]) -> Path:
         stream.write(data)
         stream.flush()
         os.fsync(stream.fileno())
+    _fsync_directory(directory)
     return path
 
 
@@ -711,14 +918,58 @@ def _prevalidate_apply(root: Path, plan: dict[str, Any]) -> list[dict[str, objec
     return typed_actions
 
 
-def _remove_generation_tree(path: Path) -> None:
+def _validated_generation_path(path: Path, managed_root: Path) -> Path:
+    managed_root = managed_root.resolve()
+    try:
+        relative = path.relative_to(managed_root)
+    except ValueError as exc:
+        raise ValueError("cleanup path is outside the managed generation root") from exc
+    if len(relative.parts) != _GENERATION_PATH_PARTS:
+        raise ValueError("cleanup path is not an exact managed generation")
+    for candidate, label in (
+        (managed_root, "managed generation root"),
+        (managed_root / relative.parts[0], "managed generation family"),
+        (path, "managed generation"),
+    ):
+        try:
+            details = candidate.lstat()
+        except OSError as exc:
+            raise ValueError(f"{label} is unavailable") from exc
+        if stat.S_ISLNK(details.st_mode):
+            raise ValueError(f"{label} is a symlink")
+        if not stat.S_ISDIR(details.st_mode):
+            raise ValueError(f"{label} is not a directory")
+    if path.resolve() != path or path.resolve().parent.parent != managed_root:
+        raise ValueError("cleanup path escapes the managed generation root")
+    return path
+
+
+def _remove_generation_tree(path: Path, managed_root: Path) -> None:
+    path = _validated_generation_path(path, managed_root)
+    completion = path / ".complete"
+    completion_details = completion.lstat()
+    if stat.S_ISLNK(completion_details.st_mode) or not stat.S_ISREG(
+        completion_details.st_mode
+    ):
+        raise ValueError("generation completion marker is not a regular file")
+    completion.unlink()
+    _fsync_directory(path)
     for root, directories, names in os.walk(path, topdown=False, followlinks=False):
         current = Path(root)
         for name in names:
-            (current / name).unlink()
+            candidate = current / name
+            details = candidate.lstat()
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+                raise ValueError(f"unsafe path refuses cleanup: {candidate}")
+            candidate.unlink()
         for name in directories:
-            (current / name).rmdir()
+            candidate = current / name
+            details = candidate.lstat()
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+                raise ValueError(f"unsafe path refuses cleanup: {candidate}")
+            candidate.rmdir()
     path.rmdir()
+    _fsync_directory(path.parent)
 
 
 def apply_cleanup_plan(
@@ -726,26 +977,40 @@ def apply_cleanup_plan(
     plan_path: Path,
     expected_identity: str,
     *,
-    remover: Callable[[Path], None] = _remove_generation_tree,
+    remover: Callable[[Path, Path], None] = _remove_generation_tree,
 ) -> dict[str, Any]:
     root = root.resolve()
     plan = _load_plan(plan_path, expected_identity)
     _validate_plan_location(root, plan_path, expected_identity)
     actions = _prevalidate_apply(root, plan)
+    policy = load_retention_policy(root / "artifact-retention.toml")
+    managed_root = root / policy.generation_root
     results: list[dict[str, object]] = []
     reclaimed = 0
     failed = False
     for action in actions:
         path = root / str(action["path"])
+        planned_bytes = _required_int(action["logical_bytes"], "action logical bytes")
         try:
-            remover(path)
+            _validated_generation_path(path, managed_root)
+            remover(path, managed_root)
         except OSError as exc:
             failed = True
+            remaining = _directory_logical_bytes(path) if path.exists() else 0
+            changed = remaining != planned_bytes
+            action_reclaimed = planned_bytes - remaining
+            reclaimed += action_reclaimed
             results.append(
-                {"path": action["path"], "status": "failed", "error": str(exc)}
+                {
+                    "path": action["path"],
+                    "status": "partially-removed" if changed else "failed",
+                    "error": str(exc),
+                    "reclaimed_logical_bytes": action_reclaimed,
+                    "remaining_logical_bytes": remaining,
+                }
             )
         else:
-            reclaimed += _required_int(action["logical_bytes"], "action logical bytes")
+            reclaimed += planned_bytes
             results.append(
                 {
                     "path": action["path"],

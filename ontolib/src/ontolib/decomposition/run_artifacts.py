@@ -724,6 +724,48 @@ def publish_generation(
             claim.rmdir()
 
 
+def publish_parent_bound_generation(
+    *,
+    repository_root: Path,
+    artifacts_root: Path,
+    family: str,
+    generation_id: str,
+    run_id: str | None,
+    artifact_sources: dict[str, Path],
+    parents: tuple[ParentManifestBinding, ...],
+    generator: GeneratorBinding,
+    sources: tuple[SourceIdentity, ...],
+    retention: RetentionBinding,
+) -> ArtifactManifest:
+    """Publish derived output only when it identifies at least one exact parent."""
+    if not parents:
+        raise ArtifactConflictError("derived generation requires a parent manifest")
+    managed_root = artifacts_root.resolve()
+    for parent in parents:
+        parent_path = repository_root.resolve() / parent.manifest_path
+        if parent_path.parents[2].resolve() != managed_root:
+            raise ArtifactConflictError(
+                "parent manifest is outside the artifact registry"
+            )
+        resolved = resolve_parent_manifest(parent_path, parent.manifest_identity)
+        if (
+            resolved.family != parent.family
+            or resolved.generation_id != parent.generation_id
+        ):
+            raise ArtifactConflictError("parent manifest locator differs")
+    return publish_generation(
+        artifacts_root=artifacts_root,
+        family=family,
+        generation_id=generation_id,
+        run_id=run_id,
+        artifact_sources=artifact_sources,
+        parents=parents,
+        generator=generator,
+        sources=sources,
+        retention=retention,
+    )
+
+
 def _stage_artifacts(staging: Path, sources: list[tuple[str, Path]]) -> None:
     for relative, source in sources:
         _regular_source(source)
@@ -792,6 +834,119 @@ def write_unavailable_record(path: Path, record: ArtifactUnavailableRecord) -> N
     _fsync_directory(path.parent)
 
 
+def _replace_reconciled_record(source: Path, destination: Path) -> None:
+    os.replace(source, destination)
+
+
+def _reference_reconciliation_bytes(
+    expected_stale: ArtifactUnavailableRecord,
+    corrected: ArtifactUnavailableRecord,
+) -> tuple[bytes, bytes]:
+    stale_payload = expected_stale.to_dict()
+    corrected_payload = corrected.to_dict()
+    stale_references = stale_payload.pop("references")
+    corrected_references = corrected_payload.pop("references")
+    if (
+        stale_references != []
+        or not isinstance(corrected_references, list)
+        or not corrected_references
+        or stale_payload != corrected_payload
+    ):
+        raise ArtifactConflictError(
+            "unavailable reconciliation may only add missing references"
+        )
+    return _canonical_bytes(expected_stale.to_dict()), _canonical_bytes(
+        corrected.to_dict()
+    )
+
+
+def _write_superseded_audit(path: Path, stale_bytes: bytes) -> Path:
+    audit = path.parent / "superseded" / f"{_sha256(stale_bytes)}.json"
+    audit.parent.mkdir(parents=True, exist_ok=True)
+    audit_directory = audit.parent.lstat()
+    if stat.S_ISLNK(audit_directory.st_mode) or not stat.S_ISDIR(
+        audit_directory.st_mode
+    ):
+        raise ArtifactConflictError("unavailable reconciliation audit is unsafe")
+    _fsync_directory(path.parent)
+    try:
+        _write_fsynced(audit, stale_bytes)
+    except FileExistsError:
+        if audit.read_bytes() != stale_bytes:
+            raise ArtifactConflictError(
+                "unavailable reconciliation audit differs"
+            ) from None
+    _fsync_directory(audit.parent)
+    return audit
+
+
+def _read_reconciliation_target(path: Path) -> bytes:
+    try:
+        details = path.lstat()
+        if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+            raise ArtifactConflictError(
+                "unavailable reconciliation target is not a regular file"
+            )
+        return path.read_bytes()
+    except OSError as exc:
+        raise ArtifactConflictError(
+            "unavailable record is absent during reconciliation"
+        ) from exc
+
+
+def _verify_existing_reconciliation_audit(
+    audit: Path, stale_bytes: bytes
+) -> Path | None:
+    if not audit.exists():
+        return None
+    if audit.read_bytes() != stale_bytes:
+        raise ArtifactConflictError("unavailable reconciliation audit differs")
+    return audit
+
+
+def _replace_unavailable_record(
+    path: Path, stale_bytes: bytes, corrected_bytes: bytes
+) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".reconcile", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(corrected_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.read_bytes() != stale_bytes:
+            raise ArtifactConflictError("unavailable reconciliation changed during CAS")
+        _replace_reconciled_record(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def reconcile_missing_unavailable_references(
+    *,
+    path: Path,
+    expected_stale: ArtifactUnavailableRecord,
+    corrected: ArtifactUnavailableRecord,
+) -> Path | None:
+    """CAS-repair only an empty-reference unavailable record, preserving old bytes."""
+    stale_bytes, corrected_bytes = _reference_reconciliation_bytes(
+        expected_stale, corrected
+    )
+    current = _read_reconciliation_target(path)
+    audit = path.parent / "superseded" / f"{_sha256(stale_bytes)}.json"
+    if current == corrected_bytes:
+        return _verify_existing_reconciliation_audit(audit, stale_bytes)
+    if current != stale_bytes:
+        raise ArtifactConflictError("unavailable reconciliation CAS identity differs")
+    audit = _write_superseded_audit(path, stale_bytes)
+    _replace_unavailable_record(path, stale_bytes, corrected_bytes)
+    if path.read_bytes() != corrected_bytes:
+        raise ArtifactConflictError("unavailable reconciliation replacement differs")
+    return audit
+
+
 def _embedded_run_ids(path: Path) -> set[str]:
     run_ids: set[str] = set()
     overlap = b""
@@ -827,6 +982,50 @@ def write_legacy_in_place_manifest(
         persisted_representation_identity=persisted_representation_identity,
         persisted_artifact_path=persisted_artifact_path,
     )
+    if path.exists():
+        _regular_source(path)
+        loaded = load_artifact_record(path)
+        if not isinstance(loaded, ArtifactManifest):
+            raise ArtifactConflictError("existing legacy sidecar has the wrong type")
+        expected_existing = _legacy_manifest(
+            artifact_path=artifact_path,
+            run_id=run_id,
+            persisted_artifact_path=persisted_artifact_path,
+            source_identity=source_identity,
+            generator=loaded.generator,
+            record=record,
+        )
+        if loaded != expected_existing:
+            raise ArtifactConflictError("existing legacy sidecar differs")
+        return loaded
+    manifest = _legacy_manifest(
+        artifact_path=artifact_path,
+        run_id=run_id,
+        persisted_artifact_path=persisted_artifact_path,
+        source_identity=source_identity,
+        generator=generator,
+        record=record,
+    )
+    data = _canonical_bytes(manifest.to_dict())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_fsynced(path, data)
+    except FileExistsError:
+        if path.read_bytes() != data:
+            raise ArtifactConflictError("existing legacy sidecar differs") from None
+    _fsync_directory(path.parent)
+    return manifest
+
+
+def _legacy_manifest(
+    *,
+    artifact_path: Path,
+    run_id: str,
+    persisted_artifact_path: str,
+    source_identity: str,
+    generator: GeneratorBinding,
+    record: ArtifactRecord,
+) -> ArtifactManifest:
     manifest = ArtifactManifest.create(
         family="legacy-in-place",
         generation_id=f"{artifact_path.stem}-{run_id}",
@@ -846,14 +1045,6 @@ def write_legacy_in_place_manifest(
             expires_at=None,
         ),
     )
-    data = _canonical_bytes(manifest.to_dict())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        _write_fsynced(path, data)
-    except FileExistsError:
-        if path.read_bytes() != data:
-            raise ArtifactConflictError("existing legacy sidecar differs") from None
-    _fsync_directory(path.parent)
     return manifest
 
 

@@ -21,6 +21,8 @@ from ontolib.decomposition.run_artifacts import (
     SourceIdentity,
     load_artifact_record,
     publish_generation,
+    publish_parent_bound_generation,
+    reconcile_missing_unavailable_references,
     resolve_parent_manifest,
     write_legacy_in_place_manifest,
     write_unavailable_record,
@@ -595,6 +597,186 @@ def test_unavailable_record_is_create_only_and_conflicts_on_changed_evidence(
 
 
 @pytest.mark.unit
+def test_unavailable_reference_reconciliation_is_cas_audited_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "unavailable/run.json"
+    stale = ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    corrected = stale.model_copy(update={"references": ("known-reference",)})
+    write_unavailable_record(path, stale)
+    stale_bytes = path.read_bytes()
+
+    audit = reconcile_missing_unavailable_references(
+        path=path, expected_stale=stale, corrected=corrected
+    )
+    assert audit is not None
+    corrected_bytes = path.read_bytes()
+    assert load_artifact_record(path) == corrected
+    assert audit.read_bytes() == stale_bytes
+    assert audit.name == f"{__import__('hashlib').sha256(stale_bytes).hexdigest()}.json"
+    assert (
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+        == audit
+    )
+    assert path.read_bytes() == corrected_bytes
+
+
+@pytest.mark.unit
+def test_unavailable_reference_reconciliation_failure_preserves_complete_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "unavailable/run.json"
+    stale = ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    corrected = stale.model_copy(update={"references": ("known-reference",)})
+    write_unavailable_record(path, stale)
+    stale_bytes = path.read_bytes()
+    monkeypatch.setattr(
+        run_artifacts,
+        "_replace_reconciled_record",
+        lambda *_: (_ for _ in ()).throw(OSError("injected replace failure")),
+    )
+
+    with pytest.raises(OSError, match="injected"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+
+    assert path.read_bytes() == stale_bytes
+    audits = list((path.parent / "superseded").glob("*.json"))
+    assert len(audits) == 1
+    assert audits[0].read_bytes() == stale_bytes
+
+
+@pytest.mark.unit
+def test_unavailable_reconciliation_post_replace_failure_keeps_corrected_and_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "unavailable/run.json"
+    stale = ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    corrected = stale.model_copy(update={"references": ("known-reference",)})
+    write_unavailable_record(path, stale)
+    stale_bytes = path.read_bytes()
+
+    def replace_then_fail(source: Path, destination: Path) -> None:
+        run_artifacts.os.replace(source, destination)
+        raise OSError("injected after replace")
+
+    monkeypatch.setattr(run_artifacts, "_replace_reconciled_record", replace_then_fail)
+    with pytest.raises(OSError, match="after replace"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+
+    assert load_artifact_record(path) == corrected
+    audits = list((path.parent / "superseded").glob("*.json"))
+    assert len(audits) == 1
+    assert audits[0].read_bytes() == stale_bytes
+
+
+@pytest.mark.unit
+def test_unavailable_reconciliation_refuses_non_cas_and_unsafe_states(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "unavailable/run.json"
+    stale = ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    corrected = stale.model_copy(update={"references": ("known-reference",)})
+    with pytest.raises(ArtifactConflictError, match="absent"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"unrecognized bytes\n")
+    with pytest.raises(ArtifactConflictError, match="CAS identity"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+
+    for invalid_stale, invalid_corrected in (
+        (corrected, corrected),
+        (stale, stale),
+        (stale, corrected.model_copy(update={"family": "different"})),
+    ):
+        with pytest.raises(ArtifactConflictError, match="only add missing references"):
+            reconcile_missing_unavailable_references(
+                path=path,
+                expected_stale=invalid_stale,
+                corrected=invalid_corrected,
+            )
+
+    path.write_bytes(
+        (
+            json.dumps(corrected.to_dict(), sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode()
+    )
+    assert (
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+        is None
+    )
+    stale_bytes = (
+        json.dumps(stale.to_dict(), sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    audit = (
+        path.parent
+        / "superseded"
+        / (__import__("hashlib").sha256(stale_bytes).hexdigest() + ".json")
+    )
+    audit.parent.mkdir()
+    audit.write_bytes(b"conflicting audit\n")
+    with pytest.raises(ArtifactConflictError, match="audit differs"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+    audit.unlink()
+    path.unlink()
+    path.symlink_to(tmp_path / "target")
+    with pytest.raises(ArtifactConflictError, match="regular file"):
+        reconcile_missing_unavailable_references(
+            path=path, expected_stale=stale, corrected=corrected
+        )
+
+
+@pytest.mark.unit
 def test_legacy_sidecar_requires_exact_bytes_run_and_persisted_binding(
     tmp_path: Path,
 ) -> None:
@@ -678,3 +860,149 @@ def test_legacy_sidecar_requires_exact_bytes_run_and_persisted_binding(
             generator=GeneratorBinding(identity="git:abc", command=("register",)),
         )
     assert not conflicting.exists()
+
+
+@pytest.mark.unit
+def test_complete_legacy_sidecar_rerun_retains_original_generator_identity(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "tmp/full-corpus.ttl"
+    artifact.parent.mkdir()
+    artifact.write_text(f"<{RUN_ID}> <p> <o> .\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(artifact.read_bytes()).hexdigest()
+    sidecar = tmp_path / "tmp/artifacts/v1/legacy-in-place/full.manifest.json"
+    original = write_legacy_in_place_manifest(
+        path=sidecar,
+        repository_root=tmp_path,
+        artifact_path=artifact,
+        run_id=RUN_ID,
+        persisted_representation_identity=digest,
+        persisted_artifact_path="tmp/full-corpus.ttl",
+        source_identity="source",
+        generator=GeneratorBinding(identity="git:old", command=("record",)),
+    )
+    original_bytes = sidecar.read_bytes()
+
+    rerun = write_legacy_in_place_manifest(
+        path=sidecar,
+        repository_root=tmp_path,
+        artifact_path=artifact,
+        run_id=RUN_ID,
+        persisted_representation_identity=digest,
+        persisted_artifact_path="tmp/full-corpus.ttl",
+        source_identity="source",
+        generator=GeneratorBinding(identity="git:later", command=("record",)),
+    )
+
+    assert rerun == original
+    assert rerun.generator.identity == "git:old"
+    assert sidecar.read_bytes() == original_bytes
+
+
+@pytest.mark.unit
+def test_parent_bound_publication_contract_blocks_future_274_orphans(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "candidate.json"
+    source.write_bytes(b"candidate")
+    with pytest.raises(ArtifactConflictError, match="parent manifest"):
+        publish_parent_bound_generation(
+            repository_root=tmp_path,
+            artifacts_root=tmp_path / "artifacts",
+            family="issue-274-candidate",
+            generation_id="candidate",
+            run_id=None,
+            artifact_sources={"artifacts/candidate.json": source},
+            parents=(),
+            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
+            sources=(),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+
+    parent = _publish(tmp_path, "candidate-parent")
+    parent_path = (
+        tmp_path / "artifacts/m1-6-current-replay/candidate-parent/manifest.json"
+    )
+    binding = ParentManifestBinding(
+        family=parent.family,
+        generation_id=parent.generation_id,
+        manifest_path=parent_path.relative_to(tmp_path).as_posix(),
+        manifest_identity=parent.manifest_identity,
+    )
+    published = publish_parent_bound_generation(
+        repository_root=tmp_path,
+        artifacts_root=tmp_path / "artifacts",
+        family="issue-274-candidate",
+        generation_id="candidate",
+        run_id=None,
+        artifact_sources={"artifacts/candidate.json": source},
+        parents=(binding,),
+        generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
+        sources=(),
+        retention=RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="decomposition",
+            expires_at=None,
+        ),
+    )
+    assert published.parents == (binding,)
+
+    forged = binding.model_copy(update={"manifest_identity": "f" * 64})
+    with pytest.raises(ArtifactConflictError, match="parent manifest"):
+        publish_parent_bound_generation(
+            repository_root=tmp_path,
+            artifacts_root=tmp_path / "artifacts",
+            family="issue-274-candidate",
+            generation_id="forged",
+            run_id=None,
+            artifact_sources={"artifacts/candidate.json": source},
+            parents=(forged,),
+            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
+            sources=(),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+
+    wrong_locator = binding.model_copy(update={"family": "different-family"})
+    with pytest.raises(ArtifactConflictError, match="locator differs"):
+        publish_parent_bound_generation(
+            repository_root=tmp_path,
+            artifacts_root=tmp_path / "artifacts",
+            family="issue-274-candidate",
+            generation_id="wrong-locator",
+            run_id=None,
+            artifact_sources={"artifacts/candidate.json": source},
+            parents=(wrong_locator,),
+            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
+            sources=(),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+
+    with pytest.raises(ArtifactConflictError, match="outside the artifact registry"):
+        publish_parent_bound_generation(
+            repository_root=tmp_path,
+            artifacts_root=tmp_path / "different-artifact-registry",
+            family="issue-274-candidate",
+            generation_id="outside-parent",
+            run_id=None,
+            artifact_sources={"artifacts/candidate.json": source},
+            parents=(binding,),
+            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
+            sources=(),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )

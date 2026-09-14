@@ -991,17 +991,29 @@ def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
     monkeypatch.setattr(replay, "_inspect_decomposition_runs_async", inspect)
     monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
 
+    unavailable_path = (
+        tmp_path / "tmp/artifacts/v1/unavailable/"
+        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
+    )
+    stale = replay.ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    replay.write_unavailable_record(unavailable_path, stale)
+    stale_bytes = unavailable_path.read_bytes()
+
     assert run_agent_replay(["record-artifact-registry"], tmp_path) == 0
 
     assert all(path.read_bytes() == content for path, content in before.items())
     sidecars = list((tmp_path / "tmp/artifacts/v1/legacy-in-place").glob("*.json"))
     assert len(sidecars) == 2
-    unavailable = json.loads(
-        (
-            tmp_path / "tmp/artifacts/v1/unavailable/"
-            "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
-        ).read_text(encoding="utf-8")
-    )
+    unavailable = json.loads((unavailable_path).read_text(encoding="utf-8"))
     assert unavailable["record_type"] == "unavailable-artifact"
     assert unavailable["reason"] == "overwritten-before-immutable-retention"
     assert unavailable["references"] == [
@@ -1009,6 +1021,21 @@ def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
         "tmp/m1-6-group-review-pre274-observations.json",
     ]
     assert "artifact_records" not in unavailable
+    audits = list((unavailable_path.parent / "superseded").glob("*.json"))
+    assert len(audits) == 1
+    assert audits[0].read_bytes() == stale_bytes
+
+    sidecar_bytes = {path: path.read_bytes() for path in sidecars}
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:later")
+    assert run_agent_replay(["record-artifact-registry"], tmp_path) == 0
+    assert {path: path.read_bytes() for path in sidecars} == sidecar_bytes
+    assert (
+        unavailable_path.read_bytes()
+        == (
+            json.dumps(unavailable, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+    )
+    assert audits[0].read_bytes() == stale_bytes
 
 
 @pytest.mark.unit

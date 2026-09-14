@@ -40,9 +40,13 @@ operation, or adoption operation. Consumers require the exact parent manifest pa
 `generate-current-evidence` requires both values; resolution verifies the completion
 marker, manifest identity, and all artifact bytes before supplying the bound run ID and
 artifact to the existing evidence generator. A wrong identity, substituted manifest,
-missing parent, or markerless interrupted generation refuses. Candidate call sites
-owned by #274 are not present on this milestone base and remain deferred rather than
-being recreated or cherry-picked here.
+missing parent, or markerless interrupted generation refuses. Candidate call sites owned
+by #274 are not present on this milestone base and remain deferred rather than being
+recreated or cherry-picked here. When that producer resumes, it must use the
+`publish_parent_bound_generation` contract: candidate bytes are published as a new
+generation and publication refuses unless the candidate identifies at least one exact
+parent manifest. This executable wrapper carries the requirement without implementing or
+changing #274 semantics here.
 
 ## Existing and unavailable artifacts
 
@@ -51,6 +55,10 @@ The existing `tmp/m1-6-current-full-corpus.ttl` and
 under `tmp/artifacts/v1/legacy-in-place/` only after its regular-file bytes, embedded run
 membership, and persisted database digest and path all agree. Recording does not move,
 rewrite, or delete the TTL and assigns `critical-full-corpus` retention without expiry.
+The sidecar records the generator identity at its original creation. A later registry
+rerun verifies the sidecar's exact canonical identity, artifact bytes, persisted run,
+database digest/path, and source identity, then accepts that historical record without
+rewriting its generator to the caller's newer Git HEAD.
 
 Run `neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997` with expected artifact SHA-256
 `4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d` is unavailable:
@@ -60,6 +68,16 @@ described as observed. Its two known references are labels for the historical pa
 `tmp/m1-6-normalized-group-policy-candidate.json` and
 `tmp/m1-6-group-review-pre274-observations.json`; they do not claim those bytes are
 currently present.
+
+The one schema-v1 unavailable record created before its references were known is repaired
+only by the dedicated missing-reference reconciliation. It compares the active file with
+the exact canonical stale bytes and requires all semantic fields (family, run, expected
+digest, reason, and last-known path) to remain identical. Before atomic replacement it
+writes and fsyncs those old bytes under
+`tmp/artifacts/v1/unavailable/superseded/<old-byte-sha256>.json`; the active record is then
+replaced and its directory fsynced. A retry verifies either the exact corrected active
+record or the exact stale compare-and-swap input. There is no general record rewrite API,
+the audit copy is never deleted, and neither record claims or reconstructs artifact bytes.
 
 ## Retention and inventory
 
@@ -74,7 +92,18 @@ records, and one summary per top-level unmanaged root. Each unmanaged summary ha
 count, logical and allocated bytes, unknown retention/owner/reference status, and a
 bounded top-N largest-file drilldown with an explicit truncation flag. Output is bounded
 by roots, classes, generations, and top-N rather than every unknown file. Unknown bytes
-are read from filesystem metadata and are never hashed.
+are read from filesystem metadata and are never hashed. Each summarized filesystem root
+is traversed once for both totals and top-N selection. Walk and per-path failures produce
+bounded `scan_errors` plus an error status rather than a false zero or an uncaught
+disappearance; counts and byte totals describe exactly the successfully observed files.
+
+Incoming-reference reporting is typed. Cleanup planning loads every active managed
+manifest and unavailable-record root before it can report
+`coverage=all-managed-record-roots`; unavailable-record references remain historical path
+labels, while cleanup safety uses exact incoming generation-parent manifest identities.
+Invalid or unreadable managed records make coverage incomplete and refuse planning. An
+empty incoming-parent list therefore means only `no-incoming-generation-parent`, never a
+claim that the bytes are globally unreferenced.
 
 Worktrees are audit-only. Each obtainable entry reports exact path, common Git dir,
 HEAD, branch or detached state, dirty/untracked/ignored counts, unique-commit status,
@@ -94,7 +123,10 @@ volume-bearing down/remove operation.
 
 `pdm run artifacts plan` writes a create-only, content-identified plan beneath
 `tmp/artifacts/v1/cleanup-plans/`. Actions can name only complete, byte-verified,
-cleanup-eligible immutable generation directories directly below the managed root.
+cleanup-eligible immutable generation directories directly below the managed root whose
+manifest `expires_at` is a timezone-bearing RFC 3339 instant that has been reached. The
+class policy must declare `manifest-expires-at`; a cleanup boolean alone is insufficient,
+and no-expiry referenced runs remain protected.
 Each action binds its exact generation path, manifest path and identity, logical bytes,
 owner, retention class, references, and reason. Ordering and canonical JSON identity
 are deterministic. Unknown classes/owners, partial generations, symlinks, parent or
@@ -102,6 +134,12 @@ incoming references, and critical/full-corpus evidence refuse or are excluded as
 appropriate. `licensed-source` is explicitly blocked until #335 certifies the generated
 repository; this protects `tmp/data/Metathesaurus_2026AA/META` independently of its
 current unmanaged location.
+
+Cleanup plans are themselves visible as the managed
+`tmp/artifacts/v1/cleanup-plans` summary with `cleanup-plan` retention, owner
+`artifact-review`, exact totals, bounded top files, and
+`superseded-or-session-end` lifecycle. They are not silently counted as unmanaged data or
+allowed to accumulate outside inventory.
 
 Apply requires both the exact plan path and identity:
 
@@ -113,8 +151,12 @@ Before the first mutation it revalidates the plan identity/location, all action 
 non-overlap, policy, ownership, references, manifests, completion markers, complete
 inventories, and artifact hashes. Any drift refuses before deletion. Only after that
 global preflight may its internal safe tree remover delete exact managed generation
-directories. A later filesystem failure reports `partial-failure` with per-action
-`removed`/`failed` status and exact reclaimed logical bytes; there is no rollback
-promise. Safe recovery is to preserve remaining bytes, rerun read-only inventory,
-resolve the operator-visible error, and create a fresh plan. Never edit or adopt a
-markerless generation and never reuse an old plan after drift.
+directories. The remover independently repeats lexical and resolved containment plus
+top-level `lstat` checks under the exact managed root, so a rebound outside action or
+symlink swap refuses before tree traversal. It removes `.complete` first. A later
+filesystem failure reports `partial-failure` with per-action `failed` or
+`partially-removed` status and exact measured reclaimed and remaining logical bytes; an
+interrupted tree can no longer remain readable as complete. There is no rollback promise.
+Safe recovery is to preserve remaining bytes, rerun read-only inventory, resolve the
+operator-visible error, and create a fresh plan. Never edit or adopt a markerless
+generation and never reuse an old plan after drift.
