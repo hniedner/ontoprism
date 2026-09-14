@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.fanout_baseline import (
     load_fanout_baseline,
     rerun_fanout_concept,
@@ -40,8 +41,12 @@ async def test_observed_highest_fanout_matches_source_and_fixed_budgets() -> Non
 
     async with ncit_sparql_client(url, query_timeout=180.0) as client:
         assert await client.version() == baseline.ontology_release
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, manifest.source_identity
+        )
         observations = [
-            await rerun_fanout_concept(client, code) for code in baseline.concept_codes
+            await rerun_fanout_concept(client, code, diagnostic_source)
+            for code in baseline.concept_codes
         ]
 
     assert observations, "tracked exhaustive C3262 scope maximum has no concepts"

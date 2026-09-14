@@ -9,6 +9,7 @@ from scripts.validation.run_agent_replay import (
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.mixed_chain_inventory import load_mixed_chain_inventory
@@ -44,6 +45,9 @@ async def test_mixed_chain_canaries_collapse_with_real_source_paths() -> None:
     query_counts: dict[str, int] = {}
     async with ncit_sparql_client("http://localhost:7888") as client:
         counted = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, inventory.source_identity
+        )
         for code, (broad, _terminal, _kinds) in expected.items():
             before = counted.logical_select_count
             result = await _decompose_one(
@@ -53,6 +57,8 @@ async def test_mixed_chain_canaries_collapse_with_real_source_paths() -> None:
                 label_lookup=no_label_match,
                 source_identity=inventory.source_identity,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                diagnostic_source=diagnostic_source,
+                detector_identity="0" * 64,
                 walker_max_depth=7,
             )
             assert result.decomposition is not None

@@ -38,7 +38,6 @@ _RUN_ID = re.compile(
     r"neoplasm-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
-_MAX_FILLERS = 8
 _MAX_INSPECTED_RUNS = 8
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
@@ -678,9 +677,10 @@ async def _classify_mixed_chain_delta(
         source_identity=source_identity,
     )
     part_of = {(pair.part, pair.whole) for pair in part_pairs}
-    selected = fs.select_routed_plan(
+    selected = fs.diagnose_historical_collapse_dispositions(
         plan,
         extract.make_is_ancestor(set(ancestor_pairs)),
+        purpose=fs.DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION,
         is_part_of=lambda part, whole, pairs=part_of: (part, whole) in pairs,
     )
     broad = tuple(
@@ -1775,8 +1775,6 @@ def _generate_axis_diagnostics(
 ) -> int:
     if not values:
         raise AgentReplayInputError("at least one residual filler is required")
-    if len(values) > _MAX_FILLERS:
-        raise AgentReplayInputError("axis diagnostics accept at most 8 fillers")
     if len(values) != len(set(values)) or any(
         _FILLER.fullmatch(value) is None for value in values
     ):

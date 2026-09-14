@@ -811,16 +811,39 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
 
 
 @pytest.mark.unit
-def test_axis_diagnostics_reject_unsafe_or_unbounded_fillers(tmp_path: Path) -> None:
+def test_axis_diagnostics_reject_unsafe_fillers_without_an_arbitrary_count_cap(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(AgentReplayInputError, match="filler"):
         run_agent_replay(
             ["generate-axis-diagnostics", "C35501", "../../unsafe"], tmp_path
         )
-    with pytest.raises(AgentReplayInputError, match="at most 8"):
+    for relative in (
+        "scripts/adjudication.py",
+        "samples/ncit-26.07d-m1-current-replay.json",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
         run_agent_replay(
-            ["generate-axis-diagnostics", *(f"C{index}" for index in range(9))],
+            ["generate-axis-diagnostics", *(f"C{index}" for index in range(1, 80))],
             tmp_path,
+            runner=runner,
         )
+        == 0
+    )
+    command, _options = runner.calls[0]
+    assert command.count("--residual-filler") == 79
 
 
 @pytest.mark.unit

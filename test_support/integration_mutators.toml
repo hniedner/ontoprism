@@ -232,6 +232,11 @@ fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_disjoint_query_exposes_malformed_all_disjoint_list"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_occurrence_selection_double_matches_disposable_qlever_rows"]
 fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
 

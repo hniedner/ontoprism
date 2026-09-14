@@ -9,8 +9,9 @@ fillers. The selection is a pure function of the fillers and an injected
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
@@ -24,6 +25,11 @@ from ontolib.decomposition.models import (
     SemanticRoute,
     SpecificityPathEdge,
     SpecificityRelationKind,
+)
+from ontolib.decomposition.projection_validity import (
+    ProjectionAssessment,
+    ProjectionDecision,
+    decide_projection,
 )
 from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
@@ -81,6 +87,35 @@ class RoutedSelection:
     constituents: tuple[Constituent, ...]
     dispositions: tuple[OccurrenceDisposition, ...]
     synthetic_occurrence_count: int = 0
+    projection_decisions: tuple[ProjectionDecisionRecord, ...] = ()
+
+
+class DiagnosticReductionPurpose(Enum):
+    """Closed authorization for a non-emitting unassessed diagnostic reduction."""
+
+    HISTORICAL_MIXED_CHAIN_RECONSTRUCTION = "historical-mixed-chain-reconstruction"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class HistoricalCollapseDiagnostic:
+    """Historical collapse dispositions without projectable constituents."""
+
+    dispositions: tuple[OccurrenceDisposition, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectionDecisionRecord:
+    """Transient decision ledger; source definitions remain in the complete record."""
+
+    axis: str
+    filler_code: str
+    outcome: str
+    review_bearing: bool
+    axis_range_status: str
+    atomicity_status: str
+    reasons: tuple[str, ...]
+    source_definition_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -777,7 +812,7 @@ def _select_axis_partition(
     return constituents, dispositions
 
 
-def select_routed_plan(
+def _reduce_routed_plan(
     plan: RoutedPlan,
     is_ancestor: IsAncestor,
     *,
@@ -814,6 +849,165 @@ def select_routed_plan(
             occurrence.restriction.source_kind == "synthetic"
             for occurrence in plan.occurrences
         ),
+    )
+
+
+def diagnose_historical_collapse_dispositions(
+    plan: RoutedPlan,
+    is_ancestor: IsAncestor,
+    *,
+    purpose: DiagnosticReductionPurpose,
+    is_part_of: IsPartOf | None = None,
+) -> HistoricalCollapseDiagnostic:
+    """Reconstruct historical mixed-chain dispositions without enabling emission."""
+    if purpose is not DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION:
+        raise TypeError(
+            "purpose must be "
+            "DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION"
+        )
+    selected = _reduce_routed_plan(plan, is_ancestor, is_part_of=is_part_of)
+    return HistoricalCollapseDiagnostic(dispositions=selected.dispositions)
+
+
+def _projection_decision_record(
+    decision: ProjectionDecision,
+    rows: tuple[RoutedOccurrence, ...],
+) -> ProjectionDecisionRecord:
+    source_definition_ids = tuple(
+        sorted({row.source_fact_id for row in rows if row.source_fact_id is not None})
+    )
+    source_occurrence_ids = tuple(
+        sorted(
+            {
+                row.source_occurrence_id
+                for row in rows
+                if row.source_occurrence_id is not None
+            }
+        )
+    )
+    return ProjectionDecisionRecord(
+        axis=decision.axis,
+        filler_code=decision.filler_code,
+        outcome=decision.outcome,
+        review_bearing=decision.review_bearing,
+        axis_range_status=decision.axis_range_status,
+        atomicity_status=decision.atomicity_status,
+        reasons=decision.reasons,
+        source_definition_ids=source_definition_ids,
+        source_occurrence_ids=source_occurrence_ids,
+    )
+
+
+def _occurrences_by_projection_key(
+    plan: RoutedPlan,
+) -> dict[tuple[str, str], list[RoutedOccurrence]]:
+    result: dict[tuple[str, str], list[RoutedOccurrence]] = defaultdict(list)
+    for occurrence in plan.occurrences:
+        result[(occurrence.normalized_axis, occurrence.restriction.filler_code)].append(
+            occurrence
+        )
+    for filler in plan.parent_morphologies:
+        result[(axes.MORPHOLOGY_AXIS, filler)]
+    return result
+
+
+def _require_complete_assessments(
+    expected: set[tuple[str, str]],
+    supplied: set[tuple[str, str]],
+) -> None:
+    if missing := sorted(expected - supplied):
+        axis_name, filler = missing[0]
+        raise ValueError(f"missing projection assessment for {axis_name}/{filler}")
+    if extra := sorted(supplied - expected):
+        axis_name, filler = extra[0]
+        raise ValueError(f"extraneous projection assessment for {axis_name}/{filler}")
+
+
+def _retained_policy_decisions(
+    plan: RoutedPlan,
+    occurrences: tuple[RoutedOccurrence, ...],
+) -> tuple[tuple[str, str], ...]:
+    retained_occurrence_ids = {
+        occurrence.source_occurrence_id
+        for occurrence in occurrences
+        if occurrence.source_occurrence_id is not None
+    }
+    return tuple(
+        decision
+        for decision in plan.policy_decisions
+        if decision[0] in retained_occurrence_ids
+    )
+
+
+def _projection_decisions(
+    by_key: Mapping[tuple[str, str], list[RoutedOccurrence]],
+    assessments: Mapping[tuple[str, str], ProjectionAssessment],
+) -> tuple[ProjectionDecisionRecord, ...]:
+    return tuple(
+        _projection_decision_record(
+            decide_projection(assessments[key]),
+            tuple(by_key[key]),
+        )
+        for key in sorted(by_key)
+    )
+
+
+def _retained_parent_morphologies(
+    plan: RoutedPlan, accepted: set[tuple[str, str]]
+) -> tuple[str, ...]:
+    return tuple(
+        filler
+        for filler in plan.parent_morphologies
+        if (axes.MORPHOLOGY_AXIS, filler) in accepted
+    )
+
+
+def _assessed_plan(
+    plan: RoutedPlan,
+    assessments: Mapping[tuple[str, str], ProjectionAssessment],
+) -> tuple[RoutedPlan, tuple[ProjectionDecisionRecord, ...]]:
+    by_key = _occurrences_by_projection_key(plan)
+    _require_complete_assessments(set(by_key), set(assessments))
+    decisions = _projection_decisions(by_key, assessments)
+    accepted = {
+        (decision.axis, decision.filler_code)
+        for decision in decisions
+        if decision.outcome == "accepted"
+    }
+    occurrences = tuple(
+        occurrence
+        for occurrence in plan.occurrences
+        if (occurrence.normalized_axis, occurrence.restriction.filler_code) in accepted
+    )
+    assessed = RoutedPlan(
+        occurrences=occurrences,
+        parent_morphologies=_retained_parent_morphologies(plan, accepted),
+        specificity_groups=_comparison_groups(occurrences, location_only=False),
+        comparison_groups=_comparison_groups(occurrences, location_only=True),
+        protected_pairs=frozenset(
+            pair for pair in plan.protected_pairs if pair in accepted
+        ),
+        policy_decisions=_retained_policy_decisions(plan, occurrences),
+        source_identity=plan.source_identity,
+    )
+    return assessed, decisions
+
+
+def select_assessed_routed_plan(
+    plan: RoutedPlan,
+    is_ancestor: IsAncestor,
+    *,
+    assessments: Mapping[tuple[str, str], ProjectionAssessment],
+    is_part_of: IsPartOf | None = None,
+) -> RoutedSelection:
+    """Apply complete validity decisions after routing and before reduction."""
+    assessed, decisions = _assessed_plan(plan, assessments)
+    selected = _reduce_routed_plan(assessed, is_ancestor, is_part_of=is_part_of)
+    return RoutedSelection(
+        constituents=selected.constituents,
+        dispositions=selected.dispositions,
+        synthetic_occurrence_count=selected.synthetic_occurrence_count,
+        projection_decisions=decisions,
     )
 
 

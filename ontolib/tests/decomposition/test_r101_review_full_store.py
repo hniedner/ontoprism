@@ -8,6 +8,7 @@ import pytest
 from openpyxl import load_workbook
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import (
     NO_COLLAPSE_VETO_POLICY,
     load_packaged_collapse_veto_policy,
@@ -102,6 +103,9 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
 
     async with ncit_sparql_client("http://localhost:7888") as client:
         counted = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, report.source_identity
+        )
         await _qualify_collapse_policy(
             policy,
             cast("Any", counted),
@@ -116,11 +120,16 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
             label_lookup=no_label_match,
             source_identity=report.source_identity,
             collapse_policy=policy,
+            diagnostic_source=diagnostic_source,
+            detector_identity="0" * 64,
             walker_max_depth=7,
         )
         policy_item_queries = counted.logical_select_count - qualification_queries
     async with ncit_sparql_client("http://localhost:7888") as client:
         baseline_client = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, report.source_identity
+        )
         baseline = await _decompose_one(
             "C5292",
             cast("Any", baseline_client),
@@ -128,6 +137,8 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
             label_lookup=no_label_match,
             source_identity=report.source_identity,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            diagnostic_source=diagnostic_source,
+            detector_identity="0" * 64,
             walker_max_depth=7,
         )
 

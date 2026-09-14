@@ -13,6 +13,7 @@ from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import (
     NO_COLLAPSE_VETO_POLICY,
     load_packaged_collapse_veto_policy,
@@ -202,6 +203,9 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
         label_lookup = _make_label_lookup(NcitSearchIndex(make_sessionmaker(engine)))
         async with ncit_sparql_client("http://localhost:7888") as client:
             labels = await NcitGraphStore(client).labels_for(list(sample.codes))
+            diagnostic_source = await read_axis_diagnostic_source(
+                client, manifest.source_identity
+            )
             for ordinal, code in enumerate(sample.codes):
                 result = await _decompose_one(
                     code,
@@ -210,6 +214,8 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
                     label_lookup=label_lookup,
                     source_identity=manifest.source_identity,
                     collapse_policy=load_packaged_collapse_veto_policy(),
+                    diagnostic_source=diagnostic_source,
+                    detector_identity=expected.detector_identity,
                     walker_max_depth=7,
                 )
                 decomposition = result.decomposition
@@ -250,7 +256,20 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
         for actual_row, expected_row in zip(
             actual_item.constituents, expected_item.constituents, strict=True
         ):
-            assert actual_row == expected_row, (actual_item.code, actual_row.axis)
+            actual_fields = actual_row.model_dump(mode="json")
+            expected_fields = expected_row.model_dump(mode="json")
+            assert actual_row == expected_row, {
+                "code": actual_item.code,
+                "axis": actual_row.axis,
+                "field_diff": {
+                    field: {
+                        "expected": expected_fields.get(field),
+                        "actual": actual_fields.get(field),
+                    }
+                    for field in expected_fields.keys() | actual_fields.keys()
+                    if expected_fields.get(field) != actual_fields.get(field)
+                },
+            }
         assert actual_item.model_dump(mode="json") == expected_item.model_dump(
             mode="json"
         ), actual_item.code
@@ -450,6 +469,9 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
         return None
 
     async with ncit_sparql_client("http://localhost:7888") as client:
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, manifest.source_identity
+        )
         for code in baseline.concept_codes:
             counted = _CountingClient(client)
             result = await _decompose_one(
@@ -459,6 +481,8 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
                 label_lookup=no_label_match,
                 source_identity=manifest.source_identity,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                diagnostic_source=diagnostic_source,
+                detector_identity="0" * 64,
                 walker_max_depth=7,
             )
             assert result.decomposition is not None
@@ -482,6 +506,9 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
         return None
 
     async with ncit_sparql_client("http://localhost:7888") as client:
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, manifest.source_identity
+        )
         for code, (
             broader,
             retained_region,
@@ -495,6 +522,8 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                 label_lookup=no_label_match,
                 source_identity=manifest.source_identity,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                diagnostic_source=diagnostic_source,
+                detector_identity="0" * 64,
                 walker_max_depth=7,
             )
             decomposition = result.decomposition

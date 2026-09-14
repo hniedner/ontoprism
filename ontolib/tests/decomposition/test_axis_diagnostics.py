@@ -13,7 +13,7 @@ from ontolib.decomposition.axis_diagnostics import (
     classify_axis_range,
     disjoint_pairs_from_rows,
 )
-from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.namespaces import NCIT_NS, RDF_NS
 
 SOURCE = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
 
@@ -224,17 +224,181 @@ def test_evidence_models_reject_incoherent_values() -> None:
             [{"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C7057"}],
             "self-disjoint",
         ),
-        (
-            [
-                {"left": f"{NCIT_NS}C12218", "right": f"{NCIT_NS}C7057"},
-                {"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C12218"},
-            ],
-            "duplicate disjoint pair",
-        ),
     ],
 )
 def test_disjoint_row_parser_fails_closed(
     rows: list[dict[str, str | None]], message: str
 ) -> None:
     with pytest.raises(AxisDiagnosticError, match=message):
+        disjoint_pairs_from_rows(rows)
+
+
+@pytest.mark.unit
+def test_disjoint_row_parser_combines_binary_and_complete_list_pairs() -> None:
+    rows = [
+        {"left": f"{NCIT_NS}C10", "right": f"{NCIT_NS}C20"},
+        {"left": f"{NCIT_NS}C20", "right": f"{NCIT_NS}C10"},
+        {
+            "set": "all-disjoint-1",
+            "head": "cell-1",
+            "node": "cell-1",
+            "first": f"{NCIT_NS}C20",
+            "rest": "cell-2",
+        },
+        {
+            "set": "all-disjoint-1",
+            "head": "cell-1",
+            "node": "cell-2",
+            "first": f"{NCIT_NS}C30",
+            "rest": "cell-3",
+        },
+        {
+            "set": "all-disjoint-1",
+            "head": "cell-1",
+            "node": "cell-3",
+            "first": f"{NCIT_NS}C10",
+            "rest": f"{RDF_NS}nil",
+        },
+        {
+            "set": "all-disjoint-1",
+            "head": "cell-1",
+            "node": f"{RDF_NS}nil",
+            "first": None,
+            "rest": None,
+        },
+    ]
+
+    assert disjoint_pairs_from_rows(rows) == (
+        DisjointPair(left="C10", right="C20"),
+        DisjointPair(left="C10", right="C30"),
+        DisjointPair(left="C20", right="C30"),
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": None,
+            }
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": "cell-2",
+            },
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": "cell-3",
+            },
+        ],
+        [
+            {
+                "set": None,
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            }
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            },
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-2",
+                "node": "cell-2",
+                "first": f"{NCIT_NS}C20",
+                "rest": f"{RDF_NS}nil",
+            },
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "missing-cell",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            }
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            },
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": f"{RDF_NS}nil",
+                "first": f"{NCIT_NS}C20",
+                "rest": None,
+            },
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            }
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": "cell-2",
+            },
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-2",
+                "first": f"{NCIT_NS}C20",
+                "rest": "cell-1",
+            },
+        ],
+        [
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-1",
+                "first": f"{NCIT_NS}C10",
+                "rest": "cell-2",
+            },
+            {
+                "set": "all-disjoint-1",
+                "head": "cell-1",
+                "node": "cell-2",
+                "first": f"{NCIT_NS}C10",
+                "rest": f"{RDF_NS}nil",
+            },
+        ],
+    ],
+)
+def test_disjoint_row_parser_rejects_malformed_rdf_lists(
+    rows: list[dict[str, str | None]],
+) -> None:
+    with pytest.raises(AxisDiagnosticError, match="malformed AllDisjointClasses list"):
         disjoint_pairs_from_rows(rows)
