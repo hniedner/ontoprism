@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, assert_neve
 
 import yaml
 
+from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT
 from ontolib.decomposition.run_artifacts import (
     ArtifactUnavailableRecord,
     GeneratorBinding,
@@ -65,7 +66,7 @@ _MAX_R101_METADATA_CONCEPTS = 16_000
 _MAX_R101_INSPECTION_BYTES = 5_000_000
 _R101_PAIR_ARGUMENT_COUNT = 2
 _POC_DIR = Path("tmp/podman-poc")
-_PODMAN_PROJECT = "ontoprism-podman-poc"
+_PODMAN_PROJECT = COMPOSE_PROJECT
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
 _PODMAN_MACHINE = "ontoprism-vm"
 _PODMAN_DOCKER_CONTEXT = "ontoprism-podman"

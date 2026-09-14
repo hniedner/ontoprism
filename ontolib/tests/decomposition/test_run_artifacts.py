@@ -109,6 +109,24 @@ def test_parent_manifest_refuses_partial_deletion_and_substitution(
 
 
 @pytest.mark.unit
+def test_interrupted_markerless_generation_is_refused_and_never_adopted(
+    tmp_path: Path,
+) -> None:
+    final = tmp_path / "artifacts/m1-6-current-replay/interrupted"
+    artifact = final / "artifacts/decomposition.ttl"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"interrupted bytes")
+    before = artifact.read_bytes()
+
+    with pytest.raises(PartialGenerationError, match="incomplete"):
+        _publish(tmp_path, "interrupted", b"replacement")
+
+    assert artifact.read_bytes() == before
+    assert not (final / ".complete").exists()
+    assert not (final / "manifest.json").exists()
+
+
+@pytest.mark.unit
 def test_unavailable_record_is_never_loaded_as_a_manifest(tmp_path: Path) -> None:
     path = tmp_path / "unavailable.json"
     record = ArtifactUnavailableRecord(

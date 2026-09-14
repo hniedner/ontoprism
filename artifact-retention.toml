@@ -1,19 +1,23 @@
 schema_version = 1
 
+[managed]
+generation_root = "tmp/artifacts/v1/generations"
+
 [classes.critical-full-corpus]
 owner = "decomposition"
 expiry = "none"
 description = "Full-corpus artifacts and certified evidence are retained without expiry."
 
 [classes.referenced-bounded-run]
-owner = "referencing-workflow"
+owner = "decomposition"
 expiry = "while-referenced"
 description = "Bounded runs remain retained while a manifest, report, or review references them."
 
 [classes.unreferenced-bounded-derived]
 owner = "artifact-review"
-expiry = "review-required"
-description = "Unreferenced bounded runs and derived candidates are only eligible after explicit inventory and review."
+expiry = "cleanup-eligible"
+cleanup_eligible = true
+description = "Only complete, unreferenced immutable generations in the managed root are cleanup-eligible."
 
 [classes.session-ephemeral]
 owner = "issue-session"

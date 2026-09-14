@@ -35,11 +35,14 @@ conflicts and markerless partial directories refuse without adoption or overwrit
 The create-only fsynced writer is deliberately separate from general atomic-write
 helpers: replacement is valid for mutable files but would violate generation ownership.
 
-`generate-current-evidence` requires both the exact parent `manifest.json` path and its
-manifest identity. Resolution verifies the completion marker, manifest identity, and
-all artifact bytes before supplying the bound run ID and artifact to the existing
-evidence generator. Candidate call sites not present on this branch are deferred rather
-than recreated here.
+There is no mutable `current` or `latest` reference, symlink, pointer file, promotion
+operation, or adoption operation. Consumers require the exact parent manifest path and identity.
+`generate-current-evidence` requires both values; resolution verifies the completion
+marker, manifest identity, and all artifact bytes before supplying the bound run ID and
+artifact to the existing evidence generator. A wrong identity, substituted manifest,
+missing parent, or markerless interrupted generation refuses. Candidate call sites
+owned by #274 are not present on this milestone base and remain deferred rather than
+being recreated or cherry-picked here.
 
 ## Existing and unavailable artifacts
 
@@ -60,14 +63,58 @@ currently present.
 
 ## Retention and inventory
 
-`artifact-retention.toml` is class-based and intentionally has no arbitrary byte or age
-budget. `pdm run artifacts inventory` is read-only. It reports logical and allocated
-usage for ignored `tmp/` and `data/`, registered Git worktrees, managed records,
-unmanaged paths, availability, references, retention classes, and Compose resources.
-Marker-less generation directories are reported as partial rather than omitted.
-Unknown large files are sized from filesystem metadata and are not digested. There is
-no delete, prune, apply, worktree-removal, adoption, or authorization mode.
+`artifact-retention.toml` declares the sole cleanup-managed root,
+`tmp/artifacts/v1/generations/`, and class ownership. Optional class/root budgets are
+absent by default and inventory reports them as `not-declared`; absence neither refuses
+generation nor invents an arbitrary byte limit.
+
+`pdm run artifacts inventory` is read-only. It reports exact logical and allocated
+totals for ignored `tmp/` and `data/`, managed generations and unavailable/partial
+records, and one summary per top-level unmanaged root. Each unmanaged summary has file
+count, logical and allocated bytes, unknown retention/owner/reference status, and a
+bounded top-N largest-file drilldown with an explicit truncation flag. Output is bounded
+by roots, classes, generations, and top-N rather than every unknown file. Unknown bytes
+are read from filesystem metadata and are never hashed.
+
+Worktrees are audit-only. Each obtainable entry reports exact path, common Git dir,
+HEAD, branch or detached state, dirty/untracked/ignored counts, unique-commit status,
+and `operator-action-required`. Fallow/tool-owned and #274 recovery worktrees are
+preserved for operator resolution. The tool contains no worktree removal, pruning,
+force, or directory-deletion operation. Missing Git, failed Git inspection, and an
+empty list are distinct statuses.
 
 The Compose project identity is `ontoprism-podman-poc`, matching the existing active
 containers and volume `ontoprism-podman-poc_ontoprism_pg_data`. This change does not
-rename or move resources and never invokes `down -v` or `--volumes`.
+rename or move resources. Inventory marks active services and volumes protected;
+missing Docker, command failure, and an empty project are distinct statuses. Cleanup
+never targets Compose, data roots, worktrees, or unmanaged paths and never invokes a
+volume-bearing down/remove operation.
+
+## Managed cleanup and recovery
+
+`pdm run artifacts plan` writes a create-only, content-identified plan beneath
+`tmp/artifacts/v1/cleanup-plans/`. Actions can name only complete, byte-verified,
+cleanup-eligible immutable generation directories directly below the managed root.
+Each action binds its exact generation path, manifest path and identity, logical bytes,
+owner, retention class, references, and reason. Ordering and canonical JSON identity
+are deterministic. Unknown classes/owners, partial generations, symlinks, parent or
+incoming references, and critical/full-corpus evidence refuse or are excluded as
+appropriate. `licensed-source` is explicitly blocked until #335 certifies the generated
+repository; this protects `tmp/data/Metathesaurus_2026AA/META` independently of its
+current unmanaged location.
+
+Apply requires both the exact plan path and identity:
+
+```text
+pdm run artifacts apply --plan tmp/artifacts/v1/cleanup-plans/<identity>.json --identity <identity>
+```
+
+Before the first mutation it revalidates the plan identity/location, all action paths,
+non-overlap, policy, ownership, references, manifests, completion markers, complete
+inventories, and artifact hashes. Any drift refuses before deletion. Only after that
+global preflight may its internal safe tree remover delete exact managed generation
+directories. A later filesystem failure reports `partial-failure` with per-action
+`removed`/`failed` status and exact reclaimed logical bytes; there is no rollback
+promise. Safe recovery is to preserve remaining bytes, rerun read-only inventory,
+resolve the operator-visible error, and create a fresh plan. Never edit or adopt a
+markerless generation and never reuse an old plan after drift.

@@ -1,23 +1,94 @@
-"""Read-only inventory for local ignored data and immutable artifact records."""
+"""Bounded inventory and managed immutable-generation cleanup."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import heapq
 import json
 import os
 import shutil
 import stat
 import subprocess
+import tomllib
+from collections.abc import Callable
+from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from ontolib.decomposition.run_artifacts import ArtifactManifest, load_artifact_record
+from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT
+from ontolib.decomposition.run_artifacts import (
+    ArtifactManifest,
+    load_artifact_record,
+    resolve_parent_manifest,
+)
+
+_PLAN_SCHEMA = 1
+_DEFAULT_TOP_N = 5
+
+
+@dataclass(frozen=True)
+class RetentionClassPolicy:
+    owner: str
+    expiry: str
+    cleanup_eligible: bool
+
+
+@dataclass(frozen=True)
+class RetentionPolicy:
+    generation_root: str
+    classes: dict[str, RetentionClassPolicy]
+    budgets: dict[str, object]
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("inventory", help="report local artifacts without mutation")
+    commands.add_parser("plan", help="write a deterministic managed-generation plan")
+    apply = commands.add_parser("apply", help="apply an exact immutable cleanup plan")
+    apply.add_argument("--plan", required=True)
+    apply.add_argument("--identity", required=True)
+    return result
+
+
+def load_retention_policy(path: Path) -> RetentionPolicy:
+    try:
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"retention policy cannot be read: {path}") from exc
+    if payload.get("schema_version") != 1:
+        raise ValueError("retention policy schema version is unsupported")
+    managed = payload.get("managed", {})
+    generation_root = managed.get("generation_root", "tmp/artifacts/v1/generations")
+    if generation_root != "tmp/artifacts/v1/generations":
+        raise ValueError("managed generation root must be the v1 generation registry")
+    classes = _parse_class_policies(payload.get("classes"))
+    budgets = {
+        name: payload.get("budgets", {}).get(name, "not-declared")
+        for name in ("tmp", "data")
+    }
+    return RetentionPolicy(
+        generation_root=generation_root, classes=classes, budgets=budgets
+    )
+
+
+def _parse_class_policies(value: object) -> dict[str, RetentionClassPolicy]:
+    if not isinstance(value, dict):
+        raise ValueError("retention classes must be declared")
+    result: dict[str, RetentionClassPolicy] = {}
+    for name, raw in value.items():
+        if not isinstance(name, str) or not isinstance(raw, dict):
+            raise ValueError("retention class declaration is invalid")
+        owner = raw.get("owner")
+        expiry = raw.get("expiry")
+        cleanup = raw.get("cleanup_eligible", False)
+        if not isinstance(owner, str) or not isinstance(expiry, str):
+            raise ValueError(f"retention class {name} owner or expiry is invalid")
+        if not isinstance(cleanup, bool):
+            raise ValueError(f"retention class {name} cleanup eligibility is invalid")
+        result[name] = RetentionClassPolicy(owner, expiry, cleanup)
     return result
 
 
@@ -29,6 +100,14 @@ def _usage(path: Path) -> dict[str, int | bool]:
             "logical_bytes": 0,
             "allocated_bytes": 0,
             "files": 0,
+        }
+    details = path.lstat()
+    if stat.S_ISREG(details.st_mode):
+        return {
+            "available": True,
+            "logical_bytes": details.st_size,
+            "allocated_bytes": details.st_blocks * 512,
+            "files": 1,
         }
     for root, directories, names in os.walk(path, followlinks=False):
         directories[:] = [
@@ -48,100 +127,209 @@ def _usage(path: Path) -> dict[str, int | bool]:
     }
 
 
-def _default_worktrees(root: Path) -> tuple[Path, ...]:
+def _tree_summary(path: Path, *, top_n: int = _DEFAULT_TOP_N) -> dict[str, object]:
+    usage = _usage(path)
+    largest: list[tuple[int, str]] = []
+    if path.is_file() and not path.is_symlink():
+        largest.append((path.stat().st_size, path.name))
+    elif path.exists():
+        for root, directories, names in os.walk(path, followlinks=False):
+            directories[:] = [
+                name for name in directories if not (Path(root) / name).is_symlink()
+            ]
+            for name in names:
+                candidate = Path(root) / name
+                details = candidate.lstat()
+                if stat.S_ISREG(details.st_mode):
+                    item = (details.st_size, candidate.relative_to(path).as_posix())
+                    if len(largest) < top_n:
+                        heapq.heappush(largest, item)
+                    elif item > largest[0]:
+                        heapq.heapreplace(largest, item)
+    top = [
+        {"path": relative, "logical_bytes": size}
+        for size, relative in sorted(largest, reverse=True)
+    ]
+    return {
+        **usage,
+        "top_files": top,
+        "top_files_truncated": _required_int(usage["files"], "file count") > len(top),
+    }
+
+
+def _run_command(command: list[str], root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
+        command, cwd=root, check=False, capture_output=True, text=True
+    )
+
+
+def _default_worktrees(root: Path) -> dict[str, object]:
     git = shutil.which("git")
     if git is None:
-        raise RuntimeError("git is required for artifact inventory")
-    result = subprocess.run(  # noqa: S603
-        [git, "worktree", "list", "--porcelain"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return tuple(
+        return {"status": "unavailable", "reason": "git-not-found", "entries": []}
+    listing = _run_command([git, "worktree", "list", "--porcelain"], root)
+    if listing.returncode != 0:
+        return {"status": "error", "error": listing.stderr.strip(), "entries": []}
+    paths = [
         Path(line.removeprefix("worktree "))
-        for line in result.stdout.splitlines()
+        for line in listing.stdout.splitlines()
         if line.startswith("worktree ")
+    ]
+    entries = [_audit_worktree(git, root, path) for path in paths]
+    return {"status": "empty" if not entries else "ok", "entries": entries}
+
+
+def _audit_worktree(git: str, repository: Path, path: Path) -> dict[str, object]:
+    common = _run_command(
+        [git, "-C", str(path), "rev-parse", "--git-common-dir"], repository
     )
+    head = _run_command([git, "-C", str(path), "rev-parse", "HEAD"], repository)
+    branch = _run_command(
+        [git, "-C", str(path), "symbolic-ref", "-q", "HEAD"], repository
+    )
+    status = _run_command(
+        [git, "-C", str(path), "status", "--porcelain=v1", "--ignored"], repository
+    )
+    if common.returncode != 0 or head.returncode != 0 or status.returncode != 0:
+        return {
+            "path": str(path),
+            "status": "error",
+            "error": (common.stderr or head.stderr or status.stderr).strip(),
+            "resolution": "operator-action-required",
+        }
+    lines = status.stdout.splitlines()
+    branch_name = branch.stdout.strip() if branch.returncode == 0 else None
+    common_path = Path(common.stdout.strip())
+    if not common_path.is_absolute():
+        common_path = (path / common_path).resolve()
+    return {
+        "path": str(path),
+        "common_git_dir": str(common_path),
+        "head": head.stdout.strip(),
+        "branch": branch_name,
+        "state": "branch" if branch_name is not None else "detached",
+        "dirty": sum(not line.startswith(("??", "!!")) for line in lines),
+        "untracked": sum(line.startswith("??") for line in lines),
+        "ignored": sum(line.startswith("!!") for line in lines),
+        "unique_commit_status": _unique_commit_status(
+            git, repository, head.stdout.strip()
+        ),
+        "resolution": "operator-action-required",
+    }
 
 
-def _default_compose_resources(root: Path) -> tuple[dict[str, str], ...]:
+def _unique_commit_status(git: str, root: Path, head: str) -> str:
+    result = _run_command([git, "branch", "--all", "--contains", head], root)
+    if result.returncode != 0:
+        return "unknown"
+    branches = [
+        line.strip().lstrip("* ") for line in result.stdout.splitlines() if line.strip()
+    ]
+    return "unique" if len(branches) <= 1 else "reachable-from-multiple-branches"
+
+
+def _default_compose_resources(root: Path) -> dict[str, object]:
     docker = shutil.which("docker")
     if docker is None:
-        return ()
-    commands = (
-        (
-            "container",
-            [
-                docker,
-                "ps",
-                "-a",
-                "--filter",
-                "label=com.docker.compose.project=ontoprism-podman-poc",
-                "--format",
-                "{{.Names}}",
-            ],
-        ),
-        (
+        return {
+            "status": "unavailable",
+            "reason": "docker-not-found",
+            "project": COMPOSE_PROJECT,
+            "items": [],
+        }
+    results = [
+        _compose_listing(docker, root, "container"),
+        _compose_listing(docker, root, "volume"),
+    ]
+    errors = [str(item["error"]) for item in results if item["status"] == "error"]
+    items: list[object] = []
+    for item in results:
+        listed = item["items"]
+        if isinstance(listed, list):
+            items.extend(listed)
+    if errors:
+        return {
+            "status": "error",
+            "error": "; ".join(errors),
+            "project": COMPOSE_PROJECT,
+            "items": items,
+        }
+    return {
+        "status": "empty" if not items else "ok",
+        "project": COMPOSE_PROJECT,
+        "items": items,
+    }
+
+
+def _compose_listing(docker: str, root: Path, kind: str) -> dict[str, object]:
+    if kind == "container":
+        command = [
+            docker,
+            "ps",
+            "-a",
+            "--filter",
+            f"label=com.docker.compose.project={COMPOSE_PROJECT}",
+            "--format",
+            "{{.Names}}|{{.State}}",
+        ]
+    else:
+        command = [
+            docker,
             "volume",
-            [
-                docker,
-                "volume",
-                "ls",
-                "--filter",
-                "label=com.docker.compose.project=ontoprism-podman-poc",
-                "--format",
-                "{{.Name}}",
-            ],
-        ),
-    )
-    resources: list[dict[str, str]] = []
-    for kind, command in commands:
-        result = subprocess.run(  # noqa: S603
-            command, cwd=root, check=False, capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            resources.extend(
-                {"kind": kind, "name": name, "project": "ontoprism-podman-poc"}
-                for name in result.stdout.splitlines()
-                if name
+            "ls",
+            "--filter",
+            f"label=com.docker.compose.project={COMPOSE_PROJECT}",
+            "--format",
+            "{{.Name}}",
+        ]
+    result = _run_command(command, root)
+    if result.returncode != 0:
+        return {
+            "status": "error",
+            "error": f"{kind}: {result.stderr.strip()}",
+            "items": [],
+        }
+    items: list[dict[str, object]] = []
+    for line in result.stdout.splitlines():
+        name, _, state = line.partition("|")
+        if name:
+            items.append(
+                {
+                    "kind": kind,
+                    "name": name,
+                    "state": state or "active",
+                    "protected": True,
+                }
             )
-    return tuple(resources)
+    return {"status": "ok", "items": items}
 
 
 def _manifest_artifacts(
     root: Path, manifest_path: Path, record: ArtifactManifest
 ) -> tuple[list[dict[str, object]], set[Path]]:
-    legacy_in_place = record.family == "legacy-in-place"
+    legacy = record.family == "legacy-in-place"
     artifacts: list[dict[str, object]] = []
     managed_paths: set[Path] = set()
     for artifact in record.artifact_records:
         artifact_path = (
             root / artifact.relative_path
-            if legacy_in_place
+            if legacy
             else manifest_path.parent / artifact.relative_path
         )
         managed_paths.add(artifact_path)
         try:
             details = artifact_path.lstat()
         except OSError:
-            availability = "missing"
-            size = None
+            availability, size = "missing", None
         else:
             size = details.st_size
-            if not stat.S_ISREG(details.st_mode):
-                availability = "not-regular"
-            elif size != artifact.size:
-                availability = "size-differs"
-            else:
-                availability = "size-matches-manifest"
+            availability = (
+                "size-matches-manifest"
+                if stat.S_ISREG(details.st_mode) and size == artifact.size
+                else "size-or-type-differs"
+            )
         artifacts.append(
-            {
-                "path": artifact.relative_path,
-                "availability": availability,
-                "size": size,
-            }
+            {"path": artifact.relative_path, "availability": availability, "size": size}
         )
     return artifacts, managed_paths
 
@@ -150,36 +338,78 @@ def _managed_entry(
     root: Path, path: Path, record: ArtifactManifest
 ) -> tuple[dict[str, object], set[Path]]:
     artifacts, managed_paths = _manifest_artifacts(root, path, record)
-    artifacts_available = all(
+    available = all(
         item["availability"] == "size-matches-manifest" for item in artifacts
     )
-    completion_present = (
+    completion = (
         record.family == "legacy-in-place" or (path.parent / ".complete").is_file()
     )
     return (
         {
             "path": path.relative_to(root).as_posix(),
             "record_type": record.record_type,
-            "availability": (
-                "complete" if artifacts_available and completion_present else "partial"
-            ),
+            "availability": "complete" if available and completion else "partial",
             "manifest_identity": record.manifest_identity,
             "retention_class": record.retention.retention_class,
-            "references": [parent.manifest_identity for parent in record.parents],
+            "owner": record.retention.owner,
+            "parents": [parent.manifest_identity for parent in record.parents],
             "artifacts": artifacts,
         },
         managed_paths,
     )
 
 
+def _record_paths(artifacts_root: Path) -> list[Path]:
+    paths = list((artifacts_root / "legacy-in-place").glob("*.json"))
+    paths.extend((artifacts_root / "unavailable").glob("*.json"))
+    paths.extend((artifacts_root / "generations").glob("*/*/manifest.json"))
+    return sorted(paths)
+
+
+def _managed_records(
+    root: Path, artifacts_root: Path
+) -> tuple[list[dict[str, object]], set[Path]]:
+    records: list[dict[str, object]] = []
+    managed_paths: set[Path] = set()
+    for path in _record_paths(artifacts_root):
+        try:
+            record = load_artifact_record(path)
+        except ValueError as exc:
+            records.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "availability": "invalid",
+                    "error": str(exc),
+                }
+            )
+            continue
+        if isinstance(record, ArtifactManifest):
+            entry, paths = _managed_entry(root, path, record)
+            records.append(entry)
+            managed_paths.update(paths)
+        else:
+            records.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "record_type": record.record_type,
+                    "availability": "unavailable",
+                    "run_id": record.run_id,
+                    "expected_sha256": record.expected_sha256,
+                    "references": list(record.references),
+                }
+            )
+    records.extend(_partial_generation_entries(root, artifacts_root))
+    return records, managed_paths
+
+
 def _partial_generation_entries(
     root: Path, artifacts_root: Path
 ) -> list[dict[str, object]]:
-    generations_root = artifacts_root / "generations"
-    if not generations_root.is_dir():
+    generations = artifacts_root / "generations"
+    if not generations.is_dir():
         return []
     entries: list[dict[str, object]] = []
-    for family in sorted(generations_root.iterdir()):
+    for family in sorted(generations.iterdir()):
         if not family.is_dir() or family.name.startswith("."):
             continue
         for generation in sorted(family.iterdir()):
@@ -198,80 +428,365 @@ def _partial_generation_entries(
     return entries
 
 
+def _unmanaged_summaries(
+    root: Path, artifacts_root: Path, managed_paths: set[Path], top_n: int
+) -> list[dict[str, object]]:
+    summaries: list[dict[str, object]] = []
+    for base_name in ("tmp", "data"):
+        base = root / base_name
+        if not base.is_dir():
+            continue
+        top_level_files: list[Path] = []
+        for path in sorted(base.iterdir()):
+            if (
+                path == artifacts_root
+                or path in artifacts_root.parents
+                or path in managed_paths
+            ):
+                continue
+            if path.is_file() and not path.is_symlink():
+                top_level_files.append(path)
+                continue
+            summary = _tree_summary(path, top_n=top_n)
+            summaries.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    **summary,
+                    "retention_class": "unknown",
+                    "owner": "unknown",
+                    "reference_status": "unknown",
+                }
+            )
+        if top_level_files:
+            summaries.append(
+                _top_level_file_summary(root, base, top_level_files, top_n)
+            )
+    return summaries
+
+
+def _top_level_file_summary(
+    root: Path, base: Path, paths: list[Path], top_n: int
+) -> dict[str, object]:
+    details = [(path, path.stat()) for path in paths]
+    largest = sorted(
+        ((item.st_size, path.name) for path, item in details), reverse=True
+    )[:top_n]
+    return {
+        "path": f"{base.relative_to(root).as_posix()}/[top-level-files]",
+        "available": True,
+        "logical_bytes": sum(item.st_size for _path, item in details),
+        "allocated_bytes": sum(item.st_blocks * 512 for _path, item in details),
+        "files": len(details),
+        "top_files": [
+            {"path": relative, "logical_bytes": size} for size, relative in largest
+        ],
+        "top_files_truncated": len(details) > len(largest),
+        "retention_class": "unknown",
+        "owner": "unknown",
+        "reference_status": "unknown",
+    }
+
+
 def inventory_repository(
     root: Path,
     *,
-    git_worktrees: tuple[Path, ...] | None = None,
-    compose_resources: tuple[dict[str, str], ...] | None = None,
+    git_worktrees: dict[str, object] | None = None,
+    compose_resources: dict[str, object] | None = None,
+    top_n: int = _DEFAULT_TOP_N,
 ) -> dict[str, Any]:
     root = root.resolve()
+    policy = load_retention_policy(root / "artifact-retention.toml")
     artifacts_root = root / "tmp/artifacts/v1"
-    managed: list[dict[str, object]] = []
-    managed_paths: set[Path] = set()
-    if artifacts_root.exists():
-        for path in sorted(artifacts_root.rglob("*.json")):
-            try:
-                record = load_artifact_record(path)
-            except ValueError as exc:
-                managed.append(
-                    {
-                        "path": path.relative_to(root).as_posix(),
-                        "availability": "invalid",
-                        "error": str(exc),
-                    }
-                )
-                continue
-            entry: dict[str, object] = {
-                "path": path.relative_to(root).as_posix(),
-                "record_type": record.record_type,
-                "availability": "unavailable",
-            }
-            if isinstance(record, ArtifactManifest):
-                entry, paths = _managed_entry(root, path, record)
-                managed_paths.update(paths)
-            else:
-                entry.update(
-                    {
-                        "run_id": record.run_id,
-                        "expected_sha256": record.expected_sha256,
-                        "references": list(record.references),
-                    }
-                )
-            managed.append(entry)
-        managed.extend(_partial_generation_entries(root, artifacts_root))
-    unknown: list[str] = []
-    for base_name in ("tmp", "data"):
-        base = root / base_name
-        if base.exists():
-            for path in sorted(base.rglob("*")):
-                if (
-                    path.is_file()
-                    and path not in managed_paths
-                    and artifacts_root not in path.parents
-                ):
-                    unknown.append(path.relative_to(root).as_posix())
-    worktrees = git_worktrees if git_worktrees is not None else _default_worktrees(root)
-    resources = (
-        compose_resources
-        if compose_resources is not None
-        else _default_compose_resources(root)
-    )
+    managed, managed_paths = _managed_records(root, artifacts_root)
+    unmanaged = _unmanaged_summaries(root, artifacts_root, managed_paths, top_n)
     return {
         "mode": "read-only-inventory",
+        "managed_generation_root": policy.generation_root,
         "ignored_usage": {name: _usage(root / name) for name in ("tmp", "data")},
-        "registered_worktrees": [str(path) for path in worktrees],
+        "budgets": policy.budgets,
         "managed_records": managed,
-        "unknown_unmanaged_paths": unknown,
-        "compose_resources": list(resources),
+        "unmanaged_root_summaries": unmanaged,
+        "summary_counts": {
+            "managed_records": len(managed),
+            "partial_generations": sum(
+                item.get("availability") == "partial" for item in managed
+            ),
+            "unavailable_records": sum(
+                item.get("availability") == "unavailable" for item in managed
+            ),
+            "unmanaged_roots": len(unmanaged),
+            "top_n_per_root": top_n,
+        },
+        "worktrees": git_worktrees
+        if git_worktrees is not None
+        else _default_worktrees(root),
+        "compose": compose_resources
+        if compose_resources is not None
+        else _default_compose_resources(root),
+    }
+
+
+def _canonical_bytes(payload: dict[str, object]) -> bytes:
+    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _required_int(value: object, label: str) -> int:
+    if not isinstance(value, int):
+        raise ValueError(f"{label} must be an integer")
+    return value
+
+
+def bind_plan_identity(payload: dict[str, object]) -> dict[str, Any]:
+    identity = hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+    return {**payload, "plan_identity": identity}
+
+
+def _generation_manifests(
+    root: Path, policy: RetentionPolicy
+) -> list[tuple[Path, ArtifactManifest]]:
+    generation_root = root / policy.generation_root
+    results: list[tuple[Path, ArtifactManifest]] = []
+    if not generation_root.exists():
+        return results
+    for family in sorted(generation_root.iterdir()):
+        if not family.is_dir() or family.name.startswith("."):
+            continue
+        for generation in sorted(family.iterdir()):
+            if not generation.is_dir() or generation.name.startswith("."):
+                continue
+            manifest_path = generation / "manifest.json"
+            if not manifest_path.is_file() or not (generation / ".complete").is_file():
+                raise ValueError(
+                    f"partial generation refuses cleanup planning: {generation}"
+                )
+            record = resolve_parent_manifest(manifest_path)
+            results.append((generation, record))
+    return results
+
+
+def _validate_retention(
+    record: ArtifactManifest, policy: RetentionPolicy
+) -> RetentionClassPolicy:
+    name = record.retention.retention_class
+    declared = policy.classes.get(name)
+    if declared is None:
+        raise ValueError(f"unknown retention class refuses cleanup: {name}")
+    if declared.owner != record.retention.owner:
+        raise ValueError(f"retention owner differs from policy for {name}")
+    if name == "licensed-source":
+        raise ValueError(
+            "licensed-source cleanup is blocked pending #335 certification"
+        )
+    if name == "critical-full-corpus":
+        raise ValueError("critical/full-corpus artifacts are protected")
+    return declared
+
+
+def _directory_logical_bytes(path: Path) -> int:
+    total = 0
+    for root, directories, names in os.walk(path, followlinks=False):
+        for name in directories:
+            if (Path(root) / name).is_symlink():
+                raise ValueError(f"symlink refuses cleanup: {Path(root) / name}")
+        for name in names:
+            candidate = Path(root) / name
+            details = candidate.lstat()
+            if stat.S_ISLNK(details.st_mode):
+                raise ValueError(f"symlink refuses cleanup: {candidate}")
+            if not stat.S_ISREG(details.st_mode):
+                raise ValueError(f"non-regular path refuses cleanup: {candidate}")
+            total += details.st_size
+    return total
+
+
+def build_cleanup_plan(root: Path) -> dict[str, Any]:
+    root = root.resolve()
+    policy = load_retention_policy(root / "artifact-retention.toml")
+    manifests = _generation_manifests(root, policy)
+    incoming = {
+        parent.manifest_identity
+        for _directory, record in manifests
+        for parent in record.parents
+    }
+    actions: list[dict[str, object]] = []
+    for directory, record in manifests:
+        declared = _validate_retention(record, policy)
+        if (
+            not declared.cleanup_eligible
+            or record.parents
+            or record.manifest_identity in incoming
+        ):
+            continue
+        actions.append(
+            {
+                "path": directory.relative_to(root).as_posix(),
+                "manifest_path": (directory / "manifest.json")
+                .relative_to(root)
+                .as_posix(),
+                "manifest_identity": record.manifest_identity,
+                "logical_bytes": _directory_logical_bytes(directory),
+                "owner": record.retention.owner,
+                "retention_class": record.retention.retention_class,
+                "references": [],
+                "reason": "policy-cleanup-eligible-and-unreferenced",
+            }
+        )
+    payload: dict[str, object] = {
+        "schema_version": _PLAN_SCHEMA,
+        "record_type": "managed-generation-cleanup-plan",
+        "managed_generation_root": policy.generation_root,
+        "actions": actions,
+        "total_logical_bytes": sum(
+            _required_int(item["logical_bytes"], "action logical bytes")
+            for item in actions
+        ),
+    }
+    return bind_plan_identity(payload)
+
+
+def write_cleanup_plan(root: Path, plan: dict[str, object]) -> Path:
+    identity = plan.get("plan_identity")
+    if not isinstance(identity, str):
+        raise ValueError("cleanup plan identity is missing")
+    directory = root.resolve() / "tmp/artifacts/v1/cleanup-plans"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{identity}.json"
+    data = _canonical_bytes(plan)
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        if path.read_bytes() != data:
+            raise ValueError("existing cleanup plan differs") from None
+        return path
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return path
+
+
+def _load_plan(path: Path, expected_identity: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("cleanup plan cannot be read") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("cleanup plan must be an object")
+    observed = payload.pop("plan_identity", None)
+    rebound = bind_plan_identity(payload)
+    if observed != expected_identity or rebound["plan_identity"] != expected_identity:
+        raise ValueError("cleanup plan identity differs")
+    return rebound
+
+
+def _validate_plan_location(root: Path, path: Path, identity: str) -> None:
+    expected = root / f"tmp/artifacts/v1/cleanup-plans/{identity}.json"
+    if path.resolve() != expected.resolve() or path.is_symlink():
+        raise ValueError("cleanup plan path is outside the managed plan registry")
+
+
+def _validate_no_overlaps(actions: list[dict[str, object]]) -> None:
+    paths = sorted(Path(str(action.get("path"))).parts for action in actions)
+    for previous, current in pairwise(paths):
+        if len(previous) <= len(current) and current[: len(previous)] == previous:
+            raise ValueError("cleanup action paths overlap")
+
+
+def _prevalidate_apply(root: Path, plan: dict[str, Any]) -> list[dict[str, object]]:
+    actions = plan.get("actions")
+    if not isinstance(actions, list) or any(
+        not isinstance(item, dict) for item in actions
+    ):
+        raise ValueError("cleanup plan actions are invalid")
+    typed_actions: list[dict[str, object]] = actions
+    _validate_no_overlaps(typed_actions)
+    try:
+        current = build_cleanup_plan(root)
+    except ValueError as exc:
+        raise ValueError(f"cleanup plan drift detected: {exc}") from exc
+    if current["actions"] != typed_actions or current[
+        "total_logical_bytes"
+    ] != plan.get("total_logical_bytes"):
+        raise ValueError("cleanup plan drift or reference change detected")
+    return typed_actions
+
+
+def _remove_generation_tree(path: Path) -> None:
+    for root, directories, names in os.walk(path, topdown=False, followlinks=False):
+        current = Path(root)
+        for name in names:
+            (current / name).unlink()
+        for name in directories:
+            (current / name).rmdir()
+    path.rmdir()
+
+
+def apply_cleanup_plan(
+    root: Path,
+    plan_path: Path,
+    expected_identity: str,
+    *,
+    remover: Callable[[Path], None] = _remove_generation_tree,
+) -> dict[str, Any]:
+    root = root.resolve()
+    plan = _load_plan(plan_path, expected_identity)
+    _validate_plan_location(root, plan_path, expected_identity)
+    actions = _prevalidate_apply(root, plan)
+    results: list[dict[str, object]] = []
+    reclaimed = 0
+    failed = False
+    for action in actions:
+        path = root / str(action["path"])
+        try:
+            remover(path)
+        except OSError as exc:
+            failed = True
+            results.append(
+                {"path": action["path"], "status": "failed", "error": str(exc)}
+            )
+        else:
+            reclaimed += _required_int(action["logical_bytes"], "action logical bytes")
+            results.append(
+                {
+                    "path": action["path"],
+                    "status": "removed",
+                    "logical_bytes": action["logical_bytes"],
+                }
+            )
+    return {
+        "plan_identity": expected_identity,
+        "status": "partial-failure" if failed else "complete",
+        "reclaimed_logical_bytes": reclaimed,
+        "actions": results,
     }
 
 
 def main() -> int:
     arguments = parser().parse_args()
+    root = Path.cwd()
     if arguments.command == "inventory":
-        print(json.dumps(inventory_repository(Path.cwd()), sort_keys=True, indent=2))
-        return 0
-    raise AssertionError("argparse accepted an unsupported command")
+        print(json.dumps(inventory_repository(root), sort_keys=True, indent=2))
+    elif arguments.command == "plan":
+        plan = build_cleanup_plan(root)
+        path = write_cleanup_plan(root, plan)
+        print(
+            json.dumps(
+                {"plan_path": path.relative_to(root).as_posix(), **plan},
+                sort_keys=True,
+                indent=2,
+            )
+        )
+    elif arguments.command == "apply":
+        print(
+            json.dumps(
+                apply_cleanup_plan(root, Path(arguments.plan), arguments.identity),
+                sort_keys=True,
+                indent=2,
+            )
+        )
+    else:
+        raise AssertionError("argparse accepted an unsupported command")
+    return 0
 
 
 if __name__ == "__main__":
