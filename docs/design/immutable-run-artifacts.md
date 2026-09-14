@@ -42,11 +42,15 @@ marker, manifest identity, and all artifact bytes before supplying the bound run
 artifact to the existing evidence generator. A wrong identity, substituted manifest,
 missing parent, or markerless interrupted generation refuses. Candidate call sites owned
 by #274 are not present on this milestone base and remain deferred rather than being
-recreated or cherry-picked here. When that producer resumes, it must use the
-`publish_parent_bound_generation` contract: candidate bytes are published as a new
-generation and publication refuses unless the candidate identifies at least one exact
-parent manifest. This executable wrapper carries the requirement without implementing or
-changing #274 semantics here.
+recreated or cherry-picked here. When that producer resumes, it must call
+`publish_generation` with a nonempty tuple of exact `ParentManifestBinding`
+values: candidate bytes are published as a new generation and the #274 producer must
+refuse parentless publication. Before publishing, that producer must resolve each named
+parent manifest by its path and identity and construct the binding from the resolved
+family, generation ID, path, and manifest identity. `publish_generation` persists those
+caller-supplied parents exactly; enforcing that candidates have at least one verified
+parent belongs at the real #274 producer boundary when it is integrated, not in an
+otherwise-unused runtime wrapper.
 
 ## Existing and unavailable artifacts
 
@@ -78,6 +82,8 @@ writes and fsyncs those old bytes under
 replaced and its directory fsynced. A retry verifies either the exact corrected active
 record or the exact stale compare-and-swap input. There is no general record rewrite API,
 the audit copy is never deleted, and neither record claims or reconstructs artifact bytes.
+The `superseded-unavailable-audit` retention class inventories that audit directory as
+immutable reconciliation evidence retained without expiry and never cleanup-eligible.
 
 ## Retention and inventory
 
@@ -155,8 +161,12 @@ directories. The remover independently repeats lexical and resolved containment 
 top-level `lstat` checks under the exact managed root, so a rebound outside action or
 symlink swap refuses before tree traversal. It removes `.complete` first. A later
 filesystem failure reports `partial-failure` with per-action `failed` or
-`partially-removed` status and exact measured reclaimed and remaining logical bytes; an
-interrupted tree can no longer remain readable as complete. There is no rollback promise.
+`partially-removed` status and exact measured reclaimed and remaining logical bytes. A
+safety refusal is reported as `refused`, preserves prior action results, marks later
+actions `not-attempted`, and stops the apply. If remainder measurement also fails, that
+secondary error is reported without replacing the primary refusal or claiming unknown
+reclaimed bytes. An interrupted tree can no longer remain readable as complete. There is
+no rollback promise.
 Safe recovery is to preserve remaining bytes, rerun read-only inventory, resolve the
 operator-visible error, and create a fresh plan. Never edit or adopt a markerless
 generation and never reuse an old plan after drift.

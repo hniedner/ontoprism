@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -21,7 +22,6 @@ from ontolib.decomposition.run_artifacts import (
     SourceIdentity,
     load_artifact_record,
     publish_generation,
-    publish_parent_bound_generation,
     reconcile_missing_unavailable_references,
     resolve_parent_manifest,
     write_legacy_in_place_manifest,
@@ -630,6 +630,8 @@ def test_unavailable_reference_reconciliation_is_cas_audited_and_idempotent(
         == audit
     )
     assert path.read_bytes() == corrected_bytes
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+    assert stat.S_IMODE(audit.stat().st_mode) == 0o644
 
 
 @pytest.mark.unit
@@ -897,112 +899,3 @@ def test_complete_legacy_sidecar_rerun_retains_original_generator_identity(
     assert rerun == original
     assert rerun.generator.identity == "git:old"
     assert sidecar.read_bytes() == original_bytes
-
-
-@pytest.mark.unit
-def test_parent_bound_publication_contract_blocks_future_274_orphans(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "candidate.json"
-    source.write_bytes(b"candidate")
-    with pytest.raises(ArtifactConflictError, match="parent manifest"):
-        publish_parent_bound_generation(
-            repository_root=tmp_path,
-            artifacts_root=tmp_path / "artifacts",
-            family="issue-274-candidate",
-            generation_id="candidate",
-            run_id=None,
-            artifact_sources={"artifacts/candidate.json": source},
-            parents=(),
-            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
-            sources=(),
-            retention=RetentionBinding(
-                retention_class="referenced-bounded-run",
-                owner="decomposition",
-                expires_at=None,
-            ),
-        )
-
-    parent = _publish(tmp_path, "candidate-parent")
-    parent_path = (
-        tmp_path / "artifacts/m1-6-current-replay/candidate-parent/manifest.json"
-    )
-    binding = ParentManifestBinding(
-        family=parent.family,
-        generation_id=parent.generation_id,
-        manifest_path=parent_path.relative_to(tmp_path).as_posix(),
-        manifest_identity=parent.manifest_identity,
-    )
-    published = publish_parent_bound_generation(
-        repository_root=tmp_path,
-        artifacts_root=tmp_path / "artifacts",
-        family="issue-274-candidate",
-        generation_id="candidate",
-        run_id=None,
-        artifact_sources={"artifacts/candidate.json": source},
-        parents=(binding,),
-        generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
-        sources=(),
-        retention=RetentionBinding(
-            retention_class="referenced-bounded-run",
-            owner="decomposition",
-            expires_at=None,
-        ),
-    )
-    assert published.parents == (binding,)
-
-    forged = binding.model_copy(update={"manifest_identity": "f" * 64})
-    with pytest.raises(ArtifactConflictError, match="parent manifest"):
-        publish_parent_bound_generation(
-            repository_root=tmp_path,
-            artifacts_root=tmp_path / "artifacts",
-            family="issue-274-candidate",
-            generation_id="forged",
-            run_id=None,
-            artifact_sources={"artifacts/candidate.json": source},
-            parents=(forged,),
-            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
-            sources=(),
-            retention=RetentionBinding(
-                retention_class="referenced-bounded-run",
-                owner="decomposition",
-                expires_at=None,
-            ),
-        )
-
-    wrong_locator = binding.model_copy(update={"family": "different-family"})
-    with pytest.raises(ArtifactConflictError, match="locator differs"):
-        publish_parent_bound_generation(
-            repository_root=tmp_path,
-            artifacts_root=tmp_path / "artifacts",
-            family="issue-274-candidate",
-            generation_id="wrong-locator",
-            run_id=None,
-            artifact_sources={"artifacts/candidate.json": source},
-            parents=(wrong_locator,),
-            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
-            sources=(),
-            retention=RetentionBinding(
-                retention_class="referenced-bounded-run",
-                owner="decomposition",
-                expires_at=None,
-            ),
-        )
-
-    with pytest.raises(ArtifactConflictError, match="outside the artifact registry"):
-        publish_parent_bound_generation(
-            repository_root=tmp_path,
-            artifacts_root=tmp_path / "different-artifact-registry",
-            family="issue-274-candidate",
-            generation_id="outside-parent",
-            run_id=None,
-            artifact_sources={"artifacts/candidate.json": source},
-            parents=(binding,),
-            generator=GeneratorBinding(identity="git:abc", command=("candidate",)),
-            sources=(),
-            retention=RetentionBinding(
-                retention_class="referenced-bounded-run",
-                owner="decomposition",
-                expires_at=None,
-            ),
-        )

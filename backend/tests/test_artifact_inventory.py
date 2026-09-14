@@ -17,6 +17,7 @@ from scripts.artifacts import (
     write_cleanup_plan,
 )
 
+from ontolib.decomposition import run_artifacts as artifact_publication
 from ontolib.decomposition.run_artifacts import (
     GeneratorBinding,
     ParentManifestBinding,
@@ -41,6 +42,10 @@ cleanup_eligible = true
 [classes.cleanup-plan]
 owner = "artifact-review"
 expiry = "superseded-or-session-end"
+
+[classes.superseded-unavailable-audit]
+owner = "artifact-review"
+expiry = "none"
 
 [classes.referenced-bounded-run]
 owner = "decomposition"
@@ -455,6 +460,76 @@ def test_cleanup_partial_failure_never_reports_false_completion(
 
 
 @pytest.mark.unit
+def test_cleanup_safety_refusal_stops_later_actions_and_preserves_prior_results(
+    tmp_path: Path,
+) -> None:
+    _policy(tmp_path)
+    first, _identity = _publish(tmp_path, "first")
+    second, _identity2 = _publish(tmp_path, "second")
+    third, _identity3 = _publish(tmp_path, "third")
+    plan = build_cleanup_plan(tmp_path)
+    plan_path = write_cleanup_plan(tmp_path, plan)
+
+    def refuse_second(path: Path, managed_root: Path) -> None:
+        if path == second:
+            raise ValueError("unsafe path refuses cleanup")
+        artifacts._remove_generation_tree(path, managed_root)
+
+    report = apply_cleanup_plan(
+        tmp_path, plan_path, plan["plan_identity"], remover=refuse_second
+    )
+
+    assert report["status"] == "partial-failure"
+    assert [item["status"] for item in report["actions"]] == [
+        "removed",
+        "refused",
+        "not-attempted",
+    ]
+    assert report["actions"][1]["error"] == "unsafe path refuses cleanup"
+    assert not first.exists()
+    assert second.is_dir()
+    assert third.is_dir()
+    assert report["reclaimed_logical_bytes"] == plan["actions"][0]["logical_bytes"]
+
+
+@pytest.mark.unit
+def test_cleanup_remainder_measurement_never_masks_safety_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _policy(tmp_path)
+    _publish(tmp_path, "candidate")
+    plan = build_cleanup_plan(tmp_path)
+    plan_path = write_cleanup_plan(tmp_path, plan)
+
+    def refuse(_path: Path, _managed_root: Path) -> None:
+        raise ValueError("primary safety refusal")
+
+    original_measure = artifacts._directory_logical_bytes
+    calls = 0
+
+    def fail_second_measurement(path: Path) -> int:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise OSError("measurement failed")
+        return original_measure(path)
+
+    monkeypatch.setattr(
+        artifacts,
+        "_directory_logical_bytes",
+        fail_second_measurement,
+    )
+    report = apply_cleanup_plan(
+        tmp_path, plan_path, plan["plan_identity"], remover=refuse
+    )
+
+    assert report["status"] == "partial-failure"
+    assert report["actions"][0]["status"] == "refused"
+    assert report["actions"][0]["error"] == "primary safety refusal"
+    assert report["actions"][0]["measurement_error"] == "measurement failed"
+
+
+@pytest.mark.unit
 def test_cleanup_partial_child_deletion_removes_completion_first_and_measures_remainder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -554,10 +629,13 @@ def test_cleanup_symlink_swap_after_global_preflight_refuses_before_tree_walk(
         path.symlink_to(outside, target_is_directory=True)
         artifacts._remove_generation_tree(path, managed_root)
 
-    with pytest.raises(ValueError, match="symlink"):
-        apply_cleanup_plan(
-            tmp_path, plan_path, plan["plan_identity"], remover=swap_then_remove
-        )
+    report = apply_cleanup_plan(
+        tmp_path, plan_path, plan["plan_identity"], remover=swap_then_remove
+    )
+    assert report["status"] == "partial-failure"
+    assert report["actions"][0]["status"] == "refused"
+    assert "symlink" in report["actions"][0]["error"]
+    assert report["actions"][0]["remaining_logical_bytes"] is None
     assert keep.read_bytes() == b"keep"
     assert directory.is_symlink()
 
@@ -650,6 +728,37 @@ def test_inventory_summarizes_cleanup_plan_registry_with_retention(
 
 
 @pytest.mark.unit
+def test_inventory_manages_superseded_unavailable_audit_without_expiry(
+    tmp_path: Path,
+) -> None:
+    policy = load_retention_policy(_policy(tmp_path))
+    audit = tmp_path / "tmp/artifacts/v1/unavailable/superseded/stale.json"
+    audit.parent.mkdir(parents=True)
+    audit.write_bytes(b"immutable stale record\n")
+
+    report = inventory_repository(
+        tmp_path,
+        git_worktrees={"status": "empty", "entries": []},
+        compose_resources={"status": "empty", "project": COMPOSE_PROJECT, "items": []},
+    )
+
+    entry = next(
+        item
+        for item in report["managed_records"]
+        if item.get("record_type") == "managed-superseded-unavailable-audit-root"
+    )
+    assert entry["path"] == "tmp/artifacts/v1/unavailable/superseded"
+    assert entry["retention_class"] == "superseded-unavailable-audit"
+    assert entry["owner"] == "artifact-review"
+    assert entry["expiry_policy"] == "none"
+    assert entry["cleanup_eligible"] is False
+    assert entry["files"] == 1
+    assert entry["logical_bytes"] == audit.stat().st_size
+    assert policy.classes["superseded-unavailable-audit"].cleanup_eligible is False
+    assert build_cleanup_plan(tmp_path)["actions"] == []
+
+
+@pytest.mark.unit
 def test_cli_has_no_arbitrary_cleanup_target_and_requires_plan_identity() -> None:
     assert parser().parse_args(["inventory"]).command == "inventory"
     assert parser().parse_args(["plan"]).command == "plan"
@@ -668,10 +777,15 @@ def test_artifact_contract_has_no_mutable_current_reference_or_cleanup_promotion
     documentation = Path("docs/design/immutable-run-artifacts.md").read_text(
         encoding="utf-8"
     )
+    normalized_documentation = " ".join(documentation.split())
     assert "There is no mutable `current` or `latest` reference" in documentation
     assert "exact parent manifest path and identity" in documentation
     assert "operator-action-required" in documentation
     assert "#335" in documentation
+    assert "#274" in documentation
+    assert "must call `publish_generation`" in normalized_documentation
+    assert "nonempty tuple of exact `ParentManifestBinding`" in normalized_documentation
+    assert not hasattr(artifact_publication, "publish_parent_bound_generation")
     with pytest.raises(SystemExit):
         parser().parse_args(["promote"])
     with pytest.raises(SystemExit):

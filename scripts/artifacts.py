@@ -504,6 +504,29 @@ def _cleanup_plan_entry(
     }
 
 
+def _superseded_unavailable_audit_entry(
+    root: Path, artifacts_root: Path, policy: RetentionPolicy, top_n: int
+) -> dict[str, object] | None:
+    path = artifacts_root / "unavailable/superseded"
+    if not path.exists():
+        return None
+    class_name = "superseded-unavailable-audit"
+    declared = policy.classes.get(class_name)
+    if declared is None:
+        raise ValueError(f"{class_name} retention class is not declared")
+    if declared.expiry != "none" or declared.cleanup_eligible:
+        raise ValueError(f"{class_name} retention must be immutable without expiry")
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "record_type": "managed-superseded-unavailable-audit-root",
+        **_tree_summary(path, top_n=top_n),
+        "retention_class": class_name,
+        "owner": declared.owner,
+        "expiry_policy": declared.expiry,
+        "cleanup_eligible": declared.cleanup_eligible,
+    }
+
+
 def _partial_generation_entries(
     root: Path, artifacts_root: Path
 ) -> list[dict[str, object]]:
@@ -656,6 +679,11 @@ def inventory_repository(
     cleanup_plans = _cleanup_plan_entry(root, artifacts_root, policy, top_n)
     if cleanup_plans is not None:
         managed.append(cleanup_plans)
+    superseded_audit = _superseded_unavailable_audit_entry(
+        root, artifacts_root, policy, top_n
+    )
+    if superseded_audit is not None:
+        managed.append(superseded_audit)
     unmanaged, ignored_usage = _unmanaged_summaries(
         root, artifacts_root, managed_paths, top_n
     )
@@ -972,6 +1000,47 @@ def _remove_generation_tree(path: Path, managed_root: Path) -> None:
     _fsync_directory(path.parent)
 
 
+def _measure_cleanup_remainder(path: Path) -> int:
+    try:
+        details = path.lstat()
+    except FileNotFoundError:
+        return 0
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        raise ValueError("cleanup remainder is not a regular directory")
+    return _directory_logical_bytes(path)
+
+
+def _failed_action_result(
+    action: dict[str, object], path: Path, planned_bytes: int, exc: OSError | ValueError
+) -> tuple[dict[str, object], int]:
+    result: dict[str, object] = {
+        "path": action["path"],
+        "status": "refused" if isinstance(exc, ValueError) else "failed",
+        "error": str(exc),
+    }
+    try:
+        remaining = _measure_cleanup_remainder(path)
+    except (OSError, ValueError) as measurement_exc:
+        result.update(
+            {
+                "reclaimed_logical_bytes": None,
+                "remaining_logical_bytes": None,
+                "measurement_error": str(measurement_exc),
+            }
+        )
+        return result, 0
+    action_reclaimed = max(planned_bytes - remaining, 0)
+    if isinstance(exc, OSError) and action_reclaimed:
+        result["status"] = "partially-removed"
+    result.update(
+        {
+            "reclaimed_logical_bytes": action_reclaimed,
+            "remaining_logical_bytes": remaining,
+        }
+    )
+    return result, action_reclaimed
+
+
 def apply_cleanup_plan(
     root: Path,
     plan_path: Path,
@@ -988,27 +1057,29 @@ def apply_cleanup_plan(
     results: list[dict[str, object]] = []
     reclaimed = 0
     failed = False
-    for action in actions:
+    for index, action in enumerate(actions):
         path = root / str(action["path"])
         planned_bytes = _required_int(action["logical_bytes"], "action logical bytes")
         try:
             _validated_generation_path(path, managed_root)
             remover(path, managed_root)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             failed = True
-            remaining = _directory_logical_bytes(path) if path.exists() else 0
-            changed = remaining != planned_bytes
-            action_reclaimed = planned_bytes - remaining
-            reclaimed += action_reclaimed
-            results.append(
-                {
-                    "path": action["path"],
-                    "status": "partially-removed" if changed else "failed",
-                    "error": str(exc),
-                    "reclaimed_logical_bytes": action_reclaimed,
-                    "remaining_logical_bytes": remaining,
-                }
+            result, action_reclaimed = _failed_action_result(
+                action, path, planned_bytes, exc
             )
+            reclaimed += action_reclaimed
+            results.append(result)
+            if isinstance(exc, ValueError):
+                results.extend(
+                    {
+                        "path": later["path"],
+                        "status": "not-attempted",
+                        "reason": "stopped-after-safety-refusal",
+                    }
+                    for later in actions[index + 1 :]
+                )
+                break
         else:
             reclaimed += planned_bytes
             results.append(

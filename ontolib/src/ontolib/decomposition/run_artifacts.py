@@ -724,48 +724,6 @@ def publish_generation(
             claim.rmdir()
 
 
-def publish_parent_bound_generation(
-    *,
-    repository_root: Path,
-    artifacts_root: Path,
-    family: str,
-    generation_id: str,
-    run_id: str | None,
-    artifact_sources: dict[str, Path],
-    parents: tuple[ParentManifestBinding, ...],
-    generator: GeneratorBinding,
-    sources: tuple[SourceIdentity, ...],
-    retention: RetentionBinding,
-) -> ArtifactManifest:
-    """Publish derived output only when it identifies at least one exact parent."""
-    if not parents:
-        raise ArtifactConflictError("derived generation requires a parent manifest")
-    managed_root = artifacts_root.resolve()
-    for parent in parents:
-        parent_path = repository_root.resolve() / parent.manifest_path
-        if parent_path.parents[2].resolve() != managed_root:
-            raise ArtifactConflictError(
-                "parent manifest is outside the artifact registry"
-            )
-        resolved = resolve_parent_manifest(parent_path, parent.manifest_identity)
-        if (
-            resolved.family != parent.family
-            or resolved.generation_id != parent.generation_id
-        ):
-            raise ArtifactConflictError("parent manifest locator differs")
-    return publish_generation(
-        artifacts_root=artifacts_root,
-        family=family,
-        generation_id=generation_id,
-        run_id=run_id,
-        artifact_sources=artifact_sources,
-        parents=parents,
-        generator=generator,
-        sources=sources,
-        retention=retention,
-    )
-
-
 def _stage_artifacts(staging: Path, sources: list[tuple[str, Path]]) -> None:
     for relative, source in sources:
         _regular_source(source)
@@ -912,6 +870,7 @@ def _replace_unavailable_record(
     )
     temporary = Path(temporary_name)
     try:
+        os.fchmod(descriptor, 0o644)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(corrected_bytes)
             stream.flush()

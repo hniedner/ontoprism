@@ -25,6 +25,11 @@ owner = "artifact-review"
 expiry = "superseded-or-session-end"
 description = "Content-identified cleanup plans remain auditable through their bounded issue session and may then be removed when superseded."
 
+[classes.superseded-unavailable-audit]
+owner = "artifact-review"
+expiry = "none"
+description = "Superseded unavailable-record bytes are immutable reconciliation audit evidence retained without expiry."
+
 [classes.session-ephemeral]
 owner = "issue-session"
 expiry = "session-policy"
