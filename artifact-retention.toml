@@ -1,0 +1,41 @@
+schema_version = 1
+
+[classes.critical-full-corpus]
+owner = "decomposition"
+expiry = "none"
+description = "Full-corpus artifacts and certified evidence are retained without expiry."
+
+[classes.referenced-bounded-run]
+owner = "referencing-workflow"
+expiry = "while-referenced"
+description = "Bounded runs remain retained while a manifest, report, or review references them."
+
+[classes.unreferenced-bounded-derived]
+owner = "artifact-review"
+expiry = "review-required"
+description = "Unreferenced bounded runs and derived candidates are only eligible after explicit inventory and review."
+
+[classes.session-ephemeral]
+owner = "issue-session"
+expiry = "session-policy"
+description = "tmp/plans issue and session material is ephemeral and is not product evidence."
+
+[classes.licensed-source]
+owner = "data-build"
+expiry = "after-repository-certification"
+description = "Licensed source input is removable only after certification of its generated repository."
+
+[classes.active-generated-repository]
+owner = "data-services"
+expiry = "while-active"
+description = "Active generated data repositories are retained."
+
+[classes.test-owner-resource]
+owner = "creating-test"
+expiry = "exact-ownership-only"
+description = "A test resource is disposable only when exact ownership by that test is established."
+
+[classes.cache]
+owner = "local-operator"
+expiry = "optional"
+description = "Reproducible caches are optional."

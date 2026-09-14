@@ -739,7 +739,11 @@ def _write_compose_inputs(root: Path, *, app: bool = False) -> None:
 
 
 @pytest.mark.unit
-def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) -> None:
+def test_current_replay_uses_only_the_documented_fixed_inputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for relative in (
         "scripts/decompose.py",
         "data/qlever-ncit/.ontoprism-ncit-candidate.json",
@@ -748,12 +752,26 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) ->
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
+    run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+
+    class ReplayRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            self.calls.append((arguments, kwargs))
+            output = Path(arguments[arguments.index("--out") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(f"<https://example.test/run/{run_id}> <p> <o> .\n")
+            return subprocess.CompletedProcess(arguments, 0, "", f"run={run_id}\n")
+
+    runner = ReplayRunner()
+    monkeypatch.setattr(replay, "_verify_persisted_replay", lambda *_: "source-id")
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
 
     assert run_agent_replay(["decompose-current"], tmp_path, runner=runner) == 0
 
     command, options = runner.calls[0]
-    assert command[1:] == [
+    assert command[1:-1] == [
         str(tmp_path / "scripts/decompose.py"),
         "--source-manifest",
         str(tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json"),
@@ -764,19 +782,47 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) ->
         "--walker-max-depth",
         "7",
         "--out",
-        str(tmp_path / "tmp/m1-6-current-replay.ttl"),
     ]
+    output = Path(command[-1])
+    assert output.match(
+        "*/tmp/artifacts/v1/generations/m1-6-current-replay/.staging/*/decomposition.ttl"
+    )
+    assert "tmp/m1-6-current-replay.ttl" not in str(command)
+    generation = output.parents[2] / output.parent.name
+    manifest = json.loads((generation / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["run_id"] == run_id
+    assert (generation / ".complete").is_file()
+    report = json.loads(capsys.readouterr().out)
+    assert report["run_id"] == run_id
+    assert report["manifest_identity"] == manifest["manifest_identity"]
+    assert report["artifact_sha256"] == manifest["artifact_records"][0]["sha256"]
     assert options["shell"] is False
+
+    first_bytes = {
+        path.relative_to(generation): path.read_bytes()
+        for path in generation.rglob("*")
+        if path.is_file()
+    }
+    assert run_agent_replay(["decompose-current"], tmp_path, runner=runner) == 0
+    assert {
+        path.relative_to(generation): path.read_bytes()
+        for path in generation.rglob("*")
+        if path.is_file()
+    } == first_bytes
+    completed = [
+        path.parent for path in output.parents[2].glob("*/.complete") if path.is_file()
+    ]
+    assert len(completed) == 2
 
 
 @pytest.mark.unit
-def test_evidence_generation_requires_a_real_neoplasm_run_id(tmp_path: Path) -> None:
-    with pytest.raises(AgentReplayInputError, match="run ID"):
+def test_evidence_generation_requires_an_exact_parent_binding(tmp_path: Path) -> None:
+    with pytest.raises(AgentReplayInputError, match="parent manifest"):
         run_agent_replay(["generate-current-evidence", "guessed-run"], tmp_path)
 
 
 @pytest.mark.unit
-def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
+def test_evidence_generation_resolves_an_exact_parent_manifest(
     tmp_path: Path,
 ) -> None:
     fixed_inputs = (
@@ -786,17 +832,45 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
-        "tmp/m1-6-current-replay.ttl",
     )
     for relative in fixed_inputs:
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
     run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+    source = tmp_path / "source.ttl"
+    source.write_text(f"<{run_id}> <p> <o> .\n")
+    manifest = replay.publish_generation(
+        artifacts_root=tmp_path / "tmp/artifacts/v1/generations",
+        family="m1-6-current-replay",
+        generation_id="parent",
+        run_id=run_id,
+        artifact_sources={"artifacts/decomposition.ttl": source},
+        parents=(),
+        generator=replay.GeneratorBinding(identity="git:abc", command=("test",)),
+        sources=(),
+        retention=replay.RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
+    )
+    manifest_path = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-current-replay/parent/manifest.json"
+    )
+    runner = _Runner()
 
     assert (
-        run_agent_replay(["generate-current-evidence", run_id], tmp_path, runner=runner)
+        run_agent_replay(
+            [
+                "generate-current-evidence",
+                str(manifest_path.relative_to(tmp_path)),
+                manifest.manifest_identity,
+            ],
+            tmp_path,
+            runner=runner,
+        )
         == 0
     )
 
@@ -807,7 +881,74 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
         / "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json"
     )
     assert command.count("--proposal-registry-migration") == 1
+    artifact_option = command.index("--artifact")
+    assert command[artifact_option + 1] == str(
+        manifest_path.parent / "artifacts/decomposition.ttl"
+    )
+    assert command[command.index("--run-id") + 1] == run_id
     assert options["shell"] is False
+
+
+@pytest.mark.unit
+def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = (
+        (
+            "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
+            "tmp/m1-6-current-full-corpus.ttl",
+            b"current",
+        ),
+        (
+            "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+            "../m1-6-prechange-v4-full-corpus.ttl",
+            b"prechange",
+        ),
+    )
+    records: list[dict[str, object]] = []
+    before: dict[Path, bytes] = {}
+    for run_id, persisted_path, payload in runs:
+        name = (
+            "m1-6-current-full-corpus.ttl"
+            if payload == b"current"
+            else "m1-6-prechange-v4-full-corpus.ttl"
+        )
+        artifact = tmp_path / "tmp" / name
+        artifact.parent.mkdir(exist_ok=True)
+        artifact.write_bytes(payload + run_id.encode())
+        before[artifact] = artifact.read_bytes()
+        records.append(
+            {
+                "run_id": run_id,
+                "status": "complete",
+                "source_identity": "ncit-source",
+                "representation_identity": hashlib.sha256(
+                    artifact.read_bytes()
+                ).hexdigest(),
+                "publication_artifact_path": persisted_path,
+            }
+        )
+
+    async def inspect(*_: object) -> list[dict[str, object]]:
+        return records
+
+    monkeypatch.setattr(replay, "_inspect_decomposition_runs_async", inspect)
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
+
+    assert run_agent_replay(["record-artifact-registry"], tmp_path) == 0
+
+    assert all(path.read_bytes() == content for path, content in before.items())
+    sidecars = list((tmp_path / "tmp/artifacts/v1/legacy-in-place").glob("*.json"))
+    assert len(sidecars) == 2
+    unavailable = json.loads(
+        (
+            tmp_path / "tmp/artifacts/v1/unavailable/"
+            "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert unavailable["record_type"] == "unavailable-artifact"
+    assert unavailable["reason"] == "overwritten-before-immutable-retention"
+    assert "artifact_records" not in unavailable
 
 
 @pytest.mark.unit
