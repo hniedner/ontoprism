@@ -81,6 +81,13 @@ _URL_CREDENTIALS = re.compile(
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_CODEPOINT_LIMIT = 32
 _CONSOLIDATION_VALUE_COUNT = 3
+_CURRENT_REPLAY_RUN_ID = "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"
+_CURRENT_REPLAY_SAMPLE_SHA256 = (
+    "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
+)
+_CURRENT_REPLAY_ARTIFACT_SHA256 = (
+    "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d"
+)
 
 
 class AgentReplayInputError(ValueError):
@@ -1735,6 +1742,76 @@ def _generate_current_evidence(
     )
 
 
+def _generate_current_evidence_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values != [_CURRENT_REPLAY_RUN_ID]:
+        raise AgentReplayInputError(
+            "generate-current-evidence-candidate requires the expected bounded run ID"
+        )
+    script, sample, oracle, rows, registry = _adjudication_inputs(root)
+    artifact, migration = _require_files(
+        root,
+        (
+            "tmp/m1-6-current-replay.ttl",
+            "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        ),
+    )
+    sample_path = Path(sample)
+    artifact_path = Path(artifact)
+    if hashlib.sha256(sample_path.read_bytes()).hexdigest() != (
+        _CURRENT_REPLAY_SAMPLE_SHA256
+    ):
+        raise AgentReplayInputError("current replay sample manifest digest differs")
+    if hashlib.sha256(artifact_path.read_bytes()).hexdigest() != (
+        _CURRENT_REPLAY_ARTIFACT_SHA256
+    ):
+        raise AgentReplayInputError("current replay artifact digest differs")
+    outputs = (
+        root / "tmp/m1-6-current-engine-evidence-candidate.json",
+        root / "tmp/m1-6-current-comparison-candidate.json",
+    )
+    for path, label in (
+        (Path(script), "adjudication script"),
+        (sample_path, "current replay sample manifest"),
+        (Path(oracle), "current replay oracle"),
+        (Path(rows), "current replay row decisions"),
+        (Path(registry), "current replay proposal registry"),
+        (Path(migration), "current replay proposal registry migration"),
+        (artifact_path, "current replay artifact"),
+        (outputs[0], "current evidence candidate output"),
+        (outputs[1], "current comparison candidate output"),
+    ):
+        _require_no_symlink_components(path, root=root, label=label)
+    return _run(
+        [
+            sys.executable,
+            script,
+            "generate-current-evidence",
+            "--sample-manifest",
+            sample,
+            "--oracle",
+            oracle,
+            "--row-decisions",
+            rows,
+            "--proposal-registry",
+            registry,
+            "--proposal-registry-migration",
+            migration,
+            "--run-id",
+            values[0],
+            "--artifact",
+            artifact,
+            "--engine-output",
+            str(outputs[0]),
+            "--comparison-output",
+            str(outputs[1]),
+        ],
+        root,
+        runner,
+    )
+
+
 def _regenerate_current_comparison(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -1849,6 +1926,63 @@ def _generate_group_review_rev2(
             str(root / "tmp/m1-6-group-correction-audit-rev2.xlsx"),
             "--blank-validation",
             str(root / "tmp/m1-6-group-review-blank-validation-rev2.json"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _generate_group_review_rev2_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-group-review-rev2-candidate accepts no arguments"
+        )
+    script, evidence, comparison, r101_report = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "tmp/m1-6-current-engine-evidence-candidate.json",
+            "tmp/m1-6-current-comparison-candidate.json",
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        ),
+    )
+    outputs = (
+        root / "tmp/m1-6-group-review-packet-rev2.json",
+        root / "tmp/m1-6-group-review-workbook-rev2.xlsx",
+        root / "tmp/m1-6-group-correction-audit-rev2.xlsx",
+        root / "tmp/m1-6-group-review-blank-validation-rev2.json",
+    )
+    for path in (
+        Path(script),
+        Path(evidence),
+        Path(comparison),
+        Path(r101_report),
+        *outputs,
+    ):
+        _require_no_symlink_components(
+            path, root=root, label="group review candidate path"
+        )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "generate-group-review-packet",
+            "--current-evidence",
+            evidence,
+            "--current-comparison",
+            comparison,
+            "--r101-report",
+            r101_report,
+            "--output",
+            str(outputs[0]),
+            "--workbook",
+            str(outputs[1]),
+            "--correction-audit",
+            str(outputs[2]),
+            "--blank-validation",
+            str(outputs[3]),
         ],
         root,
         runner,
@@ -3487,9 +3621,11 @@ _OPERATIONS: dict[str, Operation] = {
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
     "generate-current-evidence": _generate_current_evidence,
+    "generate-current-evidence-candidate": _generate_current_evidence_candidate,
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review-rev2": _generate_group_review_rev2,
+    "generate-group-review-rev2-candidate": _generate_group_review_rev2_candidate,
     "generate-specialist-literature-context": _generate_specialist_literature_context,
     "generate-specialist-cadsr-usage": _generate_specialist_cadsr_usage,
     "generate-specialist-review-packets": _generate_specialist_review_packets,

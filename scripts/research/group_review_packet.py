@@ -2309,18 +2309,54 @@ def generate_group_review_boundary(
     blank_validation: Path,
 ) -> GroupReviewPacket:
     """Generate the bound machine packet and blank manual-review workbook."""
-    packet = generate_group_review_packet(
-        evidence_path=evidence_path,
-        comparison_path=comparison_path,
-        r101_report_path=r101_report_path,
-        output=output,
-    )
-    write_group_review_workbook(workbook, packet)
-    write_group_correction_audit(correction_audit, packet)
-    validate_blank_group_review_outputs(
-        packet=packet,
-        review_workbook=workbook,
-        correction_audit=correction_audit,
-        output=blank_validation,
-    )
-    return packet
+    outputs = (output, workbook, correction_audit, blank_validation)
+    if len({path.resolve() for path in outputs}) != len(outputs):
+        raise ValueError("group review outputs must be distinct")
+    for path in outputs:
+        if not path.parent.is_dir():
+            raise ValueError(f"output parent does not exist: {path.parent}")
+    with tempfile.TemporaryDirectory(
+        prefix=".group-review-boundary.", dir=output.parent
+    ) as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        staged = tuple(
+            temporary_root / f"{index}-{path.name}"
+            for index, path in enumerate(outputs)
+        )
+        packet = generate_group_review_packet(
+            evidence_path=evidence_path,
+            comparison_path=comparison_path,
+            r101_report_path=r101_report_path,
+            output=staged[0],
+        )
+        write_group_review_workbook(staged[1], packet)
+        write_group_correction_audit(staged[2], packet)
+        validate_blank_group_review_outputs(
+            packet=packet,
+            review_workbook=staged[1],
+            correction_audit=staged[2],
+            output=staged[3],
+        )
+        originals = {
+            path: path.read_bytes() if path.exists() else None for path in outputs
+        }
+        replaced: list[Path] = []
+        try:
+            for source, destination in zip(staged, outputs, strict=True):
+                os.replace(source, destination)
+                replaced.append(destination)
+        except BaseException as original:
+            for destination in reversed(replaced):
+                previous = originals[destination]
+                try:
+                    if previous is None:
+                        destination.unlink(missing_ok=True)
+                    else:
+                        _write_bytes(destination, previous)
+                except BaseException as rollback_error:
+                    original.add_note(
+                        f"Rolling back {destination} also failed: "
+                        f"{type(rollback_error).__name__}: {rollback_error}"
+                    )
+            raise
+        return packet

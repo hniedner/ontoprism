@@ -811,6 +811,155 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
 
 
 @pytest.mark.unit
+def test_candidate_preflight_uses_only_fixed_tmp_outputs_without_mutating_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixed_inputs = (
+        "scripts/adjudication.py",
+        "samples/ncit-26.07d-m1-current-replay.json",
+        "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        "tmp/m1-6-current-replay.ttl",
+    )
+    before: dict[Path, bytes] = {}
+    for index, relative in enumerate(fixed_inputs):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"fixed-input-{index}".encode())
+        before[path] = path.read_bytes()
+    sample = tmp_path / fixed_inputs[1]
+    artifact = tmp_path / fixed_inputs[-1]
+    monkeypatch.setattr(
+        replay,
+        "_CURRENT_REPLAY_SAMPLE_SHA256",
+        hashlib.sha256(sample.read_bytes()).hexdigest(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        replay,
+        "_CURRENT_REPLAY_ARTIFACT_SHA256",
+        hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        replay,
+        "_CURRENT_REPLAY_RUN_ID",
+        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        raising=False,
+    )
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(
+            [
+                "generate-current-evidence-candidate",
+                "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+            ],
+            tmp_path,
+            runner=runner,
+        )
+        == 0
+    )
+
+    command, options = runner.calls[0]
+    assert command[command.index("--engine-output") + 1] == str(
+        tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
+    )
+    assert command[command.index("--comparison-output") + 1] == str(
+        tmp_path / "tmp/m1-6-current-comparison-candidate.json"
+    )
+    assert not any("golden/neoplasm-current-" in value for value in command)
+    assert options["shell"] is False
+    assert {path: path.read_bytes() for path in before} == before
+
+
+@pytest.mark.unit
+def test_candidate_preflight_refuses_wrong_run_sample_artifact_and_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "samples/ncit-26.07d-m1-current-replay.json",
+        "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+        "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
+        "tmp/m1-6-current-replay.ttl",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixed")
+    run_id = "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"
+    monkeypatch.setattr(replay, "_CURRENT_REPLAY_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(
+        replay,
+        "_CURRENT_REPLAY_SAMPLE_SHA256",
+        hashlib.sha256(b"fixed").hexdigest(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        replay,
+        "_CURRENT_REPLAY_ARTIFACT_SHA256",
+        hashlib.sha256(b"fixed").hexdigest(),
+        raising=False,
+    )
+
+    with pytest.raises(AgentReplayInputError, match="bounded run"):
+        run_agent_replay(
+            [
+                "generate-current-evidence-candidate",
+                "neoplasm-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            ],
+            tmp_path,
+        )
+    (tmp_path / "samples/ncit-26.07d-m1-current-replay.json").write_bytes(b"wrong")
+    with pytest.raises(AgentReplayInputError, match="sample manifest digest"):
+        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
+    (tmp_path / "samples/ncit-26.07d-m1-current-replay.json").write_bytes(b"fixed")
+    (tmp_path / "tmp/m1-6-current-replay.ttl").write_bytes(b"wrong")
+    with pytest.raises(AgentReplayInputError, match="artifact digest"):
+        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
+    (tmp_path / "tmp/m1-6-current-replay.ttl").write_bytes(b"fixed")
+    candidate = tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
+    candidate.symlink_to(tmp_path / "outside.json")
+    with pytest.raises(AgentReplayInputError, match="symlink"):
+        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
+
+
+@pytest.mark.unit
+def test_group_review_candidate_consumes_candidate_inputs_only(tmp_path: Path) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "tmp/m1-6-current-engine-evidence-candidate.json",
+        "tmp/m1-6-current-comparison-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(
+            ["generate-group-review-rev2-candidate"], tmp_path, runner=runner
+        )
+        == 0
+    )
+
+    command = runner.calls[0][0]
+    assert command[command.index("--current-evidence") + 1] == str(
+        tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
+    )
+    assert command[command.index("--current-comparison") + 1] == str(
+        tmp_path / "tmp/m1-6-current-comparison-candidate.json"
+    )
+    assert not any("golden/neoplasm-current-" in value for value in command)
+    assert str(tmp_path / "tmp/m1-6-group-review-packet-rev2.json") in command
+
+
+@pytest.mark.unit
 def test_axis_diagnostics_reject_unsafe_fillers_without_an_arbitrary_count_cap(
     tmp_path: Path,
 ) -> None:

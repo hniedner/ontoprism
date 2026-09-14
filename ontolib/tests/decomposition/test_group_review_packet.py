@@ -857,6 +857,40 @@ def test_highest_fanout_generation_loads_each_authoritative_source_once(
 
 
 @pytest.mark.unit
+def test_group_review_boundary_restores_every_output_after_generation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    outputs = (
+        tmp_path / "packet.json",
+        tmp_path / "packet.xlsx",
+        tmp_path / "audit.xlsx",
+        tmp_path / "blank-validation.json",
+    )
+    originals = {}
+    for index, output in enumerate(outputs):
+        output.write_bytes(f"original-{index}".encode())
+        originals[output] = output.read_bytes()
+
+    def fail_workbook(_path: Path, _packet: group_review.GroupReviewPacket) -> None:
+        raise OSError("injected workbook failure")
+
+    monkeypatch.setattr(group_review, "write_group_review_workbook", fail_workbook)
+
+    with pytest.raises(OSError, match="injected workbook failure"):
+        group_review.generate_group_review_boundary(
+            evidence_path=_EVIDENCE,
+            comparison_path=_COMPARISON,
+            r101_report_path=_R101,
+            output=outputs[0],
+            workbook=outputs[1],
+            correction_audit=outputs[2],
+            blank_validation=outputs[3],
+        )
+
+    assert {output: output.read_bytes() for output in outputs} == originals
+
+
+@pytest.mark.unit
 def test_readme_gives_exact_group_post_sme_import_and_dry_run_commands() -> None:
     readme = (_GOLDEN / "README.md").read_text(encoding="utf-8")
     assert (
