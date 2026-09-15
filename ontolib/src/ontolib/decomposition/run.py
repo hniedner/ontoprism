@@ -37,7 +37,7 @@ import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID, uuid4
@@ -128,7 +128,7 @@ if TYPE_CHECKING:
 
     from ontolib.decomposition.constituent_index import LabelLookup
     from ontolib.decomposition.minting import MintedConcept
-    from ontolib.decomposition.models import RoleRestriction
+    from ontolib.decomposition.models import Constituent, RoleRestriction
     from ontolib.decomposition.provenance import ProvenanceStore
     from ontolib.decomposition.sampling import DecompositionSampleManifest
 
@@ -673,7 +673,6 @@ async def _decompose_one(
     detector_identity: str,
     walker_max_depth: int = 5,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
-    enable_normalized_group_policy: bool = True,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
@@ -720,6 +719,7 @@ async def _decompose_one(
         [*role_constituents, *nlp_constituents],
         definition,
     )
+    curated = _bind_source_groups(curated, definition)
 
     decomposition = Decomposition(
         code=code,
@@ -728,20 +728,48 @@ async def _decompose_one(
         complete_definition=definition,
         occurrence_dispositions=routed_selection.dispositions,
     )
-    if enable_normalized_group_policy:
-        active_group_policy = (
-            normalized_group_policy or load_packaged_normalized_group_policy()
-        )
-        if active_group_policy.source_identity == source_identity:
-            decomposition = apply_normalized_group_policy(
-                decomposition, active_group_policy
-            )
+    decomposition = _apply_group_policy(
+        decomposition, normalized_group_policy, source_identity
+    )
     return _CandidateResult(
         decomposition=decomposition,
         outcome="decomposed" if decomposition.constituents else "residual",
         semantic_types=semantic_types,
         minted=tuple(minted),
     )
+
+
+def _bind_source_groups(
+    constituents: list[Constituent], definition: CompleteDefinition
+) -> list[Constituent]:
+    source_groups_by_fact = {fact.fact_id: fact.group_id for fact in definition.facts}
+    return [
+        replace(
+            constituent,
+            source_group_ids=tuple(
+                sorted(
+                    {
+                        source_groups_by_fact[source_id]
+                        for source_id in constituent.source_definition_ids
+                    }
+                )
+            ),
+        )
+        for constituent in constituents
+    ]
+
+
+def _apply_group_policy(
+    decomposition: Decomposition,
+    policy: ActiveNormalizedGroupPolicy | None,
+    source_identity: str,
+) -> Decomposition:
+    active_policy = policy or load_packaged_normalized_group_policy()
+    if active_policy.source_identity != source_identity:
+        raise SourceIdentityChangedError(
+            "normalized group policy source identity differs from run source identity"
+        )
+    return apply_normalized_group_policy(decomposition, active_policy).decomposition
 
 
 def _residual_count(
@@ -2112,6 +2140,10 @@ async def run_pipeline(
     active_group_policy = (
         normalized_group_policy or load_packaged_normalized_group_policy()
     )
+    if active_group_policy.source_identity != snapshot.source_identity:
+        raise SourceIdentityChangedError(
+            "normalized group policy source identity differs from run source identity"
+        )
     if config.resume_from is None:
         fresh_worklist, fresh_preflight = await _fresh_preflight(
             config, client, snapshot, total_limit

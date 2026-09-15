@@ -19,7 +19,11 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C27970',
 			filler_label: 'Stage III',
 			axis_source: 'role',
-			most_specific: false
+			most_specific: false,
+			axis_ambiguity_group_id: null,
+			source_group_ids: ['source-stage'],
+			normalized_group_id: 'normalized-stage',
+			normalized_group_label: 'Stage block'
 		},
 		{
 			axis: 'R101',
@@ -27,7 +31,11 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C12400',
 			filler_label: 'Thyroid Gland',
 			axis_source: 'role',
-			most_specific: true
+			most_specific: true,
+			axis_ambiguity_group_id: 'ambiguous-site',
+			source_group_ids: ['source-site'],
+			normalized_group_id: 'normalized-site',
+			normalized_group_label: 'Primary site block'
 		}
 	]
 };
@@ -132,12 +140,27 @@ describe('DecompositionPanel', () => {
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
 			constituents: [
-				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false },
-				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true }
+				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
+				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
 			]
 		} satisfies ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
 		expect(await screen.findByText('R88')).toBeInTheDocument();
+	});
+
+	it('groups within an axis by normalized policy and exposes separate provenance', async () => {
+		mock.mockResolvedValue({
+			...decomposed,
+			constituents: [
+				{ ...decomposed.constituents[0], filler: 'C1', filler_label: 'First', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s1'] },
+				{ ...decomposed.constituents[0], filler: 'C2', filler_label: 'Second', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s2'], axis_ambiguity_group_id: 'a1' }
+			]
+		});
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(await screen.findByText('Reviewed block')).toBeInTheDocument();
+		expect(screen.getByText('Source groups: s1')).toBeInTheDocument();
+		expect(screen.getByText('Source groups: s2')).toBeInTheDocument();
+		expect(screen.getByText('Axis ambiguity: a1')).toBeInTheDocument();
 	});
 
 	it('handles null constituents gracefully', async () => {
@@ -164,7 +187,11 @@ describe('DecompositionPanel', () => {
 					filler: 'C40384',
 					filler_label: null,
 					axis_source: 'parent',
-					most_specific: false
+					most_specific: false,
+					axis_ambiguity_group_id: null,
+					source_group_ids: [],
+					normalized_group_id: null,
+					normalized_group_label: null
 				}
 			]
 		});

@@ -100,7 +100,12 @@ def test_packet_derives_current_cohort_metrics_and_controls() -> None:
 def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> None:
     packet = _packet()
 
-    assert len(packet.concepts) == 17
+    assert tuple(item.code for item in packet.concepts) == (
+        packet.cohort.policy_evidence_codes
+    )
+    assert set(packet.cohort.full_disagreement_codes) <= set(
+        packet.cohort.policy_evidence_codes
+    )
     assert packet.schema_version == 4
     assert any(item.pair_relations.expected_not_emitted for item in packet.concepts)
     assert any(item.pair_relations.current_only_scoreable for item in packet.concepts)
@@ -128,6 +133,7 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         expected = comparison_by_code[concept.code].pair_relations
         assert concept.pair_relations == expected
         assert row.pair_relations == expected
+
         assert row.current_scoreable_group_ids == tuple(
             group.normalized_group_id for group in concept.actual_groups
         )
@@ -163,6 +169,29 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
     assert expected_review <= observed_review
     c100054 = next(item for item in packet.concepts if item.code == "C100054")
     assert not c100054.pair_relations.expected_not_emitted
+
+
+def test_reviewed_stage_targets_are_exact_and_exclude_proposals() -> None:
+    packet = _packet()
+    by_code = {item.code: item for item in packet.concepts}
+
+    assert by_code["C101539"].decision_target_pair_set == (
+        ("op:StageSystem", "C140961"),
+        ("op:StageValue", "C27966"),
+    )
+    assert by_code["C115057"].decision_target_pair_set == (
+        ("op:StageSystem", "C90529"),
+        ("op:StageSystem", "C90530"),
+        ("op:StageValue", "C27966"),
+    )
+    assert by_code["C115057"].reviewed_partition == (
+        by_code["C115057"].decision_target_pair_set,
+    )
+    assert all(
+        not filler.startswith("MINT-")
+        for concept in by_code.values()
+        for _axis, filler in concept.decision_target_pair_set
+    )
 
 
 def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
@@ -201,6 +230,10 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
                     assert not pair.occurrences
                     assert pair.source_facts
                     assert all(item.kind == "genus" for item in pair.source_facts)
+                    continue
+                if pair.availability == "available-source-fact":
+                    assert not pair.occurrences
+                    assert pair.source_facts
                     continue
                 assert pair.occurrences
                 assert pair.occurrence_ids == tuple(
@@ -360,6 +393,8 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
             "comparison.json",
             "--r101-report",
             "r101.json.gz",
+            "--historical-r101-report",
+            "historical-r101.json.gz",
             "--output",
             "packet.json",
             "--workbook",
@@ -437,9 +472,7 @@ def test_blank_workbook_has_no_machine_generated_human_text(tmp_path: Path) -> N
     sheet = book["Group Review"]
     headers = _sheet_headers(sheet)
     assert sheet.max_row - 1 == len(packet.review_rows)
-    assert len(packet.review_rows) == sum(
-        not row.full_partition.agrees for row in _inputs()[1].concepts
-    )
+    assert len(packet.review_rows) == len(packet.cohort.policy_evidence_codes)
     for name in ("Decision", "Rationale", "Reviewer", "Date"):
         assert all(
             sheet.cell(row, headers[name]).value is None

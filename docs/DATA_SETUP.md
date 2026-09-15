@@ -270,6 +270,22 @@ actual predecessor (`0001_embedding_tables`) and then upgrades through every lat
 migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
 
+Migration `0028_distinct_group_identities` renames the former relationship-group
+column to `axis_ambiguity_group_id`, backfills canonical `source_group_ids`, adds the
+paired nullable normalized-group fields, and installs database constraints for all
+three representations. For #274, no genuine configured-database backup was captured
+before migration 0028. A dump captured after 0028 is recovery material only and must
+not be represented as before/after migration evidence. Preservation is instead proved
+against a disposable pre-0028 database by:
+
+```bash
+pdm run agent-test --safe-integration backend/tests/test_migrations_integration.py::test_distinct_group_identity_migration_preserves_existing_runs -v
+```
+
+That contract checks row counts and historical values across the upgrade, the ambiguity
+rename, source-group backfill, null normalized groups, and rejection of malformed group
+arrays. Do not infer preservation of the configured database from its post-0028 state.
+
 ## Rebuild from public sources
 
 `pdm run data-build` builds ontoprism from public sources. Its steps are runnable

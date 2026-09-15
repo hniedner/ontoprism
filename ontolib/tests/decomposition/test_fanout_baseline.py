@@ -491,7 +491,10 @@ async def test_rerun_rejects_missing_decomposition_records(
 
     with pytest.raises(ValueError, match=message):
         await rerun_fanout_concept(
-            _RecordingClient(), "C10", unknown_axis_diagnostic_source("0" * 64)
+            _RecordingClient(),
+            "C10",
+            unknown_axis_diagnostic_source("0" * 64),
+            source_identity="0" * 64,
         )
 
 
@@ -518,7 +521,10 @@ async def test_rerun_returns_exact_definition_and_query_counts(
     monkeypatch.setattr(fanout_module, "_decompose_one", decompose)
 
     rerun = await rerun_fanout_concept(
-        _RecordingClient(), "C10", unknown_axis_diagnostic_source("0" * 64)
+        _RecordingClient(),
+        "C10",
+        unknown_axis_diagnostic_source("0" * 64),
+        source_identity="0" * 64,
     )
 
     assert rerun == FanoutRerun(
@@ -579,8 +585,13 @@ async def test_generate_baseline_reports_discovery_and_binds_exact_counts(
         return ("C10", "C11")
 
     async def rerun(
-        _client: object, code: str, _diagnostic_source: object
+        _client: object,
+        code: str,
+        _diagnostic_source: object,
+        *,
+        source_identity: str,
     ) -> FanoutRerun:
+        assert source_identity == "a" * 64
         return FanoutRerun(code, 2, 3, 5 if code == "C10" else 7, 4)
 
     class DiscoveryClient(_RecordingClient):

@@ -21,7 +21,6 @@ from pydantic import (
 from ontolib.decomposition.atomic_write import atomic_write_bytes
 from ontolib.decomposition.models import SemanticRoute
 from ontolib.decomposition.r101_conservation import (
-    NonR101DeltaRow,
     _decompress_report,
     _unique_json_object,
 )
@@ -127,8 +126,22 @@ class PersistedSelectorOccurrence(_StrictModel):
     policy_decision_identity: str | None = Field(default=None, pattern=_SHA256)
 
 
+class HistoricalNonR101DeltaRow(_StrictModel):
+    change: Literal["added", "removed"]
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    axis_source: Literal["role", "nlp", "parent"]
+    source_roles: tuple[str, ...]
+    most_specific: bool
+    needs_review: bool
+    relationship_group: str | None
+    source_definition_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
+
+
 class HistoricalMixedChainDeltaEvidence(_StrictModel):
-    rows: tuple[NonR101DeltaRow, ...]
+    rows: tuple[HistoricalNonR101DeltaRow, ...]
 
 
 class HistoricalMixedChainSourceReport(_StrictModel):

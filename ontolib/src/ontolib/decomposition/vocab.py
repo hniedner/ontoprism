@@ -73,8 +73,12 @@ DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
 # --- Projection vocabulary (DECISIONS D19/D20) -------------------------------------
 # The writer serializes these values when a constituent supplies them.
 
-# D19: relationship-group id for co-equal, non-nested fillers of one concept.
-GROUP = f"{ONTOPRISM_NS}group"
+# Distinct projection-group planes. Source structural groups preserve stated OWL
+# coordinates; normalized projection groups are reviewed output policy.
+AXIS_AMBIGUITY_GROUP = f"{ONTOPRISM_NS}axisAmbiguityGroup"
+SOURCE_STRUCTURAL_GROUP = f"{ONTOPRISM_NS}sourceStructuralGroup"
+NORMALIZED_PROJECTION_GROUP = f"{ONTOPRISM_NS}normalizedProjectionGroup"
+NORMALIZED_PROJECTION_GROUP_LABEL = f"{ONTOPRISM_NS}normalizedProjectionGroupLabel"
 
 # D20, refinement 1: a primary-site restriction anchored on a lineage/histology-generic
 # genus (e.g. via C3010 "Endocrine Neoplasm") is routed here from NCIt's R101.

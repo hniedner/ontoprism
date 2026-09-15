@@ -257,6 +257,7 @@ class _GroupReviewArgs(Protocol):
     current_evidence: Path
     current_comparison: Path
     r101_report: Path
+    historical_r101_report: Path
     output: Path
     workbook: Path
     correction_audit: Path
@@ -346,6 +347,7 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser.add_argument("--current-evidence", required=True, type=Path)
     group_parser.add_argument("--current-comparison", required=True, type=Path)
     group_parser.add_argument("--r101-report", required=True, type=Path)
+    group_parser.add_argument("--historical-r101-report", required=True, type=Path)
     group_parser.add_argument("--output", required=True, type=Path)
     group_parser.add_argument("--workbook", required=True, type=Path)
     group_parser.add_argument("--correction-audit", required=True, type=Path)
@@ -531,6 +533,7 @@ def _generate_group_review(args: _GroupReviewArgs) -> None:
         evidence_path=args.current_evidence,
         comparison_path=args.current_comparison,
         r101_report_path=args.r101_report,
+        historical_r101_report_path=args.historical_r101_report,
         output=args.output,
         workbook=args.workbook,
         correction_audit=args.correction_audit,

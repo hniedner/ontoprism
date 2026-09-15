@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     )
 
 _SHA256 = r"^[0-9a-f]{64}$"
+_CURRENT_EVIDENCE_SCHEMA_VERSION = 4
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -144,7 +145,10 @@ class CurrentSourceFact(_StrictModel):
 class CurrentConstituent(_StrictModel):
     axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
-    relationship_group: str | None
+    axis_ambiguity_group_id: str | None
+    source_group_ids: tuple[str, ...]
+    normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
+    normalized_group_label: str | None
     needs_review: bool
     source_definition_ids: tuple[str, ...] = Field(
         default=(), exclude_if=lambda value: not value
@@ -163,7 +167,7 @@ class CurrentConstituent(_StrictModel):
         )
 
     @model_validator(mode="after")
-    def _citations_match_selected_ids(self) -> Self:
+    def _citations_match_selected_ids(self) -> Self:  # noqa: C901
         if len(set(self.source_definition_ids)) != len(self.source_definition_ids):
             raise ValueError("duplicate source definition citations")
         if tuple(sorted(self.source_definition_ids)) != self.source_definition_ids:
@@ -177,16 +181,26 @@ class CurrentConstituent(_StrictModel):
             raise ValueError("source occurrence citations do not match selected IDs")
         if self.source_occurrences and not self.source_definition_ids:
             raise ValueError("source occurrences require source definition citations")
-        if (
-            tuple(item.fact_id for item in self.source_facts)
-            != self.source_definition_ids
-        ):
-            raise ValueError("source facts do not match selected definition citations")
+        source_fact_ids = tuple(item.fact_id for item in self.source_facts)
+        if len(source_fact_ids) != len(set(source_fact_ids)):
+            raise ValueError("duplicate source fact citations")
+        if not set(self.source_definition_ids) <= set(source_fact_ids):
+            raise ValueError("selected definition citation lacks a source fact")
         occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
         if self.source_definition_ids and not occurrence_fact_ids <= set(
             self.source_definition_ids
         ):
             raise ValueError("source occurrences cite an unselected definition fact")
+        expected_groups = tuple(
+            sorted({item.source_group_id for item in self.source_facts})
+        )
+        if self.source_group_ids != expected_groups:
+            raise ValueError(
+                "source group identities differ from selected source facts: "
+                f"declared={self.source_group_ids!r}, facts={expected_groups!r}"
+            )
+        if (self.normalized_group_id is None) != (self.normalized_group_label is None):
+            raise ValueError("normalized group identity and label must be paired")
         return self
 
 
@@ -288,7 +302,7 @@ class CurrentConceptEvidence(_StrictModel):
 
 
 class CurrentEngineEvidence(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -560,7 +574,7 @@ class CurrentRowReplay(_StrictModel):
 
 
 class CurrentComparison(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -749,7 +763,10 @@ def _concepts(
             CurrentConstituent(
                 axis=item.axis,
                 filler=item.filler_code,
-                relationship_group=item.group,
+                axis_ambiguity_group_id=item.axis_ambiguity_group_id,
+                source_group_ids=item.source_group_ids,
+                normalized_group_id=item.normalized_group_id,
+                normalized_group_label=item.normalized_group_label,
                 needs_review=item.needs_review,
                 source_definition_ids=item.source_definition_ids,
                 source_facts=tuple(
@@ -774,7 +791,18 @@ def _concepts(
                             else None
                         ),
                     )
-                    for fact in (facts[value] for value in item.source_definition_ids)
+                    for fact in sorted(
+                        (
+                            fact
+                            for fact in facts.values()
+                            if (
+                                fact.fact_id in item.source_definition_ids
+                                if item.source_definition_ids
+                                else fact.group_id in item.source_group_ids
+                            )
+                        ),
+                        key=lambda row: row.fact_id,
+                    )
                 ),
                 source_occurrence_ids=item.source_occurrence_ids,
                 source_occurrences=tuple(
@@ -785,7 +813,11 @@ def _concepts(
             for item in (
                 sorted(
                     decomposition.constituents,
-                    key=lambda row: (row.axis, row.filler_code, row.group or ""),
+                    key=lambda row: (
+                        row.axis,
+                        row.filler_code,
+                        row.normalized_group_id or "",
+                    ),
                 )
                 if decomposition is not None
                 else ()
@@ -817,7 +849,12 @@ def _scoreable_partition_rows(
     constituents: tuple[GoldenConstituent, ...] | tuple[CurrentConstituent, ...],
 ) -> tuple[tuple[tuple[str, str], str | None], ...]:
     return tuple(
-        ((item.axis, item.filler), item.relationship_group)
+        (
+            (item.axis, item.filler),
+            item.normalized_group_id
+            if isinstance(item, CurrentConstituent)
+            else item.relationship_group,
+        )
         for item in constituents
         if not item.needs_review and item.provenance_status == "ncit-26.07d"
     )
@@ -1237,7 +1274,7 @@ def _build_current_comparison(
     metrics, reports = _comparison_payload(adjudicated, evidence)
     row_replay = _row_replay(rows, adjudicated, registry, evidence.concepts)
     comparison_payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         **common,
         "current_evidence_identity": evidence.evidence_identity,
         "metrics": metrics,
@@ -1516,7 +1553,7 @@ async def generate_current_evidence(
         )
     concepts = _concepts(outcomes, await store.decompositions_for_run(run_id))
     common = {
-        "schema_version": 3,
+        "schema_version": _CURRENT_EVIDENCE_SCHEMA_VERSION,
         "ncit_version": run.ncit_version,
         "source_identity": manifest.source_identity,
         "sample_manifest_identity": manifest.identity,

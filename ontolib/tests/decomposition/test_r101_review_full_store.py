@@ -169,7 +169,9 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
     }
     assert {"C12351", "C12439", "C12512", "C32639"} <= set(primary_sites)
     assert all(primary_sites[code].needs_review for code in primary_sites)
-    assert {primary_sites[code].group for code in primary_sites} == {"op:PrimarySite"}
+    assert {primary_sites[code].axis_ambiguity_group_id for code in primary_sites} == {
+        "op:PrimarySite"
+    }
     prior = {
         link.filler_code
         for row in report.occurrences

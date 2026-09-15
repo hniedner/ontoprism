@@ -63,11 +63,17 @@ async def test_c27262_runtime_applies_packaged_normalized_groups() -> None:
     assert result.decomposition is not None
     policy_row = load_packaged_normalized_group_policy().by_code[_CONCEPT]
     observed = {
-        (item.axis, item.filler_code): item.group
+        (item.axis, item.filler_code): (
+            item.normalized_group_id,
+            item.normalized_group_label,
+        )
         for item in result.decomposition.constituents
     }
     assert observed == {
-        pair: policy_row.block_for(pair).normalized_group_id
+        pair: (
+            policy_row.block_for(pair).normalized_group_id,
+            policy_row.block_for(pair).normalized_group_label,
+        )
         for block in policy_row.blocks
         for pair in block.pairs
     }

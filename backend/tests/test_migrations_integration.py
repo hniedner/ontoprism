@@ -8,6 +8,7 @@ configured database or migrated embedding tables are unavailable.
 """
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -314,9 +315,9 @@ async def _rejected_complete_definition_writes(conn: Any) -> dict[str, bool]:
     constituent = (
         "INSERT INTO decomp_constituent "
         "(run_id, concept_code, axis, filler_code, axis_source, most_specific, "
-        "needs_review, source_roles, source_definition_ids) VALUES "
+        "needs_review, source_roles, source_definition_ids, source_group_ids) VALUES "
         "('definition-checks', 'C1', 'op:PrimarySite', 'C12400', 'role', false, "
-        "false, '[\"R101\"]'::jsonb, {value}::jsonb)"
+        "false, '[\"R101\"]'::jsonb, {value}::jsonb, '[]'::jsonb)"
     )
     fact = (
         "INSERT INTO decomp_definition_fact "
@@ -642,7 +643,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0027_full_run_admission"
+    assert revision == "0028_distinct_group_identities"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -716,8 +717,11 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     }.items() <= facts["run_columns"].items()
     assert {
         "needs_review": "boolean",
-        "relationship_group": "text",
         "source_roles": "jsonb",
+        "axis_ambiguity_group_id": "text",
+        "source_group_ids": "jsonb",
+        "normalized_group_id": "text",
+        "normalized_group_label": "text",
     }.items() <= facts["constituent_columns"].items()
     constraints = " ".join(facts["constraints"])
     assert "running" in constraints
@@ -1049,3 +1053,143 @@ def test_definition_presence_migration_roundtrip() -> None:
     assert facts["uncaptured_object_in_publishing_state_rejected"] is True
     assert facts["scalar_snapshot_in_publishing_state_rejected"] is True
     assert facts["captured_json_null_accepted"] is True
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
+def test_distinct_group_identity_migration_preserves_existing_runs() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    group_a, group_b = "a" * 64, "b" * 64
+    fact_a, occurrence_b = "c" * 64, "d" * 64
+
+    async def seed_and_read() -> tuple[int, int]:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
+                "source_identity, fingerprint, fingerprint_sha256, emitted_at,"
+                "publication_state) VALUES "
+                "('preserved-run','neoplasm','running','26.07d',now(),$1,'{}',$2,now(),"
+                "'pending')",
+                "e" * 64,
+                "f" * 64,
+            )
+            await conn.execute(
+                "INSERT INTO decomp_work_item (run_id,concept_code,ordinal) "
+                "VALUES ('preserved-run','C1',0)"
+            )
+            await conn.execute(
+                "INSERT INTO decomp_definition_group "
+                "(run_id,concept_code,group_id,anchor_code,depth,is_root) VALUES "
+                "('preserved-run','C1',$1,'C1',0,true),"
+                "('preserved-run','C1',$2,'C1',1,false)",
+                group_a,
+                group_b,
+            )
+            await conn.execute(
+                "INSERT INTO decomp_definition_fact "
+                "(run_id,concept_code,fact_id,anchor_code,group_id,depth,fact_kind,"
+                "genus_code,is_defined,role_code,filler_code) VALUES "
+                "('preserved-run','C1',$1,'C1',$2,0,'genus','C2',true,NULL,NULL),"
+                "('preserved-run','C1',$3,'C1',$4,1,'restriction',NULL,NULL,'R1','C3')",
+                fact_a,
+                group_a,
+                "9" * 64,
+                group_b,
+            )
+            await conn.execute(
+                "INSERT INTO decomp_constituent (run_id,concept_code,axis,filler_code,"
+                "axis_source,source_roles,most_specific,needs_review,relationship_group,"
+                "source_definition_ids) VALUES "
+                "('preserved-run','C1','op:Morphology','C2','parent','[]',false,false,"
+                "'ambiguity-a',jsonb_build_array($1::text)),"
+                "('preserved-run','C1','R1','C3','role','[\"R1\"]',false,false,NULL,"
+                "jsonb_build_array($2::text))",
+                fact_a,
+                "9" * 64,
+            )
+            await conn.execute(
+                "INSERT INTO decomp_source_occurrence "
+                "(run_id,concept_code,occurrence_id,source_fact_id,source_group_id,"
+                "anchor_code,depth,role_code,filler_code,structural_path,"
+                "member_position) "
+                "VALUES ('preserved-run','C1',$1,$2,$3,'C1',1,'R1','C3',ARRAY[0],0)",
+                occurrence_b,
+                "9" * 64,
+                group_b,
+            )
+            await conn.execute(
+                "INSERT INTO decomp_constituent_occurrence "
+                "(run_id,concept_code,axis,filler_code,occurrence_id) "
+                "VALUES ('preserved-run','C1','R1','C3',$1)",
+                occurrence_b,
+            )
+            return (
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_run WHERE id='preserved-run'"
+                ),
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_constituent "
+                    "WHERE run_id='preserved-run'"
+                ),
+            )
+        finally:
+            await conn.close()
+
+    async def migrated_values() -> tuple[int, int, list[tuple[object, ...]], bool]:
+        conn = await asyncpg.connect(dsn)
+        try:
+            rows = await conn.fetch(
+                "SELECT axis,axis_ambiguity_group_id,source_group_ids,"
+                "normalized_group_id,normalized_group_label FROM decomp_constituent "
+                "WHERE run_id='preserved-run' ORDER BY axis"
+            )
+            rejected = False
+            try:
+                await conn.execute(
+                    "UPDATE decomp_constituent SET source_group_ids='[\"bad\"]' "
+                    "WHERE run_id='preserved-run' AND axis='R1'"
+                )
+            except asyncpg.CheckViolationError:
+                rejected = True
+            return (
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_run WHERE id='preserved-run'"
+                ),
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_constituent "
+                    "WHERE run_id='preserved-run'"
+                ),
+                sorted(
+                    (
+                        row["axis"],
+                        row["axis_ambiguity_group_id"],
+                        json.loads(row["source_group_ids"]),
+                        row["normalized_group_id"],
+                        row["normalized_group_label"],
+                    )
+                    for row in rows
+                ),
+                rejected,
+            )
+        finally:
+            await conn.close()
+
+    try:
+        command.downgrade(cfg, "0027_full_run_admission")
+        before = asyncio.run(seed_and_read())
+        command.upgrade(cfg, "head")
+        after = asyncio.run(migrated_values())
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert before == (1, 2)
+    assert after[:2] == before
+    assert after[2] == [
+        ("R1", None, [group_b], None, None),
+        ("op:Morphology", "ambiguity-a", [group_a], None, None),
+    ]
+    assert after[3] is True

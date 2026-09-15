@@ -138,7 +138,7 @@ def test_exact_c5292_veto_retains_broaders_as_one_unresolved_group() -> None:
     }
     assert {row.axis for row in constituents} == {"op:PrimarySite"}
     assert all(row.needs_review for row in constituents)
-    assert {row.group for row in constituents} == {"op:PrimarySite"}
+    assert {row.axis_ambiguity_group_id for row in constituents} == {"op:PrimarySite"}
 
 
 @pytest.mark.unit

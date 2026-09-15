@@ -573,6 +573,13 @@ class RoleRestriction:
             raise ValueError("source occurrence IDs require source definition IDs")
 
 
+def _canonical_sha256_ids(values: tuple[str, ...], label: str) -> tuple[str, ...]:
+    canonical = tuple(sorted(set(values)))
+    for value in canonical:
+        _require_sha256(value, f"{label} item")
+    return canonical
+
+
 @dataclass(frozen=True, slots=True)
 class Constituent:
     """A single decomposed constituent: an axis and the concept that fills it.
@@ -580,8 +587,9 @@ class Constituent:
     ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
     ``source_roles`` preserves every defining NCIt role independently. ``most_specific``
     records that the filler was chosen over a strictly broader is-a candidate;
-    ``needs_review`` flags an unresolved ordinary axis for curation. ``group`` is a D19
-    relationship-group id shared by ambiguous fillers on the same routed axis.
+    ``needs_review`` flags an unresolved ordinary axis. Group identities are
+    deliberately separate: axis ambiguity, source OWL structure, and reviewed
+    normalized projection.
     """
 
     axis: str
@@ -590,7 +598,10 @@ class Constituent:
     source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
-    group: str | None = None
+    axis_ambiguity_group_id: str | None = None
+    source_group_ids: tuple[str, ...] = ()
+    normalized_group_id: str | None = None
+    normalized_group_label: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     source_occurrence_ids: tuple[str, ...] = ()
 
@@ -604,16 +615,24 @@ class Constituent:
         )
         _require_source_roles(source_roles)
         object.__setattr__(self, "source_roles", source_roles)
-        canonical = tuple(sorted(set(self.source_definition_ids)))
-        for source_id in canonical:
-            _require_sha256(source_id, "source_definition_ids item")
-        object.__setattr__(self, "source_definition_ids", canonical)
-        occurrence_ids = tuple(sorted(set(self.source_occurrence_ids)))
-        for occurrence_id in occurrence_ids:
-            _require_sha256(occurrence_id, "source_occurrence_ids item")
+        definition_ids = _canonical_sha256_ids(
+            self.source_definition_ids, "source_definition_ids"
+        )
+        object.__setattr__(self, "source_definition_ids", definition_ids)
+        occurrence_ids = _canonical_sha256_ids(
+            self.source_occurrence_ids, "source_occurrence_ids"
+        )
         object.__setattr__(self, "source_occurrence_ids", occurrence_ids)
-        if occurrence_ids and not canonical:
+        if occurrence_ids and not definition_ids:
             raise ValueError("source occurrence IDs require source definition IDs")
+        source_group_ids = _canonical_sha256_ids(
+            self.source_group_ids, "source_group_ids"
+        )
+        object.__setattr__(self, "source_group_ids", source_group_ids)
+        if (self.normalized_group_id is None) != (self.normalized_group_label is None):
+            raise ValueError("normalized group identity and label must be paired")
+        if self.normalized_group_id is not None:
+            _require_sha256(self.normalized_group_id, "normalized_group_id")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

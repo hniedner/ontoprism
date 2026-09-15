@@ -101,7 +101,8 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
                 source_roles=("R101",),
                 most_specific=True,
                 needs_review=True,
-                group="anatomy-1",
+                axis_ambiguity_group_id="op:PrimarySite",
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
             )
         ],
@@ -140,7 +141,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
     actual = decomposition_from_rows("C6135", rows)
     assert actual.constituents[0].axis == "op:PrimarySite"
     assert actual.constituents[0].source_roles == ("R101",)
-    assert actual.constituents[0].group == "anatomy-1"
+    assert actual.constituents[0].axis_ambiguity_group_id == "op:PrimarySite"
     assert actual.constituents[0].needs_review is True
     assert actual.constituents[0].source_definition_ids == (fact_id,)
     assert fact_rows == [{"fact": f"{vocab.DEFINITION_FACT_NS}C6135/{fact_id}"}]

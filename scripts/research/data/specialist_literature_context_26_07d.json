@@ -1250,7 +1250,7 @@
       "specialty": "pediatric hematology-oncology and cancer-registry staging",
       "factual_context": [
         "The Toronto v2 ALL Tier 1 values are CNS-negative C198032 and CNS-positive C198034; C198022 is the schema and C198023 the Tier 1 profile.",
-        "Selection misses are clinical-only pending engineering repair #274; no filler substitution is offered."
+        "Selection misses remain clinical-only pending total-delta classification #127; no filler substitution is offered."
       ],
       "citations": [
         {

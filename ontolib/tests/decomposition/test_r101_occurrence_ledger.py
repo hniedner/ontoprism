@@ -201,7 +201,7 @@ def _delta_row(**changes: object) -> NonR101DeltaRow:
         "source_roles": ("R102",),
         "most_specific": True,
         "needs_review": False,
-        "relationship_group": None,
+        "axis_ambiguity_group_id": None,
         "source_definition_ids": ("1" * 64,),
         "source_occurrence_ids": ("2" * 64,),
     }
@@ -222,7 +222,7 @@ def test_non_r101_delta_rows_preserve_complete_typed_constituent_evidence() -> N
         "source_roles": ("R102",),
         "most_specific": True,
         "needs_review": False,
-        "relationship_group": None,
+        "axis_ambiguity_group_id": None,
         "source_definition_ids": ("1" * 64,),
         "source_occurrence_ids": ("2" * 64,),
     }
@@ -1381,13 +1381,13 @@ def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
         "non_r101_delta": 2_097,
     }
     assert report.comparator_qualification_identity == (
-        "b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a"
+        "59cce9246e8d309fab5c41d70fba195628bcd43647b0f5408a60a50666b8de51"
     )
     assert report.report_identity == (
-        "23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b"
+        "1383ccf0d79fb8aab509e8cc94e6e9123e16f0596279d8dea4c526bfa846be57"
     )
     assert report.json_identity == (
-        "116a52d2ce9ceaa93c3d65398490df9f68d8119dd040a2632c364e6e902f6325"
+        "07a7c93a0592110b6afe87e35bd58c1e25206b1154072ba3bc6d9ce1e5c1f2d3"
     )
     assert report.tsv_identity == (
         "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"
@@ -1410,5 +1410,5 @@ def test_tracked_v5_ledger_binds_the_qualified_full_corpus_comparison() -> None:
         "e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de"
     )
     assert report.non_r101_typed_inventory_identity == (
-        "24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0"
+        "a5fa597920ed4a02225aeac7967eb69724db65f3b9c492748b00a8ca6ab1503b"
     )

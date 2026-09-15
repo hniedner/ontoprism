@@ -49,6 +49,9 @@ from ontolib.decomposition.models import (
     RestrictionDefinitionFact,
     RoleRestriction,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.run import _decompose_one as _decompose_one_impl
 from ontolib.decomposition.scope import read_scope_hierarchy_edges
 from ontolib.decomposition.stated_queries import (
@@ -1233,7 +1236,7 @@ async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
         is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
     )
     assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
-    assert all(item.group is None for item in constituents)
+    assert all(item.axis_ambiguity_group_id is None for item in constituents)
 
 
 @pytest.mark.integration
@@ -1760,7 +1763,7 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
         if constituent.axis == "op:AssociatedRegion"
     ]
     assert all(
-        constituent.group is None
+        constituent.axis_ambiguity_group_id is None
         and constituent.source_roles == ("R101",)
         and constituent.source_definition_ids
         and constituent.needs_review is False
@@ -1841,7 +1844,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
             "C33209",
         }, grouped.constituents
         assert all(
-            constituent.group == "op:AssociatedRegion"
+            constituent.axis_ambiguity_group_id == "op:AssociatedRegion"
             and constituent.source_definition_ids
             for constituent in grouped_regions
         )
@@ -1928,6 +1931,9 @@ def select_constituents(*args: Any, **kwargs: Any):
 
 
 async def _decompose_one(*args: Any, **kwargs: Any):
+    no_group_policy = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "0" * 64, "rows": ()}
+    )
     return await _decompose_one_impl(
         *args,
         **kwargs,
@@ -1935,4 +1941,5 @@ async def _decompose_one(*args: Any, **kwargs: Any):
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
         detector_identity="0" * 64,
+        normalized_group_policy=no_group_policy,
     )

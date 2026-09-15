@@ -20,6 +20,9 @@ from ontolib.decomposition.collapse_policy import (
 )
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.fanout_baseline import load_fanout_baseline
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.pre_resume import (
     acquire_candidate_evidence,
     affected_missing_p106,
@@ -509,6 +512,9 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
         diagnostic_source = await read_axis_diagnostic_source(
             client, manifest.source_identity
         )
+        no_group_policy = load_packaged_normalized_group_policy().model_copy(
+            update={"rows": ()}
+        )
         for code, (
             broader,
             retained_region,
@@ -522,10 +528,10 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                 label_lookup=no_label_match,
                 source_identity=manifest.source_identity,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                normalized_group_policy=no_group_policy,
                 diagnostic_source=diagnostic_source,
                 detector_identity="0" * 64,
                 walker_max_depth=7,
-                enable_normalized_group_policy=False,
             )
             decomposition = result.decomposition
             assert decomposition is not None

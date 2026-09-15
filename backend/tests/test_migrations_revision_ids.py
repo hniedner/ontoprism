@@ -55,4 +55,4 @@ def test_migration_head_includes_occurrence_disposition_invariants() -> None:
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0027_full_run_admission"}
+    assert heads == {"0028_distinct_group_identities"}

@@ -219,12 +219,12 @@ def classify_pair_scope(scope_input: PairScopeInput) -> PairScopeVerdict:  # noq
             return PairScopeVerdict(
                 status="clinical-only",
                 reason="The pair has material clinical evidence, but extraction or selection repair is engineering-owned.",
-                engineering_blocker="#274 selector/extractor repair queued; regenerate packets and rerun the release gate",
+                engineering_blocker="#127 total-delta classification pending; regenerate packets and rerun the release gate",
             )
         return PairScopeVerdict(
             status="engineering-only",
             reason="Extraction or selection repair is engineering-owned and no clinical claim is indexed.",
-            engineering_blocker="#274 selector/extractor repair queued; regenerate packets and rerun the release gate",
+            engineering_blocker="#127 total-delta classification pending; regenerate packets and rerun the release gate",
         )
     if (
         not scope_input.has_clinical_claim
@@ -335,7 +335,7 @@ class SpecialistRowPacket(_StrictModel):
             )
         if any(
             not re.search(
-                r"#(?:267|271|274).*(?:regenerate|rerun|queue|repair)",
+                r"#(?:127|267|271|274).*(?:regenerate|rerun|queue|repair|pending)",
                 text,
                 re.IGNORECASE,
             )

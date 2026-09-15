@@ -306,14 +306,16 @@ async def test_disposable_postgres_candidate_shape_preserves_source_occurrences(
         await connection.execute(
             "INSERT INTO decomp_constituent (run_id, concept_code, axis, filler_code, "
             "axis_source, source_roles, most_specific, needs_review, "
-            "source_definition_ids) VALUES ('proof-test', 'C1', 'op:Morphology', "
-            "'C3878', 'parent', '[]'::jsonb, false, false, '[]'::jsonb)"
+            "source_definition_ids, source_group_ids) VALUES "
+            "('proof-test', 'C1', 'op:Morphology', 'C3878', 'parent', "
+            "'[]'::jsonb, false, false, '[]'::jsonb, '[]'::jsonb)"
         )
         await connection.execute(
             "INSERT INTO decomp_constituent (run_id, concept_code, axis, filler_code, "
             "axis_source, source_roles, most_specific, needs_review, "
-            "source_definition_ids) VALUES ('proof-test', 'C2', 'op:Morphology', "
-            "'C3878', 'parent', '[]'::jsonb, false, false, '[]'::jsonb)"
+            "source_definition_ids, source_group_ids) VALUES "
+            "('proof-test', 'C2', 'op:Morphology', 'C3878', 'parent', "
+            "'[]'::jsonb, false, false, '[]'::jsonb, '[]'::jsonb)"
         )
         for concept_offset, concept_code in enumerate(("C1", "C2")):
             for index, filler in enumerate(("C12400", "C12418"), start=1):
@@ -534,9 +536,9 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             await connection.execute(
                 "INSERT INTO decomp_constituent "
                 "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
-                "most_specific, needs_review, source_definition_ids) "
+                "most_specific, needs_review, source_definition_ids, source_group_ids) "
                 "VALUES ($1, 'C1', $2, 'C10', 'role', '[\"R101\"]'::jsonb, "
-                "true, false, '[]'::jsonb)",
+                "true, false, '[]'::jsonb, '[]'::jsonb)",
                 run_id,
                 axis,
             )
@@ -555,9 +557,9 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             await connection.execute(
                 "INSERT INTO decomp_constituent "
                 "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
-                "most_specific, needs_review, source_definition_ids) "
+                "most_specific, needs_review, source_definition_ids, source_group_ids) "
                 "VALUES ($1, 'C1', 'op:Morphology', $2, 'parent', '[]'::jsonb, "
-                "true, false, '[]'::jsonb)",
+                "true, false, '[]'::jsonb, '[]'::jsonb)",
                 run_id,
                 filler_code,
             )
@@ -595,7 +597,7 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             "source_roles": (),
             "most_specific": True,
             "needs_review": False,
-            "relationship_group": None,
+            "axis_ambiguity_group_id": None,
             "source_definition_ids": (),
             "source_occurrence_ids": (),
         },
@@ -608,7 +610,7 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
             "source_roles": (),
             "most_specific": True,
             "needs_review": False,
-            "relationship_group": None,
+            "axis_ambiguity_group_id": None,
             "source_definition_ids": (),
             "source_occurrence_ids": (),
         },

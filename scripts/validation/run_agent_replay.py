@@ -70,6 +70,8 @@ _MAX_R101_METADATA_TRANSITIONS = 100
 _MAX_R101_METADATA_CONCEPTS = 16_000
 _MAX_R101_INSPECTION_BYTES = 5_000_000
 _R101_PAIR_ARGUMENT_COUNT = 2
+_R101_REPORT_ARGUMENT_COUNT = 3
+_GENERATION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = COMPOSE_PROJECT
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
@@ -102,7 +104,11 @@ _CONTROL_CODEPOINT_LIMIT = 32
 _CONSOLIDATION_VALUE_COUNT = 3
 _NORMALIZED_GROUP_POLICY_ROW_COUNT = 15
 _POLICY_CANDIDATE_PARENT_ARGUMENT_COUNT = 4
+_GROUP_REVIEW_PARENT_ARGUMENT_COUNT = 4
+_GROUP_REVIEW_PARENT_COUNT = 2
 _POLICY_PROMOTION_PARENT_ARGUMENT_COUNT = 6
+_GROUPING_DETECTOR_PARENT_ARGUMENT_COUNT = 6
+_GROUPING_DETECTOR_PARENT_COUNT = 3
 _CURRENT_REPLAY_SAMPLE_SHA256 = (
     "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
 )
@@ -283,9 +289,18 @@ def _qualify_current_r101_comparator(
 def _generate_current_r101_conservation(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
+    if (
+        len(values) != _R101_REPORT_ARGUMENT_COUNT
+        or _GENERATION_ID.fullmatch(values[2]) is None
+    ):
+        raise AgentReplayInputError(
+            "generate-current-r101-conservation requires two distinct run IDs "
+            "and one generation ID"
+        )
     old_run_id, new_run_id = _validated_r101_pair(
-        values, operation="generate-current-r101-conservation"
+        values[:2], operation="generate-current-r101-conservation"
     )
+    generation_id = values[2]
     _script, source_manifest, baseline, old_artifact, new_artifact = _require_files(
         root,
         (
@@ -296,40 +311,133 @@ def _generate_current_r101_conservation(
             "tmp/m1-6-current-full-corpus.ttl",
         ),
     )
-    return _run(
-        [
-            _PDM,
-            "run",
-            "adjudication",
-            "generate-r101-conservation",
-            "--source-manifest",
-            source_manifest,
-            "--baseline",
-            baseline,
-            "--run-id",
-            old_run_id,
-            "--new-run-id",
-            new_run_id,
-            "--old-artifact",
-            old_artifact,
-            "--new-artifact",
-            new_artifact,
-            "--qualification-output",
-            str(root / "tmp/m1-6-r101-v5-comparator-qualification.json"),
-            "--endpoint",
-            "http://localhost:7888",
-            "--output",
-            str(root / "tmp/m1-6-r101-v5-conservation.json.gz"),
-            "--pre-resume-proof-identity",
-            "f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018",
-            "--resume-dry-run-identity",
-            "2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98",
-            "--mixed-cohort-identity",
-            "dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a",
-        ],
-        root,
-        runner,
-    )
+    staging = Path(tempfile.mkdtemp(prefix=".staging-r101-", dir=root / "tmp"))
+    qualification_output = staging / "comparator-qualification.json"
+    report_output = staging / "conservation.json.gz"
+    command = [
+        _PDM,
+        "run",
+        "adjudication",
+        "generate-r101-conservation",
+        "--source-manifest",
+        source_manifest,
+        "--baseline",
+        baseline,
+        "--run-id",
+        old_run_id,
+        "--new-run-id",
+        new_run_id,
+        "--old-artifact",
+        old_artifact,
+        "--new-artifact",
+        new_artifact,
+        "--qualification-output",
+        str(qualification_output),
+        "--endpoint",
+        "http://localhost:7888",
+        "--output",
+        str(report_output),
+        "--pre-resume-proof-identity",
+        "f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018",
+        "--resume-dry-run-identity",
+        "2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98",
+        "--mixed-cohort-identity",
+        "dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a",
+    ]
+    try:
+        result = _run(command, root, runner)
+        if result != 0:
+            return result
+        conservation = importlib.import_module(
+            "ontolib.decomposition.r101_conservation"
+        )
+        comparator = importlib.import_module("ontolib.decomposition.r101_comparator")
+        report = conservation.load_r101_conservation_report(report_output)
+        qualification = comparator.load_r101_comparator_qualification(
+            qualification_output
+        )
+        if (
+            report.old_run_id != old_run_id
+            or report.new_run_id != new_run_id
+            or qualification.old.run_id != old_run_id
+            or qualification.new.run_id != new_run_id
+            or report.comparator_qualification_identity
+            != qualification.qualification_identity
+        ):
+            raise AgentReplayInputError(
+                "generated R101 report differs from the requested qualified pair"
+            )
+        generator_files = (
+            Path(_script),
+            Path(__file__),
+            Path(cast("str", conservation.__file__)),
+            Path(
+                cast(
+                    "str",
+                    importlib.import_module(
+                        "ontolib.decomposition.provenance"
+                    ).__file__,
+                )
+            ),
+        )
+        generator_identity = hashlib.sha256(
+            b"\0".join(path.read_bytes() for path in generator_files)
+        ).hexdigest()
+        manifest = publish_generation(
+            artifacts_root=root / "tmp/artifacts/v1/generations",
+            family="m1-6-r101-conservation",
+            generation_id=generation_id,
+            run_id=new_run_id,
+            artifact_sources={
+                "artifacts/conservation.json.gz": report_output,
+                "artifacts/comparator-qualification.json": qualification_output,
+            },
+            parents=(),
+            generator=GeneratorBinding(
+                identity=f"sha256:{generator_identity}",
+                command=(
+                    "pdm",
+                    "run",
+                    "agent-replay",
+                    "generate-current-r101-conservation",
+                    old_run_id,
+                    new_run_id,
+                    generation_id,
+                ),
+            ),
+            sources=tuple(
+                SourceIdentity(
+                    name=name,
+                    identity=f"sha256:{hashlib.sha256(Path(path).read_bytes()).hexdigest()}",
+                )
+                for name, path in (
+                    ("ncit-source-manifest", source_manifest),
+                    ("prechange-corpus-baseline", baseline),
+                    ("prechange-full-corpus-ttl", old_artifact),
+                    ("current-full-corpus-ttl", new_artifact),
+                )
+            ),
+            retention=RetentionBinding(
+                retention_class="referenced-full-store-report",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "generation_id": generation_id,
+                    "manifest_identity": manifest.manifest_identity,
+                    "report_identity": report.report_identity,
+                    "qualification_identity": qualification.qualification_identity,
+                    "read_only": True,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        shutil.rmtree(staging)
 
 
 def _generate_current_corpus_baseline(
@@ -926,34 +1034,94 @@ def _generate_mixed_chain_corrected_projection(
         raise AgentReplayInputError(
             "generate-mixed-chain-corrected-projection accepts no arguments"
         )
-    output = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
-    output.unlink(missing_ok=True)
-    asyncio.run(
-        _generate_mixed_chain_corrected_projection_async(
-            root / "ontolib/src/ontolib/decomposition/data/"
-            "neoplasm_mixed_chain_inventory.json",
-            root / "ontolib/tests/decomposition/golden/"
-            "neoplasm-r101-v5-2b39-historical-conservation.json.gz",
-            output,
-        )
+    inventory = (
+        root / "ontolib/src/ontolib/decomposition/data/"
+        "neoplasm_mixed_chain_inventory.json"
     )
-    return 0
+    report = (
+        root / "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-2b39-historical-conservation.json.gz"
+    )
+    family = "m1-6-mixed-chain-corrected-projection"
+    generation_id, staging = _candidate_staging(root, family)
+    output = staging / "corrected-projection.json"
+    try:
+        asyncio.run(
+            _generate_mixed_chain_corrected_projection_async(
+                inventory,
+                report,
+                output,
+            )
+        )
+        manifest = publish_generation(
+            artifacts_root=root / "tmp/artifacts/v1/generations",
+            family=family,
+            generation_id=generation_id,
+            run_id=None,
+            artifact_sources={"artifacts/corrected-projection.json": output},
+            parents=(),
+            generator=GeneratorBinding(
+                identity=_git_head_identity(root),
+                command=(
+                    "pdm",
+                    "run",
+                    "agent-replay",
+                    "generate-mixed-chain-corrected-projection",
+                ),
+            ),
+            sources=(
+                SourceIdentity(
+                    name="mixed-chain-inventory",
+                    identity=f"sha256:{hashlib.sha256(inventory.read_bytes()).hexdigest()}",
+                ),
+                SourceIdentity(
+                    name="historical-r101-report",
+                    identity=f"sha256:{hashlib.sha256(report.read_bytes()).hexdigest()}",
+                ),
+            ),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "manifest_path": (
+                        root
+                        / "tmp/artifacts/v1/generations"
+                        / family
+                        / generation_id
+                        / "manifest.json"
+                    )
+                    .relative_to(root)
+                    .as_posix(),
+                    "manifest_identity": manifest.manifest_identity,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _record_mixed_chain_corrected_projection(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
     del runner
-    if values:
-        raise AgentReplayInputError(
-            "record-mixed-chain-corrected-projection accepts no arguments"
-        )
+    manifest, manifest_path, _binding = _resolve_candidate_parent(
+        values,
+        root,
+        expected_family="m1-6-mixed-chain-corrected-projection",
+    )
     projection_module = importlib.import_module(
         "ontolib.decomposition.mixed_chain_projection"
     )
-    generated = root / "tmp/m1-6-mixed-chain-corrected-projection.json"
-    if not generated.is_file():
-        raise AgentReplayInputError("generated corrected projection does not exist")
+    generated = _bound_artifact_path(
+        manifest, manifest_path, "artifacts/corrected-projection.json"
+    )
     artifact = projection_module.load_corrected_projection(generated)
     destination = (
         root / "ontolib/tests/decomposition/golden/"
@@ -1804,14 +1972,28 @@ def _decompose_current_staged(
 
 
 def _git_head_identity(root: Path) -> str:
-    result = subprocess.run(
+    head = subprocess.run(
         ["/usr/bin/git", "rev-parse", "HEAD"],
         cwd=root,
         check=True,
         capture_output=True,
         text=True,
     )
-    return f"git:{result.stdout.strip()}"
+    tracked = subprocess.run(
+        ["/usr/bin/git", "ls-files", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    digest = hashlib.sha256()
+    for relative in sorted(path for path in tracked.stdout.split("\0") if path):
+        payload = (root / relative).read_bytes()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(len(payload).to_bytes(8, byteorder="big"))
+        digest.update(payload)
+    return f"git:{head.stdout.strip()}+worktree-sha256:{digest.hexdigest()}"
 
 
 def _verify_persisted_replay(run_id: str, artifact: Path) -> str:
@@ -2350,6 +2532,8 @@ def _generate_group_review_rev2(
             comparison,
             "--r101-report",
             r101_report,
+            "--historical-r101-report",
+            r101_report,
             "--output",
             str(root / "tmp/m1-6-group-review-packet-rev2.json"),
             "--workbook",
@@ -2367,10 +2551,17 @@ def _generate_group_review_rev2(
 def _generate_group_review_rev2_candidate(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
+    if len(values) != _GROUP_REVIEW_PARENT_ARGUMENT_COUNT:
+        raise AgentReplayInputError(
+            "exact current-evidence and R101 parent manifests are required"
+        )
     parent, parent_path, parent_binding = _resolve_candidate_parent(
-        values, root, expected_family="m1-6-current-evidence-candidate"
+        values[:2], root, expected_family="m1-6-current-evidence-candidate"
     )
-    script, r101_report = _require_files(
+    r101_parent, r101_parent_path, r101_parent_binding = _resolve_candidate_parent(
+        values[2:], root, expected_family="m1-6-r101-conservation"
+    )
+    script, historical_r101_report = _require_files(
         root,
         (
             "scripts/adjudication.py",
@@ -2381,6 +2572,9 @@ def _generate_group_review_rev2_candidate(
         parent, parent_path, "artifacts/engine-evidence.json"
     )
     comparison = _bound_artifact_path(parent, parent_path, "artifacts/comparison.json")
+    r101_report = _bound_artifact_path(
+        r101_parent, r101_parent_path, "artifacts/conservation.json.gz"
+    )
     family = "m1-6-group-review-candidate"
     generation_id, staging = _candidate_staging(root, family)
     outputs = (
@@ -2408,7 +2602,9 @@ def _generate_group_review_rev2_candidate(
         "--current-comparison",
         str(comparison),
         "--r101-report",
-        r101_report,
+        str(r101_report),
+        "--historical-r101-report",
+        historical_r101_report,
         "--output",
         str(outputs[0]),
         "--workbook",
@@ -2432,7 +2628,7 @@ def _generate_group_review_rev2_candidate(
             "artifacts/group-correction-audit.xlsx": outputs[2],
             "artifacts/group-review-blank-validation.json": outputs[3],
         },
-        parents=(parent_binding,),
+        parents=(parent_binding, r101_parent_binding),
         sources=(),
     )
 
@@ -2451,9 +2647,13 @@ def _generate_normalized_group_policy_candidate(
     review, review_path, review_binding = _resolve_candidate_parent(
         values[2:], root, expected_family="m1-6-group-review-candidate"
     )
-    if review.parents != (parent_binding,):
+    if (
+        len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
+        or review.parents[0] != parent_binding
+        or review.parents[1].family != "m1-6-r101-conservation"
+    ):
         raise AgentReplayInputError(
-            "group-review candidate is not bound to the evidence candidate"
+            "group-review candidate is not bound to the evidence and R101 candidates"
         )
     required = _require_files(
         root,
@@ -2461,8 +2661,6 @@ def _generate_normalized_group_policy_candidate(
             "evidence/group-review-packet-26.07d-schema3.json",
             "evidence/group-review-rationale-26.07d.md",
             "evidence/group-review-rationale-26.07d.json",
-            "tmp/artifacts/v1/unavailable/"
-            "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json",
         ),
     )
     evidence = _bound_artifact_path(
@@ -2500,7 +2698,6 @@ def _generate_normalized_group_policy_candidate(
             historical_packet_path=Path(required[0]),
             rationale_markdown_path=Path(required[1]),
             rationale_sidecar_path=Path(required[2]),
-            unavailable_prechange_record_path=Path(required[3]),
             output=output,
         )
         manifest = publish_generation(
@@ -2523,12 +2720,122 @@ def _generate_normalized_group_policy_candidate(
                         "schema3-historical-packet",
                         "group-review-rationale-markdown",
                         "group-review-rationale-sidecar",
-                        "unavailable-prechange-record",
                     ),
                     required,
                     strict=True,
                 )
             ),
+            retention=RetentionBinding(
+                retention_class="referenced-bounded-run",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "manifest_path": (
+                        root
+                        / "tmp/artifacts/v1/generations"
+                        / family
+                        / generation_id
+                        / "manifest.json"
+                    )
+                    .relative_to(root)
+                    .as_posix(),
+                    "manifest_identity": manifest.manifest_identity,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _generate_grouping_detector_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if len(values) != _GROUPING_DETECTOR_PARENT_ARGUMENT_COUNT:
+        raise AgentReplayInputError(
+            "grouping detector requires exact evidence, group-review, and policy "
+            "parent manifests"
+        )
+    evidence, evidence_path, evidence_binding = _resolve_candidate_parent(
+        values[:2], root, expected_family="m1-6-current-evidence-candidate"
+    )
+    review, review_path, review_binding = _resolve_candidate_parent(
+        values[2:4], root, expected_family="m1-6-group-review-candidate"
+    )
+    policy, policy_path, policy_binding = _resolve_candidate_parent(
+        values[4:], root, expected_family="m1-6-normalized-group-policy-candidate"
+    )
+    if (
+        len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
+        or review.parents[0] != evidence_binding
+        or review.parents[1].family != "m1-6-r101-conservation"
+        or policy.parents != (evidence_binding, review_binding)
+    ):
+        raise AgentReplayInputError("grouping detector parent chain differs")
+    engine_evidence = _bound_artifact_path(
+        evidence, evidence_path, "artifacts/engine-evidence.json"
+    )
+    comparison = _bound_artifact_path(
+        evidence, evidence_path, "artifacts/comparison.json"
+    )
+    group_packet = _bound_artifact_path(
+        review, review_path, "artifacts/group-review-packet.json"
+    )
+    normalized_policy = _bound_artifact_path(
+        policy, policy_path, "artifacts/normalized-group-policy.json"
+    )
+    family = "m1-6-grouping-detector-candidate"
+    generation_id, staging = _candidate_staging(root, family)
+    output = staging / "grouping-detector.json"
+    for path in (
+        engine_evidence,
+        comparison,
+        group_packet,
+        normalized_policy,
+        output,
+    ):
+        _require_no_symlink_components(
+            Path(path), root=root, label="grouping detector candidate path"
+        )
+    generator = importlib.import_module(
+        "scripts.research.pre_sme_readiness"
+    ).generate_issue_274_detector_report
+    command = (
+        "python-call",
+        "scripts.research.pre_sme_readiness.generate_issue_274_detector_report",
+        str(engine_evidence),
+        str(comparison),
+        str(group_packet),
+        str(normalized_policy),
+        str(output),
+    )
+    try:
+        generator(
+            evidence_path=engine_evidence,
+            comparison_path=comparison,
+            group_packet_path=group_packet,
+            policy_path=normalized_policy,
+            output=output,
+        )
+        manifest = publish_generation(
+            artifacts_root=root / "tmp/artifacts/v1/generations",
+            family=family,
+            generation_id=generation_id,
+            run_id=evidence.run_id,
+            artifact_sources={"artifacts/grouping-detector.json": output},
+            parents=(evidence_binding, review_binding, policy_binding),
+            generator=GeneratorBinding(
+                identity=_git_head_identity(root), command=command
+            ),
+            sources=(),
             retention=RetentionBinding(
                 retention_class="referenced-bounded-run",
                 owner="decomposition",
@@ -2577,17 +2884,35 @@ def _promote_normalized_group_policy_candidate(
     policy, policy_path, _policy_binding = _resolve_candidate_parent(
         values[4:], root, expected_family="m1-6-normalized-group-policy-candidate"
     )
-    if review.parents != (evidence_binding,) or policy.parents != (
-        evidence_binding,
-        review_binding,
+    if (
+        len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
+        or review.parents[0] != evidence_binding
+        or review.parents[1].family != "m1-6-r101-conservation"
+        or policy.parents
+        != (
+            evidence_binding,
+            review_binding,
+        )
     ):
         raise AgentReplayInputError("promotion candidate parent chain differs")
+    r101_binding = review.parents[1]
+    r101, r101_path, resolved_r101_binding = _resolve_candidate_parent(
+        [
+            str(Path("tmp/artifacts/v1/generations") / r101_binding.manifest_path),
+            r101_binding.manifest_identity,
+        ],
+        root,
+        expected_family="m1-6-r101-conservation",
+    )
+    if resolved_r101_binding != r101_binding:
+        raise AgentReplayInputError("promotion R101 parent binding differs")
     candidates = (
         _bound_artifact_path(evidence, evidence_path, "artifacts/engine-evidence.json"),
         _bound_artifact_path(evidence, evidence_path, "artifacts/comparison.json"),
         _bound_artifact_path(
             policy, policy_path, "artifacts/normalized-group-policy.json"
         ),
+        _bound_artifact_path(r101, r101_path, "artifacts/conservation.json.gz"),
     )
     targets = tuple(
         root / relative
@@ -2595,6 +2920,7 @@ def _promote_normalized_group_policy_candidate(
             "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
             "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
             "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json",
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         )
     )
     for path in (*candidates, *targets):
@@ -3042,11 +3368,36 @@ def _audit_primary_sites(values: list[str], root: Path, runner: CommandRunner) -
 def _generate_pre_sme_readiness(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
-    if values:
-        raise AgentReplayInputError("generate-pre-sme-readiness accepts no arguments")
     status = _capture_required(["git", "status", "--porcelain"], root, runner).strip()
     if status:
         raise AgentReplayInputError("pre-SME readiness refuses a dirty worktree")
+    detector, detector_path, _detector_binding = _resolve_candidate_parent(
+        values, root, expected_family="m1-6-grouping-detector-candidate"
+    )
+    if (
+        len(detector.parents) != _GROUPING_DETECTOR_PARENT_COUNT
+        or detector.parents[0].family != "m1-6-current-evidence-candidate"
+        or detector.parents[1].family != "m1-6-group-review-candidate"
+        or detector.parents[2].family != "m1-6-normalized-group-policy-candidate"
+    ):
+        raise AgentReplayInputError("pre-SME grouping detector parent chain differs")
+    review_binding = detector.parents[1]
+    review, review_path, resolved_review_binding = _resolve_candidate_parent(
+        [
+            str(Path("tmp/artifacts/v1/generations") / review_binding.manifest_path),
+            review_binding.manifest_identity,
+        ],
+        root,
+        expected_family="m1-6-group-review-candidate",
+    )
+    if resolved_review_binding != review_binding:
+        raise AgentReplayInputError("pre-SME group-review parent binding differs")
+    group_packet = _bound_artifact_path(
+        review, review_path, "artifacts/group-review-packet.json"
+    )
+    grouping_detector = _bound_artifact_path(
+        detector, detector_path, "artifacts/grouping-detector.json"
+    )
     relatives = (
         "data/qlever-ncit/.ontoprism-ncit-candidate.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
@@ -3059,7 +3410,6 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
@@ -3070,7 +3420,9 @@ def _generate_pre_sme_readiness(
         "ontolib/tests/decomposition/golden/r103-c2860-specificity-selected-26.07d.json",
         "tmp/m1-6-verify-evidence.json",
     )
-    paths = tuple(Path(item) for item in _require_files(root, relatives))
+    paths = [Path(item) for item in _require_files(root, relatives)]
+    paths.insert(11, group_packet)
+    paths.insert(12, grouping_detector)
     generate = importlib.import_module(
         "scripts.research.pre_sme_readiness"
     ).generate_pre_sme_readiness
@@ -3087,6 +3439,7 @@ def _generate_pre_sme_readiness(
         "row_decisions",
         "primary_site_audit",
         "group_packet",
+        "grouping_detector",
         "r103_review_state",
         "r103_source_inventory",
         "r103_candidates",
@@ -4257,6 +4610,7 @@ _OPERATIONS: dict[str, Operation] = {
     "record-artifact-registry": _record_artifact_registry,
     "generate-current-evidence": _generate_current_evidence,
     "generate-current-evidence-candidate": _generate_current_evidence_candidate,
+    "generate-grouping-detector-candidate": _generate_grouping_detector_candidate,
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review-rev2": _generate_group_review_rev2,

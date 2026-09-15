@@ -664,7 +664,9 @@ def _revise_rows(
                 group_delta=(
                     "missing-current"
                     if missing
-                    else _delta(expected.relationship_group, current.relationship_group)
+                    else _delta(
+                        expected.relationship_group, current.normalized_group_id
+                    )
                 ),
                 review_delta=(
                     "missing-current"

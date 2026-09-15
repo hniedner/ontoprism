@@ -74,6 +74,77 @@ def _publish_test_generation(
     return manifest, path
 
 
+def _publish_readiness_detector_chain(tmp_path: Path) -> tuple[ArtifactManifest, Path]:
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="readiness-evidence-helper",
+        artifacts={
+            "artifacts/engine-evidence.json": b"e",
+            "artifacts/comparison.json": b"c",
+        },
+    )
+    evidence_binding = replay.ParentManifestBinding(
+        family=evidence.family,
+        generation_id=evidence.generation_id,
+        manifest_path=evidence_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=evidence.manifest_identity,
+    )
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="readiness-r101-helper",
+        artifacts={"artifacts/conservation.json.gz": b"r"},
+    )
+    r101_binding = replay.ParentManifestBinding(
+        family=r101.family,
+        generation_id=r101.generation_id,
+        manifest_path=r101_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=r101.manifest_identity,
+    )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="readiness-review-helper",
+        artifacts={"artifacts/group-review-packet.json": b"g"},
+        parents=(evidence_binding, r101_binding),
+    )
+    review_binding = replay.ParentManifestBinding(
+        family=review.family,
+        generation_id=review.generation_id,
+        manifest_path=review_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=review.manifest_identity,
+    )
+    policy, policy_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-normalized-group-policy-candidate",
+        generation_id="readiness-policy-helper",
+        artifacts={"artifacts/normalized-group-policy.json": b"p"},
+        parents=(evidence_binding, review_binding),
+    )
+    policy_binding = replay.ParentManifestBinding(
+        family=policy.family,
+        generation_id=policy.generation_id,
+        manifest_path=policy_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=policy.manifest_identity,
+    )
+    return _publish_test_generation(
+        tmp_path,
+        family="m1-6-grouping-detector-candidate",
+        generation_id="readiness-detector-helper",
+        artifacts={"artifacts/grouping-detector.json": b"d"},
+        parents=(evidence_binding, review_binding, policy_binding),
+    )
+
+
 _ROOT = Path(__file__).resolve().parents[2]
 _R101_REPORT = (
     _ROOT / "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz"
@@ -109,7 +180,7 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
             "filler_code",
             "most_specific",
             "needs_review",
-            "relationship_group",
+            "axis_ambiguity_group_id",
             "source_definition_ids",
             "source_occurrence_ids",
             "source_roles",
@@ -140,8 +211,8 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
         "structural_row_count": 2_097,
         "verified": True,
     }
-    json_identity = "116a52d2ce9ceaa93c3d65398490df9f68d8119dd040a2632c364e6e902f6325"
-    report_identity = "23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b"
+    json_identity = "07a7c93a0592110b6afe87e35bd58c1e25206b1154072ba3bc6d9ce1e5c1f2d3"
+    report_identity = "1383ccf0d79fb8aab509e8cc94e6e9123e16f0596279d8dea4c526bfa846be57"
     tsv_identity = "595d4a1076855e6a2251e9e9108816d7cf9ea8453c11e9935abad526dd712a3e"
     assert observed["identity_verification"] == {
         "json_identity": {
@@ -165,11 +236,11 @@ def test_inspect_r101_report_emits_bounded_verified_row_diagnostics(
     assert observed["report_binding"] == {
         "new_run_id": "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
         "non_r101_typed_inventory_identity": (
-            "24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0"
+            "a5fa597920ed4a02225aeac7967eb69724db65f3b9c492748b00a8ca6ab1503b"
         ),
         "old_run_id": "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
         "query_identity": (
-            "01ce7e47a0a62180d497279d4822564f65b5ada5ed5f3c82bf65959c8599cb97"
+            "34610337f2ea48b38bb497485a60deeda7ef0e6835d2e88972c845c018110885"
         ),
         "r101_occurrence_inventory_identity": (
             "e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de"
@@ -296,7 +367,7 @@ def test_current_r101_comparator_qualification_uses_only_fixed_full_artifacts(
 
 @pytest.mark.unit
 def test_current_r101_conservation_generation_uses_fixed_qualified_pair(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     required = (
         "scripts/adjudication.py",
@@ -309,13 +380,59 @@ def test_current_r101_conservation_generation_uses_fixed_qualified_pair(
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
+
+    class ReportRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            output = Path(arguments[arguments.index("--output") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"report")
+            qualification = Path(
+                arguments[arguments.index("--qualification-output") + 1]
+            )
+            qualification.write_bytes(b"qualification")
+            return super().__call__(arguments, **kwargs)
+
+    runner = ReportRunner()
+    conservation = __import__(
+        "ontolib.decomposition.r101_conservation",
+        fromlist=["load_r101_conservation_report"],
+    )
+    monkeypatch.setattr(
+        conservation,
+        "load_r101_conservation_report",
+        lambda _path: SimpleNamespace(
+            old_run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+            new_run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
+            comparator_qualification_identity="c" * 64,
+            report_identity="d" * 64,
+        ),
+    )
+    comparator = __import__(
+        "ontolib.decomposition.r101_comparator",
+        fromlist=["load_r101_comparator_qualification"],
+    )
+    monkeypatch.setattr(
+        comparator,
+        "load_r101_comparator_qualification",
+        lambda _path: SimpleNamespace(
+            old=SimpleNamespace(run_id="neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"),
+            new=SimpleNamespace(run_id="neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"),
+            qualification_identity="c" * 64,
+        ),
+    )
 
     old_run = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
     new_run = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
     assert (
         run_agent_replay(
-            ["generate-current-r101-conservation", old_run, new_run],
+            [
+                "generate-current-r101-conservation",
+                old_run,
+                new_run,
+                "schema5-read-only-20260915",
+            ],
             tmp_path,
             runner=runner,
         )
@@ -328,8 +445,26 @@ def test_current_r101_conservation_generation_uses_fixed_qualified_pair(
     assert new_run in command
     assert str(tmp_path / "tmp/m1-6-prechange-v4-full-corpus.ttl") in command
     assert str(tmp_path / "tmp/m1-6-current-full-corpus.ttl") in command
-    assert str(tmp_path / "tmp/m1-6-r101-v5-conservation.json.gz") in command
-    assert str(tmp_path / "tmp/m1-6-r101-v5-comparator-qualification.json") in command
+    assert "generate-r101-conservation" in command
+    assert "run_pipeline" not in command
+    assert "decompose" not in command
+    qualification_output = Path(command[command.index("--qualification-output") + 1])
+    assert qualification_output.parent.name.startswith(".staging-")
+    generation = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-r101-conservation"
+        / "schema5-read-only-20260915"
+    )
+    assert (generation / "artifacts/conservation.json.gz").read_bytes() == b"report"
+    assert (
+        generation / "artifacts/comparator-qualification.json"
+    ).read_bytes() == b"qualification"
+    assert (
+        ArtifactManifest.from_dict(
+            json.loads((generation / "manifest.json").read_bytes())
+        ).run_id
+        == new_run
+    )
 
 
 @pytest.mark.unit
@@ -381,19 +516,85 @@ def test_corrected_projection_generator_uses_historical_inventory_and_report(
 
     async def generate(inventory_path: Path, report_path: Path, output: Path) -> None:
         calls.append((inventory_path, report_path, output))
+        output.write_bytes(b"projection")
 
     monkeypatch.setattr(
         replay, "_generate_mixed_chain_corrected_projection_async", generate
+    )
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
+    generation_id = "00000000-0000-0000-0000-000000000274"
+    monkeypatch.setattr(
+        replay.importlib.import_module("uuid"), "uuid4", lambda: generation_id
     )
 
     assert (
         run_agent_replay(["generate-mixed-chain-corrected-projection"], tmp_path) == 0
     )
-    assert calls == [
+    assert len(calls) == 1
+    actual_inventory, actual_report, staged_output = calls[0]
+    assert (actual_inventory, actual_report) == (inventory, report)
+    assert staged_output.name == "corrected-projection.json"
+    assert staged_output.parent.name.startswith(f"{generation_id}-")
+    assert staged_output.parent.parent.name == ".producer-staging"
+    generation = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-mixed-chain-corrected-projection"
+        / generation_id
+    )
+    assert (generation / "artifacts/corrected-projection.json").read_bytes() == (
+        b"projection"
+    )
+    assert (generation / "manifest.json").is_file()
+    assert not (tmp_path / "tmp/m1-6-mixed-chain-corrected-projection.json").exists()
+
+
+@pytest.mark.unit
+def test_corrected_projection_promotion_requires_exact_immutable_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest, manifest_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-mixed-chain-corrected-projection",
+        generation_id="projection",
+        artifacts={"artifacts/corrected-projection.json": b"projection"},
+    )
+    written: list[tuple[Path, object]] = []
+    projection = SimpleNamespace(projection_identity="a" * 64)
+    module = SimpleNamespace(
+        load_corrected_projection=lambda path: (
+            projection
+            if path == manifest_path.parent / "artifacts/corrected-projection.json"
+            else None
+        ),
+        write_corrected_projection=lambda path, value: written.append((path, value)),
+    )
+    real_import = replay.importlib.import_module
+    monkeypatch.setattr(
+        replay.importlib,
+        "import_module",
+        lambda name: (
+            module
+            if name == "ontolib.decomposition.mixed_chain_projection"
+            else real_import(name)
+        ),
+    )
+
+    assert (
+        run_agent_replay(
+            [
+                "record-mixed-chain-corrected-projection",
+                str(manifest_path.relative_to(tmp_path)),
+                manifest.manifest_identity,
+            ],
+            tmp_path,
+        )
+        == 0
+    )
+    assert written == [
         (
-            inventory,
-            report,
-            tmp_path / "tmp/m1-6-mixed-chain-corrected-projection.json",
+            tmp_path / "ontolib/tests/decomposition/golden/"
+            "neoplasm-r101-v5-corrected-projection.json",
+            projection,
         )
     ]
 
@@ -859,6 +1060,29 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(
 
 
 @pytest.mark.unit
+def test_generator_identity_binds_tracked_worktree_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked = tmp_path / "scripts/decompose.py"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_bytes(b"before")
+
+    def fake_git(arguments: list[str], **_kwargs: object) -> SimpleNamespace:
+        if arguments[-2:] == ["rev-parse", "HEAD"]:
+            return SimpleNamespace(stdout="abc\n")
+        assert arguments[-2:] == ["ls-files", "-z"]
+        return SimpleNamespace(stdout="scripts/decompose.py\0")
+
+    monkeypatch.setattr(replay.subprocess, "run", fake_git)
+
+    before = replay._git_head_identity(tmp_path)
+    tracked.write_bytes(b"after")
+
+    assert replay._git_head_identity(tmp_path) != before
+    assert before.startswith("git:abc+worktree-sha256:")
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("failure", ["subprocess", "publish"])
 def test_current_replay_removes_only_its_staging_directory_on_failure(
     tmp_path: Path,
@@ -1184,6 +1408,12 @@ def test_group_review_candidate_consumes_candidate_inputs_only(
             "artifacts/comparison.json": b"comparison",
         },
     )
+    r101_manifest, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="r101",
+        artifacts={"artifacts/conservation.json.gz": b"r101"},
+    )
 
     class ProducingRunner(_Runner):
         def __call__(
@@ -1210,6 +1440,8 @@ def test_group_review_candidate_consumes_candidate_inputs_only(
                 "generate-group-review-rev2-candidate",
                 str(evidence_path.relative_to(tmp_path)),
                 evidence_manifest.manifest_identity,
+                str(r101_path.relative_to(tmp_path)),
+                r101_manifest.manifest_identity,
             ],
             tmp_path,
             runner=runner,
@@ -1224,6 +1456,9 @@ def test_group_review_candidate_consumes_candidate_inputs_only(
     assert command[command.index("--current-comparison") + 1] == str(
         evidence_path.parent / "artifacts/comparison.json"
     )
+    assert command[command.index("--r101-report") + 1] == str(
+        r101_path.parent / "artifacts/conservation.json.gz"
+    )
     assert not any("golden/neoplasm-current-" in value for value in command)
     manifests = list(
         (tmp_path / "tmp/artifacts/v1/generations/m1-6-group-review-candidate").glob(
@@ -1231,9 +1466,10 @@ def test_group_review_candidate_consumes_candidate_inputs_only(
         )
     )
     assert len(manifests) == 1
-    assert replay.resolve_parent_manifest(manifests[0]).parents[
-        0
-    ].manifest_identity == (evidence_manifest.manifest_identity)
+    assert tuple(
+        parent.manifest_identity
+        for parent in replay.resolve_parent_manifest(manifests[0]).parents
+    ) == (evidence_manifest.manifest_identity, r101_manifest.manifest_identity)
 
 
 @pytest.mark.unit
@@ -1265,12 +1501,26 @@ def test_normalized_group_candidate_is_immutable_and_parent_bound(
         ).as_posix(),
         manifest_identity=evidence.manifest_identity,
     )
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="r101",
+        artifacts={"artifacts/conservation.json.gz": b"r101"},
+    )
+    r101_binding = replay.ParentManifestBinding(
+        family=r101.family,
+        generation_id=r101.generation_id,
+        manifest_path=r101_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=r101.manifest_identity,
+    )
     review, review_path = _publish_test_generation(
         tmp_path,
         family="m1-6-group-review-candidate",
         generation_id="review",
         artifacts={"artifacts/group-review-packet.json": b"packet"},
-        parents=(evidence_binding,),
+        parents=(evidence_binding, r101_binding),
     )
     unavailable = tmp_path / (
         "tmp/artifacts/v1/unavailable/"
@@ -1335,7 +1585,110 @@ def test_normalized_group_candidate_requires_exact_evidence_and_review_parents(
 
 
 @pytest.mark.unit
-def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
+def test_grouping_detector_candidate_is_immutable_and_exact_parent_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": b"evidence",
+            "artifacts/comparison.json": b"comparison",
+        },
+    )
+    evidence_binding = replay.ParentManifestBinding(
+        family=evidence.family,
+        generation_id=evidence.generation_id,
+        manifest_path=evidence_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=evidence.manifest_identity,
+    )
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="r101",
+        artifacts={"artifacts/conservation.json.gz": b"r101"},
+    )
+    r101_binding = replay.ParentManifestBinding(
+        family=r101.family,
+        generation_id=r101.generation_id,
+        manifest_path=r101_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=r101.manifest_identity,
+    )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="review",
+        artifacts={"artifacts/group-review-packet.json": b"review"},
+        parents=(evidence_binding, r101_binding),
+    )
+    review_binding = replay.ParentManifestBinding(
+        family=review.family,
+        generation_id=review.generation_id,
+        manifest_path=review_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=review.manifest_identity,
+    )
+    policy, policy_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-normalized-group-policy-candidate",
+        generation_id="policy",
+        artifacts={"artifacts/normalized-group-policy.json": b"policy"},
+        parents=(evidence_binding, review_binding),
+    )
+    real_import = replay.importlib.import_module
+
+    def fake_import(name: str):
+        if name == "scripts.research.pre_sme_readiness":
+            return SimpleNamespace(
+                generate_issue_274_detector_report=lambda **kwargs: kwargs[
+                    "output"
+                ].write_bytes(b"detector")
+            )
+        return real_import(name)
+
+    monkeypatch.setattr(replay.importlib, "import_module", fake_import)
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
+
+    assert (
+        run_agent_replay(
+            [
+                "generate-grouping-detector-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+            ],
+            tmp_path,
+        )
+        == 0
+    )
+    manifests = list(
+        (
+            tmp_path / "tmp/artifacts/v1/generations/m1-6-grouping-detector-candidate"
+        ).glob("*/manifest.json")
+    )
+    assert len(manifests) == 1
+    candidate = replay.resolve_parent_manifest(manifests[0])
+    assert tuple(parent.manifest_identity for parent in candidate.parents) == (
+        evidence.manifest_identity,
+        review.manifest_identity,
+        policy.manifest_identity,
+    )
+    assert candidate.artifact_records[0].relative_path == (
+        "artifacts/grouping-detector.json"
+    )
+
+
+@pytest.mark.unit
+def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     evidence, evidence_path = _publish_test_generation(
@@ -1355,12 +1708,26 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
         ).as_posix(),
         manifest_identity=evidence.manifest_identity,
     )
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="r101",
+        artifacts={"artifacts/conservation.json.gz": b"new-r101"},
+    )
+    r101_binding = replay.ParentManifestBinding(
+        family=r101.family,
+        generation_id=r101.generation_id,
+        manifest_path=r101_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=r101.manifest_identity,
+    )
     review, review_path = _publish_test_generation(
         tmp_path,
         family="m1-6-group-review-candidate",
         generation_id="review",
         artifacts={"artifacts/group-review-packet.json": b"review"},
-        parents=(evidence_binding,),
+        parents=(evidence_binding, r101_binding),
     )
     review_binding = replay.ParentManifestBinding(
         family=review.family,
@@ -1384,6 +1751,8 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
         "neoplasm-current-comparison.json": b"old-comparison",
         "ontolib/src/ontolib/decomposition/data/"
         "normalized-group-policy.json": b"old-policy",
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-conservation.json.gz": b"old-r101",
     }
     for relative, payload in targets.items():
         path = tmp_path / relative
@@ -1430,6 +1799,7 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
         b"new-evidence",
         b"new-comparison",
         b"new-policy",
+        b"new-r101",
     ]
 
 
@@ -1691,7 +2061,6 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
@@ -1706,6 +2075,74 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="readiness-evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": b"evidence",
+            "artifacts/comparison.json": b"comparison",
+        },
+    )
+    evidence_binding = replay.ParentManifestBinding(
+        family=evidence.family,
+        generation_id=evidence.generation_id,
+        manifest_path=evidence_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=evidence.manifest_identity,
+    )
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="readiness-r101",
+        artifacts={"artifacts/conservation.json.gz": b"r101"},
+    )
+    r101_binding = replay.ParentManifestBinding(
+        family=r101.family,
+        generation_id=r101.generation_id,
+        manifest_path=r101_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=r101.manifest_identity,
+    )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="readiness-review",
+        artifacts={"artifacts/group-review-packet.json": b"review"},
+        parents=(evidence_binding, r101_binding),
+    )
+    review_binding = replay.ParentManifestBinding(
+        family=review.family,
+        generation_id=review.generation_id,
+        manifest_path=review_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=review.manifest_identity,
+    )
+    policy, policy_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-normalized-group-policy-candidate",
+        generation_id="readiness-policy",
+        artifacts={"artifacts/normalized-group-policy.json": b"policy"},
+        parents=(evidence_binding, review_binding),
+    )
+    policy_binding = replay.ParentManifestBinding(
+        family=policy.family,
+        generation_id=policy.generation_id,
+        manifest_path=policy_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=policy.manifest_identity,
+    )
+    detector, detector_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-grouping-detector-candidate",
+        generation_id="readiness-detector",
+        artifacts={"artifacts/grouping-detector.json": b"detector"},
+        parents=(evidence_binding, review_binding, policy_binding),
+    )
     calls: list[dict[str, Path]] = []
     module = __import__(
         "scripts.research.pre_sme_readiness", fromlist=["generate_primary_site_audit"]
@@ -1733,7 +2170,16 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     runner = Runner()
     assert run_agent_replay(["audit-primary-sites"], tmp_path, runner=runner) == 0
     assert (
-        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=runner) == 0
+        run_agent_replay(
+            [
+                "generate-pre-sme-readiness",
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+            runner=runner,
+        )
+        == 0
     )
 
     assert calls[0] == {
@@ -1755,7 +2201,7 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
         / "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz"
     )
     assert calls[1]["group_packet"] == (
-        tmp_path / "tmp/m1-6-group-review-packet-rev2.json"
+        review_path.parent / "artifacts/group-review-packet.json"
     )
     assert calls[1]["row_decisions"] == (
         tmp_path / "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json"
@@ -1885,7 +2331,6 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet-rev2.json",
         "ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json",
         "ontolib/tests/decomposition/golden/r103-source-inventory-26.07d.json",
         "ontolib/tests/decomposition/golden/r103-c12950-candidates-26.07d.json",
@@ -1910,6 +2355,7 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
         raise ValueError("readiness failed")
 
     monkeypatch.setattr(module, "generate_pre_sme_readiness", fail_generation)
+    detector, detector_path = _publish_readiness_detector_chain(tmp_path)
 
     class Runner(_Runner):
         def __call__(
@@ -1925,7 +2371,15 @@ def test_pre_sme_readiness_generation_failure_removes_stale_output(
             return result
 
     with pytest.raises(AgentReplayInputError, match="readiness failed"):
-        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+        run_agent_replay(
+            [
+                "generate-pre-sme-readiness",
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+            runner=Runner(),
+        )
 
     assert not output.exists()
 
@@ -1946,7 +2400,6 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "tmp/m1-6-primary-site-audit.json",
-        "tmp/m1-6-group-review-packet-rev2.json",
         "tmp/m1-6-r103-review-packet.json",
         "tmp/m1-6-verify-evidence.json",
     ):
@@ -1964,6 +2417,8 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
                 result.stderr = ""
             return result
 
+    detector, detector_path = _publish_readiness_detector_chain(tmp_path)
+
     with pytest.raises(
         AgentReplayInputError,
         match=(
@@ -1971,7 +2426,15 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
             r"r103-review-state-26\.07d-rev2\.json"
         ),
     ):
-        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+        run_agent_replay(
+            [
+                "generate-pre-sme-readiness",
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+            runner=Runner(),
+        )
 
     assert not (tmp_path / "tmp/m1-6-machine-readiness.json").exists()
 

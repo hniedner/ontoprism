@@ -384,12 +384,12 @@ pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet-r
 pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet-rev2.json --registry tmp/m1-6-group-review-decisions-rev2.json --output tmp/m1-6-group-review-dry-run-rev2.json
 ```
 
-The evidence is intentionally asymmetric: actual normalized groups cite current stated-source
-occurrences, while expected-side source evidence is unavailable. The expected grouping is the
-historical oracle proposal, not a source-stated relationship group. The evidence sheets display
-the exact source facts, groups, occurrences, anchors, depth/path, and transformation witnesses;
-labels and definitions are marked unavailable where the bound current evidence artifact contains
-no source text. Machine evidence is never reviewer rationale.
+The active normalized-group policy covers each current output pair with exact source-fact evidence.
+Restriction evidence uses occurrence citations when available and otherwise records the exact
+available source fact and coordinate; genus facts are explicitly non-occurrence evidence. Historical
+expected partitions remain separately identified review context. The evidence sheets display exact
+source facts, source groups, occurrences where applicable, anchors, depth/path, and transformation
+witnesses. Machine evidence is never reviewer rationale.
 
 The tracked historical admission preserves the completed Markdown verbatim at
 `evidence/group-review-rationale-26.07d.md`; its JSON sidecar is digest/operational binding only,
@@ -403,9 +403,9 @@ pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
 pdm run agent-replay generate-group-review-rev2
 ```
 
-The historical record contains 11 corrections and 4 escalations. They remain open context for the
-new blank review and block #274 and #127; this evidence does not satisfy the group requirement or
-authorize publication.
+The historical record contains 11 corrections and 4 escalations. The scoped current policy resolves
+the #274 normalized-group targets without treating historical context as current authorization.
+The broader total-delta classification remains open under #127 and publication remains unauthorized.
 
 ### Group-review generation
 
@@ -564,14 +564,16 @@ The operation observes the clean Git HEAD before and after running the literal
 selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
 local machine evidence and performs no ontology or store publication.
 
-After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, schema-4
+After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, schema-5
 `tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
 source manifest, selected R103 specificity state, and current-HEAD verify evidence all exist,
 generate the pending-human
 report from a clean worktree:
 
 ```bash
-pdm run agent-replay generate-pre-sme-readiness
+pdm run agent-replay generate-pre-sme-readiness \
+  tmp/artifacts/v1/generations/m1-6-grouping-detector-candidate/<generation-id>/manifest.json \
+  <exact-manifest-identity>
 ```
 
 Readiness strictly loads the complete promoted R103 state, validating its embedded
@@ -582,14 +584,17 @@ by its prior terminal decision; only the C2860 specificity question is pending. 
 human-selected review state satisfies that one requirement while retaining the same source,
 target, and candidate evidence identities.
 
-The operation validates all fixed input identities and cohort invariants, including the
+The operation resolves the exact group-review packet through the detector manifest's parent
+bindings instead of a mutable fixed `tmp/` packet path. It validates all remaining fixed input
+identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,
 refuses verify evidence from another Git HEAD, and atomically writes
-`tmp/m1-6-machine-readiness.json`. Schema 2 reports the five named metric contracts,
+`tmp/m1-6-machine-readiness.json`. Schema 3 reports the five named metric contracts,
 the strict M1.6 improvement gate, the separate #44 quality indicators, and one canonical
-entry for each semantic blocker. Unsupported later detectors remain `not-evaluated`
-with their owning issue; valid primary-site, R101-loss, or observed non-R101-delta
-violations produce a blocked report rather than publication authorization. The output
+entry for each semantic blocker. The identity-bound #274 axis-contract, normalized-group,
+and unadjudicated-golden-change detectors are evaluated; the broader total-delta classifier
+remains `not-evaluated` under #127. Any evaluated violation produces a blocked report rather
+than publication authorization. The output
 always records authorization false and publication `not-attempted`
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
 2026-09-06).

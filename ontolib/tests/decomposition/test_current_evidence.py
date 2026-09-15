@@ -276,6 +276,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 filler_code="C12400",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences
@@ -329,7 +330,10 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
     constituent = CurrentConstituent(
         axis="op:Morphology",
         filler="C9290",
-        relationship_group=None,
+        axis_ambiguity_group_id=None,
+        source_group_ids=("b" * 64,),
+        normalized_group_id=None,
+        normalized_group_label=None,
         needs_review=False,
         source_definition_ids=(fact_id,),
         source_facts=(fact,),
@@ -338,11 +342,29 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
     )
 
     assert constituent.source_definition_ids == (fact_id,)
+
+    policy_grouped = CurrentConstituent(
+        axis="op:WithFinding",
+        filler="C9290",
+        axis_ambiguity_group_id=None,
+        source_group_ids=("b" * 64,),
+        normalized_group_id="c" * 64,
+        normalized_group_label="source-evidence-grouping:C1:cccccccccccc",
+        needs_review=False,
+        source_definition_ids=(),
+        source_facts=(fact,),
+        source_occurrence_ids=(),
+        source_occurrences=(),
+    )
+    assert policy_grouped.source_facts == (fact,)
     with pytest.raises(ValueError, match="duplicate source definition citations"):
         CurrentConstituent(
             axis="op:Morphology",
             filler="C9290",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=("b" * 64,),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(fact_id, fact_id),
             source_facts=(fact, fact),
@@ -366,7 +388,10 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=("b" * 64,),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(fact_id,),
             source_facts=(fact,),
@@ -377,7 +402,10 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=(),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(),
             source_occurrence_ids=(occurrence.occurrence_id,),
@@ -390,7 +418,10 @@ def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
     constituent = CurrentConstituent(
         axis="R999",
         filler="C1",
-        relationship_group=None,
+        axis_ambiguity_group_id=None,
+        source_group_ids=(),
+        normalized_group_id=None,
+        normalized_group_label=None,
         needs_review=True,
         source_occurrence_ids=(),
         source_occurrences=(),
@@ -415,7 +446,10 @@ def test_current_constituent_rejects_malformed_axis_or_filler(
         CurrentConstituent(
             axis=axis,
             filler=filler,
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=(),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(),
             source_occurrence_ids=(),
@@ -612,7 +646,10 @@ def test_row_replay_classifies_every_status() -> None:
                     CurrentConstituent(
                         axis=pair.axis,
                         filler=pair.filler,
-                        relationship_group=None,
+                        axis_ambiguity_group_id=None,
+                        source_group_ids=(),
+                        normalized_group_id=None,
+                        normalized_group_label=None,
                         needs_review=False,
                         source_occurrence_ids=(),
                         source_occurrences=(),
@@ -659,7 +696,10 @@ def test_row_replay_classifies_every_status() -> None:
                 CurrentConstituent(
                     axis=excluded_pair.axis,
                     filler=excluded_pair.filler,
-                    relationship_group=None,
+                    axis_ambiguity_group_id=None,
+                    source_group_ids=(),
+                    normalized_group_id=None,
+                    normalized_group_label=None,
                     needs_review=False,
                     source_occurrence_ids=(),
                     source_occurrences=(),
@@ -946,7 +986,10 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                 CurrentConstituent(
                     axis="op:PrimarySite",
                     filler="C12400",
-                    relationship_group=None,
+                    axis_ambiguity_group_id=None,
+                    source_group_ids=(occurrence.source_group_id,),
+                    normalized_group_id=None,
+                    normalized_group_label=None,
                     needs_review=False,
                     source_definition_ids=(occurrence.source_fact_id,),
                     source_facts=(
@@ -1254,10 +1297,10 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-9d3614c4-5f32-4178-aeaf-756e716d77f9"
+    assert evidence.run_id == "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572"
     assert evidence.walker_max_depth == 7
     assert evidence.representation_identity == (
-        "84d6d482499881d3d9bd465ea9560f61e704fa23c8b3b5dc62387278c627f56d"
+        "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8"
     )
     assert comparison.metrics.exact_pair_precision.model_dump() == {
         "numerator": 111,

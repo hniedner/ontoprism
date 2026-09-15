@@ -231,6 +231,7 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
                 filler_code="C200",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
             ),
         ),
@@ -285,6 +286,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 filler_code="C12400",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences

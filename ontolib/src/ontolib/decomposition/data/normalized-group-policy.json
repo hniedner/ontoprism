@@ -1,22 +1,19 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
   "ncit_version": "26.07d",
-  "basis_run_id": "neoplasm-9d3614c4-5f32-4178-aeaf-756e716d77f9",
-  "basis_artifact_identity": "84d6d482499881d3d9bd465ea9560f61e704fa23c8b3b5dc62387278c627f56d",
-  "basis_evidence_identity": "42276acca8d8432c935de4ff3c23caf2b813786f0d2c1f7b9b74b0fc4c2a7f9c",
-  "basis_comparison_identity": "46ff7df591a2372107ab81a2f98f72bfdc7bfe0b858e5c8dcb9ba923f50149b9",
-  "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
-  "unavailable_prechange_parent": {
-    "binding_kind": "unavailable_parent_binding",
-    "durable_record_path": "tmp/artifacts/v1/unavailable/neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json",
-    "record_identity": "fe227f3e32e6b5c52133fa03e0b1b4cdbe91dff37877e1712c9414b7ca0ee17e",
-    "record_sha256": "ceff309111df0242cca3ecb823d230dab3919f9212a7e60ae7ed4bf3cbf3dd32",
+  "basis_run_id": "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572",
+  "basis_artifact_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
+  "basis_evidence_identity": "142a581ab7227e38276be1988f62a8e81c982a38c6d132742fa188b02d19ebdc",
+  "basis_comparison_identity": "09a050b6e8861be62e8a5c2bec80403119242577f953ba2a97905058f1e080ec",
+  "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
+  "unavailable_historical_artifact": {
+    "status": "not-retained",
     "family": "m1-6-current-replay",
     "run_id": "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
     "expected_artifact_sha256": "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
-    "last_known_path": "tmp/m1-6-current-replay.ttl",
-    "reason": "overwritten-before-immutable-retention"
+    "reason": "overwritten-before-immutable-retention",
+    "evidentiary_use": "none"
   },
   "historical_packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
   "historical_packet_sha256": "7f671e5a1bae98067219043aecef0dab344cfc1406c3a09725c3faa6559fea6b",
@@ -38,6 +35,8 @@
           "C49274"
         ]
       ],
+      "decision_target_pair_set": [],
+      "reviewed_partition": [],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -141,7 +140,7 @@
         ]
       ],
       "input_pair_evidence_identity": "63243782fa8baaf6fab7efa73ad94343f5446f6d1a859565521a4d3e939e8dd8",
-      "source_evidence_identity": "988daf0bbe2ca310b73ce8d81ac60964328a3e9610a9ed64daac377916cb2e3e",
+      "source_evidence_identity": "f0ab0cc3a864125d3bd4298e8c1595773b75e3032223128d7295c5494c0fefc3",
       "source_pair_evidence": [
         {
           "pair": [
@@ -306,10 +305,19 @@
             "op:WithFinding",
             "C3270"
           ],
-          "source_fact_ids": [],
+          "source_fact_ids": [
+            "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375",
+            "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
+          ],
           "source_occurrence_ids": [],
-          "source_coordinates": [],
-          "occurrence_availability": "unavailable-current-source-coordinate"
+          "source_coordinates": [
+            {
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278",
+              "anchor_code": "C100051",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available-source-fact"
         }
       ],
       "blocks": [
@@ -320,8 +328,14 @@
               "C3270"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "b3896c6c06ca468d9ffc7dce8c90f15829eb9d63457809254f78095c309f2ab8",
+          "normalized_group_id": "95d101ca521b728286776cc739f606adbccc24b2d2b1ae905d7308bf9cc8cc9c",
+          "normalized_group_label": "source-evidence-grouping:C100051:95d101ca521b",
           "source_fact_ids": [
             "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
           ],
@@ -347,8 +361,14 @@
               "C12413"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4db29d8cf9574327e57ee9c1d3cfddb74ad272d0cf86a1a949e4c0e1285c3aa0",
+          "normalized_group_id": "d0b962caf6820379151f65798e3574fc68c65434df8e33004ed1376a156c0ebe",
+          "normalized_group_label": "source-evidence-grouping:C100051:d0b962caf682",
           "source_fact_ids": [
             "246eb9972957d917e2f7aca476d028e05b92b06584d973aa6d94d7f159617dcc"
           ],
@@ -374,8 +394,14 @@
               "C49274"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "ba09df47ef07ffdeadbebec9026c5f23ee2fbd005a6a5752364bf2d10e1e550a",
+          "normalized_group_id": "99ea1c8b579586063c21da44e59a269294dc5c102c13ec674e31df145dbac1a2",
+          "normalized_group_label": "source-evidence-grouping:C100051:99ea1c8b5795",
           "source_fact_ids": [
             "949c33a4924949b9530ff0d7ee68a42038af88d2654a6f9c60ff1e8adb9b6b33"
           ],
@@ -401,8 +427,14 @@
               "C61107"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "83e342affdc93190269d6cee8381ec16fbd4488fa334d3a58364e77dc9affa7b",
+          "normalized_group_id": "aab670298ca03e35342d9364f9adb5cffd95d2d93ac69940d6f4c2e660087598",
+          "normalized_group_label": "source-evidence-grouping:C100051:aab670298ca0",
           "source_fact_ids": [
             "26c89418ae90338d8c1ea9a74bd4472308fa8c509bc86abf994aa4e8d8429669"
           ],
@@ -428,8 +460,14 @@
               "C36773"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "cb3a11bb9f04ab7d6dce1da779e2ab9633e5d7e2fb1547ed9eca0b56ff4af747",
+          "normalized_group_id": "cba502835a7cb5d48cf14b35aaceced00b1ee2df15d9688bfc3446ca57265d53",
+          "normalized_group_label": "source-evidence-grouping:C100051:cba502835a7c",
           "source_fact_ids": [
             "b2aa8ed41d1c3db3bcc34a29ef7d0273b03116693bcf4d20320b27e1b3bd0612"
           ],
@@ -455,8 +493,14 @@
               "C9385"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4e8f0ce3a28307ddda59cdbfdc7e0ff8067e3a2ae0f5fea7a96b272bcb3a3846",
+          "normalized_group_id": "da4c2bd59f5627947ced38cd0c9a28001683bc7d0e116f4c402ddb592f4b4092",
+          "normalized_group_label": "source-evidence-grouping:C100051:da4c2bd59f56",
           "source_fact_ids": [
             "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375"
           ],
@@ -480,8 +524,14 @@
               "C49276"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "36b06234a1b290080eadbf3c419cd32831f8556ef95734898326fa12ac53359e",
+          "normalized_group_id": "b9daeef82573d2ec7dc212a4a15302c1978e3b0eb825717aa792b0f785e90b1f",
+          "normalized_group_label": "source-evidence-grouping:C100051:b9daeef82573",
           "source_fact_ids": [
             "fedfc67b8a8d2db49c71f86dd924f4304a802e46725ed4d4e7085c7f36d6e1b3"
           ],
@@ -507,8 +557,14 @@
               "C12415"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "af2fb632ded09143c1849339a509abb262d4f569bd0c23f286af06eb579b8eee",
+          "normalized_group_id": "39784801085b66aa6c76059f570dba8ae408ff2bf5ea14dc3f82856df44f1ca4",
+          "normalized_group_label": "source-evidence-grouping:C100051:39784801085b",
           "source_fact_ids": [
             "7e71bb2bbf37209aceb2944ba1cd1c6b0450402267e0c198bf3f3f2bc6bffbb8"
           ],
@@ -534,13 +590,30 @@
               "C3270"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
-          "source_fact_ids": [],
+          "transformation_rules": [
+            "specificity-collapse"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "b14022d2e7e36198e60b057b19e52097e0983065c6790cce55a2c6764f64d7d4",
+          "normalized_group_id": "f1ac02a722357c1ad70e0a09b4a9096a66b37be5308137153bbecd25e2a0363a",
+          "normalized_group_label": "source-evidence-grouping:C100051:f1ac02a72235",
+          "source_fact_ids": [
+            "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375",
+            "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
+          ],
           "source_occurrence_ids": [],
-          "source_group_ids": [],
-          "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "source_group_ids": [
+            "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "a19332f670adff29b730faf7b234057136fc20d21420947be598ad8378b76278",
+              "anchor_code": "C100051",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available-source-fact"
         }
       ],
       "historical_decision": {
@@ -555,9 +628,10 @@
       "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "7790322980ed67a0a331785a803340e240f9e9135d613e36a206f9b7b463ab16"
+      "row_identity": "84d70ceef83d407e97dffb524c527add07ff442406578530a6afd26b376be857"
     },
     {
       "concept_code": "C101539",
@@ -571,6 +645,28 @@
         [
           "op:StageValue",
           "C27966"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C140961"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C140961"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -614,9 +710,7 @@
           [
             "op:AssociatedLineageClassification",
             "C12704"
-          ]
-        ],
-        [
+          ],
           [
             "op:AssociatedLineageClassification",
             "C12705"
@@ -945,41 +1039,26 @@
             [
               "op:AssociatedLineageClassification",
               "C12704"
-            ]
-          ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
-          "source_fact_ids": [
-            "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3"
-          ],
-          "source_occurrence_ids": [
-            "0397c8c7117d677dd9b9106da0ada8cd23340bc7fcbfd45e157d2de071a32389"
-          ],
-          "source_group_ids": [
-            "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4"
-          ],
-          "source_coordinates": [
-            {
-              "source_group_id": "737a7eaaedbbd970a2a9bd3a12267beb5735e630ff66a6d766e06b5b574e60d4",
-              "anchor_code": "C215715",
-              "depth": 5
-            }
-          ],
-          "occurrence_availability": "available"
-        },
-        {
-          "pairs": [
+            ],
             [
               "op:AssociatedLineageClassification",
               "C12705"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4b687924e8f096e6c864acab79b06a8d689ac1552b5ab2121c71369d48a68d3e",
+          "normalized_group_id": "d48cb53950fda89866aa8fbc9caa3d7365a5e3dbc51452d537dc182ae0d25232",
+          "normalized_group_label": "reviewed-regrouping:C101539:d48cb53950fd",
           "source_fact_ids": [
-            "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
+            "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3",
+            "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3"
           ],
           "source_occurrence_ids": [
+            "0397c8c7117d677dd9b9106da0ada8cd23340bc7fcbfd45e157d2de071a32389",
             "2ee6f11ff4d84f057ff5e50e456ea557ac4e7071941af0f6cbab00c7305e71c2"
           ],
           "source_group_ids": [
@@ -1001,8 +1080,14 @@
               "C13063"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fcc60d684bf3030a726a3a86118629fc195e35dd7342f4c1207cb604c8f1afe9",
+          "normalized_group_id": "5c7fe7feae3410ff0c204c3515d170964bd132607d750cab8359f1b07f8aaeca",
+          "normalized_group_label": "reviewed-regrouping:C101539:5c7fe7feae34",
           "source_fact_ids": [
             "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
           ],
@@ -1028,8 +1113,14 @@
               "C36836"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "ac407b1b39ecbf504971908a64496f2cfafc3df7bb2a0d1c94b1950449e618f0",
+          "normalized_group_id": "3b780fa71baf0d1a28502bb8f58bed5d9224b27a7561841e2bcacd5ec8c8f75c",
+          "normalized_group_label": "reviewed-regrouping:C101539:3b780fa71baf",
           "source_fact_ids": [
             "059ba6574dd377658f9376da9f479213f6031d5cbf31c5e786a5b142a406385b"
           ],
@@ -1055,8 +1146,14 @@
               "C188014"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0f2513ee7e5e03ec362e45c27257fd8267175fa0f32ff5851983c0a809349133",
+          "normalized_group_id": "b961f093ce51af621ad625c86d18dd3c3f6366d1354a076fcccd766c1ff1e036",
+          "normalized_group_label": "reviewed-regrouping:C101539:b961f093ce51",
           "source_fact_ids": [
             "b47f80e2854e5ee79ad54e2a290aeaadb1602e28dbc280dd8187b7b1b5c3ff82"
           ],
@@ -1082,8 +1179,14 @@
               "C47806"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "54bf8baa0b3dc51e0712644e660ae4a1c7caa2f904f272335bbf39a4cb5a147e",
+          "normalized_group_id": "657c55b6ef965cd953ea44a0feca334c9c17845c2b5d559108d24c25f970da58",
+          "normalized_group_label": "reviewed-regrouping:C101539:657c55b6ef96",
           "source_fact_ids": [
             "b5ca2b3a9f08d1b19d359abb68e4dfdf88b9a9931d0a1cb4ba1192fc8f8ae9ad"
           ],
@@ -1109,8 +1212,14 @@
               "C47817"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "3a358dc8b5cdd6cbab8d8069c0f49839e213b463d9cfdc221591aa9284eaa2d7",
+          "normalized_group_id": "e99bd96941b26882c211d20cdc34674db586412bbaca5e5809b68da1d5294b87",
+          "normalized_group_label": "reviewed-regrouping:C101539:e99bd96941b2",
           "source_fact_ids": [
             "0b4c96af6c59f52c06663a5eef2de1739e70911889b37a68791aeef9b99dbdad"
           ],
@@ -1136,8 +1245,14 @@
               "C7153"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "398153e03af235c507868bb2813abf062994a7c0bbd58b53d6f649bc0d510545",
+          "normalized_group_id": "88706c2233ffae993de00da24f84401833122dff24ff723f97c1a5c543502977",
+          "normalized_group_label": "reviewed-regrouping:C101539:88706c2233ff",
           "source_fact_ids": [
             "0ab83e6c0fe60fb77987f93579c69f421c06afc693ffa12a24a1dbe1232f9e05"
           ],
@@ -1161,8 +1276,14 @@
               "C33782"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "f678daaa16b69a1ef030fd45d3debd8254251d3c4e14bbe4d7cf6e3b2c736fc4",
+          "normalized_group_id": "f3cd7233b6c10f1740ce9a194f265491f9c10c2cae2617d990ba45bb47a636ca",
+          "normalized_group_label": "reviewed-regrouping:C101539:f3cd7233b6c1",
           "source_fact_ids": [
             "a8fb83cd25081439e8d3c4e6bff49d9a7768d7a2267eb0ce3a51ffba88cda101"
           ],
@@ -1188,8 +1309,14 @@
               "C12400"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "923e4b19aafb7c5a044b0a8b6f6d089e591bc98806a208b8e2b19221dbed2747",
+          "normalized_group_id": "71e8c28ec3bd6799c0e146e5a5a29b41cfbd05eff3cad09c83aa31fdffedef3e",
+          "normalized_group_label": "reviewed-regrouping:C101539:71e8c28ec3bd",
           "source_fact_ids": [
             "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
           ],
@@ -1219,8 +1346,14 @@
               "C27966"
             ]
           ],
-          "normalized_group_id": "bb589288551b9362ba2b286cafcc4b5b0c2f5e6f3df13930cb4e1d610b7c945b",
-          "normalized_group_label": "reviewed-regrouping:C101539:bb589288551b",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "874bb7b5e044633cfb89fa9b2f87b96e57123585a44f99f25d8ee45d6881026d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "811d3313a41960348e0322790b884417538a03e17004fe1117d6d8a0ffe2e997",
+          "normalized_group_label": "reviewed-regrouping:C101539:811d3313a419",
           "source_fact_ids": [
             "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3",
             "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
@@ -1254,13 +1387,19 @@
               "MINT-8512b41a844d"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "9d2375ae00dcf5a03320cb6bbf2ac3f0335f5632babe0b4b8afa4f4e42da969a",
+          "normalized_group_id": "a9ff671803bdeb0228c57c3cb1d7f01b40c014e87b97e5b2af350fb213de5b37",
+          "normalized_group_label": "reviewed-regrouping:C101539:a9ff671803bd",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -1276,17 +1415,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "86e406d8b87fee2264db1d7ca5d4b752907f18e9a15a5c5ca46d9693470c97a9",
         "supersedes_review_row_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
-        "grouping_decision_identity": "4a3e2db99203d6bbe7563474464de66b7fe0e2fc206a36dbe90b31b6b17aafad",
-        "decision_identity": "85888679d3e1f3a542b75924a93db4f530585c4f4dbf1d5544a4f7be61205c7a"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C140961"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        "grouping_decision_identity": "874bb7b5e044633cfb89fa9b2f87b96e57123585a44f99f25d8ee45d6881026d",
+        "decision_identity": "346a7709b47d45436127398d7e1447a66b4469c32b89709a855c3215c33e12ed"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "727888eac2e41769819f7afe4cd9a909c8842ebc8f7560e56ab7a25ad95a9492"
+      "row_identity": "80451e0d1693df013262b2b257102614d083b5f97f3c9bb856ecb50b791ac140"
     },
     {
       "concept_code": "C102870",
@@ -1302,6 +1452,29 @@
           "C39986"
         ]
       ],
+      "decision_target_pair_set": [
+        [
+          "op:AssociatedSite",
+          "C12321"
+        ],
+        [
+          "op:CellType",
+          "C36903"
+        ],
+        [
+          "op:ClinicalFinding",
+          "C156460"
+        ],
+        [
+          "op:Morphology",
+          "C121619"
+        ],
+        [
+          "op:Morphology",
+          "C39986"
+        ]
+      ],
+      "reviewed_partition": [],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -1470,8 +1643,14 @@
               "C12321"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "routing"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+          "machine_policy_identity": null,
+          "normalized_group_id": "dbaad1618f510a38dc68681ff00583104ae253253b1828685534c3805fea225f",
+          "normalized_group_label": "source-evidence-grouping:C102870:dbaad1618f51",
           "source_fact_ids": [
             "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108"
           ],
@@ -1497,8 +1676,14 @@
               "C36903"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "routing"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+          "machine_policy_identity": null,
+          "normalized_group_id": "8be6048f926c720ddcb24a01995d81227702b9fb02ba021ccdaed8301e5ecbe1",
+          "normalized_group_label": "source-evidence-grouping:C102870:8be6048f926c",
           "source_fact_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
           ],
@@ -1524,8 +1709,14 @@
               "C156460"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "routing"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+          "machine_policy_identity": null,
+          "normalized_group_id": "90cd992b550e4a267f534acea20cb2e8e612bf8a370b59b07041cc592f9fb204",
+          "normalized_group_label": "source-evidence-grouping:C102870:90cd992b550e",
           "source_fact_ids": [
             "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
           ],
@@ -1555,8 +1746,14 @@
               "C39986"
             ]
           ],
-          "normalized_group_id": "2f18fdfc51b11db791652daf1e6d184950f72947d45212998f0c33faf604c78e",
-          "normalized_group_label": "source-evidence-grouping:C102870:2f18fdfc51b1",
+          "transformation_rules": [
+            "routing"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+          "machine_policy_identity": null,
+          "normalized_group_id": "65a17c905fb7143b202d8f0f779685e0f241d0b88ee83a498d60a3ee7616c7a9",
+          "normalized_group_label": "source-evidence-grouping:C102870:65a17c905fb7",
           "source_fact_ids": [
             "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac",
             "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
@@ -1588,17 +1785,40 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "supersede-abstention-with-source-evidence-grouping",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "fafd3ea424f41da485c20b9f86de26b6594069ce77748206d06276bfada6c8c6",
         "supersedes_review_row_identity": "e47c025fcc59e337826cbf666ef2526ce447d3b82d63007868f088a9928bd2bb",
-        "grouping_decision_identity": "1798dd2a32fb429ebd508de7006c5faaf2f42220e9d10da44c47dcedf3dd6a05",
-        "decision_identity": "090e6f13f949d790d63beb90f554cd8a8bdbda0724658588dcca2d637cdaa174"
+        "decision_target_pair_set": [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ],
+          [
+            "op:CellType",
+            "C36903"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C156460"
+          ],
+          [
+            "op:Morphology",
+            "C121619"
+          ],
+          [
+            "op:Morphology",
+            "C39986"
+          ]
+        ],
+        "grouping_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+        "decision_identity": "a530e8d8314d916c5ff003b04e60f0741efe5d70e1359043aa7fce5318e3db1e"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "deb6aadfe231fa56bfa017b8890124bf2a2722980cabae75161b897cd6ffd885"
+      "row_identity": "3ac0c4b3c2ef71823fdb82ca02f1dd0f6f879ff44194b1d467160576c8212878"
     },
     {
       "concept_code": "C115057",
@@ -1616,6 +1836,36 @@
         [
           "op:StageValue",
           "C27966"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C90529"
+        ],
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -1874,8 +2124,14 @@
               "C54224"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "e7b7794d2e431900c974a51c888c4033c4af622de9528abb2dbcf59657ed2dcc",
+          "normalized_group_id": "ae1c5eef48ddec1f3182a4463de0d18aa7977058caff51aa86242cf0868261d4",
+          "normalized_group_label": "reviewed-regrouping:C115057:ae1c5eef48dd",
           "source_fact_ids": [
             "baacfcf4ae3916d0cf1043ebc1ef90acd221c322aebdf70582471529d7fade2d"
           ],
@@ -1901,8 +2157,14 @@
               "C36771"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "eb32fdbd96a2624c48263414c42d4068b241a534b393572831d48f022cc380ce",
+          "normalized_group_id": "7dfcac90e085beda32333beff26e911edfe18a4d4238946069b74584a7b032dc",
+          "normalized_group_label": "reviewed-regrouping:C115057:7dfcac90e085",
           "source_fact_ids": [
             "ff17e569adccf6e96cacb1c2428ad38a4beb82a5f2300a895a4072d69dfd18bc"
           ],
@@ -1928,8 +2190,14 @@
               "C42690"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "50d7d871cee8a901e8109d62a3fa41a93cf2417d653373367f728920f3227989",
+          "normalized_group_id": "6bb972523638b63ee5a1196aabb15ed99945ea3ef17e3d673c064848bdb8f703",
+          "normalized_group_label": "reviewed-regrouping:C115057:6bb972523638",
           "source_fact_ids": [
             "99c8c401171443a3f95d69bedc661b4f8d6b9ca8aa15c61f42a5c7012387b739"
           ],
@@ -1953,8 +2221,14 @@
               "C9315"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "2e468b23fbed64b77d1a9f75d52c169dcaf3fd103f4a542a222158636dd9db93",
+          "normalized_group_id": "b1e8f2f586bf03f973b0ff6b96e3111fbc30f213b7f05f0bb85884a5e082e860",
+          "normalized_group_label": "reviewed-regrouping:C115057:b1e8f2f586bf",
           "source_fact_ids": [
             "6128e7d4182160b6a7c01dfc16d899d83a2f08a5c595b98f981cbd6407980f8d",
             "89cefef3dad9031262ca3684c0f67612865ef6bbdd8eec2ae492b3e49535c47b"
@@ -1993,8 +2267,14 @@
               "C27966"
             ]
           ],
-          "normalized_group_id": "54536f16c31a3f404fcd2ce2c1196af465e24b02904920cc7ef438de5e517d22",
-          "normalized_group_label": "reviewed-regrouping:C115057:54536f16c31a",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "ec40c153a0162745f2b4d0cc0aa73e456c972c4fc09e5dcadf9f92bcd9f25216",
+          "machine_policy_identity": null,
+          "normalized_group_id": "0e6a32b3b13a59d96435c13b1e1176906e50d4be995a9c753dc1ae15cadfbc80",
+          "normalized_group_label": "reviewed-regrouping:C115057:0e6a32b3b13a",
           "source_fact_ids": [
             "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191",
             "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944",
@@ -2030,13 +2310,19 @@
               "MINT-d104509874ed"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fe020e2af0a5248b8218372aca90f3b955722aadbabda5cde7f438230067f409",
+          "normalized_group_id": "ecd442d4af539b4302a7b58882b23af8e9df19ef91b051d1b066263dbc4a1987",
+          "normalized_group_label": "reviewed-regrouping:C115057:ecd442d4af53",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -2052,17 +2338,32 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "cfdfb8dbed0ee2cbb2a93420b84f7e762f61af544fbf278e58ec436c58d9e8ca",
         "supersedes_review_row_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
-        "grouping_decision_identity": "b5b8ad99e8b6069fa806b076cdcd889fc1a7fe6727585862b7374b1040b010fc",
-        "decision_identity": "375c51929c039efcafcdd565e6160c6935cae11051ac0f06bf5582fc22ff0208"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ],
+        "grouping_decision_identity": "ec40c153a0162745f2b4d0cc0aa73e456c972c4fc09e5dcadf9f92bcd9f25216",
+        "decision_identity": "c3fc81e8ba56bc7a3c9a43d198a69f64b63d6c70ebcbb91e7bf1acb9131d8f8a"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "104969597d550950bc9de38576d672975c940a0ddcbe541d0948669d4e784d27"
+      "row_identity": "895a27e37f2f419bbb293c41ce2dd272e8b42c59222d819bfbabea388e408862"
     },
     {
       "concept_code": "C115118",
@@ -2076,6 +2377,28 @@
         [
           "op:StageValue",
           "C27976"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27976"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27976"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -2328,8 +2651,14 @@
               "C12378"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "cc019fa92e89491168dc1b7a7782517108a714e663f28323e7a899b0169a8934",
+          "normalized_group_id": "51fa39f74fb4febee1535165c735b8a4d706a9043c530dc057a0109db1c87c44",
+          "normalized_group_label": "reviewed-regrouping:C115118:51fa39f74fb4",
           "source_fact_ids": [
             "0544b3ea0fc737ee55e7336cd6703b93b7405e08ea5631ac368ecbf812617d95"
           ],
@@ -2355,8 +2684,14 @@
               "C3513"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "f3d31f3102e3b704852a925c03279bc84f725dc1e47cc1632ed45116ed20362d",
+          "normalized_group_id": "15affff88b44b1ec5c31f173bbfe6a63c25887ee9536533ffd88330ec5b13840",
+          "normalized_group_label": "reviewed-regrouping:C115118:15affff88b44",
           "source_fact_ids": [
             "023e612042e8850c9eab252caf6fb75b5c19eb299e74331be6495e100e1ea0cb"
           ],
@@ -2380,8 +2715,14 @@
               "C49221"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "611d2364e3240ea646df053e6e582a264148dbdbe486db45a7fae530b45b46c7",
+          "normalized_group_id": "04e034bf5ee92fcbf03ffc0d5c501f89613d4c8326c9499a229d26ad67253697",
+          "normalized_group_label": "reviewed-regrouping:C115118:04e034bf5ee9",
           "source_fact_ids": [
             "cd47e629176caff77ff0f06547f426fd042ef034ff03a5fcc691cdc77a2e5789"
           ],
@@ -2407,8 +2748,14 @@
               "C203674"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "552bac8dd92e9b6076f4345977eaa4dbfabeb722aaf173b306afdeb52cdd7e88",
+          "normalized_group_id": "e3746d5d7f445badd852f580588dfc5322f8d595fc2702928d7199642828d792",
+          "normalized_group_label": "reviewed-regrouping:C115118:e3746d5d7f44",
           "source_fact_ids": [
             "59abf178ae5fff9b391937113d46dcc8a10cb72bbe371328a3b0eb46d192019a"
           ],
@@ -2434,8 +2781,14 @@
               "C12389"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "81c734cd3b17dd2b8c9d2c9deb190233dd6a6aae7fde5e1a53ac54cb872e23c6",
+          "normalized_group_id": "b5582faaf4dccf8b59c553a68059bf64b2afa6c4045517bda74a784581372197",
+          "normalized_group_label": "reviewed-regrouping:C115118:b5582faaf4dc",
           "source_fact_ids": [
             "ed00db472320b91d71023b9c7a29235015d6a13185ef21b5a29095b285d8e38d"
           ],
@@ -2465,8 +2818,14 @@
               "C27976"
             ]
           ],
-          "normalized_group_id": "da5fa39e190fa41aaeb2037cd417fe233600b2248060ee43d68ebb151c1149ff",
-          "normalized_group_label": "reviewed-regrouping:C115118:da5fa39e190f",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "f46639243f7e3879b6a6798a5f82af9ae68da839d3ddcc0b3206e2340dc66666",
+          "machine_policy_identity": null,
+          "normalized_group_id": "6ac7a0453c1b99e04e1337301e7372dfb454b4ade1682a4f2c042b24f0fd45c8",
+          "normalized_group_label": "reviewed-regrouping:C115118:6ac7a0453c1b",
           "source_fact_ids": [
             "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d",
             "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
@@ -2500,13 +2859,19 @@
               "MINT-8512b41a844d"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0e7eed38693bf08e28ec05252232951151be74cc48e91ca9508131906c91d2ba",
+          "normalized_group_id": "73fba955e3d0e69b8649ebd35fb67d1222ff46a72fc0f8c0837ceb583504d5b2",
+          "normalized_group_label": "reviewed-regrouping:C115118:73fba955e3d0",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -2522,17 +2887,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "79f91450a956fe89d91a47da3e084d70cb911b4eb83bc23dda400e69fe900ca7",
         "supersedes_review_row_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
-        "grouping_decision_identity": "35b37d8b6ff5bc3ea7686a9b05d6fad1fe8fe9b8fdafe3546eb70a07a879daf8",
-        "decision_identity": "350d08e3e7e76c7482f08de62f75311910cccc41784f6a4be99257ce12490b73"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27976"
+          ]
+        ],
+        "grouping_decision_identity": "f46639243f7e3879b6a6798a5f82af9ae68da839d3ddcc0b3206e2340dc66666",
+        "decision_identity": "3a29d0ae01f0a0c41e7b97d0668b3bd2d5ba5470ef385fc6aebe7877681a9ec7"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "31a2f7126b1dc8923918294228054236a53125f10e4fbda81e760b21c937393a"
+      "row_identity": "8b0f341685f5d6a38d58823c33671c92597307c181ec54b76176d21fb379493d"
     },
     {
       "concept_code": "C132677",
@@ -2546,6 +2922,28 @@
         [
           "op:StageValue",
           "C27970"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C132248"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C132248"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -2812,8 +3210,14 @@
               "C40557"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4b8a2fc45211390dcc57d2015b5bc1358fb2461dba5de9ae7c3d8ee53b151fd3",
+          "normalized_group_id": "3108b81201b006cf4cb292fde6573eefdf7093146e3703c2560d8f8e3ef1a476",
+          "normalized_group_label": "reviewed-regrouping:C132677:3108b81201b0",
           "source_fact_ids": [
             "d0246df08f875b00ddb91c0054b4afc4664d71e59ef361535b4aa8f359c3dc6e"
           ],
@@ -2839,8 +3243,14 @@
               "C40989"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "d7ed53f8767fae69b24980b5d5fbb28dad2c1d934de56e6615668742add3a34e",
+          "normalized_group_id": "b76e4a8a459fa8c63194d1be3b50798d7f378ce5217babe1ba06932d72216dba",
+          "normalized_group_label": "reviewed-regrouping:C132677:b76e4a8a459f",
           "source_fact_ids": [
             "e86f5b2a97ff500e37a3bd73d1f41f8dd7b3623b28b1d567d236d12b40f6d807"
           ],
@@ -2866,8 +3276,14 @@
               "C41444"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "d75f71918beb9a14b03fda5f652727b820c05ecef5c4755ebc944aaf11daf044",
+          "normalized_group_id": "cbbbbabb3df624849e6c252bb3b9625341d319a321073aa986fe0398816f7182",
+          "normalized_group_label": "reviewed-regrouping:C132677:cbbbbabb3df6",
           "source_fact_ids": [
             "7cd1761d4a97e7c9276e1293fed57436cd6e13a44042a0551c340dc89e7b6a19"
           ],
@@ -2893,8 +3309,14 @@
               "C48322"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "43a3cbdcd06b0b268c63fdc89cadbd83a72f4f1555dfbcfffcb850018d4d04a5",
+          "normalized_group_id": "4e165ac3a05e9869ab39c6be45ff76eee9b82e6f8c84486b663b9615ece6ab70",
+          "normalized_group_label": "reviewed-regrouping:C132677:4e165ac3a05e",
           "source_fact_ids": [
             "97e0b052436064799f24135e0d9bf31b1df9857d2e30857bd909923dbfec6405"
           ],
@@ -2920,8 +3342,14 @@
               "C32298"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "9afc1c377d33ba902b8d6ceddbb16aa526493fb0ee5536afa0d94570b45adfaf",
+          "normalized_group_id": "c564dd7217d326c66b653b25971d44e6e6c84d7803ebe2ebd6b3ab549fe1fff0",
+          "normalized_group_label": "reviewed-regrouping:C132677:c564dd7217d3",
           "source_fact_ids": [
             "342a8ecbac03180a4a5adef2b15ef3e3ca7e8f99373e7bfa5f4cf0249c7e041d"
           ],
@@ -2947,8 +3375,14 @@
               "C8566"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "58a3b53fbff3868505e771fa5a0ac680115a499bc987975f3d6dcecd96598959",
+          "normalized_group_id": "aecb07847211811c01e4183d78c0343b1df6cfe23a98905f5a4d4982cdcfef69",
+          "normalized_group_label": "reviewed-regrouping:C132677:aecb07847211",
           "source_fact_ids": [
             "bbb8077d5a636c744900f435744bb38023bd7fac8126b13716e3ad27685df7f8"
           ],
@@ -2976,8 +3410,14 @@
               "C27970"
             ]
           ],
-          "normalized_group_id": "4522052c695bf5d0e29226a2ed93ee15bf88cfb8fa8acd79d0d8e5c5d708d9db",
-          "normalized_group_label": "reviewed-regrouping:C132677:4522052c695b",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "dedc90cfedd0c6d22638300b39c4bb9c03ce4c8e0e459b81de9fd1cbbe6a9f54",
+          "machine_policy_identity": null,
+          "normalized_group_id": "27476c9b9e566816fb6afcd011f2960c273df0b6d555c523d3107a104f43a2a7",
+          "normalized_group_label": "reviewed-regrouping:C132677:27476c9b9e56",
           "source_fact_ids": [
             "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326",
             "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
@@ -3011,13 +3451,19 @@
               "MINT-4563e6974906"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "a77b7cffc310d9903042bf39da3e1c0c3fc3386309838ed98fdd9d39e8c8fc9c",
+          "normalized_group_id": "f1664fc7f42e6975bf01f275602662efee408dd495ec20ee6dc3f6d16da64ac2",
+          "normalized_group_label": "reviewed-regrouping:C132677:f1664fc7f42e",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -3033,17 +3479,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "cd8e4c2b903c26cb0558dbea5e809089c20331d8b1e27cfb642b5a579d18ac4c",
         "supersedes_review_row_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
-        "grouping_decision_identity": "29501aab615d9db67286f168ddfe228c3111677b9915b9f573c6628b445a1134",
-        "decision_identity": "a50ac7a00e498b536c1aa2f3af4679c953f2dc0bd4622a9109ba70d8949f867d"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C132248"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "grouping_decision_identity": "dedc90cfedd0c6d22638300b39c4bb9c03ce4c8e0e459b81de9fd1cbbe6a9f54",
+        "decision_identity": "facde1814f12e4aca0fb2dbff8bcfb080dad4a7bb2b1c673805cb1e7a95277e3"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "ce5ab80f9f1060ceb788a709bb3b590d7028e7fc9527e69291495629c4586d87"
+      "row_identity": "f25da2635c95a72a5adcc1030194e155e69517c5e3b1f82d770c2df2b5972f26"
     },
     {
       "concept_code": "C162226",
@@ -3057,6 +3514,28 @@
         [
           "op:StageValue",
           "C96244"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C186617"
+        ],
+        [
+          "op:StageValue",
+          "C96244"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C186617"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -3293,8 +3772,14 @@
               "C12402"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "6a67c195d0ce042988b1aad64b3d10b8272ccaa2912f7cca3456e27abe680646",
+          "normalized_group_id": "09483bed3e6d5439368b46e7f00ba6a8e06d1fcb623e5d98950f02d12cbde371",
+          "normalized_group_label": "reviewed-regrouping:C162226:09483bed3e6d",
           "source_fact_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
@@ -3320,8 +3805,14 @@
               "C36753"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "21bfdebf8d7e5f5a795f3c9a215ada0da7aa8311bb85fc63ac6206e19ce91775",
+          "normalized_group_id": "17a5c9eae50cdbf11f90060c82ea3ca16b5bb0c7c419eb25527622a43ab59410",
+          "normalized_group_label": "reviewed-regrouping:C162226:17a5c9eae50c",
           "source_fact_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
           ],
@@ -3347,8 +3838,14 @@
               "C9039"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "5d7d822f22021cd3992e31db2c2650fbcba428a0b1b4d6048032f7db3ba4bc7b",
+          "normalized_group_id": "6cc51ecebc42a3564268dd87ef47edae58e2a62431be1dbbfd5f1884c13e9ba1",
+          "normalized_group_label": "reviewed-regrouping:C162226:6cc51ecebc42",
           "source_fact_ids": [
             "4da08cb43c7a483edc8300bda180252c7d7f8ba069e86e85164f4f41f1c50072"
           ],
@@ -3372,8 +3869,14 @@
               "C49218"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "c82d20a7a15a5895638c894724192d2fe9bb187894cc645284a776d088767745",
+          "normalized_group_id": "9be87b9529ac39587d6c67c964b7add4a13c434aa4cbe8031c549af4e3cc6aa7",
+          "normalized_group_label": "reviewed-regrouping:C162226:9be87b9529ac",
           "source_fact_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
           ],
@@ -3399,8 +3902,14 @@
               "C12311"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "bf844f1b47f52ec1fada990370ade87ae61d0f57ec6bd50916975177c2246f8a",
+          "normalized_group_id": "58db12a6f44c52fff966d1f889e29ab3a7aa63d0f47f8484ff61f15a8431d4bf",
+          "normalized_group_label": "reviewed-regrouping:C162226:58db12a6f44c",
           "source_fact_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
@@ -3430,8 +3939,14 @@
               "C96244"
             ]
           ],
-          "normalized_group_id": "3d0ceeab4d60417b13f6524e65457f543f587b39110f1e139be348bca7abdae9",
-          "normalized_group_label": "reviewed-regrouping:C162226:3d0ceeab4d60",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "d15bc65202c675acd14ea932d30e03a2d9f597b75fba37bde327e09bb1eb5f71",
+          "normalized_group_label": "reviewed-regrouping:C162226:d15bc65202c6",
           "source_fact_ids": [
             "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d",
             "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
@@ -3471,9 +3986,10 @@
       "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "e281c9489e6ee301682782c8945f8b701535b7cc0281c2ac8a32311b64eb7f4a"
+      "row_identity": "6427c049f0daa06c74b2cb2cf398803fd0996c25b277e781cf78f7fb3f9de8cb"
     },
     {
       "concept_code": "C181564",
@@ -3487,6 +4003,28 @@
         [
           "op:StageValue",
           "C27966"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C180901"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C180901"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -3739,8 +4277,14 @@
               "C12402"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "bf2a4abed69b934903acd1163634bdc704ebd7087defd4d97fa05a9c05c4349b",
+          "normalized_group_id": "54df547e048324ad64aaf4ab1ef0207fa883b76a7fa0d6a6c83932b4e482de90",
+          "normalized_group_label": "reviewed-regrouping:C181564:54df547e0483",
           "source_fact_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
@@ -3766,8 +4310,14 @@
               "C36753"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "764d875046efd5ca154135959f05449544e9a4ab97d24eaece79ca6f8588d29f",
+          "normalized_group_id": "eaaf0f6e346d5320334ffb3ffcea0e176d43b2f3505c7116c9c47e141d8f2aaa",
+          "normalized_group_label": "reviewed-regrouping:C181564:eaaf0f6e346d",
           "source_fact_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
           ],
@@ -3793,8 +4343,14 @@
               "C9039"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "a01ccea4a954ec74ff7459f43a693d86d6fe5061587ab964e3d3cc71abf4f477",
+          "normalized_group_id": "9b68c14f97b176773d4c3a535718acbcc43ab610cb749d2534c16b52279a426f",
+          "normalized_group_label": "reviewed-regrouping:C181564:9b68c14f97b1",
           "source_fact_ids": [
             "f6e475f1e224f8a8d8ee0a5c7acbd2275d77b0fcc8b28ac6fefb40f3f07ec3c4"
           ],
@@ -3818,8 +4374,14 @@
               "C49218"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "7769c66efed29b740312ae7a2f2c1389f9126e589ddbbc97943f34f12d0ec0e0",
+          "normalized_group_id": "0ab1d0e97a21349ee9529a2a9b7c11de9301839a49c9db8bb37806c04db3ea74",
+          "normalized_group_label": "reviewed-regrouping:C181564:0ab1d0e97a21",
           "source_fact_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
           ],
@@ -3845,8 +4407,14 @@
               "C12311"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "bfb94dce51e7dd91654ee2ec7dd2922c4e2394c41fe73503a30bee1bf294b77d",
+          "normalized_group_id": "4b4d7b931d0508649971ce94e77b76bb36194ef62997d130287244f795536b3a",
+          "normalized_group_label": "reviewed-regrouping:C181564:4b4d7b931d05",
           "source_fact_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
@@ -3876,8 +4444,14 @@
               "C27966"
             ]
           ],
-          "normalized_group_id": "ebe3606d27f9ac08ff346c52db20c013e749b423b90a3109884d83162605deff",
-          "normalized_group_label": "reviewed-regrouping:C181564:ebe3606d27f9",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+          "machine_policy_identity": null,
+          "normalized_group_id": "f574a8179d5ca1c5974854feba04f8087491c10750e24d55b9102f0fdf94641d",
+          "normalized_group_label": "reviewed-regrouping:C181564:f574a8179d5c",
           "source_fact_ids": [
             "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c",
             "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
@@ -3911,13 +4485,19 @@
               "MINT-27f8060dd413"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fac139b79ae846327d92d1bde108c8eebcdb10469c4e804ed3ad194530f5b228",
+          "normalized_group_id": "536c8a049c17577370be3c048ab78fcf5c2b23e14e7c803d2d65b1b276d9aed8",
+          "normalized_group_label": "reviewed-regrouping:C181564:536c8a049c17",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -3932,9 +4512,10 @@
       "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "42571a6e46d63995a8f6cf78a8da14dd7f59147a1bae54e2deef24c89a5f852e"
+      "row_identity": "ac513ff0eaa7820c6485cd3de373bd38b29ba4a999cdc224fce46f54f350f2ba"
     },
     {
       "concept_code": "C186620",
@@ -3948,6 +4529,28 @@
         [
           "op:StageValue",
           "C27966"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C186618"
+        ],
+        [
+          "op:StageValue",
+          "C27966"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C186618"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -4184,8 +4787,14 @@
               "C12402"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "126c27fd025add1e8ab7aac0ed5f7f6e662a600763aebdc1fb07635f1bbb7776",
+          "normalized_group_id": "d9a38b4a84ce0927db4c0e628a66a4ce8a922ea70b1788b7d3d43ebe80eaf47c",
+          "normalized_group_label": "reviewed-regrouping:C186620:d9a38b4a84ce",
           "source_fact_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
@@ -4211,8 +4820,14 @@
               "C36753"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "d9b9f36c1d87acb9261d0569a34cd81c312305ed1e3a172f092fac9d8c9ad4dd",
+          "normalized_group_id": "46a997eb727fb2c98b312b8fd49bb3f39502c80f77d91112b6d6a338d5d28f30",
+          "normalized_group_label": "reviewed-regrouping:C186620:46a997eb727f",
           "source_fact_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
           ],
@@ -4238,8 +4853,14 @@
               "C9039"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "86797fe185222120bbdadebf7700937a7e431d54418f9064a1729abb24fd64ce",
+          "normalized_group_id": "c6896780624e1d005cf39ca72200430cf1639c73a28dd0ea2eaa432180dd30dc",
+          "normalized_group_label": "reviewed-regrouping:C186620:c6896780624e",
           "source_fact_ids": [
             "d46e40a463d10ddc9e491590d7f25f1d6456dd04e06aab5d614c9ede8d294ac9"
           ],
@@ -4263,8 +4884,14 @@
               "C49218"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fdaa4d67bad542aa07ea495c2d265490f726e33299694e23da7ba836729bae4f",
+          "normalized_group_id": "dd5063c2e72ec86a2239d73b6deb8ecd531b4ccf691414232f2d27642e24380e",
+          "normalized_group_label": "reviewed-regrouping:C186620:dd5063c2e72e",
           "source_fact_ids": [
             "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
           ],
@@ -4290,8 +4917,14 @@
               "C12311"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "89f36144a2eef18deec7bcdb87771da5709182f31274978901d039a8165a5ee8",
+          "normalized_group_id": "df13890c6d3f1815afecb8b0701c20136c7bb74a1bf9bd6a35f591c2dab813c4",
+          "normalized_group_label": "reviewed-regrouping:C186620:df13890c6d3f",
           "source_fact_ids": [
             "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
           ],
@@ -4321,8 +4954,14 @@
               "C27966"
             ]
           ],
-          "normalized_group_id": "8312a991ad6b3f3d41c3a6fea81bf84a0f1affde872d4a785a8c68b42935aa4d",
-          "normalized_group_label": "reviewed-regrouping:C186620:8312a991ad6b",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+          "machine_policy_identity": null,
+          "normalized_group_id": "f7e82e95bb178457f7ff60c9c7aa4d85290158093c081a0b2b8e5bbb5c3c5d21",
+          "normalized_group_label": "reviewed-regrouping:C186620:f7e82e95bb17",
           "source_fact_ids": [
             "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47",
             "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
@@ -4362,9 +5001,10 @@
       "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "27b5e21c2603e00c7f6ae53412d82419f63f4972ecf147f4aa99200e3d2b6478"
+      "row_identity": "a9e40c4858057712cf0bdf87012fa550653291f22735ff854e9cdb5ca1c56979"
     },
     {
       "concept_code": "C206219",
@@ -4378,6 +5018,28 @@
         [
           "op:StageValue",
           "C96244"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C206211"
+        ],
+        [
+          "op:StageValue",
+          "C96244"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C206211"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -4640,8 +5302,14 @@
               "C12402"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "436b29a9b3d2711e936e7425397797182117c1f7c5376bc74f83a8cb1912bf5b",
+          "normalized_group_id": "0136fa32262eae4a50e6d68b02c9c6f69e86dde3ac4053392545b9028fe854cf",
+          "normalized_group_label": "reviewed-regrouping:C206219:0136fa32262e",
           "source_fact_ids": [
             "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
           ],
@@ -4667,8 +5335,14 @@
               "C36753"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0c05228f2d89e1c889cbb9015d031a4a6981bb73c08b40e3376ad74304890562",
+          "normalized_group_id": "ff1cf4b4fd2e2a9ad8e131528b5f162087369141f070769295a599a516d93317",
+          "normalized_group_label": "reviewed-regrouping:C206219:ff1cf4b4fd2e",
           "source_fact_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
           ],
@@ -4694,8 +5368,14 @@
               "C7558"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "9293881e47611accb5539ff5140e8845c63f65ded6cb4544de802d8756b1ebfc",
+          "normalized_group_id": "42b6bbdf4d1887a2e0e05cc30b49c3c3962c6afcae792a090b80bf9389f4e389",
+          "normalized_group_label": "reviewed-regrouping:C206219:42b6bbdf4d18",
           "source_fact_ids": [
             "0495cfa51b024a60be90cac301ef7177f4a55710b98a4ca66f06c35f4a210c63"
           ],
@@ -4719,8 +5399,14 @@
               "C12313"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "22d37640e8366af575f4d3406be6034e241901f46faae5922387bcbb053ebc89",
+          "normalized_group_id": "9ee943a7c3e35c1c2d23de9ebe727628c22498f5c44752ef81a4e9843119693d",
+          "normalized_group_label": "reviewed-regrouping:C206219:9ee943a7c3e3",
           "source_fact_ids": [
             "7412b61de9fd295c8da66e8a39fafa8271d19a66908e47dbdf3c9ecaebe43214"
           ],
@@ -4746,8 +5432,14 @@
               "C12316"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "beb890b45b5818cf7af99d03912b8c3cbff7bea76cf806a63a24a943a12f6059",
+          "normalized_group_id": "5e4af1013ed34718e4f13ff940dd0dc07bd2e5f2e02b82de014aaa519204fbea",
+          "normalized_group_label": "reviewed-regrouping:C206219:5e4af1013ed3",
           "source_fact_ids": [
             "041980221e621246700ed819eec38e761033792e1fc75f088d80deab91f25a1c"
           ],
@@ -4773,8 +5465,14 @@
               "C32514"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "1566088fb0e8272c0e524db8b45ce79b0d945223a6436db2d41559eebd4ff5af",
+          "normalized_group_id": "23b8695cb7e27eb597322ee25abb3c4d18f753c72b570980446f21e07d874766",
+          "normalized_group_label": "reviewed-regrouping:C206219:23b8695cb7e2",
           "source_fact_ids": [
             "0e38ef60361ccc458d6e86c7ba05275705ebb63747937eab4dbadc5664a92caf"
           ],
@@ -4804,8 +5502,14 @@
               "C96244"
             ]
           ],
-          "normalized_group_id": "f7a7528c30c2a38e476c63af4547dac8162de0c2ad47ef38209587ac7d0ddbba",
-          "normalized_group_label": "reviewed-regrouping:C206219:f7a7528c30c2",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "85b944b04e77d923602909735b664cf0ba6bd83e8c9e0dbefeec2b2f79982bd0",
+          "machine_policy_identity": null,
+          "normalized_group_id": "2c67a82f0878e942970e26486c049f514bf6db91727e38bc750a51f2551aa287",
+          "normalized_group_label": "reviewed-regrouping:C206219:2c67a82f0878",
           "source_fact_ids": [
             "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c",
             "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
@@ -4846,17 +5550,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "1b4ee7be3f6a672c4f05aac1f9c1d67bbdc52c2115f673cb97bfc225ec759a52",
         "supersedes_review_row_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
-        "grouping_decision_identity": "f62675f5ae184244667daa210fbe30d7e7c3061ae90aef3d46b3d060253f39f5",
-        "decision_identity": "e4ffaec0cfcc05015864d671fdcb0d532f17cb370beb298f7fafb8ecbb0038eb"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C206211"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ],
+        "grouping_decision_identity": "85b944b04e77d923602909735b664cf0ba6bd83e8c9e0dbefeec2b2f79982bd0",
+        "decision_identity": "6a667b08f7dcdf8e83198499a98d4f5008128e7246f13cf903461ca1e9fa99a1"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "af92f102cea73359553517348d36ba3439adaf7a2490dfca7258699d338fe64d"
+      "row_identity": "75cba3834d7b0a7b65f5a79029e907cef171d54621c62aa7b7dde5e38a9705c3"
     },
     {
       "concept_code": "C27262",
@@ -4872,6 +5587,37 @@
           "C9290"
         ]
       ],
+      "decision_target_pair_set": [
+        [
+          "op:CellType",
+          "C41063"
+        ],
+        [
+          "op:ClinicalFinding",
+          "C36220"
+        ],
+        [
+          "op:ClinicalFinding",
+          "C41397"
+        ],
+        [
+          "op:Morphology",
+          "C35501"
+        ],
+        [
+          "op:Morphology",
+          "C9290"
+        ],
+        [
+          "op:NormalTissueOrigin",
+          "C13051"
+        ],
+        [
+          "op:PrimarySite",
+          "C12431"
+        ]
+      ],
+      "reviewed_partition": [],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -5096,8 +5842,14 @@
               "C41063"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "019f80bf9aa1855c77490c9c324eabaa42897438e795a1e4b4bd00f74b75e1a7",
+          "normalized_group_label": "source-evidence-grouping:C27262:019f80bf9aa1",
           "source_fact_ids": [
             "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
           ],
@@ -5127,8 +5879,14 @@
               "C41397"
             ]
           ],
-          "normalized_group_id": "aa7c1100a4cb4d5e18c149f8eeeb82fabd7e321f1a7a61983eeaea56e52fc804",
-          "normalized_group_label": "source-evidence-grouping:C27262:aa7c1100a4cb",
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "c0760f7ec6103c7bec087daa2c6f9219ae812a0d8fb3cc5a55f035a33b78bd44",
+          "normalized_group_label": "source-evidence-grouping:C27262:c0760f7ec610",
           "source_fact_ids": [
             "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2",
             "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
@@ -5160,8 +5918,14 @@
               "C9290"
             ]
           ],
-          "normalized_group_id": "8133835a0f85ad671411f725bfff70f065d80ffed8259d42ee588e6a2be94ea6",
-          "normalized_group_label": "source-evidence-grouping:C27262:8133835a0f85",
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "85c41f06a5dd6c86e3f7aad51efe4de797cbbefede69c9e72f2eb8903d388a1b",
+          "normalized_group_label": "source-evidence-grouping:C27262:85c41f06a5dd",
           "source_fact_ids": [
             "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6",
             "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
@@ -5186,8 +5950,14 @@
               "C13051"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "f7585f76cbfe0783762efe9378654ffc7560090d5b77d9c2889085b1ac650ab6",
+          "normalized_group_label": "source-evidence-grouping:C27262:f7585f76cbfe",
           "source_fact_ids": [
             "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
           ],
@@ -5213,8 +5983,14 @@
               "C12431"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "fa5db9b22e87f61f73fb719f098617d6839350b5f700d84e5f58c5fbde2bb8cc",
+          "normalized_group_label": "source-evidence-grouping:C27262:fa5db9b22e87",
           "source_fact_ids": [
             "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
           ],
@@ -5247,17 +6023,48 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "supersede-abstention-with-source-evidence-grouping",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "1db16366eee2182cfbeeb3021342cc99d1a2efff105b73fb0cf82a9715a115b0",
         "supersedes_review_row_identity": "fcd473503a580a0f3c69becb46094389fef17bcb91312aa95f0c4d24523d00a4",
-        "grouping_decision_identity": "dac40f21745321bb128a3d01db75387e930b64fe0292e8c9f3372c30edb283b2",
-        "decision_identity": "c7a462f85cdf4ccd75773c4f83a3e2b3e256849e79908556c9d58d25c7f1d0b7"
+        "decision_target_pair_set": [
+          [
+            "op:CellType",
+            "C41063"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ],
+          [
+            "op:Morphology",
+            "C35501"
+          ],
+          [
+            "op:Morphology",
+            "C9290"
+          ],
+          [
+            "op:NormalTissueOrigin",
+            "C13051"
+          ],
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ],
+        "grouping_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+        "decision_identity": "63cd77981a49bdb8751d86740b6344b139a94e269527ac98deb38cbbea38f90d"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "246b7ba1d314fa44ce63a45b38eaa777d8445f5f290b00272d2ebbfef8525241"
+      "row_identity": "d659c914ab9b8adf37b852f0368977c60967155715c77ae6579accf5838236b7"
     },
     {
       "concept_code": "C27787",
@@ -5275,6 +6082,36 @@
         [
           "op:StageValue",
           "C27970"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C90529"
+        ],
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -5565,8 +6402,14 @@
               "C12722"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "675bfbeab02043f09b456cc4e9359c01efb76e1be884f802e45c377cd0564a7e",
+          "normalized_group_id": "97323a5b331f2bb72a9412fdf476dfe1b2fdece26b0b1ef6a139e2181cbc4544",
+          "normalized_group_label": "reviewed-regrouping:C27787:97323a5b331f",
           "source_fact_ids": [
             "0c74f1f5322afde963d9ff2aca2f11c1e59e4a0d0aa1e8adc3486e52cb1ed8d9"
           ],
@@ -5592,8 +6435,14 @@
               "C36903"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4adb713ff9b3f1bfac8bb30034d3f9daa8685c59abf44e31cb7105bef68726ce",
+          "normalized_group_id": "719f0355abc77a582fc4126d5d8fdced2c1db1fc68060ee3173713cdea2a0ce7",
+          "normalized_group_label": "reviewed-regrouping:C27787:719f0355abc7",
           "source_fact_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
           ],
@@ -5619,8 +6468,14 @@
               "C5027"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "948ae90b33ad8ab6edf9fef47d883dd6d51909edca6f144fe4afd0513440c98f",
+          "normalized_group_id": "58e703a9d49afe79eeab9de0a3217fba5f3ede0269576a9fc1bc357d895a0706",
+          "normalized_group_label": "reviewed-regrouping:C27787:58e703a9d49a",
           "source_fact_ids": [
             "a91774d7fa1aabfe1d9ee776d9c3b52e7c4fbf3595a04e4153a8167b40a6455b"
           ],
@@ -5644,8 +6499,14 @@
               "C7251"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "b76b45431ccb9268b01439787617d1f37c49f963410e1839d176a4366c04c723",
+          "normalized_group_id": "7428e4e161753b69ba59362c22f168642bb2abce6692306196a0b103ccfd5456",
+          "normalized_group_label": "reviewed-regrouping:C27787:7428e4e16175",
           "source_fact_ids": [
             "89597aee5fea970f8056b19063d1ff46d2db1e61fb6db2eef7c84997bac5430a",
             "f8107c01fb7a2fb5708eb19c7eef8bc7e523b0cc470fd20bbf792c46617ea7c2"
@@ -5676,8 +6537,14 @@
               "C12412"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fc3e8f1b0d85ed2600005f03014afafe2f418add423e8fbfa7f977b9e3bdbf74",
+          "normalized_group_id": "683a860852503fedeaf298099ff81ee564ab10843854566a7af86a7cbccc84dc",
+          "normalized_group_label": "reviewed-regrouping:C27787:683a86085250",
           "source_fact_ids": [
             "4484d86e2dc7986f217c88b195fc1068649fb4d45d1aff931d1b5daf46249b91"
           ],
@@ -5711,8 +6578,14 @@
               "C27970"
             ]
           ],
-          "normalized_group_id": "a272897d14cc74db8f87a4a03d8e608d5fb2b33277cb57807c0d861e69804d39",
-          "normalized_group_label": "reviewed-regrouping:C27787:a272897d14cc",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "9c5782aeddf24fcd4020b2c870fce10adfa80f1fbb14d7331d092ca8b7cbf75c",
+          "machine_policy_identity": null,
+          "normalized_group_id": "6ff549ec95e4a5a0626ffc9b1da71a3e069cae09baae4fd33ae2deac3846b2fe",
+          "normalized_group_label": "reviewed-regrouping:C27787:6ff549ec95e4",
           "source_fact_ids": [
             "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1",
             "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30",
@@ -5748,13 +6621,19 @@
               "MINT-d104509874ed"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "396e00b5aa187f4c824629349a4e05b1ad1ea850b8e38d1d07f45a0e62e57c38",
+          "normalized_group_id": "28b4dce83c60c3b50905117b02843aa15039aabb04e188a52be04b351498ca26",
+          "normalized_group_label": "reviewed-regrouping:C27787:28b4dce83c60",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -5770,17 +6649,32 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "48e0e29aa5578f6b728556b4dcd9f4b414b3c5909715787331a38296f4d79ea8",
         "supersedes_review_row_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
-        "grouping_decision_identity": "2ecc854276a4127e47ace50d044fe75d32fcc1a60f86d57cf7ea3c1e458fcb35",
-        "decision_identity": "0752dc8ec27f2353aa682125cb74d1d12de0ea0e48e219bec989436152c51d47"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "grouping_decision_identity": "9c5782aeddf24fcd4020b2c870fce10adfa80f1fbb14d7331d092ca8b7cbf75c",
+        "decision_identity": "4c606ed3081f2de404ec4e7919e66a0f1b53b373d859b8ad29662c0f3bce892d"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "febe1c935f40524308ded072e0668ab661e5470f655016b22ad144279bc4a9ae"
+      "row_identity": "12ec3103358f17254a1d972f93c40d70601dde8e5ae7118342e77603292aaf55"
     },
     {
       "concept_code": "C4791",
@@ -5796,6 +6690,8 @@
           "C13004"
         ]
       ],
+      "decision_target_pair_set": [],
+      "reviewed_partition": [],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -6181,8 +7077,14 @@
               "C12471"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "ba8fd11a4c7b637427432c1835e844b1ac094c840bbc55ce0c4c35b9a56274fe",
+          "normalized_group_id": "b37f3720aeadd8947432a910c422579600c736b08a46f70fa9adf2b7b067a09a",
+          "normalized_group_label": "source-evidence-grouping:C4791:b37f3720aead",
           "source_fact_ids": [
             "cc1866b123466f3528992d811a60f1cf9c095297502a44b58dcedeb24b8a1b28",
             "e70b4ae2fec2de1e20673ae5ee481362d7396f6d03016d42c6f56b58e1ff023f"
@@ -6216,8 +7118,14 @@
               "C12905"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "9e1a1aaea769064b0676ff0bd747de965fb9143fec28af89c0a2f9c4aab94e54",
+          "normalized_group_id": "97f16274d713148a3bb49c9e557f80480e46524e63cd3a8a3c83a1a9a5710c17",
+          "normalized_group_label": "source-evidence-grouping:C4791:97f16274d713",
           "source_fact_ids": [
             "5d3f8ff41a7933313cb93a051c30007cc455eafbe4cb59f587aaaa4ac9cdcf90"
           ],
@@ -6243,8 +7151,14 @@
               "C13004"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "1a1f1f77fc6355dd8213ef6cb2b95d9a45cbc0be0c5d2f1c00721e35a57794df",
+          "normalized_group_id": "678b6817028e7ddb35e46f772d1fa5896454dbc49371bcb1228889052cbba4aa",
+          "normalized_group_label": "source-evidence-grouping:C4791:678b6817028e",
           "source_fact_ids": [
             "350a0ba239b888a51f518f981625283b9e22475c1d56ca58d1ede0a27ddd6f67"
           ],
@@ -6270,8 +7184,14 @@
               "C13004"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0b5c54a10f3d8f5afb85800119b00469f54ef6fc2dce3eab661acebef79ae48c",
+          "normalized_group_id": "946adbf9dbcf90d604942ba61a528895348db5fdafe6a2dc3083e46fbc1e9372",
+          "normalized_group_label": "source-evidence-grouping:C4791:946adbf9dbcf",
           "source_fact_ids": [
             "49992b81f021b4c1f3b6a5ea7ee24f88625882ac0a619254a833f0a90e2e5e94"
           ],
@@ -6301,8 +7221,14 @@
               "C36954"
             ]
           ],
-          "normalized_group_id": "99c401b756adb6dc6ab41216ee7aa5130691dd7d91a02304201bda3734e511d2",
-          "normalized_group_label": "source-evidence-grouping:C4791:99c401b756ad",
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "57a8d27747fe5c8a48b40ecb9dd8f5e1b5d4552a4be58ff687e095ee8ea94495",
+          "normalized_group_id": "3fcd992d1d49d46465631ef02da5d12a58720db87e1f9a640e28d5ba7d1305f4",
+          "normalized_group_label": "source-evidence-grouping:C4791:3fcd992d1d49",
           "source_fact_ids": [
             "1c67b6f080144081793a5fe25f846cfb08ddb2241edb1b070032698eb4fb4d8d",
             "c5ac94b1b709b1906377c5f71d91cb8c22c6810d847c558f6632b566ef86d17c"
@@ -6330,8 +7256,14 @@
               "C35998"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "7238e2ddc17e0bebb4ac10a42a36e74f84123f298a4016c8042d49fa26c4a713",
+          "normalized_group_id": "faf4e9567de5a7136a7b91c06115b523f1e7b4e942e77b0c16f3383ad7f36d72",
+          "normalized_group_label": "source-evidence-grouping:C4791:faf4e9567de5",
           "source_fact_ids": [
             "2bdfcbc7729a80daf44e198aae13783f1f58e0e33389cf36034afde85e8ea8b1"
           ],
@@ -6357,8 +7289,14 @@
               "C36105"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "69c63a6a25beb9aa54ddf432274713c8b244aa6267c01ac1d936bb78dee68374",
+          "normalized_group_id": "6eb5b2794c15fbaa2b363b9be3977afdc975c8989ef5b2839ea5a77ff857618c",
+          "normalized_group_label": "source-evidence-grouping:C4791:6eb5b2794c15",
           "source_fact_ids": [
             "3dc6152ed1edca1d923cb7f0a1f024fda7b69db84b31ed190ebe026ec4165786"
           ],
@@ -6384,8 +7322,14 @@
               "C36122"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "35bab78c33d73dc8ec5a8b9a72f4a7e0251338583d805065948c87a5c63694b3",
+          "normalized_group_id": "906b31d2356520f8f75aeedecfbc45b6429ce90f38709f7ab5929a752b29bc60",
+          "normalized_group_label": "source-evidence-grouping:C4791:906b31d23565",
           "source_fact_ids": [
             "da38fccb0e9a44ad22e12bbaab89866ff671b450f223911e912565025b812d17"
           ],
@@ -6411,8 +7355,14 @@
               "C53583"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "980dcebf94f5e4027f97cb8245c416b07e88b12c0336af008c49893347ad984c",
+          "normalized_group_id": "c6b32611c5c4f79d779aee28ef3420d4ab3a9bddc6f3b6f8c102f89e20b50d3c",
+          "normalized_group_label": "source-evidence-grouping:C4791:c6b32611c5c4",
           "source_fact_ids": [
             "c66644aabd10d0b5ed72ce0e779935f2fd970fc25f439c184cc96a4c648583b7"
           ],
@@ -6438,13 +7388,19 @@
               "C25229"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4d8b644a65561045b421fd02eb447561319e4cb0ff539b01a57b3bfeb8cea160",
+          "normalized_group_id": "6706b4340261b24d359ce1f86954defc8729a97cf24c6941b1150188ff79ff93",
+          "normalized_group_label": "source-evidence-grouping:C4791:6706b4340261",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         },
         {
           "pairs": [
@@ -6453,8 +7409,14 @@
               "C3499"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "f8dceea03dab319c98091e704e4982a43a77c81d27d68c9f1c65e6352e368ed2",
+          "normalized_group_id": "17bd71e494247978e875e1f139de46a315b96994f7c0ca109f8d8551b5ea8f2f",
+          "normalized_group_label": "source-evidence-grouping:C4791:17bd71e49424",
           "source_fact_ids": [
             "0c9d646865fe858945e4b1ef347a24261fc4d5245d81f4b8f4ee4fdd5fb4ddf8"
           ],
@@ -6478,8 +7440,14 @@
               "C12869"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "repeated-pairs"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "536a9735b8eae7811b8d61aa08ef4772088dc907ecbc1591d8c730508d9731a6",
+          "normalized_group_id": "d1e5f9fb25721711e723943afec0fc37468daada109d6c3390ba3169e33b994c",
+          "normalized_group_label": "source-evidence-grouping:C4791:d1e5f9fb2572",
           "source_fact_ids": [
             "84c7d2975fddeedaccb2169f147f046fdca3f113764e533f2160f4beabf22fc2"
           ],
@@ -6511,9 +7479,10 @@
       "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "f75bb52316b1a46bc335ce24ff36cc816c774b91f77fa62a16968c5220ffaf73"
+      "row_identity": "dde17a729ceadc30dbdb471a8dd64b38318169d5d0f288110205cb2c1dbf52cb"
     },
     {
       "concept_code": "C6135",
@@ -6527,6 +7496,28 @@
         [
           "op:StageValue",
           "C27970"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -7026,8 +8017,14 @@
               "C12704"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "275f8c38087acaf6d18fbdf3c8eb702d5b61e02ee81a0ea38681d74384c81b72",
+          "normalized_group_id": "c5de98c18bdf5c348e4cbbe39ed0e5a032e1530b60a76ae76c5987fda78bb323",
+          "normalized_group_label": "reviewed-regrouping:C6135:c5de98c18bdf",
           "source_fact_ids": [
             "7344851663312690e832aa79d498e38602ac825a8ac422b2e2af4c6b772ae4a3",
             "e19d9a1394ebe2e892007a1e030afee9a8bfe6c2aa85b9d9c397fa7fb283686f"
@@ -7061,8 +8058,14 @@
               "C12705"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "02264bbdf960a978a2858f8c167b224f7e6ebef44ba4fef221e6d28943e980e1",
+          "normalized_group_id": "46b1fc759bc48c03469d9b70eb335e4ebaad03b3282d0e61c8d9debfd38945cb",
+          "normalized_group_label": "reviewed-regrouping:C6135:46b1fc759bc4",
           "source_fact_ids": [
             "4f4ee54e1aaf973c93219b9e4eef330f5bb3f196dc1fc873cdf0c987dbabe1c3"
           ],
@@ -7088,8 +8091,14 @@
               "C13063"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "bf653f303e7c14d9c750737a934dcbbb6584f269198e0d2b28dfd9e987913ea0",
+          "normalized_group_id": "b239204fd0890675947c38e2ba308f894de460674f3e67987d7c1beb40f52c81",
+          "normalized_group_label": "reviewed-regrouping:C6135:b239204fd089",
           "source_fact_ids": [
             "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
           ],
@@ -7115,8 +8124,14 @@
               "C36825"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "ed1920f1d2ce154c07d184da10915829340935b5e7c15683837b8d2f81b5628e",
+          "normalized_group_id": "46199eb532c420151c2966b14e7524dd3299b5d6ef3da6a00273917d520346dc",
+          "normalized_group_label": "reviewed-regrouping:C6135:46199eb532c4",
           "source_fact_ids": [
             "795370efb8fd7f3a0c4e968c2ffc0f0c1a01e2afcde736bd68a805d62669bd1f"
           ],
@@ -7142,8 +8157,14 @@
               "C155863"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "9fb6cc8d203fa7bba33a5fc2b5a6e2440817628fa6290ccb4ba680799c735c4e",
+          "normalized_group_id": "ba117e56636a7127075f3531498a84d1450b23efd14480d9af727d9103e62aef",
+          "normalized_group_label": "reviewed-regrouping:C6135:ba117e56636a",
           "source_fact_ids": [
             "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f"
           ],
@@ -7169,8 +8190,14 @@
               "C207031"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "c6661ad93d6e75fe3306f87924ddbbac599c6f896b707f075662bc90c287319d",
+          "normalized_group_id": "0284f91bada51834709dd17fcabfb883f620c3618827875a04c452c14676f558",
+          "normalized_group_label": "reviewed-regrouping:C6135:0284f91bada5",
           "source_fact_ids": [
             "3e6e2372667f74c04e579a7bae8d541d903e8ec5b8a81292ffd74f7c70f66d9d"
           ],
@@ -7196,8 +8223,14 @@
               "C41457"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fdf671af1a49b0baa47a07e8d3cea71ed1915999b54d4fc174f23f166c4cfe8f",
+          "normalized_group_id": "0c1039e3badd312bcf08a9ab30890e1c481b40888e0a91bc784273ece2add699",
+          "normalized_group_label": "reviewed-regrouping:C6135:0c1039e3badd",
           "source_fact_ids": [
             "d86b85d9a359e6c38cad01d1faa121b7fe632ea4a5f321e1d433a50b76deb8b7"
           ],
@@ -7223,8 +8256,14 @@
               "C43574"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "a6a2eeb44a6d9c3492f64df2fc51d52b5f64506d071be13c5c159ec0458c6e83",
+          "normalized_group_id": "1f45c63e129c1c56b93070f366fa01a02376963bed317e3eae917a142aefa30a",
+          "normalized_group_label": "reviewed-regrouping:C6135:1f45c63e129c",
           "source_fact_ids": [
             "833e5aad5d0c5b820c9e039e5d506a335784cd70b510bceb20b59cf992f6dbfb"
           ],
@@ -7250,8 +8289,14 @@
               "C47804"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "92661147ca2dae31e7c3ce0ae256728ba172fa31fd92d2ec1ae4787c63f1dabb",
+          "normalized_group_id": "f36231fcc7241d8a4c5cda34e88c933c054bba2182ee66b74611ac91e52a2a4c",
+          "normalized_group_label": "reviewed-regrouping:C6135:f36231fcc724",
           "source_fact_ids": [
             "4d6e62c2bdfbf8b630d30a26d8e9f9f654f4876155165d22d26786c2dfa8a1ef"
           ],
@@ -7277,8 +8322,14 @@
               "C47807"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "28dbaa864532898f736cd5ab254fe2c4f99a0c0f1cd71ca4155f80c5a0916a79",
+          "normalized_group_id": "981dbc7aabcabcaedfc4c7ea43ffbfece3a386b3ae84ecb3bf9bca9e5ec5c319",
+          "normalized_group_label": "reviewed-regrouping:C6135:981dbc7aabca",
           "source_fact_ids": [
             "35b321c75270afa1638815f2724dfa2bcb1772414c08cb9b2687bfd67aed402b"
           ],
@@ -7304,8 +8355,14 @@
               "C129702"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "fcec38d094ea9a0549c8d25262a4fcfe368f048b1863e561cf474af55b3d323b",
+          "normalized_group_id": "93a22fd5965d592e398f306899f4f4f12a79087b13c283bcfda4e37b3783e66e",
+          "normalized_group_label": "reviewed-regrouping:C6135:93a22fd5965d",
           "source_fact_ids": [
             "c601e8dd27b3f713f8c6bcfd705f497e4fb6c476f3d23a85ce2d6a44cd3889db"
           ],
@@ -7331,8 +8388,14 @@
               "C3879"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "2bc502407e2fecc85b7ce16100a7be10e5a8c09cb560243d9935b00d46b30537",
+          "normalized_group_id": "bb94055b6413b7a046417340cb663ef9374202fa404530e2a8af425aa334b008",
+          "normalized_group_label": "reviewed-regrouping:C6135:bb94055b6413",
           "source_fact_ids": [
             "34c6e41351ade34938903605b763b4b2bb4ef99e58d12d122de5bf25466904a4"
           ],
@@ -7356,8 +8419,14 @@
               "C33782"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "8b1127b5e77022f4938e8216df7ce7ade421cf09766e9b2d8c60125647950ef3",
+          "normalized_group_id": "b46ca418af82efaae36b84be0053b866907c548e2be5b7a8723d95a0b73af600",
+          "normalized_group_label": "reviewed-regrouping:C6135:b46ca418af82",
           "source_fact_ids": [
             "aaf07968613ffce3573154662bb0ad740772bbbeccd7e104ba42c18d5306354c"
           ],
@@ -7383,8 +8452,14 @@
               "C12400"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "8193fdd54f18fb295ac7a218d10cf906f6deea7f8a385083bf2d6801a2dd5d11",
+          "normalized_group_id": "86d7a4e790afea58ce7d307a4defc2bc62846f6c2d2153b7329ed2ff82da4161",
+          "normalized_group_label": "reviewed-regrouping:C6135:86d7a4e790af",
           "source_fact_ids": [
             "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
           ],
@@ -7414,8 +8489,14 @@
               "C27970"
             ]
           ],
-          "normalized_group_id": "56f7da383c967a0a7ec126e7cd20c3a50e2c2e1e43e6e7cc197ab1187ddcf4e7",
-          "normalized_group_label": "reviewed-regrouping:C6135:56f7da383c96",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "6c10d88c6cbbc34033ce60d4462d92e55dc1f54b81f08cb6a0333dbdd9602260",
+          "machine_policy_identity": null,
+          "normalized_group_id": "9e8be35b436c89fa3a26af0eed1f7049a8a68093bca0e7674a7034f97a7fff11",
+          "normalized_group_label": "reviewed-regrouping:C6135:9e8be35b436c",
           "source_fact_ids": [
             "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022",
             "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
@@ -7449,13 +8530,19 @@
               "MINT-8512b41a844d"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "a3985ef76a4c1be9ad09bea4360ddaea565183e67eaa2175be50c5c9c40e5188",
+          "normalized_group_id": "a2eb1b333731a3ebd96ddb2c274f01e55bb0e96d9112c1da3aff0eaaae09d9c8",
+          "normalized_group_label": "reviewed-regrouping:C6135:a2eb1b333731",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -7471,17 +8558,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "4b0eb02ce9dfdb7bb18e491493adf49b04ec94075067712a516ac873db76aaa3",
         "supersedes_review_row_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
-        "grouping_decision_identity": "85b6a1c3fa301ae41427c72991aa75a0254caad6e19b7eeaef94098f1c002a3b",
-        "decision_identity": "efbdc749a734243637ded20c904b5557044c2b62184b993e75571b463ff9e90f"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "grouping_decision_identity": "6c10d88c6cbbc34033ce60d4462d92e55dc1f54b81f08cb6a0333dbdd9602260",
+        "decision_identity": "2721cea13001fd10501706b5b5b5dcf959d0e0f1f3e9e59d4c8a3beb07820d54"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "b7adbd13cc82fbfc583f6eab3867d1aa3e3e62740cdea8edb1df8a943f8533dd"
+      "row_identity": "a8ccd5cf4b7ca46f766c200a2fd81a50d163c18d0dc3417b5417c53ebd9ad501"
     },
     {
       "concept_code": "C89995",
@@ -7495,6 +8593,28 @@
         [
           "op:StageValue",
           "C27970"
+        ]
+      ],
+      "decision_target_pair_set": [
+        [
+          "op:StageSystem",
+          "C90530"
+        ],
+        [
+          "op:StageValue",
+          "C27970"
+        ]
+      ],
+      "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
         ]
       ],
       "historical_observed_partition": {
@@ -7783,8 +8903,14 @@
               "C54189"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "386b68ff4a53cfe437e7ec076c428a7bbe1c6367e88d63c0536540c4324ccfec",
+          "normalized_group_id": "5c1215bc9ce189e0704254ead2f31afcec1d706c8eae70ae983bc1317458c466",
+          "normalized_group_label": "reviewed-regrouping:C89995:5c1215bc9ce1",
           "source_fact_ids": [
             "c9edb03d918c00729f3db2464bd2b7936fe7a93a0bf34cc6d899cede91d55c29"
           ],
@@ -7810,8 +8936,14 @@
               "C36753"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "1db616443ebf4c47a84292be1148c1645513c3fc50e37832845eb5b3654127a7",
+          "normalized_group_id": "b6c6f8ae7eadb97f40bb12e761e13618627288126e4e0af026f01dd436847a38",
+          "normalized_group_label": "reviewed-regrouping:C89995:b6c6f8ae7ead",
           "source_fact_ids": [
             "1e5b013712432bd655c62ec33bb64e559bacf09141916fccbfc18904f137e73c"
           ],
@@ -7837,8 +8969,14 @@
               "C2955"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "aeff9e068984c8cd6ae8efd2f5fce50335532f37f342830f67fcff0fe8545b70",
+          "normalized_group_id": "83884470f083284652de40b1334be42fa144188306690b6de2a585983dcd5118",
+          "normalized_group_label": "reviewed-regrouping:C89995:83884470f083",
           "source_fact_ids": [
             "15353dff8804eb1aed42b903ac21e5acfc453da3018553aae6f26bc58d7b8b8b",
             "40e2c9d03b096d1fef6c36be557f136106272bc8e491debd554e8e16192d6f9a"
@@ -7869,8 +9007,14 @@
               "C4910"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "301ae5ffb6762faf96392588a6290fd09666b6ec2bf9572ccf8234d6305031cd",
+          "normalized_group_id": "477115581acbb560a2b2b674e4a4434fbbc20a8d683dee9b5f263f7c5545dc50",
+          "normalized_group_label": "reviewed-regrouping:C89995:477115581acb",
           "source_fact_ids": [
             "01c4ecc1dc7e9f37bf4970c16e2942b0859deeb404b321bbb398294b1be45221"
           ],
@@ -7894,8 +9038,14 @@
               "C32926"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0b5af91c0d05e7179783ab18369b7756032727f007f9ee9b78c26eddccf51ea6",
+          "normalized_group_id": "4d67987f5682c2a8b363ba7f05c080579d0d10a123fa180c5db3f4c6b0d0e643",
+          "normalized_group_label": "reviewed-regrouping:C89995:4d67987f5682",
           "source_fact_ids": [
             "dcb4a61f2e982a0d54f831767f430b754d5b6b50ef623a080c0e0b4f6a4b4385"
           ],
@@ -7921,8 +9071,14 @@
               "C12382"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "aa562fb2c480249c4781a9d3922ecd16cd16c980c7ecf856442a1fe7008e0181",
+          "normalized_group_id": "0801a535818987d67038ce96e714bc16c95f4aa4c433ca390519011a1517e9bf",
+          "normalized_group_label": "reviewed-regrouping:C89995:0801a5358189",
           "source_fact_ids": [
             "fe27952b3270bc8b6f1555ff0e51a99dd1e13560f17883a9383973960fa6cb35"
           ],
@@ -7952,8 +9108,14 @@
               "C27970"
             ]
           ],
-          "normalized_group_id": "b69e3f0534bf051e330078d4ff573aa1897fbdc5b2be87254bb60042d326b9a3",
-          "normalized_group_label": "reviewed-regrouping:C89995:b69e3f0534bf",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "current-owner-decision",
+          "human_decision_identity": "8ac7e5d4c73aa3d0b1ddc11e31500d09b83a3a7eb7aa147225dc342141af983e",
+          "machine_policy_identity": null,
+          "normalized_group_id": "542dfe533ddb1a20f627dbd4b31b39f5df31381687cbb06ec5967be5ec36b53e",
+          "normalized_group_label": "reviewed-regrouping:C89995:542dfe533ddb",
           "source_fact_ids": [
             "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01",
             "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
@@ -7987,13 +9149,19 @@
               "MINT-8512b41a844d"
             ]
           ],
-          "normalized_group_id": null,
-          "normalized_group_label": null,
+          "transformation_rules": [
+            "co-assertion-preservation"
+          ],
+          "decision_regime": "current-pair-preservation",
+          "human_decision_identity": null,
+          "machine_policy_identity": "b5253b6d5448f432d2d85f0e89f798c970dbc152f50dbaa48a98aeeb34a7e749",
+          "normalized_group_id": "c1e30c370d5dcda923777335527b745ab3968f17ba81153ecc99289e8644ae96",
+          "normalized_group_label": "reviewed-regrouping:C89995:c1e30c370d5d",
           "source_fact_ids": [],
           "source_occurrence_ids": [],
           "source_group_ids": [],
           "source_coordinates": [],
-          "occurrence_availability": "mixed"
+          "occurrence_availability": "unavailable-current-source-coordinate"
         }
       ],
       "historical_decision": {
@@ -8009,17 +9177,28 @@
         "authority_identifier": "project-owner-current-conversation",
         "decision_date": "2026-09-14",
         "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9",
+        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
         "basis_source_evidence_identity": "08f34712ce50dd8f7d60527bbdabb1eec7db8553709d0eb7f974867966165f2d",
         "supersedes_review_row_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
-        "grouping_decision_identity": "0465fbb77237c6c62c36c13192423c526aa98df2528e7a299a702c70db878f03",
-        "decision_identity": "a3740e35d772efd62397713a2d7f6bd96ecb538d2fd48f55d43274ff3bfcc4b0"
+        "decision_target_pair_set": [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ],
+        "grouping_decision_identity": "8ac7e5d4c73aa3d0b1ddc11e31500d09b83a3a7eb7aa147225dc342141af983e",
+        "decision_identity": "2d432c25bba22de625672274aa3e1d082cbca13ae715c6ec99dbde3bef491cd1"
       },
       "limitations": [
         "changes-normalized-grouping-only",
+        "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "a77910b9d80825a8b32759c7fbe3587add182dd793c08be0a4fc04617ee129d2"
+      "row_identity": "d24a326dce6abb790c32f06183ec34d909e7af42d2dd7e0d095f824234a419c8"
     }
   ],
   "pair_only_codes": [
@@ -8027,5 +9206,5 @@
     "C198031",
     "C35756"
   ],
-  "policy_identity": "b8840331b5b03433b095eefea239873926200068c88f6968dde714f72188e299"
+  "policy_identity": "8cd6ceecaedf7ed57a95cc7f8e4a760e5d4e78e44237d514675f344bd5da8ed8"
 }

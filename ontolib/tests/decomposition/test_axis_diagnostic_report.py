@@ -133,8 +133,8 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     assert len(report.revise_rows) == 42
     assert len(report.candidate_rows) == 64
     assert Counter(row.group_delta for row in report.revise_rows) == {
-        "unchanged": 15,
-        "changed": 27,
+        "unchanged": 5,
+        "changed": 37,
     }
     assert (
         hashlib.sha256(
@@ -143,7 +143,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
-        == "34d40a8243d6267623536e43d586246ee331f40d9a013d8fdf73da2c7e9b8fb3"
+        == "0527e81bdc142e0af98f72f80f1be661362f85b3a88e8174d072c44d4c666b5a"
     )
     assert report.metrics.sme_include_rate.model_dump() == {
         "numerator": 48,
@@ -422,7 +422,7 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     }
     assert (
         report.report_identity
-        == "a19c7c2e20fff8d4a9c5bec9e537c5b3b82666db3012c39371f9e811c6d50431"
+        == "05df184a5a00826b68bcf5ba05f92420fd6c04cb4f7f13b6c7184dd1bd6ceb1e"
     )
     assert report.residual_diagnostics["C35501"].status == "detected"
     invalid = [
@@ -469,8 +469,8 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
         and row.verdict.status == "invalid"
     ]
     assert Counter(row.group_delta for row in report.revise_rows) == {
-        "unchanged": 15,
-        "changed": 27,
+        "unchanged": 5,
+        "changed": 37,
     }
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
