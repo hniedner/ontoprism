@@ -564,9 +564,9 @@ The operation observes the clean Git HEAD before and after running the literal
 selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
 local machine evidence and performs no ontology or store publication.
 
-After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, schema-5
-`tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
-source manifest, selected R103 specificity state, and current-HEAD verify evidence all exist,
+After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, tracked
+R103 promoted state, full-corpus baseline/artifact, proposal registry, source manifest, selected R103 specificity state, and
+current-HEAD verify evidence all exist,
 generate the pending-human
 report from a clean worktree:
 
@@ -584,7 +584,7 @@ by its prior terminal decision; only the C2860 specificity question is pending. 
 human-selected review state satisfies that one requirement while retaining the same source,
 target, and candidate evidence identities.
 
-The operation resolves the exact group-review packet through the detector manifest's parent
+The schema 4 operation resolves the exact group-review packet through the detector manifest's parent
 bindings instead of a mutable fixed `tmp/` packet path. It validates all remaining fixed input
 identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,

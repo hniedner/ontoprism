@@ -13,11 +13,9 @@ from scripts.research.current_evidence import (
     CurrentEngineEvidence,
     CurrentRateMetric,
 )
-from scripts.research.golden_review import load_row_decisions
 from scripts.research.pre_sme_readiness import (
     ClearSemanticBlocker,
     MachineReadinessInputs,
-    MachineReadinessReport,
     PreSmeValidationError,
     PrimarySiteAudit,
     PrimarySiteObservation,
@@ -99,7 +97,10 @@ def _baseline(
 
 
 def _composed_readiness_inputs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stale_grouping: bool = False,
 ) -> tuple[dict[str, Any], Any, Any, Any, Any]:
     module = __import__(
         "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
@@ -203,15 +204,27 @@ def _composed_readiness_inputs(
     unused = tmp_path / "unused.json"
     unused.write_text("{}")
     detector_path = tmp_path / "grouping-detector.json"
-    module.generate_issue_274_detector_report(
-        evidence_path=evidence_path,
-        comparison_path=comparison_path,
-        group_packet_path=unused,
-        policy_path=Path(
-            "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"
-        ),
-        output=detector_path,
+    detector_payload = {
+        "schema_version": 1,
+        "status": "clear",
+        "current_evidence_identity": evidence.evidence_identity,
+        "current_comparison_identity": comparison.comparison_identity,
+        "group_packet_identity": group.packet_identity,
+        "normalized_group_policy_identity": normalized_group_policy.policy_identity,
+        "axis_contract_violations": (),
+        "normalized_group_violations": (),
+        "unadjudicated_golden_changes": (),
+    }
+    detector = module.Issue274DetectorReport.model_validate(
+        {**detector_payload, "report_identity": module._identity(detector_payload)}
     )
+    detector_path.write_text(detector.model_dump_json(), encoding="utf-8")
+    if not stale_grouping:
+        monkeypatch.setattr(
+            module,
+            "_issue_274_semantic_violations",
+            lambda _evidence, _comparison, _policy, _packet_identity: ((), (), ()),
+        )
     original_r103_loader = module.load_r103_promoted_review_revision
 
     def load_r103_with_fixture_manifest(path: Path) -> Any:
@@ -1125,31 +1138,13 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
 
 
 @pytest.mark.unit
-def test_composed_readiness_derives_zero_delta_from_current_r101_report(
+def test_composed_readiness_rejects_false_clear_detector_for_stale_grouping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    arguments, module, report, comparison, group = _composed_readiness_inputs(
-        tmp_path, monkeypatch
+    arguments, module, _report, comparison, group = _composed_readiness_inputs(
+        tmp_path, monkeypatch, stale_grouping=True
     )
 
-    readiness = generate_pre_sme_readiness(**arguments)
-
-    assert readiness.r101_mechanical_unresolved == report.counts.unresolved
-    assert readiness.r101_non_r101_delta == report.counts.non_r101_delta
-    assert (
-        readiness.r101_occurrence_certification == report.r101_occurrence_certification
-    )
-    assert readiness.r101_non_r101_enumeration == report.non_r101_enumeration
-    assert readiness.r101_explanation == report.explanation
-    assert readiness.r101_semantic_isolation == report.semantic_isolation
-    assert readiness.r101_execution_comparability == "unqualified"
-    assert readiness.r101_fully_controlled is False
-    assert readiness.r101_all_controls_equal is False
-    assert readiness.r101_causal_attribution == "prohibited"
-    issue_274 = tuple(
-        cast("ClearSemanticBlocker", entry)
-        for entry in readiness.semantic_gate.entries[3:6]
-    )
     evidence = CurrentEngineEvidence.model_validate_json(
         Path(arguments["current_evidence"]).read_bytes()
     )
@@ -1159,20 +1154,29 @@ def test_composed_readiness_derives_zero_delta_from_current_r101_report(
         module.load_packaged_normalized_group_policy(),
         group.packet_identity,
     )
-    assert violations == ((), (), ())
-    assert [entry.status for entry in issue_274] == ["clear", "clear", "clear"]
-    assert [entry.blocker_count for entry in issue_274] == [0, 0, 0]
-    rows = load_row_decisions(Path(arguments["row_decisions"]))
-    assert readiness.identities.row_decisions_identity == rows.payload_identity
-    assert readiness.metrics.sme_include_rate.fraction.numerator == 48
-    assert readiness.metrics.sme_include_rate.fraction.denominator == 106
-    assert Path(arguments["output"]).is_file()
-    assert (
-        MachineReadinessReport.model_validate_json(
-            Path(arguments["output"]).read_bytes()
+    assert violations[0] == ()
+    assert set(violations[1]) == {
+        f"{code}:normalized-group-mismatch"
+        for code in (
+            "C27262",
+            "C102870",
+            "C115057",
+            "C101539",
+            "C132677",
+            "C181564",
+            "C186620",
+            "C162226",
+            "C206219",
+            "C6135",
+            "C89995",
+            "C27787",
+            "C115118",
         )
-        == readiness
-    )
+    }
+    assert violations[2] == ()
+    with pytest.raises(PreSmeValidationError, match="detector violations differ"):
+        generate_pre_sme_readiness(**arguments)
+    assert not Path(arguments["output"]).exists()
 
 
 @pytest.mark.unit

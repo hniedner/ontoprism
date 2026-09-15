@@ -20,8 +20,8 @@ from ontolib.decomposition.normalized_group_policy import (
     ACTIVE_GROUP_CODES,
     DETERMINISTIC_SOURCE_CODES,
     PAIR_ONLY_CODES,
+    UNRESOLVED_ABSTENTION_BLOCKS,
     ActiveNormalizedGroupPolicy,
-    CurrentDecision,
     DecisionRegime,
     HistoricalDecision,
     HistoricalObservedPartition,
@@ -39,20 +39,6 @@ from ontolib.decomposition.normalized_group_policy import (
 
 _MIN_DIAGNOSIS_PAIRS = 2
 _CURRENT_PACKET_SCHEMA_VERSION = 4
-_CURRENT_DECISION_CODES = frozenset(
-    {
-        "C27262",
-        "C102870",
-        "C115057",
-        "C101539",
-        "C132677",
-        "C206219",
-        "C6135",
-        "C89995",
-        "C27787",
-        "C115118",
-    }
-)
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
@@ -108,6 +94,32 @@ def _group_inventory(
     }
 
 
+def validate_evidence_policy_group_map(
+    evidence: CurrentEngineEvidence, policy: ActiveNormalizedGroupPolicy
+) -> None:
+    policy_map = {
+        (row.concept_code, pair): (
+            block.normalized_group_id,
+            block.normalized_group_label,
+        )
+        for row in policy.rows
+        for block in row.blocks
+        for pair in block.pairs
+    }
+    evidence_rows = [
+        (
+            (concept.code, (item.axis, item.filler)),
+            (item.normalized_group_id, item.normalized_group_label),
+        )
+        for concept in evidence.concepts
+        if concept.code in policy.by_code
+        for item in concept.constituents
+    ]
+    evidence_map = dict(evidence_rows)
+    if len(evidence_map) != len(evidence_rows) or evidence_map != policy_map:
+        raise ValueError("evidence normalized-group map differs from exact policy map")
+
+
 def validate_promotion_bundle(
     *,
     evidence_path: Path,
@@ -131,6 +143,7 @@ def validate_promotion_bundle(
         or policy.basis_comparison_identity != comparison.comparison_identity
     ):
         raise ValueError("candidate policy does not bind candidate replay evidence")
+    validate_evidence_policy_group_map(evidence, policy)
     if _pair_inventory(current_evidence_path.read_bytes()) != _pair_inventory(
         evidence_path.read_bytes()
     ):
@@ -200,58 +213,6 @@ def promote_bundle_atomically(replacements: tuple[tuple[Path, Path], ...]) -> No
 
 def _rationales(evidence) -> dict[str, str]:
     return {row.concept_code: row.rationale for row in evidence.rows}
-
-
-def _current_decision(
-    code: str,
-    historical_row_id: str,
-    *,
-    packet_identity: str,
-    source_evidence_identity: str,
-    decision_target_pair_set: tuple[tuple[str, str], ...],
-):
-    if code not in _CURRENT_DECISION_CODES:
-        return None
-    decision: Literal[
-        "supersede-abstention-with-source-evidence-grouping",
-        "activate-reviewed-normalized-group-policy",
-    ] = (
-        "supersede-abstention-with-source-evidence-grouping"
-        if code in {"C27262", "C102870"}
-        else "activate-reviewed-normalized-group-policy"
-    )
-    payload = {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": decision,
-        "basis_packet_identity": packet_identity,
-        "basis_source_evidence_identity": source_evidence_identity,
-        "supersedes_review_row_identity": historical_row_id,
-        "decision_target_pair_set": decision_target_pair_set,
-    }
-    grouping_payload = {
-        key: payload[key]
-        for key in (
-            "authority_identifier",
-            "decision_date",
-            "decision",
-            "supersedes_review_row_identity",
-            "decision_target_pair_set",
-        )
-    }
-    grouping_decision_identity = canonical_identity(grouping_payload)
-    payload["grouping_decision_identity"] = grouping_decision_identity
-    return CurrentDecision(
-        authority_identifier="project-owner-current-conversation",
-        decision_date="2026-09-14",
-        decision=decision,
-        basis_packet_identity=packet_identity,
-        basis_source_evidence_identity=source_evidence_identity,
-        supersedes_review_row_identity=historical_row_id,
-        decision_target_pair_set=decision_target_pair_set,
-        grouping_decision_identity=grouping_decision_identity,
-        decision_identity=canonical_identity(payload),
-    )
 
 
 def _pair_evidence_identity(constituents) -> str:
@@ -361,14 +322,6 @@ def _transformation_rules(code: str) -> tuple[TransformationName, ...]:
     return ("reviewed-regrouping",)
 
 
-def _decision_regime(code: str, current: CurrentDecision | None) -> DecisionRegime:
-    if current is not None:
-        return "current-owner-decision"
-    if code in {"C181564", "C186620", "C162226"}:
-        return "historical-approval"
-    return "source-evidence"
-
-
 def _block(
     code: str,
     pairs,
@@ -378,6 +331,8 @@ def _block(
     transformation_rules: tuple[TransformationName, ...],
     human_decision_identity: str | None,
     source_evidence_identity: str,
+    *,
+    grouping_status: Literal["decided", "unresolved"] = "decided",
 ):
     selected = tuple(item for item in source_pair_evidence if item.pair in set(pairs))
     facts = tuple(
@@ -407,7 +362,7 @@ def _block(
     ] = next(iter(statuses)) if len(statuses) == 1 else "mixed"  # type: ignore[assignment]
     machine_policy_identity = (
         None
-        if human_decision_identity is not None
+        if human_decision_identity is not None or grouping_status == "unresolved"
         else canonical_identity(
             {
                 "kind": "normalized-group-machine-policy",
@@ -420,19 +375,22 @@ def _block(
         )
     )
     decision_identity = human_decision_identity or machine_policy_identity
-    if decision_identity is None:
-        raise ValueError("block decision identity is absent")
-    normalized_id = normalized_group_identity(
-        concept_code=code,
-        canonical_block_members=tuple(pairs),
-        rule_kind=rule_kind,
-        transformation_rules=transformation_rules,
-        decision_regime=decision_regime,
-        decision_identity=decision_identity,
-        source_evidence_identity=source_evidence_identity,
+    normalized_id = (
+        normalized_group_identity(
+            concept_code=code,
+            canonical_block_members=tuple(pairs),
+            rule_kind=rule_kind,
+            transformation_rules=transformation_rules,
+            decision_regime=decision_regime,
+            decision_identity=decision_identity,
+            source_evidence_identity=source_evidence_identity,
+        )
+        if decision_identity is not None
+        else None
     )
     return PolicyBlock(
         pairs=tuple(pairs),
+        grouping_status=grouping_status,
         transformation_rules=transformation_rules,
         decision_regime=decision_regime,
         human_decision_identity=human_decision_identity,
@@ -485,13 +443,6 @@ def _policy_row(
         )
         reviewed_partition = ()
         output_partition = _source_partition(source_pair_evidence)
-    current = _current_decision(
-        code,
-        historical_row.review_row_identity,
-        packet_identity=packet_identity,
-        source_evidence_identity=source_evidence_identity,
-        decision_target_pair_set=decision_target_pair_set,
-    )
     diagnosis_pairs = historical_concept.grouping_diagnosis.affected_pairs
     if len(diagnosis_pairs) < _MIN_DIAGNOSIS_PAIRS:
         raise ValueError(f"historical diagnosis lacks affected pairs for {code}")
@@ -502,7 +453,6 @@ def _policy_row(
             block,
             source_pair_evidence,
             rule_kind,
-            current,
             reviewed_blocks,
             source_evidence_identity,
             historical_row.review_row_identity,
@@ -525,6 +475,7 @@ def _policy_row(
         "diagnosis_pairs": diagnosis_pairs,
         "decision_target_pair_set": decision_target_pair_set,
         "reviewed_partition": reviewed_partition,
+        "historical_expected_partition": historical_concept.expected_partition,
         "historical_observed_partition": HistoricalObservedPartition(
             kind="historical_observed_partition",
             packet_identity=historical_packet_identity,
@@ -536,7 +487,6 @@ def _policy_row(
         "source_pair_evidence": source_pair_evidence,
         "blocks": blocks,
         "historical_decision": historical_decision,
-        "current_decision": current,
         "limitations": (
             "changes-normalized-grouping-only",
             "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
@@ -551,23 +501,26 @@ def _policy_block_for_partition(
     block: tuple[tuple[str, str], ...],
     source_pair_evidence: tuple[SourcePairEvidence, ...],
     rule_kind: Literal["source-evidence-grouping", "reviewed-regrouping"],
-    current: CurrentDecision | None,
     reviewed_blocks: set[tuple[tuple[str, str], ...]],
     source_evidence_identity: str,
     historical_decision_identity: str,
 ) -> PolicyBlock:
-    if block in reviewed_blocks:
-        regime: DecisionRegime = _decision_regime(code, current)
-        human_identity = (
-            current.grouping_decision_identity
-            if current is not None
-            else historical_decision_identity
+    if frozenset(block) == UNRESOLVED_ABSTENTION_BLOCKS.get(code):
+        return _block(
+            code,
+            block,
+            source_pair_evidence,
+            rule_kind,
+            "unresolved-abstention",
+            _transformation_rules(code),
+            None,
+            source_evidence_identity,
+            grouping_status="unresolved",
         )
+    if block in reviewed_blocks:
+        regime: DecisionRegime = "historical-approval"
+        human_identity = historical_decision_identity
         transformations: tuple[TransformationName, ...] = ("reviewed-regrouping",)
-    elif current is not None and rule_kind == "source-evidence-grouping":
-        regime = "current-owner-decision"
-        human_identity = current.grouping_decision_identity
-        transformations = _transformation_rules(code)
     else:
         member_evidence = tuple(
             item for item in source_pair_evidence if item.pair in block
@@ -659,7 +612,7 @@ def generate_active_normalized_group_policy(
         )
     sidecar = rationale.sidecar
     payload = {
-        "schema_version": 6,
+        "schema_version": 7,
         "source_identity": evidence.source_identity,
         "ncit_version": evidence.ncit_version,
         "basis_run_id": evidence.run_id,

@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scripts.research.current_evidence import CurrentEngineEvidence
 from scripts.research.group_review_packet import generate_group_review_packet
 from scripts.research.normalized_group_policy import (
     generate_active_normalized_group_policy,
+    validate_evidence_policy_group_map,
 )
 
 from ontolib.decomposition.models import (
@@ -22,7 +24,6 @@ from ontolib.decomposition.normalized_group_policy import (
     PAIR_ONLY_CODES,
     REVIEWED_STAGE_CODES,
     ActiveNormalizedGroupPolicy,
-    CurrentDecision,
     NormalizedGroupPolicyRow,
     NotApplicable,
     PolicyBlock,
@@ -62,6 +63,89 @@ def _generate(tmp_path: Path):
     )
 
 
+def _evidence_with_policy_groups(
+    policy: ActiveNormalizedGroupPolicy,
+) -> CurrentEngineEvidence:
+    evidence = CurrentEngineEvidence.model_validate_json(
+        (_GOLDEN / "neoplasm-current-engine-evidence.json").read_bytes()
+    )
+    concepts = []
+    for concept in evidence.concepts:
+        row = policy.by_code.get(concept.code)
+        if row is None:
+            concepts.append(concept)
+            continue
+        concepts.append(
+            concept.model_copy(
+                update={
+                    "constituents": tuple(
+                        item.model_copy(
+                            update={
+                                "normalized_group_id": row.block_for(
+                                    (item.axis, item.filler)
+                                ).normalized_group_id,
+                                "normalized_group_label": row.block_for(
+                                    (item.axis, item.filler)
+                                ).normalized_group_label,
+                            }
+                        )
+                        for item in concept.constituents
+                    )
+                }
+            )
+        )
+    return evidence.model_copy(update={"concepts": tuple(concepts)})
+
+
+@pytest.mark.parametrize("mutation", ["swapped", "extra", "truncated", "duplicate"])
+def test_evidence_policy_group_map_requires_exact_symmetric_unique_pairs(
+    tmp_path: Path, mutation: str
+) -> None:
+    policy = _generate(tmp_path)
+    evidence = _evidence_with_policy_groups(policy)
+    validate_evidence_policy_group_map(evidence, policy)
+    concept = next(item for item in evidence.concepts if item.code == "C115057")
+    constituents = list(concept.constituents)
+    if mutation == "swapped":
+        first, second = constituents[:2]
+        constituents[:2] = [
+            first.model_copy(
+                update={
+                    "normalized_group_id": second.normalized_group_id,
+                    "normalized_group_label": second.normalized_group_label,
+                }
+            ),
+            second.model_copy(
+                update={
+                    "normalized_group_id": first.normalized_group_id,
+                    "normalized_group_label": first.normalized_group_label,
+                }
+            ),
+        ]
+    elif mutation == "extra":
+        constituents.append(
+            constituents[0].model_copy(
+                update={"axis": "op:Unrelated", "filler": "C999"}
+            )
+        )
+    elif mutation == "truncated":
+        constituents.pop()
+    else:
+        constituents.append(constituents[0])
+    changed = concept.model_copy(update={"constituents": tuple(constituents)})
+    mutated = evidence.model_copy(
+        update={
+            "concepts": tuple(
+                changed if item.code == changed.code else item
+                for item in evidence.concepts
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="evidence normalized-group map differs"):
+        validate_evidence_policy_group_map(mutated, policy)
+
+
 def test_unavailable_prechange_metadata_is_self_contained(
     tmp_path: Path,
 ) -> None:
@@ -84,6 +168,20 @@ def test_unavailable_prechange_metadata_is_self_contained(
 def test_policy_refuses_unavailable_prechange_output_identity_literals() -> None:
     payload = load_packaged_normalized_group_policy().model_dump()
     payload["prechange_evidence_identity"] = "4475" + "0" * 60
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        ActiveNormalizedGroupPolicy.model_validate(payload)
+
+
+@pytest.mark.parametrize("claimed_digest", ["0" * 64, "4febb77c" + "0" * 56])
+def test_unavailable_prechange_record_rejects_any_present_artifact_claim(
+    claimed_digest: str,
+) -> None:
+    payload = load_packaged_normalized_group_policy().model_dump()
+    payload["unavailable_historical_artifact"]["present_artifact"] = {
+        "path": "bounded/replay.ttl",
+        "sha256": claimed_digest,
+    }
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         ActiveNormalizedGroupPolicy.model_validate(payload)
@@ -137,6 +235,12 @@ def test_c27262_source_evidence_partitions_each_final_axis_without_conflation(
     assert morphology.occurrence_availability == "not-applicable-genus-fact"
     assert morphology.source_occurrence_ids == ()
     assert morphology.source_fact_ids
+    assert morphology.grouping_status == "unresolved"
+    assert morphology.normalized_group_id is None
+    assert morphology.normalized_group_label is None
+    assert morphology.human_decision_identity is None
+    assert morphology.machine_policy_identity is None
+    assert "current_decision" not in row.model_dump()
 
 
 def test_c102870_groups_the_exact_genus_morphologies_without_occurrences(
@@ -153,6 +257,12 @@ def test_c102870_groups_the_exact_genus_morphologies_without_occurrences(
     assert morphology.source_occurrence_ids == ()
     assert len(morphology.source_fact_ids) == 2
     assert morphology.source_coordinates
+    assert morphology.grouping_status == "unresolved"
+    assert morphology.normalized_group_id is None
+    assert morphology.normalized_group_label is None
+    assert morphology.human_decision_identity is None
+    assert morphology.machine_policy_identity is None
+    assert "current_decision" not in row.model_dump()
     assert all(
         block.normalized_group_id != morphology.normalized_group_id
         for block in row.blocks
@@ -209,20 +319,7 @@ def test_active_policy_has_exact_15_rows_and_preserves_decision_history(
         for row in policy.rows
         if row.historical_decision.decision == "Approve intentional normalization"
     } == {"C181564", "C186620", "C162226"}
-    assert {
-        row.concept_code
-        for row in policy.rows
-        if row.current_decision is not None
-        and row.current_decision.decision == "activate-reviewed-normalized-group-policy"
-    } == REVIEWED_STAGE_CODES - {"C181564", "C186620", "C162226"}
-    assert all(
-        row.current_decision is not None
-        and row.current_decision.authority_identifier
-        == "project-owner-current-conversation"
-        and row.current_decision.decision_date == "2026-09-14"
-        for row in policy.rows
-        if row.concept_code in {"C27262", "C102870"}
-    )
+    assert all("current_decision" not in row.model_dump() for row in policy.rows)
     assert all(
         row.historical_decision.rationale
         and row.historical_decision.reviewer == "R. Hannes Niedner, M.D."
@@ -263,13 +360,61 @@ def test_reviewed_decisions_cover_only_exact_stage_targets(tmp_path: Path) -> No
             block for block in row.blocks if block not in target_blocks
         ]
         assert all(
-            block.decision_regime in {"historical-approval", "current-owner-decision"}
-            for block in target_blocks
+            block.decision_regime == "historical-approval" for block in target_blocks
         )
         assert all(
             block.decision_regime in {"source-evidence", "current-pair-preservation"}
             and block.human_decision_identity is None
             for block in non_target_blocks
+        )
+
+
+def test_historical_stage_review_preserves_exact_separate_and_together_partitions(
+    tmp_path: Path,
+) -> None:
+    policy = _generate(tmp_path)
+    separating = {"C181564", "C186620", "C162226"}
+    together = {
+        "C115057",
+        "C101539",
+        "C132677",
+        "C206219",
+        "C6135",
+        "C89995",
+        "C27787",
+        "C115118",
+    }
+
+    for code in separating:
+        row = policy.by_code[code]
+        assert row.historical_decision.decision == "Approve intentional normalization"
+        assert row.reviewed_partition == tuple(
+            (pair,) for pair in row.decision_target_pair_set
+        )
+        assert all(
+            row.block_for(pair).pairs == (pair,)
+            and row.block_for(pair).decision_regime == "historical-approval"
+            and row.block_for(pair).human_decision_identity
+            == row.historical_decision.review_row_identity
+            for pair in row.decision_target_pair_set
+        )
+
+    for code in together:
+        row = policy.by_code[code]
+        assert (
+            row.historical_decision.decision == "Require source-reproducible correction"
+        )
+        assert row.reviewed_partition == (row.decision_target_pair_set,)
+        shared_ids = {
+            row.block_for(pair).normalized_group_id
+            for pair in row.decision_target_pair_set
+        }
+        assert len(shared_ids) == 1
+        assert None not in shared_ids
+        assert all(
+            row.block_for(pair).human_decision_identity
+            == row.historical_decision.review_row_identity
+            for pair in row.decision_target_pair_set
         )
 
 
@@ -340,19 +485,8 @@ def test_policy_block_and_decision_identities_fail_closed() -> None:
     singleton_payload = singleton.model_dump()
     singleton_payload["normalized_group_id"] = None
     singleton_payload["normalized_group_label"] = None
-    with pytest.raises(ValueError, match="requires an identity"):
+    with pytest.raises(ValueError, match="decided policy block requires an identity"):
         PolicyBlock.model_validate(singleton_payload)
-
-    decision = next(row.current_decision for row in policy.rows if row.current_decision)
-    decision_payload = decision.model_dump()
-    decision_payload["decision_identity"] = "0" * 64
-    with pytest.raises(ValueError, match="decision identity differs"):
-        CurrentDecision.model_validate(decision_payload)
-
-    grouping_payload = decision.model_dump()
-    grouping_payload["grouping_decision_identity"] = "0" * 64
-    with pytest.raises(ValueError, match="grouping decision identity differs"):
-        CurrentDecision.model_validate(grouping_payload)
 
     machine_block = next(
         item
@@ -361,7 +495,7 @@ def test_policy_block_and_decision_identities_fail_closed() -> None:
         if item.machine_policy_identity is not None
     )
     missing_human = machine_block.model_dump()
-    missing_human["decision_regime"] = "current-owner-decision"
+    missing_human["decision_regime"] = "historical-approval"
     with pytest.raises(ValueError, match="human decision identity differs"):
         PolicyBlock.model_validate(missing_human)
 
@@ -517,6 +651,7 @@ def test_source_rule_rejects_output_partition_not_computed_from_coordinates() ->
     source = [item for item in row.source_pair_evidence if item.pair in affected]
     merged = {
         "pairs": merged_pairs,
+        "grouping_status": "decided",
         "transformation_rules": transformation_rules,
         "decision_regime": "source-evidence",
         "human_decision_identity": None,
@@ -583,7 +718,7 @@ def test_normalized_group_identity_binds_decision_regime() -> None:
         "source_evidence_identity": "2" * 64,
     }
     assert normalized_group_identity(**inputs, decision_regime="source-evidence") != (
-        normalized_group_identity(**inputs, decision_regime="current-owner-decision")
+        normalized_group_identity(**inputs, decision_regime="historical-approval")
     )
 
 
@@ -599,6 +734,34 @@ def test_policy_row_rejects_duplicate_normalized_group_id() -> None:
     )
 
     with pytest.raises(ValueError, match="normalized group identities are not unique"):
+        NormalizedGroupPolicyRow.model_validate(payload)
+
+
+def test_abstention_status_cannot_escape_the_exact_disputed_morphology_pairs() -> None:
+    row = load_packaged_normalized_group_policy().by_code["C27262"]
+    payload = row.model_dump()
+    unrelated = next(
+        block
+        for block in payload["blocks"]
+        if block["pairs"]
+        != (
+            ("op:Morphology", "C35501"),
+            ("op:Morphology", "C9290"),
+        )
+    )
+    unrelated.update(
+        grouping_status="unresolved",
+        decision_regime="unresolved-abstention",
+        human_decision_identity=None,
+        machine_policy_identity=None,
+        normalized_group_id=None,
+        normalized_group_label=None,
+    )
+    payload["row_identity"] = canonical_identity(
+        {key: value for key, value in payload.items() if key != "row_identity"}
+    )
+
+    with pytest.raises(ValueError, match="unresolved abstention target differs"):
         NormalizedGroupPolicyRow.model_validate(payload)
 
 
@@ -840,18 +1003,13 @@ def test_policy_rejects_duplicate_concepts_and_wrong_identity() -> None:
         ActiveNormalizedGroupPolicy.model_validate(wrong_identity)
 
 
-def test_policy_rejects_drift_in_exact_current_decision_sets() -> None:
+def test_policy_rejects_removed_current_decision_schema() -> None:
     payload = load_packaged_normalized_group_policy().model_dump()
-    row = next(item for item in payload["rows"] if item["concept_code"] == "C27262")
-    row["current_decision"] = None
-    row["row_identity"] = canonical_identity(
-        {key: value for key, value in row.items() if key != "row_identity"}
-    )
-    payload["policy_identity"] = canonical_identity(
-        {key: value for key, value in payload.items() if key != "policy_identity"}
-    )
+    payload["rows"][0]["current_decision"] = {
+        "authority_identifier": "project-owner-current-conversation"
+    }
 
-    with pytest.raises(ValueError, match="current decision concept sets differ"):
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         ActiveNormalizedGroupPolicy.model_validate(payload)
 
 

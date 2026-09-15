@@ -1572,6 +1572,19 @@ def test_normalized_group_candidate_is_immutable_and_parent_bound(
     )
     assert not (tmp_path / "tmp/m1-6-normalized-group-policy-candidate.json").exists()
 
+    (r101_path.parent / "artifacts/conservation.json.gz").write_bytes(b"wrong-r101")
+    with pytest.raises(AgentReplayInputError, match="artifact bytes differ"):
+        run_agent_replay(
+            [
+                "generate-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+            ],
+            tmp_path,
+        )
+
 
 @pytest.mark.unit
 def test_normalized_group_candidate_requires_exact_evidence_and_review_parents(
@@ -1760,6 +1773,13 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
         path.write_bytes(payload)
 
     real_import = replay.importlib.import_module
+    reject_validation = False
+
+    def validate_bundle(**_kwargs: object) -> None:
+        if reject_validation:
+            raise ValueError(
+                "evidence normalized-group map differs from exact policy map"
+            )
 
     def fake_import(name: str):
         if name == "ontolib.decomposition.normalized_group_policy":
@@ -1770,7 +1790,7 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
             )
         if name == "scripts.research.normalized_group_policy":
             return SimpleNamespace(
-                validate_promotion_bundle=lambda **_kwargs: None,
+                validate_promotion_bundle=validate_bundle,
                 promote_bundle_atomically=lambda replacements: [
                     target.write_bytes(source.read_bytes())
                     for source, target in replacements
@@ -1801,6 +1821,24 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
         b"new-policy",
         b"new-r101",
     ]
+    accepted = {path: (tmp_path / path).read_bytes() for path in targets}
+    reject_validation = True
+    with pytest.raises(
+        AgentReplayInputError, match="evidence normalized-group map differs"
+    ):
+        run_agent_replay(
+            [
+                "promote-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+            ],
+            tmp_path,
+        )
+    assert {path: (tmp_path / path).read_bytes() for path in targets} == accepted
 
 
 def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
@@ -2233,6 +2271,18 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     assert "r103_packet" not in calls[1]
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
+
+    (r101_path.parent / "artifacts/conservation.json.gz").write_bytes(b"wrong-r101")
+    with pytest.raises(AgentReplayInputError, match="artifact bytes differ"):
+        run_agent_replay(
+            [
+                "generate-pre-sme-readiness",
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+            runner=runner,
+        )
 
 
 @pytest.mark.unit

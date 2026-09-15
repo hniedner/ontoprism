@@ -27,8 +27,8 @@ TransformationName = Literal[
 DecisionRegime = Literal[
     "source-evidence",
     "historical-approval",
-    "current-owner-decision",
     "current-pair-preservation",
+    "unresolved-abstention",
 ]
 
 DETERMINISTIC_SOURCE_CODES = frozenset({"C27262", "C102870", "C100051", "C4791"})
@@ -49,9 +49,10 @@ REVIEWED_STAGE_CODES = frozenset(
 )
 PAIR_ONLY_CODES = frozenset({"C198031", "C100054", "C35756"})
 ACTIVE_GROUP_CODES = DETERMINISTIC_SOURCE_CODES | REVIEWED_STAGE_CODES
-SUPERSEDED_ABSTENTION_CODES = frozenset({"C27262", "C102870"})
-HISTORICAL_APPROVAL_CODES = frozenset({"C181564", "C186620", "C162226"})
-ACTIVATED_REVIEW_CODES = REVIEWED_STAGE_CODES - HISTORICAL_APPROVAL_CODES
+UNRESOLVED_ABSTENTION_BLOCKS = {
+    "C27262": frozenset({("op:Morphology", "C35501"), ("op:Morphology", "C9290")}),
+    "C102870": frozenset({("op:Morphology", "C121619"), ("op:Morphology", "C39986")}),
+}
 
 
 def canonical_identity(value: object) -> str:
@@ -112,6 +113,7 @@ class UnavailableHistoricalArtifact(StrictFrozenBoundaryModel):
 
 class PolicyBlock(StrictFrozenBoundaryModel):
     pairs: tuple[Pair, ...] = Field(min_length=1)
+    grouping_status: Literal["decided", "unresolved"]
     transformation_rules: tuple[TransformationName, ...] = Field(min_length=1)
     decision_regime: DecisionRegime
     human_decision_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -134,14 +136,8 @@ class PolicyBlock(StrictFrozenBoundaryModel):
     def _shape(self) -> Self:
         if (self.normalized_group_id is None) != (self.normalized_group_label is None):
             raise ValueError("normalized group label presence differs from identity")
-        if self.normalized_group_id is None:
-            raise ValueError("every applied policy block requires an identity")
         _validate_genus_block_evidence(self)
-        human = self.decision_regime in {
-            "historical-approval",
-            "current-owner-decision",
-        }
-        _validate_block_decision_identity(self, human=human)
+        _validate_block_decision_identity(self)
         return self
 
 
@@ -154,7 +150,32 @@ def _validate_genus_block_evidence(block: PolicyBlock) -> None:
         raise ValueError("genus fact grouping requires fact evidence")
 
 
-def _validate_block_decision_identity(block: PolicyBlock, *, human: bool) -> None:
+def _validate_block_decision_identity(block: PolicyBlock) -> None:
+    if block.grouping_status == "unresolved":
+        _validate_unresolved_block(block)
+        return
+    _validate_decided_block(block)
+
+
+def _validate_unresolved_block(block: PolicyBlock) -> None:
+    if block.decision_regime != "unresolved-abstention":
+        raise ValueError("unresolved grouping has a decided regime")
+    identities = (
+        block.human_decision_identity,
+        block.machine_policy_identity,
+        block.normalized_group_id,
+        block.normalized_group_label,
+    )
+    if any(value is not None for value in identities):
+        raise ValueError("unresolved grouping cannot carry decision identities")
+
+
+def _validate_decided_block(block: PolicyBlock) -> None:
+    if block.normalized_group_id is None:
+        raise ValueError("every decided policy block requires an identity")
+    if block.decision_regime == "unresolved-abstention":
+        raise ValueError("decided grouping has an unresolved regime")
+    human = block.decision_regime == "historical-approval"
     if human != (block.human_decision_identity is not None):
         raise ValueError("human decision identity differs from decision regime")
     if human == (block.machine_policy_identity is not None):
@@ -171,42 +192,6 @@ class HistoricalDecision(StrictFrozenBoundaryModel):
     rationale_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class CurrentDecision(StrictFrozenBoundaryModel):
-    authority_identifier: Literal["project-owner-current-conversation"]
-    decision_date: Literal["2026-09-14"]
-    decision: Literal[
-        "supersede-abstention-with-source-evidence-grouping",
-        "activate-reviewed-normalized-group-policy",
-    ]
-    basis_packet_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    basis_source_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    supersedes_review_row_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    decision_target_pair_set: tuple[Pair, ...] = Field(min_length=1)
-    grouping_decision_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    decision_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-    @model_validator(mode="after")
-    def _identity(self) -> Self:
-        grouping_payload = self.model_dump(
-            mode="json",
-            include={
-                "authority_identifier",
-                "decision_date",
-                "decision",
-                "supersedes_review_row_identity",
-                "decision_target_pair_set",
-            },
-        )
-        if self.grouping_decision_identity != canonical_identity(grouping_payload):
-            raise ValueError("grouping decision identity differs")
-        expected = canonical_identity(
-            self.model_dump(mode="json", exclude={"decision_identity"})
-        )
-        if self.decision_identity != expected:
-            raise ValueError("current decision identity differs")
-        return self
-
-
 class NormalizedGroupPolicyRow(StrictFrozenBoundaryModel):
     concept_code: str = Field(pattern=r"^C[0-9]+$")
     rule_kind: Literal["source-evidence-grouping", "reviewed-regrouping"]
@@ -214,6 +199,7 @@ class NormalizedGroupPolicyRow(StrictFrozenBoundaryModel):
     diagnosis_pairs: tuple[Pair, ...] = Field(min_length=2)
     decision_target_pair_set: tuple[Pair, ...]
     reviewed_partition: Partition
+    historical_expected_partition: Partition
     historical_observed_partition: HistoricalObservedPartition
     output_partition: Partition
     input_pair_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -221,7 +207,6 @@ class NormalizedGroupPolicyRow(StrictFrozenBoundaryModel):
     source_pair_evidence: tuple[SourcePairEvidence, ...] = Field(min_length=1)
     blocks: tuple[PolicyBlock, ...] = Field(min_length=1)
     historical_decision: HistoricalDecision
-    current_decision: CurrentDecision | None
     limitations: tuple[str, ...] = Field(min_length=1)
     row_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -250,6 +235,18 @@ def _validate_partition_shape(row: NormalizedGroupPolicyRow) -> None:
         raise ValueError("policy blocks differ from output partition")
     _validate_partition_evidence(row)
     _validate_normalized_group_identifiers(row)
+    unresolved = {
+        frozenset(block.pairs)
+        for block in row.blocks
+        if block.grouping_status == "unresolved"
+    }
+    expected = (
+        {UNRESOLVED_ABSTENTION_BLOCKS[row.concept_code]}
+        if row.concept_code in UNRESOLVED_ABSTENTION_BLOCKS
+        else set()
+    )
+    if unresolved != expected:
+        raise ValueError("unresolved abstention target differs")
 
 
 def _validate_partition_evidence(row: NormalizedGroupPolicyRow) -> None:
@@ -335,16 +332,9 @@ def _validate_reviewed_target(row: NormalizedGroupPolicyRow) -> None:
     target_blocks = set(row.reviewed_partition)
     for block in row.blocks:
         is_target = block.pairs in target_blocks
-        human = block.decision_regime in {
-            "historical-approval",
-            "current-owner-decision",
-        }
+        human = block.decision_regime == "historical-approval"
         if is_target != human:
             raise ValueError("human decision identity escaped reviewed target blocks")
-    if row.current_decision is not None and (
-        row.current_decision.decision_target_pair_set != row.decision_target_pair_set
-    ):
-        raise ValueError("current decision target pair set differs")
 
 
 def _validate_normalized_group_identifiers(row: NormalizedGroupPolicyRow) -> None:
@@ -356,6 +346,8 @@ def _validate_normalized_group_identifiers(row: NormalizedGroupPolicyRow) -> Non
     if len(declared_group_ids) != len(set(declared_group_ids)):
         raise ValueError("normalized group identities are not unique within policy row")
     for block in row.blocks:
+        if block.grouping_status == "unresolved":
+            continue
         _validate_normalized_group_block(row, block)
 
 
@@ -433,7 +425,9 @@ def _diagnosis_rows(
 
 def _validate_diagnosis(row: NormalizedGroupPolicyRow) -> None:
     diagnosis_pairs = set(row.diagnosis_pairs)
-    expected_rows = _diagnosis_rows(row.output_partition, "expected", diagnosis_pairs)
+    expected_rows = _diagnosis_rows(
+        row.historical_expected_partition, "expected", diagnosis_pairs
+    )
     actual_rows = _diagnosis_rows(
         row.historical_observed_partition.partition, "actual", diagnosis_pairs
     )
@@ -519,7 +513,7 @@ def normalized_group_label(concept_code: str, rule_kind: str, identity: str) -> 
 
 
 class ActiveNormalizedGroupPolicy(StrictFrozenBoundaryModel):
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     ncit_version: str
     basis_run_id: str
@@ -559,44 +553,12 @@ def _validate_policy_concept_sets(policy: ActiveNormalizedGroupPolicy) -> None:
         raise ValueError("active normalized group policy concept set differs")
     if policy.pair_only_codes != tuple(sorted(PAIR_ONLY_CODES)):
         raise ValueError("pair-only exclusion set differs")
-    superseded = _current_decision_codes(
-        policy, "supersede-abstention-with-source-evidence-grouping"
-    )
-    activated = _current_decision_codes(
-        policy, "activate-reviewed-normalized-group-policy"
-    )
-    if superseded != SUPERSEDED_ABSTENTION_CODES or activated != ACTIVATED_REVIEW_CODES:
-        raise ValueError("current decision concept sets differ")
-
-
-def _current_decision_codes(
-    policy: ActiveNormalizedGroupPolicy,
-    decision: Literal[
-        "supersede-abstention-with-source-evidence-grouping",
-        "activate-reviewed-normalized-group-policy",
-    ],
-) -> set[str]:
-    return {
-        row.concept_code
-        for row in policy.rows
-        if row.current_decision is not None
-        and row.current_decision.decision == decision
-    }
 
 
 def _validate_policy_provenance(policy: ActiveNormalizedGroupPolicy) -> None:
     if any(
         row.historical_observed_partition.packet_identity
         != policy.historical_packet_identity
-        or (
-            row.current_decision is not None
-            and (
-                row.current_decision.basis_packet_identity
-                != policy.basis_packet_identity
-                or row.current_decision.basis_source_evidence_identity
-                != row.source_evidence_identity
-            )
-        )
         for row in policy.rows
     ):
         raise ValueError("policy row provenance bindings differ")

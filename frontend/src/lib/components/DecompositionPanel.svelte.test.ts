@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
+import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
 import type { ConceptDecomposition } from '$lib/types';
 
@@ -145,7 +146,7 @@ describe('DecompositionPanel', () => {
 			]
 		} satisfies ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
-		expect(await screen.findByText('R88')).toBeInTheDocument();
+		expect(await screen.findAllByText('R88')).toHaveLength(2);
 	});
 
 	it('groups within an axis by normalized policy and exposes separate provenance', async () => {
@@ -161,6 +162,51 @@ describe('DecompositionPanel', () => {
 		expect(screen.getByText('Source groups: s1')).toBeInTheDocument();
 		expect(screen.getByText('Source groups: s2')).toBeInTheDocument();
 		expect(screen.getByText('Axis ambiguity: a1')).toBeInTheDocument();
+	});
+
+	it('renders one cross-axis normalized block without erasing axis or pair provenance', async () => {
+		const normalizedId = 'a'.repeat(64);
+		const stageSystemSource = 'b'.repeat(64);
+		const stageValueSource = 'c'.repeat(64);
+		const ambiguityId = 'd'.repeat(64);
+		mock.mockResolvedValue({
+			...decomposed,
+			constituents: [
+				{
+					...decomposed.constituents[0],
+					axis: 'op:StageSystem',
+					axis_label: 'Stage System',
+					filler: 'C90530',
+					filler_label: 'AJCC 8th Edition',
+					source_group_ids: [stageSystemSource],
+					normalized_group_id: normalizedId,
+					normalized_group_label: 'Reviewed stage assessment'
+				},
+				{
+					...decomposed.constituents[0],
+					axis: 'op:StageValue',
+					axis_label: 'Stage Value',
+					filler: 'C27966',
+					filler_label: 'Stage II',
+					axis_ambiguity_group_id: ambiguityId,
+					source_group_ids: [stageValueSource],
+					normalized_group_id: normalizedId,
+					normalized_group_label: 'Reviewed stage assessment'
+				}
+			]
+		});
+
+		render(DecompositionPanel, { code: 'C6135' });
+
+		const block = await screen.findByRole('group', { name: 'Reviewed stage assessment' });
+		expect(screen.getAllByText('Reviewed stage assessment')).toHaveLength(1);
+		expect(within(block).getByText('Stage System')).toBeInTheDocument();
+		expect(within(block).getByText('Stage Value')).toBeInTheDocument();
+		expect(within(block).getByRole('link', { name: 'AJCC 8th Edition' })).toBeInTheDocument();
+		expect(within(block).getByRole('link', { name: 'Stage II' })).toBeInTheDocument();
+		expect(within(block).getByText(`Source groups: ${stageSystemSource}`)).toBeInTheDocument();
+		expect(within(block).getByText(`Source groups: ${stageValueSource}`)).toBeInTheDocument();
+		expect(within(block).getByText(`Axis ambiguity: ${ambiguityId}`)).toBeInTheDocument();
 	});
 
 	it('handles null constituents gracefully', async () => {

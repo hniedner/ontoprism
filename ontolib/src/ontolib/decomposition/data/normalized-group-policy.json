@@ -1,12 +1,12 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
   "ncit_version": "26.07d",
   "basis_run_id": "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572",
   "basis_artifact_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
   "basis_evidence_identity": "142a581ab7227e38276be1988f62a8e81c982a38c6d132742fa188b02d19ebdc",
   "basis_comparison_identity": "09a050b6e8861be62e8a5c2bec80403119242577f953ba2a97905058f1e080ec",
-  "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
+  "basis_packet_identity": "af90958390d3f0d72712d20596ef7759281f5bf643e2f8ee3873ac1ad80cb636",
   "unavailable_historical_artifact": {
     "status": "not-retained",
     "family": "m1-6-current-replay",
@@ -37,6 +37,56 @@
       ],
       "decision_target_pair_set": [],
       "reviewed_partition": [],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedPriorDisease",
+            "C3270"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12413"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C49274"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C61107"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36773"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9385"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49276"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12415"
+          ]
+        ]
+      ],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -328,6 +378,7 @@
               "C3270"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -361,6 +412,7 @@
               "C12413"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -394,6 +446,7 @@
               "C49274"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -427,6 +480,7 @@
               "C61107"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -460,6 +514,7 @@
               "C36773"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -493,6 +548,7 @@
               "C9385"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -524,6 +580,7 @@
               "C49276"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -557,6 +614,7 @@
               "C12415"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -590,6 +648,7 @@
               "C3270"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "specificity-collapse"
           ],
@@ -625,13 +684,12 @@
         "rationale": "A source-reproducible correction is required because omitting the associated site (C61107) strips away critical \nanatomical context necessary to fully define this complex, dual-disease presentation. Furthermore, the two associated \nregions (C12413 and C49274) must remain independently grouped. Merging them falsely implies a single tumor spanning a \nblended or composite anatomical space; in reality, this concept describes two distinct pathophysiological entities \n(Renal Cell Carcinoma and Neuroblastoma) that each originate in and occupy their own distinct anatomical compartments \n(e.g., kidney vs. sympathetic nervous tissue). Keeping the regions separated strictly preserves the unique anatomical \nprovenance of each distinct disease component.",
         "rationale_sha256": "16b80d3969d57ef824afbd66f882364801cac7dba857a5e56425beaa5e241b5e"
       },
-      "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "84d70ceef83d407e97dffb524c527add07ff442406578530a6afd26b376be857"
+      "row_identity": "f550bcc98eb6465c95b45ff9603de865e783618544edc08c614da364ab9a0735"
     },
     {
       "concept_code": "C101539",
@@ -658,6 +716,72 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C140961"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36836"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C188014"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47806"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47817"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7153"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -1045,6 +1169,7 @@
               "C12705"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1080,6 +1205,7 @@
               "C13063"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1113,6 +1239,7 @@
               "C36836"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1146,6 +1273,7 @@
               "C188014"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1179,6 +1307,7 @@
               "C47806"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1212,6 +1341,7 @@
               "C47817"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1245,6 +1375,7 @@
               "C7153"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1276,6 +1407,7 @@
               "C33782"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1309,6 +1441,7 @@
               "C12400"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1346,14 +1479,15 @@
               "C27966"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "874bb7b5e044633cfb89fa9b2f87b96e57123585a44f99f25d8ee45d6881026d",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
           "machine_policy_identity": null,
-          "normalized_group_id": "811d3313a41960348e0322790b884417538a03e17004fe1117d6d8a0ffe2e997",
-          "normalized_group_label": "reviewed-regrouping:C101539:811d3313a419",
+          "normalized_group_id": "f44e8375c054be5ba69054566902fe284ecda9635aa584e952d8acf3eb672536",
+          "normalized_group_label": "reviewed-regrouping:C101539:f44e8375c054",
           "source_fact_ids": [
             "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3",
             "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
@@ -1387,6 +1521,7 @@
               "MINT-8512b41a844d"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -1411,32 +1546,12 @@
         "rationale": "A source-reproducible correction is required because omitting the anatomical pairs (primary site and associated \nregions) and clinical findings completely strips the disease of its defining identity—specifically, its thyroid \norigin, its \"differentiated\" pathology, and the critical \"under 45 years\" demographic constraint. Furthermore, \nthe stage result (Stage I) must remain logically bound to the staging method (AJCC v7). Because AJCC v7 thyroid \ncancer staging is fundamentally age-dependent, decoupling the stage value from this evaluation framework destroys \nthe critical clinical context that this specific severity grade is governed by the rules for patients under 45.",
         "rationale_sha256": "ea15462b9ecddb43339473f02ea342f6fc049ff6f2238b6ff2a84e2c90a94e19"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "86e406d8b87fee2264db1d7ca5d4b752907f18e9a15a5c5ca46d9693470c97a9",
-        "supersedes_review_row_identity": "db9cb29e6d7356dc5badc8f3e005105d433e28d3bd9179adeb7b3575290514ba",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C140961"
-          ],
-          [
-            "op:StageValue",
-            "C27966"
-          ]
-        ],
-        "grouping_decision_identity": "874bb7b5e044633cfb89fa9b2f87b96e57123585a44f99f25d8ee45d6881026d",
-        "decision_identity": "346a7709b47d45436127398d7e1447a66b4469c32b89709a855c3215c33e12ed"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "80451e0d1693df013262b2b257102614d083b5f97f3c9bb856ecb50b791ac140"
+      "row_identity": "0253d770562c6add0f2207194dab3fb345095d7acb67cdcc764fec0e972ae852"
     },
     {
       "concept_code": "C102870",
@@ -1475,6 +1590,42 @@
         ]
       ],
       "reviewed_partition": [],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedSite",
+            "C12321"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C156460"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C121619"
+          ],
+          [
+            "op:Morphology",
+            "C39986"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12404"
+          ]
+        ]
+      ],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -1643,14 +1794,15 @@
               "C12321"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "routing"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
-          "machine_policy_identity": null,
-          "normalized_group_id": "dbaad1618f510a38dc68681ff00583104ae253253b1828685534c3805fea225f",
-          "normalized_group_label": "source-evidence-grouping:C102870:dbaad1618f51",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "73a0e3fa1f52877823abb8ef3224c6420029ce0b5e68c6dd705f6f8dc3a1a1f5",
+          "normalized_group_id": "27a6825c346663f432f0a3ee5e21ddc078c2e24f4b15ba3d35e1ef5900c59656",
+          "normalized_group_label": "source-evidence-grouping:C102870:27a6825c3466",
           "source_fact_ids": [
             "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108"
           ],
@@ -1676,14 +1828,15 @@
               "C36903"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "routing"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
-          "machine_policy_identity": null,
-          "normalized_group_id": "8be6048f926c720ddcb24a01995d81227702b9fb02ba021ccdaed8301e5ecbe1",
-          "normalized_group_label": "source-evidence-grouping:C102870:8be6048f926c",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4da5604e8e2889b456c6ebfef121dc944ebaec6bb494cdda1821869a3a5f8833",
+          "normalized_group_id": "143c1eb07a01debfe75709cac2b59b12e22a3bdc171faca18c1927d66b67a49e",
+          "normalized_group_label": "source-evidence-grouping:C102870:143c1eb07a01",
           "source_fact_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
           ],
@@ -1709,14 +1862,15 @@
               "C156460"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "routing"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
-          "machine_policy_identity": null,
-          "normalized_group_id": "90cd992b550e4a267f534acea20cb2e8e612bf8a370b59b07041cc592f9fb204",
-          "normalized_group_label": "source-evidence-grouping:C102870:90cd992b550e",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "4218f713c3a29b72a4e82d9f56cbb10f29235cae2ee3684ea5ad4a69e442d840",
+          "normalized_group_id": "296761d27581f824f058ecee48444fafe828f3008207041fc45639a79ecb2859",
+          "normalized_group_label": "source-evidence-grouping:C102870:296761d27581",
           "source_fact_ids": [
             "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
           ],
@@ -1746,14 +1900,15 @@
               "C39986"
             ]
           ],
+          "grouping_status": "unresolved",
           "transformation_rules": [
             "routing"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
+          "decision_regime": "unresolved-abstention",
+          "human_decision_identity": null,
           "machine_policy_identity": null,
-          "normalized_group_id": "65a17c905fb7143b202d8f0f779685e0f241d0b88ee83a498d60a3ee7616c7a9",
-          "normalized_group_label": "source-evidence-grouping:C102870:65a17c905fb7",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_fact_ids": [
             "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac",
             "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
@@ -1781,44 +1936,12 @@
         "rationale": "An escalation is required because the simultaneous omission of the primary site (C12404) and associated site (C12321) \ncreates topological ambiguity; structural rules alone cannot resolve which exact anatomical relationship—or \ncombination thereof—is required to definitively represent the \"Ovarian\" origin. Furthermore, gynecologic pathology \nexpertise is necessary to resolve the morphology grouping. Because \"non-dysgerminomatous\" is a complex, \nexclusion-based classification that often involves mixed tumor components, an SME must determine whether the two \nmorphology codes (C121619 and C39986) must be grouped to form a single, indivisible composite pathological profile, \nor if they are validly asserted as separate histological features.",
         "rationale_sha256": "700dc64e733535974738b616cb847ba0fa1d0e0b79cb2a6b0a4c4cfd9782b165"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "supersede-abstention-with-source-evidence-grouping",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "fafd3ea424f41da485c20b9f86de26b6594069ce77748206d06276bfada6c8c6",
-        "supersedes_review_row_identity": "e47c025fcc59e337826cbf666ef2526ce447d3b82d63007868f088a9928bd2bb",
-        "decision_target_pair_set": [
-          [
-            "op:AssociatedSite",
-            "C12321"
-          ],
-          [
-            "op:CellType",
-            "C36903"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C156460"
-          ],
-          [
-            "op:Morphology",
-            "C121619"
-          ],
-          [
-            "op:Morphology",
-            "C39986"
-          ]
-        ],
-        "grouping_decision_identity": "59b3ff4e13ef683d7da613de137d24249c266c01baace754e830c9e7a8634fc7",
-        "decision_identity": "a530e8d8314d916c5ff003b04e60f0741efe5d70e1359043aa7fce5318e3db1e"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "3ac0c4b3c2ef71823fdb82ca02f1dd0f6f879ff44194b1d467160576c8212878"
+      "row_identity": "d89b207566b2678447b437d6c913b956e9047d6f2286116e972c1dd5ccf4a61b"
     },
     {
       "concept_code": "C115057",
@@ -1853,6 +1976,46 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12418"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36771"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C42690"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C54224"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -2124,6 +2287,7 @@
               "C54224"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2157,6 +2321,7 @@
               "C36771"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2190,6 +2355,7 @@
               "C42690"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2221,6 +2387,7 @@
               "C9315"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2267,14 +2434,15 @@
               "C27966"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "ec40c153a0162745f2b4d0cc0aa73e456c972c4fc09e5dcadf9f92bcd9f25216",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
           "machine_policy_identity": null,
-          "normalized_group_id": "0e6a32b3b13a59d96435c13b1e1176906e50d4be995a9c753dc1ae15cadfbc80",
-          "normalized_group_label": "reviewed-regrouping:C115057:0e6a32b3b13a",
+          "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
+          "normalized_group_label": "reviewed-regrouping:C115057:b379aa04e16b",
           "source_fact_ids": [
             "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191",
             "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944",
@@ -2310,6 +2478,7 @@
               "MINT-d104509874ed"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2334,36 +2503,12 @@
         "rationale": "A source-reproducible correction is required because demoting the explicit primary site (C54224) to a mere associated \nregion conflates the tumor's distinct anatomical origin with merely involved adjacent structures, degrading the core \noncological definition. Furthermore, introducing an unstated morphology pair (C9315) imposes diagnostic constraints \nnot supported by the source concept. Finally, the stage result (Stage I) must remain logically bound to both staging \nmethods (AJCC v6 and v7). Because this concept explicitly asserts that this severity grade is equivalent under both \nhistorical guideline editions, separating the stage value from its systems destroys this specific clinical alignment.",
         "rationale_sha256": "bff3b6cfd4333d51b3e8ba6aeb412bad325c0358ead853216333cb327d357cf5"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "cfdfb8dbed0ee2cbb2a93420b84f7e762f61af544fbf278e58ec436c58d9e8ca",
-        "supersedes_review_row_identity": "63c61086cb4713bcccdcba507651539d4c41ae8f8c2da071bb22168be16c9ae3",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C90529"
-          ],
-          [
-            "op:StageSystem",
-            "C90530"
-          ],
-          [
-            "op:StageValue",
-            "C27966"
-          ]
-        ],
-        "grouping_decision_identity": "ec40c153a0162745f2b4d0cc0aa73e456c972c4fc09e5dcadf9f92bcd9f25216",
-        "decision_identity": "c3fc81e8ba56bc7a3c9a43d198a69f64b63d6c70ebcbb91e7bf1acb9131d8f8a"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "895a27e37f2f419bbb293c41ce2dd272e8b42c59222d819bfbabea388e408862"
+      "row_identity": "136ee30bfbefddbc646820393328cf3c8d5bd1024526768ba6083724f14eaecc"
     },
     {
       "concept_code": "C115118",
@@ -2390,6 +2535,48 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27976"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12378"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3513"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49221"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C203674"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C12389"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -2651,6 +2838,7 @@
               "C12378"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2684,6 +2872,7 @@
               "C3513"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2715,6 +2904,7 @@
               "C49221"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2748,6 +2938,7 @@
               "C203674"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2781,6 +2972,7 @@
               "C12389"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2818,14 +3010,15 @@
               "C27976"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "f46639243f7e3879b6a6798a5f82af9ae68da839d3ddcc0b3206e2340dc66666",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
           "machine_policy_identity": null,
-          "normalized_group_id": "6ac7a0453c1b99e04e1337301e7372dfb454b4ade1682a4f2c042b24f0fd45c8",
-          "normalized_group_label": "reviewed-regrouping:C115118:6ac7a0453c1b",
+          "normalized_group_id": "3965fa8aadd0c230f4336e9a5f87e630c5ce946b953b5c73b3b340e80af07885",
+          "normalized_group_label": "reviewed-regrouping:C115118:3965fa8aadd0",
           "source_fact_ids": [
             "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d",
             "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
@@ -2859,6 +3052,7 @@
               "MINT-8512b41a844d"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -2883,32 +3077,12 @@
         "rationale": "A source-reproducible correction is required because omitting the associated region (C12378) strips critical \nanatomical context that is intrinsically necessary to define esophageal cancer and correctly apply its anatomical \nstaging guidelines. Once the region is restored, the relationship between the staging method (AJCC v7) and the \nstage result (Stage IB) must be explicitly preserved as distinct, post-coordinated relational edges attached to the \ncore diagnosis. This ensures the clinical severity remains strictly bound to its evaluation framework, maintaining \nfull semantic integrity and interoperability.",
         "rationale_sha256": "10c4c958e870f45cd58d972d545d37e17d571e926f1f9fe01d67a02697ffd9a0"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "79f91450a956fe89d91a47da3e084d70cb911b4eb83bc23dda400e69fe900ca7",
-        "supersedes_review_row_identity": "58753758ae6f6c777e9cfc75a74a3f7f322ac484b6f3558f0042921256d1d64f",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C90530"
-          ],
-          [
-            "op:StageValue",
-            "C27976"
-          ]
-        ],
-        "grouping_decision_identity": "f46639243f7e3879b6a6798a5f82af9ae68da839d3ddcc0b3206e2340dc66666",
-        "decision_identity": "3a29d0ae01f0a0c41e7b97d0668b3bd2d5ba5470ef385fc6aebe7877681a9ec7"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "8b0f341685f5d6a38d58823c33671c92597307c181ec54b76176d21fb379493d"
+      "row_identity": "e963573bd0c2fbbd9b55a7d8f7a79d88996a039bbfea2fe5ca5ee9d100891038"
     },
     {
       "concept_code": "C132677",
@@ -2935,6 +3109,54 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C132248"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:ClinicalFinding",
+            "C40557"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C40989"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41444"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C48322"
+          ]
+        ],
+        [
+          [
+            "op:MetastaticSite",
+            "C32298"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C8566"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -3210,6 +3432,7 @@
               "C40557"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3243,6 +3466,7 @@
               "C40989"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3276,6 +3500,7 @@
               "C41444"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3309,6 +3534,7 @@
               "C48322"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3342,6 +3568,7 @@
               "C32298"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3375,6 +3602,7 @@
               "C8566"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3410,14 +3638,15 @@
               "C27970"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "dedc90cfedd0c6d22638300b39c4bb9c03ce4c8e0e459b81de9fd1cbbe6a9f54",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
           "machine_policy_identity": null,
-          "normalized_group_id": "27476c9b9e566816fb6afcd011f2960c273df0b6d555c523d3107a104f43a2a7",
-          "normalized_group_label": "reviewed-regrouping:C132677:27476c9b9e56",
+          "normalized_group_id": "bef73e9f0d61bd8f593423cc29cf0d33c900bd55896e54f77fce88e0e7b1e0e4",
+          "normalized_group_label": "reviewed-regrouping:C132677:bef73e9f0d61",
           "source_fact_ids": [
             "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326",
             "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
@@ -3451,6 +3680,7 @@
               "MINT-4563e6974906"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3475,32 +3705,12 @@
         "rationale": "A source-reproducible correction is required because omitting the clinical finding pairs completely strips the disease \nof its complex defining criteria—specifically, the unknown primary origin, the metastatic cervical adenopathy, and the \ncritical exclusions for EBV- and HPV-related tumors. Furthermore, the stage result (Stage III) must remain logically \nbound to the staging method (AJCC v8). Because AJCC v8 introduced highly specific, viral-status-dependent staging \nrules for head and neck cancers with unknown primaries, decoupling the stage value from this evaluation framework \ndestroys the essential clinical context that this specific severity grade is defined by those exact v8 criteria.",
         "rationale_sha256": "36252e1f64dc326f9d436b4faeb8e20a5f801e744b51ce645d51fcda906ca9d8"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "cd8e4c2b903c26cb0558dbea5e809089c20331d8b1e27cfb642b5a579d18ac4c",
-        "supersedes_review_row_identity": "4832426e3268653774654804827ee7836a13588acf9470ad4b418c330974ca2f",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C132248"
-          ],
-          [
-            "op:StageValue",
-            "C27970"
-          ]
-        ],
-        "grouping_decision_identity": "dedc90cfedd0c6d22638300b39c4bb9c03ce4c8e0e459b81de9fd1cbbe6a9f54",
-        "decision_identity": "facde1814f12e4aca0fb2dbff8bcfb080dad4a7bb2b1c673805cb1e7a95277e3"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "f25da2635c95a72a5adcc1030194e155e69517c5e3b1f82d770c2df2b5972f26"
+      "row_identity": "20b68dcfc1636fad5058b383946dadd166fd8d92c0f6cbfa82be1a708a86cdab"
     },
     {
       "concept_code": "C162226",
@@ -3527,6 +3737,44 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C186617"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -3615,7 +3863,9 @@
           [
             "op:StageSystem",
             "C186617"
-          ],
+          ]
+        ],
+        [
           [
             "op:StageValue",
             "C96244"
@@ -3772,6 +4022,7 @@
               "C12402"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3805,6 +4056,7 @@
               "C36753"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3838,6 +4090,7 @@
               "C9039"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3869,6 +4122,7 @@
               "C49218"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3902,6 +4156,7 @@
               "C12311"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -3933,42 +4188,65 @@
             [
               "op:StageSystem",
               "C186617"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
           "decision_regime": "historical-approval",
           "human_decision_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
           "machine_policy_identity": null,
-          "normalized_group_id": "d15bc65202c675acd14ea932d30e03a2d9f597b75fba37bde327e09bb1eb5f71",
-          "normalized_group_label": "reviewed-regrouping:C162226:d15bc65202c6",
+          "normalized_group_id": "eae55cbe985feefd0bff886c79a51ce594143051076c25a3448e939d7383aa26",
+          "normalized_group_label": "reviewed-regrouping:C162226:eae55cbe985f",
           "source_fact_ids": [
-            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d",
+            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d"
+          ],
+          "source_occurrence_ids": [
+            "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
+          ],
+          "source_group_ids": [
+            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a",
+              "anchor_code": "C162225",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ],
+          "grouping_status": "decided",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+          "machine_policy_identity": null,
+          "normalized_group_id": "297314d5ad8bbf290f408a3295d22157271c56223c51b5404eb0bfcd0efe5c6b",
+          "normalized_group_label": "reviewed-regrouping:C162226:297314d5ad8b",
+          "source_fact_ids": [
             "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
           ],
           "source_occurrence_ids": [
-            "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b",
             "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
           ],
           "source_group_ids": [
-            "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2",
-            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
+            "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2"
           ],
           "source_coordinates": [
             {
               "source_group_id": "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2",
               "anchor_code": "C162226",
               "depth": 0
-            },
-            {
-              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a",
-              "anchor_code": "C162225",
-              "depth": 1
             }
           ],
           "occurrence_availability": "available"
@@ -3983,13 +4261,12 @@
         "rationale": "Normalizing C162226 aligns with HL7 FHIR mCODE and modern post-coordination standards by structurally decoupling \nthe staging method (FIGO 2018) from the stage result (Stage I). This separation preserves the precise clinical \nassessment via distinct relational edges rather than a rigid text string. It eliminates pre-coordinated terminology \nbloat while explicitly connecting the core diagnosis to earlier editions (like FIGO 2009), enabling seamless \nlongitudinal queries for \"Stage I Cervical Cancer\" cohorts while strictly maintaining the 2018 guideline provenance.",
         "rationale_sha256": "79e9ce48bf08ed3fc87d22d2cb569363c7be5ca24033583a8fac581a78204eb1"
       },
-      "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "6427c049f0daa06c74b2cb2cf398803fd0996c25b277e781cf78f7fb3f9de8cb"
+      "row_identity": "fac970051f324588aab85fff22ad13d3caaa59df64a42d924f49e59b3d5a25c0"
     },
     {
       "concept_code": "C181564",
@@ -4016,6 +4293,44 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C180901"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -4104,16 +4419,18 @@
           [
             "op:StageSystem",
             "C180901"
-          ],
-          [
-            "op:StageValue",
-            "C27966"
           ]
         ],
         [
           [
             "op:StageSystem",
             "MINT-27f8060dd413"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
           ]
         ]
       ],
@@ -4277,6 +4594,7 @@
               "C12402"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4310,6 +4628,7 @@
               "C36753"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4343,6 +4662,7 @@
               "C9039"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4374,6 +4694,7 @@
               "C49218"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4407,6 +4728,7 @@
               "C12311"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4438,38 +4760,27 @@
             [
               "op:StageSystem",
               "C180901"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
           "decision_regime": "historical-approval",
           "human_decision_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
           "machine_policy_identity": null,
-          "normalized_group_id": "f574a8179d5ca1c5974854feba04f8087491c10750e24d55b9102f0fdf94641d",
-          "normalized_group_label": "reviewed-regrouping:C181564:f574a8179d5c",
+          "normalized_group_id": "cdc4d1db2bfb4d4dd9c39d0625e787fb5ccf265823499e7f30118993e0fe6347",
+          "normalized_group_label": "reviewed-regrouping:C181564:cdc4d1db2bfb",
           "source_fact_ids": [
-            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c",
-            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
+            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c"
           ],
           "source_occurrence_ids": [
-            "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1",
-            "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
+            "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
           ],
           "source_group_ids": [
-            "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
             "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
           ],
           "source_coordinates": [
-            {
-              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
-              "anchor_code": "C181564",
-              "depth": 0
-            },
             {
               "source_group_id": "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754",
               "anchor_code": "C181562",
@@ -4485,6 +4796,7 @@
               "MINT-27f8060dd413"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4498,6 +4810,40 @@
           "source_group_ids": [],
           "source_coordinates": [],
           "occurrence_availability": "unavailable-current-source-coordinate"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "grouping_status": "decided",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+          "machine_policy_identity": null,
+          "normalized_group_id": "d20fdee0e094394ca8816bb72b5aaf0842266de9b349f3efce232634c2dd8cbe",
+          "normalized_group_label": "reviewed-regrouping:C181564:d20fdee0e094",
+          "source_fact_ids": [
+            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
+          ],
+          "source_occurrence_ids": [
+            "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
+          ],
+          "source_group_ids": [
+            "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
+              "anchor_code": "C181564",
+              "depth": 0
+            }
+          ],
+          "occurrence_availability": "available"
         }
       ],
       "historical_decision": {
@@ -4509,13 +4855,12 @@
         "rationale": "HL7 FHIR mCODE interoperability standards explicitly require separating the staging method (AJCC v9) \nfrom the staging result (Stage I). Decomposing C181564 breaks the rigid pre-coordinated silo, aligning the concept \nwith modern EHR data models and SNOMED CT post-coordination principles to prevent a combinatorial explosion of \nversion-specific codes.\nThe exact clinical context is fully preserved through structural graph edges rather than a single text string. \nThe patient is still definitively recorded as having \"Stage I Cervical Cancer evaluated via AJCC v9 criteria,\" \nbut this normalization allows researchers to query orthogonally: they can now pull a broad cohort of all \n\"Stage I Cervical Cancers\" across AJCC editions, while retaining the ability to filter strictly for the \nv9 provenance.\nNo diagnostic or prognostic specificity is lost. Instead, the semantic meaning is enhanced because the data becomes \northogonally queryable. Researchers can now query all \"Stage I\" tumors across multiple staging versions to find \nbroader clinical cohorts, while still being able to strictly filter for the exact \"AJCC v9\" criteria when required.",
         "rationale_sha256": "2d45651cf10729da3be40e7f964380a3bcb05ef0a60764aa5ba53ca4921e89a7"
       },
-      "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "ac513ff0eaa7820c6485cd3de373bd38b29ba4a999cdc224fce46f54f350f2ba"
+      "row_identity": "c44117a91c2f209fe5e154057e4bdffb9a0cc6938303654615d0e31679271ed3"
     },
     {
       "concept_code": "C186620",
@@ -4542,6 +4887,44 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C186618"
+          ]
+        ],
+        [
+          [
+            "op:StageValue",
+            "C27966"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C9039"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C49218"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12311"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -4630,7 +5013,9 @@
           [
             "op:StageSystem",
             "C186618"
-          ],
+          ]
+        ],
+        [
           [
             "op:StageValue",
             "C27966"
@@ -4787,6 +5172,7 @@
               "C12402"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4820,6 +5206,7 @@
               "C36753"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4853,6 +5240,7 @@
               "C9039"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4884,6 +5272,7 @@
               "C49218"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4917,6 +5306,7 @@
               "C12311"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -4948,42 +5338,65 @@
             [
               "op:StageSystem",
               "C186618"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
           "decision_regime": "historical-approval",
           "human_decision_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
           "machine_policy_identity": null,
-          "normalized_group_id": "f7e82e95bb178457f7ff60c9c7aa4d85290158093c081a0b2b8e5bbb5c3c5d21",
-          "normalized_group_label": "reviewed-regrouping:C186620:f7e82e95bb17",
+          "normalized_group_id": "d9c3c8d6aa2948857c6327cda6921849d80a8ef66b7d71db97104eab74530b24",
+          "normalized_group_label": "reviewed-regrouping:C186620:d9c3c8d6aa29",
           "source_fact_ids": [
-            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47",
-            "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
+            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47"
           ],
           "source_occurrence_ids": [
-            "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158",
             "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
           ],
           "source_group_ids": [
-            "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a",
             "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
+          ],
+          "source_coordinates": [
+            {
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c",
+              "anchor_code": "C186619",
+              "depth": 1
+            }
+          ],
+          "occurrence_availability": "available"
+        },
+        {
+          "pairs": [
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "grouping_status": "decided",
+          "transformation_rules": [
+            "reviewed-regrouping"
+          ],
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+          "machine_policy_identity": null,
+          "normalized_group_id": "bd87c1965e4afbb518e22b6c05626101907efea13e79448afde5caaa62eb05f0",
+          "normalized_group_label": "reviewed-regrouping:C186620:bd87c1965e4a",
+          "source_fact_ids": [
+            "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
+          ],
+          "source_occurrence_ids": [
+            "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
+          ],
+          "source_group_ids": [
+            "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a"
           ],
           "source_coordinates": [
             {
               "source_group_id": "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a",
               "anchor_code": "C186620",
               "depth": 0
-            },
-            {
-              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c",
-              "anchor_code": "C186619",
-              "depth": 1
             }
           ],
           "occurrence_availability": "available"
@@ -4998,13 +5411,12 @@
         "rationale": "HL7 FHIR mCODE standards explicitly model gynecologic oncology by separating the staging method (FIGO 2009) from \nthe staging result (Stage I). Normalizing C186620 eliminates redundant pre-coordinated silos, allowing the \ncore \"Stage I\" concept to be cleanly reused across different FIGO editions without causing terminology bloat.\nThe precise historical and clinical context—\"Stage I Cervical Cancer evaluated via FIGO 2009 criteria\"—is completely \npreserved through distinct structural relationships. This semantic integrity enables researchers to execute \nlongitudinal queries for all \"Stage I Cervical Cancers\" spanning multiple FIGO guideline revisions \n(e.g., comparing 2009 to 2018 cohorts), while still strictly retaining the exact historical provenance of this \nspecific assessment.\nNormalizing C186620 aligns with HL7 FHIR mCODE and SNOMED CT post-coordination guidelines by structurally decoupling \nthe staging method (FIGO 2009) from the stage result (Stage I). This separation preserves the precise clinical context \nvia relational edges, eliminating pre-coordinated terminology bloat while unlocking the ability to execute \nlongitudinal cohort queries for \"Stage I Cervical Cancer\" across multiple FIGO guideline revisions.",
         "rationale_sha256": "958a5d041a2faf2894af54d7d0f090ab6723ac9ba0641501cfb1113f75c9104f"
       },
-      "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "a9e40c4858057712cf0bdf87012fa550653291f22735ff854e9cdb5ca1c56979"
+      "row_identity": "894a61ac6a5d052fad4cbdb228f4240a807efc959449ad75711b417de961c8cc"
     },
     {
       "concept_code": "C206219",
@@ -5031,6 +5443,48 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C206211"
+          ],
+          [
+            "op:StageValue",
+            "C96244"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12402"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C7558"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C12313"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12316"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySubsite",
+            "C32514"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -5302,6 +5756,7 @@
               "C12402"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5335,6 +5790,7 @@
               "C36753"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5368,6 +5824,7 @@
               "C7558"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5399,6 +5856,7 @@
               "C12313"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5432,6 +5890,7 @@
               "C12316"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5465,6 +5924,7 @@
               "C32514"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -5502,14 +5962,15 @@
               "C96244"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "85b944b04e77d923602909735b664cf0ba6bd83e8c9e0dbefeec2b2f79982bd0",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
           "machine_policy_identity": null,
-          "normalized_group_id": "2c67a82f0878e942970e26486c049f514bf6db91727e38bc750a51f2551aa287",
-          "normalized_group_label": "reviewed-regrouping:C206219:2c67a82f0878",
+          "normalized_group_id": "f3e7da41260049c2ab7368394df470bdbf7b2a09e8f358ba2ed964fb46e0e655",
+          "normalized_group_label": "reviewed-regrouping:C206219:f3e7da412600",
           "source_fact_ids": [
             "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c",
             "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
@@ -5546,32 +6007,12 @@
         "rationale": "A source-reproducible correction is required because omitting the primary site (C12316) completely strips the disease \nof its defining anatomical origin (the endometrium), degrading the concept to an unlocated and clinically ambiguous \nneoplasm. Furthermore, the stage result (Stage I) must remain logically bound to the staging method (FIGO 2023). \nBecause staging definitions and anatomical spread criteria evolve between guideline editions, separating the stage \nvalue from its specific evaluation framework breaks this semantic dependency, destroying the critical context that \nthis severity grade is defined exactly by the 2023 FIGO rules.",
         "rationale_sha256": "167ddac202a5bc540747b59e4d5865bd284e2502096f5d123ee7273718467b81"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "1b4ee7be3f6a672c4f05aac1f9c1d67bbdc52c2115f673cb97bfc225ec759a52",
-        "supersedes_review_row_identity": "6b80a08577157810d2ddd01ee49a41c01e120355035eda5f43f356222cb0e92a",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C206211"
-          ],
-          [
-            "op:StageValue",
-            "C96244"
-          ]
-        ],
-        "grouping_decision_identity": "85b944b04e77d923602909735b664cf0ba6bd83e8c9e0dbefeec2b2f79982bd0",
-        "decision_identity": "6a667b08f7dcdf8e83198499a98d4f5008128e7246f13cf903461ca1e9fa99a1"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "75cba3834d7b0a7b65f5a79029e907cef171d54621c62aa7b7dde5e38a9705c3"
+      "row_identity": "882e58e4b7544d7727046a4fb0087dcf518825dc47f2114065bc82992fe54853"
     },
     {
       "concept_code": "C27262",
@@ -5618,6 +6059,52 @@
         ]
       ],
       "reviewed_partition": [],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C41165"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C41063"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36220"
+          ],
+          [
+            "op:ClinicalFinding",
+            "C41397"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C35501"
+          ],
+          [
+            "op:Morphology",
+            "C9290"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C13051"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12431"
+          ]
+        ]
+      ],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -5842,14 +6329,15 @@
               "C41063"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
-          "machine_policy_identity": null,
-          "normalized_group_id": "019f80bf9aa1855c77490c9c324eabaa42897438e795a1e4b4bd00f74b75e1a7",
-          "normalized_group_label": "source-evidence-grouping:C27262:019f80bf9aa1",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "6939343a6ab8af4c76b15326da719ed4ef9a9d7069c567661c86a95a361fc664",
+          "normalized_group_id": "589caf9899703fdc3dace554a91cead8ec918887d2bf035f666760e8667093ba",
+          "normalized_group_label": "source-evidence-grouping:C27262:589caf989970",
           "source_fact_ids": [
             "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
           ],
@@ -5879,14 +6367,15 @@
               "C41397"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
-          "machine_policy_identity": null,
-          "normalized_group_id": "c0760f7ec6103c7bec087daa2c6f9219ae812a0d8fb3cc5a55f035a33b78bd44",
-          "normalized_group_label": "source-evidence-grouping:C27262:c0760f7ec610",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "b246db37b0d31627488430ffa3712a865490c677faf3b93f1e08599947d1a8e1",
+          "normalized_group_id": "e8cc9ca32a0a00914a44b26a7ce9e3ce147dd10681a730b4aed0a533616fbc10",
+          "normalized_group_label": "source-evidence-grouping:C27262:e8cc9ca32a0a",
           "source_fact_ids": [
             "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2",
             "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
@@ -5918,14 +6407,15 @@
               "C9290"
             ]
           ],
+          "grouping_status": "unresolved",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
+          "decision_regime": "unresolved-abstention",
+          "human_decision_identity": null,
           "machine_policy_identity": null,
-          "normalized_group_id": "85c41f06a5dd6c86e3f7aad51efe4de797cbbefede69c9e72f2eb8903d388a1b",
-          "normalized_group_label": "source-evidence-grouping:C27262:85c41f06a5dd",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_fact_ids": [
             "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6",
             "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
@@ -5950,14 +6440,15 @@
               "C13051"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
-          "machine_policy_identity": null,
-          "normalized_group_id": "f7585f76cbfe0783762efe9378654ffc7560090d5b77d9c2889085b1ac650ab6",
-          "normalized_group_label": "source-evidence-grouping:C27262:f7585f76cbfe",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "0e5cd38b0785294d85fe67d707e4a68a59c96a3d3179c9d961d3577a2cc1dbae",
+          "normalized_group_id": "afd4818cd24d8227f590b446e1cb7fd8dbd30bcf4bc260376fc0eabd43b72183",
+          "normalized_group_label": "source-evidence-grouping:C27262:afd4818cd24d",
           "source_fact_ids": [
             "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
           ],
@@ -5983,14 +6474,15 @@
               "C12431"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
-          "machine_policy_identity": null,
-          "normalized_group_id": "fa5db9b22e87f61f73fb719f098617d6839350b5f700d84e5f58c5fbde2bb8cc",
-          "normalized_group_label": "source-evidence-grouping:C27262:fa5db9b22e87",
+          "decision_regime": "source-evidence",
+          "human_decision_identity": null,
+          "machine_policy_identity": "a4a6aa955023f9e989541f9852430d3336027d6411ae35d9f20c9a11b9a375eb",
+          "normalized_group_id": "8b4977a17a9b4451af174706b1d4eb905c0a5c7b50c26687b3fda0e58d16de6d",
+          "normalized_group_label": "source-evidence-grouping:C27262:8b4977a17a9b",
           "source_fact_ids": [
             "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
           ],
@@ -6019,52 +6511,12 @@
         "rationale": "An escalation is required because Myelodysplastic/Myeloproliferative Neoplasms (MDS/MPN) are complex hematologic \noverlap syndromes, and structural review alone cannot resolve the discrepancies. It is clinically uncertain whether \nthe omitted anatomical region (e.g., bone marrow) and clinical findings (e.g., specific cytopenias or proliferative \ntraits) are universally definitional for this broad diagnostic class or only applicable to specific subtypes. \nFurthermore, hematopathology expertise is required to determine the correct representation of the dual morphologies: \nthe expert must clarify whether the WHO classification requires the dysplastic and proliferative features to be \ngrouped as a single, indivisible composite morphologic profile, or if they are validly represented as separate, \nconcurrent pathological processes.",
         "rationale_sha256": "43aef56271ec7b123d782b90d91e5438d38342d209c360d567cec783f9245505"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "supersede-abstention-with-source-evidence-grouping",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "1db16366eee2182cfbeeb3021342cc99d1a2efff105b73fb0cf82a9715a115b0",
-        "supersedes_review_row_identity": "fcd473503a580a0f3c69becb46094389fef17bcb91312aa95f0c4d24523d00a4",
-        "decision_target_pair_set": [
-          [
-            "op:CellType",
-            "C41063"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C36220"
-          ],
-          [
-            "op:ClinicalFinding",
-            "C41397"
-          ],
-          [
-            "op:Morphology",
-            "C35501"
-          ],
-          [
-            "op:Morphology",
-            "C9290"
-          ],
-          [
-            "op:NormalTissueOrigin",
-            "C13051"
-          ],
-          [
-            "op:PrimarySite",
-            "C12431"
-          ]
-        ],
-        "grouping_decision_identity": "cc33cf872918b722388c1579b04e6ed99494ab63bbc16456bf39847362f3523d",
-        "decision_identity": "63cd77981a49bdb8751d86740b6344b139a94e269527ac98deb38cbbea38f90d"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "d659c914ab9b8adf37b852f0368977c60967155715c77ae6579accf5838236b7"
+      "row_identity": "8d2d7027c8f927024b0da354f07ebdb6aeb2bb613f9daa731ef76e413d0b57a3"
     },
     {
       "concept_code": "C27787",
@@ -6099,6 +6551,46 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90529"
+          ],
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12722"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36903"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C5027"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12412"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -6402,6 +6894,7 @@
               "C12722"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6435,6 +6928,7 @@
               "C36903"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6468,6 +6962,7 @@
               "C5027"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6499,6 +6994,7 @@
               "C7251"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6537,6 +7033,7 @@
               "C12412"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6578,14 +7075,15 @@
               "C27970"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "9c5782aeddf24fcd4020b2c870fce10adfa80f1fbb14d7331d092ca8b7cbf75c",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
           "machine_policy_identity": null,
-          "normalized_group_id": "6ff549ec95e4a5a0626ffc9b1da71a3e069cae09baae4fd33ae2deac3846b2fe",
-          "normalized_group_label": "reviewed-regrouping:C27787:6ff549ec95e4",
+          "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
+          "normalized_group_label": "reviewed-regrouping:C27787:8fb1309bfc89",
           "source_fact_ids": [
             "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1",
             "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30",
@@ -6621,6 +7119,7 @@
               "MINT-d104509874ed"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -6645,36 +7144,12 @@
         "rationale": "A source-reproducible correction is required to remove the unsupported morphology pair (C7251). \"Non-seminomatous\" \nis a specific, exclusion-based pathological classification; injecting an unstated morphology alters this strict \ndefinitional boundary and introduces unwarranted diagnostic constraints not present in the source concept. \nAdditionally, the stage result (Stage III) must remain logically bound to both staging methods (AJCC v6 and v7). \nBecause this concept explicitly spans two editions that share equivalent staging criteria for this disease, \nseparating the value from the systems destroys the core clinical assertion that this specific severity grade \nis valid under either historical framework.",
         "rationale_sha256": "ccc80a21f29296082b14582093ab5c66a643771dee0ea628018fa2f68140a881"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "48e0e29aa5578f6b728556b4dcd9f4b414b3c5909715787331a38296f4d79ea8",
-        "supersedes_review_row_identity": "7006f9d73119443eef40a73d68552bae527856448f99c7396d84358981c146af",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C90529"
-          ],
-          [
-            "op:StageSystem",
-            "C90530"
-          ],
-          [
-            "op:StageValue",
-            "C27970"
-          ]
-        ],
-        "grouping_decision_identity": "9c5782aeddf24fcd4020b2c870fce10adfa80f1fbb14d7331d092ca8b7cbf75c",
-        "decision_identity": "4c606ed3081f2de404ec4e7919e66a0f1b53b373d859b8ad29662c0f3bce892d"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "12ec3103358f17254a1d972f93c40d70601dde8e5ae7118342e77603292aaf55"
+      "row_identity": "6512b971a1fbc9695076ab28c0e8a63ac30d07867738565225c3e882424c0506"
     },
     {
       "concept_code": "C4791",
@@ -6692,6 +7167,78 @@
       ],
       "decision_target_pair_set": [],
       "reviewed_partition": [],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedLineageClassification",
+            "C12471"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C12905"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedSite",
+            "C13004"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36899"
+          ],
+          [
+            "op:CellType",
+            "C36954"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C35998"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36105"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C36122"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C53583"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3499"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12869"
+          ]
+        ]
+      ],
       "historical_observed_partition": {
         "kind": "historical_observed_partition",
         "packet_identity": "3d53cc9be3068645a0d45dd1ba9c775918c2c41ddbf26b37c73ce01572f0f379",
@@ -7077,6 +7624,7 @@
               "C12471"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7118,6 +7666,7 @@
               "C12905"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7151,6 +7700,7 @@
               "C13004"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7184,6 +7734,7 @@
               "C13004"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7221,6 +7772,7 @@
               "C36954"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7256,6 +7808,7 @@
               "C35998"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7289,6 +7842,7 @@
               "C36105"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7322,6 +7876,7 @@
               "C36122"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7355,6 +7910,7 @@
               "C53583"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7388,6 +7944,7 @@
               "C25229"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7409,6 +7966,7 @@
               "C3499"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7440,6 +7998,7 @@
               "C12869"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "repeated-pairs"
           ],
@@ -7476,13 +8035,12 @@
         "rationale": "A source-reproducible correction is required because omitting the cell types, lineage classification, and clinical \nfindings completely strips the tumor of its fundamental histological and phenotypic identity—specifically, its precise \nnature as a distinct mesenchymal neoplasm (myxoma) rather than a generic cardiac mass. Furthermore, the two associated \nanatomical regions (C12905 and C13004) must remain independently grouped. Merging them falsely implies a single, \nconflated composite structure; keeping them separate correctly preserves distinct spatial attributes (e.g., the \nspecific left atrial chamber versus the broader cardiac region), maintaining the exact locational granularity required \nto define this specific tumor.",
         "rationale_sha256": "4baa01123b084a40d958ea1393d241ab3aa5682241f7eef3077f05dbcf870df0"
       },
-      "current_decision": null,
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "dde17a729ceadc30dbdb471a8dd64b38318169d5d0f288110205cb2c1dbf52cb"
+      "row_identity": "07bf243163fbbf2dad137cae9b8e42e4616bf56a29cf22aff99beb209f4e393c"
     },
     {
       "concept_code": "C6135",
@@ -7509,6 +8067,96 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C12705"
+          ]
+        ],
+        [
+          [
+            "op:AssociatedRegion",
+            "C13063"
+          ]
+        ],
+        [
+          [
+            "op:CellType",
+            "C36825"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C155863"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C207031"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C41457"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C43574"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47804"
+          ]
+        ],
+        [
+          [
+            "op:ClinicalFinding",
+            "C47807"
+          ]
+        ],
+        [
+          [
+            "op:MolecularAbnormality",
+            "C129702"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C3879"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C33782"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12400"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -8017,6 +8665,7 @@
               "C12704"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8058,6 +8707,7 @@
               "C12705"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8091,6 +8741,7 @@
               "C13063"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8124,6 +8775,7 @@
               "C36825"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8157,6 +8809,7 @@
               "C155863"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8190,6 +8843,7 @@
               "C207031"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8223,6 +8877,7 @@
               "C41457"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8256,6 +8911,7 @@
               "C43574"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8289,6 +8945,7 @@
               "C47804"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8322,6 +8979,7 @@
               "C47807"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8355,6 +9013,7 @@
               "C129702"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8388,6 +9047,7 @@
               "C3879"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8419,6 +9079,7 @@
               "C33782"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8452,6 +9113,7 @@
               "C12400"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8489,14 +9151,15 @@
               "C27970"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "6c10d88c6cbbc34033ce60d4462d92e55dc1f54b81f08cb6a0333dbdd9602260",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
           "machine_policy_identity": null,
-          "normalized_group_id": "9e8be35b436c89fa3a26af0eed1f7049a8a68093bca0e7674a7034f97a7fff11",
-          "normalized_group_label": "reviewed-regrouping:C6135:9e8be35b436c",
+          "normalized_group_id": "2549fbc65fa2d2a112e20053549ab467b5a779f8b3f0fc614643ce0965c040d5",
+          "normalized_group_label": "reviewed-regrouping:C6135:2549fbc65fa2",
           "source_fact_ids": [
             "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022",
             "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
@@ -8530,6 +9193,7 @@
               "MINT-8512b41a844d"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8554,32 +9218,12 @@
         "rationale": "A source-reproducible correction is required because omitting the specific cell type, anatomical region, and clinical \nfindings strips the disease of its defining histological identity—most critically, its \"medullary\" (parafollicular \nC-cell) origin, which behaves and is staged completely differently from other thyroid cancers. Furthermore, the stage \nresult (Stage III) must remain logically bound to the staging method (AJCC v7). Because AJCC v7 applies entirely \ndistinct staging criteria for medullary thyroid carcinoma compared to differentiated thyroid subtypes, decoupling \nthe stage value from its evaluation framework destroys the essential clinical context that this severity grade is \ndefined by those exact histology-specific rules.",
         "rationale_sha256": "6a2f7f28c2ad395d980d0b14f35c29d35f5dc079ac45f3f11719030e19530af7"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "4b0eb02ce9dfdb7bb18e491493adf49b04ec94075067712a516ac873db76aaa3",
-        "supersedes_review_row_identity": "92006fd0ebb0f34627f2eea81351a6e07a7430e0f601d7afab5e36e7d3aafa26",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C90530"
-          ],
-          [
-            "op:StageValue",
-            "C27970"
-          ]
-        ],
-        "grouping_decision_identity": "6c10d88c6cbbc34033ce60d4462d92e55dc1f54b81f08cb6a0333dbdd9602260",
-        "decision_identity": "2721cea13001fd10501706b5b5b5dcf959d0e0f1f3e9e59d4c8a3beb07820d54"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "a8ccd5cf4b7ca46f766c200a2fd81a50d163c18d0dc3417b5417c53ebd9ad501"
+      "row_identity": "558c60fcd8db8a231fd79e2d1ab5589b08553c5a01d845876b53aebee74f4cd2"
     },
     {
       "concept_code": "C89995",
@@ -8606,6 +9250,42 @@
         ]
       ],
       "reviewed_partition": [
+        [
+          [
+            "op:StageSystem",
+            "C90530"
+          ],
+          [
+            "op:StageValue",
+            "C27970"
+          ]
+        ]
+      ],
+      "historical_expected_partition": [
+        [
+          [
+            "op:AssociatedRegion",
+            "C54189"
+          ]
+        ],
+        [
+          [
+            "op:Morphology",
+            "C4910"
+          ]
+        ],
+        [
+          [
+            "op:NormalTissueOrigin",
+            "C32926"
+          ]
+        ],
+        [
+          [
+            "op:PrimarySite",
+            "C12382"
+          ]
+        ],
         [
           [
             "op:StageSystem",
@@ -8903,6 +9583,7 @@
               "C54189"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8936,6 +9617,7 @@
               "C36753"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -8969,6 +9651,7 @@
               "C2955"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -9007,6 +9690,7 @@
               "C4910"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -9038,6 +9722,7 @@
               "C32926"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -9071,6 +9756,7 @@
               "C12382"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -9108,14 +9794,15 @@
               "C27970"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "reviewed-regrouping"
           ],
-          "decision_regime": "current-owner-decision",
-          "human_decision_identity": "8ac7e5d4c73aa3d0b1ddc11e31500d09b83a3a7eb7aa147225dc342141af983e",
+          "decision_regime": "historical-approval",
+          "human_decision_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
           "machine_policy_identity": null,
-          "normalized_group_id": "542dfe533ddb1a20f627dbd4b31b39f5df31381687cbb06ec5967be5ec36b53e",
-          "normalized_group_label": "reviewed-regrouping:C89995:542dfe533ddb",
+          "normalized_group_id": "d8878121ddff72956996e30278367b3107c8d07b67a9221c9ef7b605c1441bf7",
+          "normalized_group_label": "reviewed-regrouping:C89995:d8878121ddff",
           "source_fact_ids": [
             "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01",
             "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
@@ -9149,6 +9836,7 @@
               "MINT-8512b41a844d"
             ]
           ],
+          "grouping_status": "decided",
           "transformation_rules": [
             "co-assertion-preservation"
           ],
@@ -9173,32 +9861,12 @@
         "rationale": "A source-reproducible correction is required to remove the unsupported morphology pair (C2955), which inappropriately \ninjects specific morphological constraints not stated in the broader \"Colon Cancer\" source concept. Additionally, \nwhile the staging method (AJCC v7) and stage result (Stage III) may be modeled as distinct attributes, their logical \nco-membership to the exact same evaluation event must be preserved. Breaking this semantic dependency strips the \nseverity grade of its defining criteria, risking clinical misinterpretation of the stage value outside its strict \nv7 rules.",
         "rationale_sha256": "624632d397bbbbf4e2f56a4614e91797326e76d47c37e71987fcc3c95c2c4886"
       },
-      "current_decision": {
-        "authority_identifier": "project-owner-current-conversation",
-        "decision_date": "2026-09-14",
-        "decision": "activate-reviewed-normalized-group-policy",
-        "basis_packet_identity": "215a4dc836fc98697b97c853d2b89e9a67f5861332e60a61d94b3cc1fdd077a7",
-        "basis_source_evidence_identity": "08f34712ce50dd8f7d60527bbdabb1eec7db8553709d0eb7f974867966165f2d",
-        "supersedes_review_row_identity": "7ea4f131f1f945eb8fd43e9ff6d8645863655dd9a1c77ee161139ed5b13c89c7",
-        "decision_target_pair_set": [
-          [
-            "op:StageSystem",
-            "C90530"
-          ],
-          [
-            "op:StageValue",
-            "C27970"
-          ]
-        ],
-        "grouping_decision_identity": "8ac7e5d4c73aa3d0b1ddc11e31500d09b83a3a7eb7aa147225dc342141af983e",
-        "decision_identity": "2d432c25bba22de625672274aa3e1d082cbca13ae715c6ec99dbde3bef491cd1"
-      },
       "limitations": [
         "changes-normalized-grouping-only",
         "non-stage-pair-membership-drift-is-not-covered-by-reviewed-decision",
         "does-not-authorize-publication-or-ncit-adoption"
       ],
-      "row_identity": "d24a326dce6abb790c32f06183ec34d909e7af42d2dd7e0d095f824234a419c8"
+      "row_identity": "a6194b6f097754e2cefe83836258b1e0c0f351ed63da240e77293d864307f853"
     }
   ],
   "pair_only_codes": [
@@ -9206,5 +9874,5 @@
     "C198031",
     "C35756"
   ],
-  "policy_identity": "8cd6ceecaedf7ed57a95cc7f8e4a760e5d4e78e44237d514675f344bd5da8ed8"
+  "policy_identity": "9473d78cfe5ab735b5b5cc24fed1d8ae12ecf74ccebeb33bebe082da8ecced06"
 }

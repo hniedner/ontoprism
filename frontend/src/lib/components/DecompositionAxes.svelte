@@ -11,18 +11,27 @@
 
 	let { axes }: { axes: AxisGroup[] } = $props();
 
-	function normalizedBlocks(items: DecompositionConstituent[]) {
-		const blocks = new SvelteMap<string, DecompositionConstituent[]>();
-		for (const item of items) {
-			const key = item.normalized_group_id ?? `outside-policy:${item.filler}`;
-			blocks.set(key, [...(blocks.get(key) ?? []), item]);
+	interface DisplayConstituent {
+		axisLabel: string;
+		item: DecompositionConstituent;
+	}
+
+	function normalizedBlocks() {
+		const blocks = new SvelteMap<string, DisplayConstituent[]>();
+		for (const group of axes) {
+			for (const item of group.items) {
+				const key = item.normalized_group_id ?? `outside-policy:${item.axis}:${item.filler}`;
+				blocks.set(key, [...(blocks.get(key) ?? []), { axisLabel: group.label, item }]);
+			}
 		}
 		return [...blocks.values()];
 	}
 </script>
 
-{#snippet constituent(c: DecompositionConstituent)}
+{#snippet constituent(display: DisplayConstituent)}
+	{@const c = display.item}
 	<li class="flex items-center gap-2 text-sm">
+		<span class="font-mono text-xs uppercase tracking-wide text-muted">{display.axisLabel}</span>
 		<a
 			href={resolve('/repositories/ncit/[code]', { code: c.filler })}
 			class="min-w-0 truncate text-secondary no-underline hover:text-primary-600"
@@ -44,24 +53,24 @@
 	</li>
 {/snippet}
 
-{#snippet normalizedBlock(block: DecompositionConstituent[])}
-	{#if block[0].normalized_group_label}
-		<div class="text-xs font-medium text-muted">{block[0].normalized_group_label}</div>
+{#snippet normalizedBlock(block: DisplayConstituent[])}
+	{@const label = block[0].item.normalized_group_label}
+	<div role="group" aria-label={label ?? `Ungrouped ${block[0].axisLabel}`}>
+	{#if label}
+		<div class="text-xs font-medium text-muted">{label}</div>
 	{/if}
 	<ul class="flex flex-col gap-1">
-		{#each block as item (item.axis + item.filler)}
+		{#each block as item (item.item.axis + item.item.filler)}
 			{@render constituent(item)}
 		{/each}
 	</ul>
+	</div>
 {/snippet}
 
 <ul class="flex flex-col gap-3">
-	{#each axes as group (group.axis)}
+	{#each normalizedBlocks() as block (block[0].item.normalized_group_id ?? block[0].item.axis + block[0].item.filler)}
 		<li>
-			<div class="mb-1 font-mono text-xs uppercase tracking-wide text-muted">{group.label}</div>
-			{#each normalizedBlocks(group.items) as block (block[0].normalized_group_id ?? block[0].filler)}
-				{@render normalizedBlock(block)}
-			{/each}
+			{@render normalizedBlock(block)}
 		</li>
 	{/each}
 </ul>

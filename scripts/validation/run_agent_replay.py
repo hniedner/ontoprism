@@ -2351,6 +2351,31 @@ def _resolve_candidate_parent(
     return parent, manifest_path, binding
 
 
+def _parent_by_family(manifest: ArtifactManifest, family: str) -> ParentManifestBinding:
+    matches = tuple(parent for parent in manifest.parents if parent.family == family)
+    if len(matches) != 1:
+        raise AgentReplayInputError(
+            f"manifest requires exactly one {family} parent binding"
+        )
+    return matches[0]
+
+
+def _resolve_bound_parent(
+    binding: ParentManifestBinding, root: Path, *, expected_family: str
+) -> tuple[ArtifactManifest, Path]:
+    parent, path, resolved = _resolve_candidate_parent(
+        [
+            str(Path("tmp/artifacts/v1/generations") / binding.manifest_path),
+            binding.manifest_identity,
+        ],
+        root,
+        expected_family=expected_family,
+    )
+    if resolved != binding:
+        raise AgentReplayInputError(f"{expected_family} parent binding differs")
+    return parent, path
+
+
 def _bound_artifact_path(
     parent: ArtifactManifest, manifest_path: Path, relative: str
 ) -> Path:
@@ -2650,11 +2675,15 @@ def _generate_normalized_group_policy_candidate(
     if (
         len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
         or review.parents[0] != parent_binding
-        or review.parents[1].family != "m1-6-r101-conservation"
     ):
         raise AgentReplayInputError(
             "group-review candidate is not bound to the evidence and R101 candidates"
         )
+    r101_binding = _parent_by_family(review, "m1-6-r101-conservation")
+    r101, r101_path = _resolve_bound_parent(
+        r101_binding, root, expected_family="m1-6-r101-conservation"
+    )
+    _bound_artifact_path(r101, r101_path, "artifacts/conservation.json.gz")
     required = _require_files(
         root,
         (
@@ -2776,10 +2805,14 @@ def _generate_grouping_detector_candidate(
     if (
         len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
         or review.parents[0] != evidence_binding
-        or review.parents[1].family != "m1-6-r101-conservation"
         or policy.parents != (evidence_binding, review_binding)
     ):
         raise AgentReplayInputError("grouping detector parent chain differs")
+    r101_binding = _parent_by_family(review, "m1-6-r101-conservation")
+    r101, r101_path = _resolve_bound_parent(
+        r101_binding, root, expected_family="m1-6-r101-conservation"
+    )
+    _bound_artifact_path(r101, r101_path, "artifacts/conservation.json.gz")
     engine_evidence = _bound_artifact_path(
         evidence, evidence_path, "artifacts/engine-evidence.json"
     )
@@ -2887,7 +2920,6 @@ def _promote_normalized_group_policy_candidate(
     if (
         len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
         or review.parents[0] != evidence_binding
-        or review.parents[1].family != "m1-6-r101-conservation"
         or policy.parents
         != (
             evidence_binding,
@@ -2895,17 +2927,10 @@ def _promote_normalized_group_policy_candidate(
         )
     ):
         raise AgentReplayInputError("promotion candidate parent chain differs")
-    r101_binding = review.parents[1]
-    r101, r101_path, resolved_r101_binding = _resolve_candidate_parent(
-        [
-            str(Path("tmp/artifacts/v1/generations") / r101_binding.manifest_path),
-            r101_binding.manifest_identity,
-        ],
-        root,
-        expected_family="m1-6-r101-conservation",
+    r101_binding = _parent_by_family(review, "m1-6-r101-conservation")
+    r101, r101_path = _resolve_bound_parent(
+        r101_binding, root, expected_family="m1-6-r101-conservation"
     )
-    if resolved_r101_binding != r101_binding:
-        raise AgentReplayInputError("promotion R101 parent binding differs")
     candidates = (
         _bound_artifact_path(evidence, evidence_path, "artifacts/engine-evidence.json"),
         _bound_artifact_path(evidence, evidence_path, "artifacts/comparison.json"),
@@ -3374,24 +3399,35 @@ def _generate_pre_sme_readiness(
     detector, detector_path, _detector_binding = _resolve_candidate_parent(
         values, root, expected_family="m1-6-grouping-detector-candidate"
     )
-    if (
-        len(detector.parents) != _GROUPING_DETECTOR_PARENT_COUNT
-        or detector.parents[0].family != "m1-6-current-evidence-candidate"
-        or detector.parents[1].family != "m1-6-group-review-candidate"
-        or detector.parents[2].family != "m1-6-normalized-group-policy-candidate"
-    ):
+    if len(detector.parents) != _GROUPING_DETECTOR_PARENT_COUNT:
         raise AgentReplayInputError("pre-SME grouping detector parent chain differs")
-    review_binding = detector.parents[1]
-    review, review_path, resolved_review_binding = _resolve_candidate_parent(
-        [
-            str(Path("tmp/artifacts/v1/generations") / review_binding.manifest_path),
-            review_binding.manifest_identity,
-        ],
-        root,
-        expected_family="m1-6-group-review-candidate",
+    evidence_binding = _parent_by_family(detector, "m1-6-current-evidence-candidate")
+    review_binding = _parent_by_family(detector, "m1-6-group-review-candidate")
+    policy_binding = _parent_by_family(
+        detector, "m1-6-normalized-group-policy-candidate"
     )
-    if resolved_review_binding != review_binding:
-        raise AgentReplayInputError("pre-SME group-review parent binding differs")
+    evidence, evidence_path = _resolve_bound_parent(
+        evidence_binding, root, expected_family="m1-6-current-evidence-candidate"
+    )
+    review, review_path = _resolve_bound_parent(
+        review_binding, root, expected_family="m1-6-group-review-candidate"
+    )
+    policy, policy_path = _resolve_bound_parent(
+        policy_binding, root, expected_family="m1-6-normalized-group-policy-candidate"
+    )
+    if review.parents[0] != evidence_binding or policy.parents != (
+        evidence_binding,
+        review_binding,
+    ):
+        raise AgentReplayInputError("pre-SME transitive parent chain differs")
+    r101_binding = _parent_by_family(review, "m1-6-r101-conservation")
+    r101, r101_path = _resolve_bound_parent(
+        r101_binding, root, expected_family="m1-6-r101-conservation"
+    )
+    _bound_artifact_path(evidence, evidence_path, "artifacts/engine-evidence.json")
+    _bound_artifact_path(evidence, evidence_path, "artifacts/comparison.json")
+    _bound_artifact_path(policy, policy_path, "artifacts/normalized-group-policy.json")
+    _bound_artifact_path(r101, r101_path, "artifacts/conservation.json.gz")
     group_packet = _bound_artifact_path(
         review, review_path, "artifacts/group-review-packet.json"
     )

@@ -1607,6 +1607,19 @@ def generate_issue_274_detector_report(
     return report
 
 
+def _require_matching_issue_274_detector(
+    detector: Issue274DetectorReport,
+    violations: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]],
+) -> None:
+    detector_violations = (
+        detector.axis_contract_violations,
+        detector.normalized_group_violations,
+        detector.unadjudicated_golden_changes,
+    )
+    if detector_violations != violations:
+        raise PreSmeValidationError("Issue #274 detector violations differ")
+
+
 def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     *,
     source_manifest: Path,
@@ -1721,6 +1734,24 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     require_current_verify_evidence(gate.git_head, expected_git_head)
+    (
+        axis_contract_violations,
+        normalized_group_violations,
+        unadjudicated_golden_changes,
+    ) = _issue_274_semantic_violations(
+        evidence,
+        comparison,
+        normalized_group_policy,
+        group.packet_identity,
+    )
+    _require_matching_issue_274_detector(
+        issue_274_detector,
+        (
+            axis_contract_violations,
+            normalized_group_violations,
+            unadjudicated_golden_changes,
+        ),
+    )
     migration_history = {
         binding.kind: binding for binding in migration.historical_artifacts
     }
@@ -1869,16 +1900,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         raise PreSmeValidationError(
             f"R103 review count differs from {_R103_REVIEW_COUNT}"
         )
-    (
-        axis_contract_violations,
-        normalized_group_violations,
-        unadjudicated_golden_changes,
-    ) = _issue_274_semantic_violations(
-        evidence,
-        comparison,
-        normalized_group_policy,
-        group.packet_identity,
-    )
     try:
         inputs = MachineReadinessInputs(
             source_identity=manifest.source_identity,
