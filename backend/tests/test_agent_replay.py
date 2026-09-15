@@ -20,6 +20,8 @@ from scripts.validation.run_agent_replay import (
     run_agent_replay,
 )
 
+from ontolib.decomposition.run_artifacts import ArtifactManifest
+
 
 class _Runner:
     def __init__(self) -> None:
@@ -30,6 +32,46 @@ class _Runner:
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((arguments, kwargs))
         return subprocess.CompletedProcess(arguments, 0)
+
+
+def _publish_test_generation(
+    tmp_path: Path,
+    *,
+    family: str,
+    generation_id: str,
+    artifacts: dict[str, bytes],
+    parents: tuple[replay.ParentManifestBinding, ...] = (),
+    run_id: str | None = None,
+) -> tuple[ArtifactManifest, Path]:
+    sources: dict[str, Path] = {}
+    for relative, payload in artifacts.items():
+        source = tmp_path / "sources" / generation_id / Path(relative).name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(payload)
+        sources[relative] = source
+    manifest = replay.publish_generation(
+        artifacts_root=tmp_path / "tmp/artifacts/v1/generations",
+        family=family,
+        generation_id=generation_id,
+        run_id=run_id,
+        artifact_sources=sources,
+        parents=parents,
+        generator=replay.GeneratorBinding(identity="git:test", command=("test",)),
+        sources=(),
+        retention=replay.RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
+    )
+    path = (
+        tmp_path
+        / "tmp/artifacts/v1/generations"
+        / family
+        / generation_id
+        / "manifest.json"
+    )
+    return manifest, path
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -739,7 +781,11 @@ def _write_compose_inputs(root: Path, *, app: bool = False) -> None:
 
 
 @pytest.mark.unit
-def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) -> None:
+def test_current_replay_uses_only_the_documented_fixed_inputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for relative in (
         "scripts/decompose.py",
         "data/qlever-ncit/.ontoprism-ncit-candidate.json",
@@ -748,12 +794,26 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) ->
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
+    run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+
+    class ReplayRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            self.calls.append((arguments, kwargs))
+            output = Path(arguments[arguments.index("--out") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(f"<https://example.test/run/{run_id}> <p> <o> .\n")
+            return subprocess.CompletedProcess(arguments, 0, "", f"run={run_id}\n")
+
+    runner = ReplayRunner()
+    monkeypatch.setattr(replay, "_verify_persisted_replay", lambda *_: "source-id")
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
 
     assert run_agent_replay(["decompose-current"], tmp_path, runner=runner) == 0
 
     command, options = runner.calls[0]
-    assert command[1:] == [
+    assert command[1:-1] == [
         str(tmp_path / "scripts/decompose.py"),
         "--source-manifest",
         str(tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json"),
@@ -764,19 +824,103 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(tmp_path: Path) ->
         "--walker-max-depth",
         "7",
         "--out",
-        str(tmp_path / "tmp/m1-6-current-replay.ttl"),
     ]
+    output = Path(command[-1])
+    assert output.match(
+        "*/tmp/artifacts/v1/generations/m1-6-current-replay/.staging/*/decomposition.ttl"
+    )
+    assert "tmp/m1-6-current-replay.ttl" not in str(command)
+    generation = output.parents[2] / output.parent.name
+    manifest = json.loads((generation / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["run_id"] == run_id
+    assert (generation / ".complete").is_file()
+    report = json.loads(capsys.readouterr().out)
+    assert report["run_id"] == run_id
+    assert report["manifest_identity"] == manifest["manifest_identity"]
+    assert report["artifact_sha256"] == manifest["artifact_records"][0]["sha256"]
     assert options["shell"] is False
+    assert not output.parent.exists()
+
+    first_bytes = {
+        path.relative_to(generation): path.read_bytes()
+        for path in generation.rglob("*")
+        if path.is_file()
+    }
+    assert run_agent_replay(["decompose-current"], tmp_path, runner=runner) == 0
+    assert {
+        path.relative_to(generation): path.read_bytes()
+        for path in generation.rglob("*")
+        if path.is_file()
+    } == first_bytes
+    completed = [
+        path.parent for path in output.parents[2].glob("*/.complete") if path.is_file()
+    ]
+    assert len(completed) == 2
 
 
 @pytest.mark.unit
-def test_evidence_generation_requires_a_real_neoplasm_run_id(tmp_path: Path) -> None:
-    with pytest.raises(AgentReplayInputError, match="run ID"):
+@pytest.mark.parametrize("failure", ["subprocess", "publish"])
+def test_current_replay_removes_only_its_staging_directory_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    for relative in (
+        "scripts/decompose.py",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "samples/ncit-26.07d-m1-current-replay.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    family_root = tmp_path / "tmp/artifacts/v1/generations/m1-6-current-replay"
+    published = family_root / "published/artifact.ttl"
+    published.parent.mkdir(parents=True)
+    published.write_bytes(b"published")
+    generation_id = "00000000-0000-0000-0000-000000000334"
+    monkeypatch.setattr(
+        replay.importlib.import_module("uuid"), "uuid4", lambda: generation_id
+    )
+    run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+
+    class FailingRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            output = Path(arguments[arguments.index("--out") + 1])
+            output.write_text(f"<{run_id}> <p> <o> .\n", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                arguments, 7 if failure == "subprocess" else 0, "", ""
+            )
+
+    monkeypatch.setattr(replay, "_verify_persisted_replay", lambda *_: "source-id")
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
+    if failure == "publish":
+        monkeypatch.setattr(
+            replay,
+            "publish_generation",
+            lambda **_: (_ for _ in ()).throw(RuntimeError("publish failed")),
+        )
+        with pytest.raises(RuntimeError, match="publish failed"):
+            run_agent_replay(["decompose-current"], tmp_path, runner=FailingRunner())
+    else:
+        assert (
+            run_agent_replay(["decompose-current"], tmp_path, runner=FailingRunner())
+            == 7
+        )
+
+    assert not (family_root / ".staging" / generation_id).exists()
+    assert published.read_bytes() == b"published"
+
+
+@pytest.mark.unit
+def test_evidence_generation_requires_an_exact_parent_binding(tmp_path: Path) -> None:
+    with pytest.raises(AgentReplayInputError, match="parent manifest"):
         run_agent_replay(["generate-current-evidence", "guessed-run"], tmp_path)
 
 
 @pytest.mark.unit
-def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
+def test_evidence_generation_resolves_an_exact_parent_manifest(
     tmp_path: Path,
 ) -> None:
     fixed_inputs = (
@@ -786,17 +930,45 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
-        "tmp/m1-6-current-replay.ttl",
     )
     for relative in fixed_inputs:
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
     run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+    source = tmp_path / "source.ttl"
+    source.write_text(f"<{run_id}> <p> <o> .\n")
+    manifest = replay.publish_generation(
+        artifacts_root=tmp_path / "tmp/artifacts/v1/generations",
+        family="m1-6-current-replay",
+        generation_id="parent",
+        run_id=run_id,
+        artifact_sources={"artifacts/decomposition.ttl": source},
+        parents=(),
+        generator=replay.GeneratorBinding(identity="git:abc", command=("test",)),
+        sources=(),
+        retention=replay.RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
+    )
+    manifest_path = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-current-replay/parent/manifest.json"
+    )
+    runner = _Runner()
 
     assert (
-        run_agent_replay(["generate-current-evidence", run_id], tmp_path, runner=runner)
+        run_agent_replay(
+            [
+                "generate-current-evidence",
+                str(manifest_path.relative_to(tmp_path)),
+                manifest.manifest_identity,
+            ],
+            tmp_path,
+            runner=runner,
+        )
         == 0
     )
 
@@ -807,11 +979,16 @@ def test_evidence_generation_command_supplies_the_tracked_migration_envelope(
         / "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json"
     )
     assert command.count("--proposal-registry-migration") == 1
+    artifact_option = command.index("--artifact")
+    assert command[artifact_option + 1] == str(
+        manifest_path.parent / "artifacts/decomposition.ttl"
+    )
+    assert command[command.index("--run-id") + 1] == run_id
     assert options["shell"] is False
 
 
 @pytest.mark.unit
-def test_candidate_preflight_uses_only_fixed_tmp_outputs_without_mutating_inputs(
+def test_candidate_preflight_publishes_an_immutable_parent_bound_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixed_inputs = (
@@ -821,7 +998,6 @@ def test_candidate_preflight_uses_only_fixed_tmp_outputs_without_mutating_inputs
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
-        "tmp/m1-6-current-replay.ttl",
     )
     before: dict[Path, bytes] = {}
     for index, relative in enumerate(fixed_inputs):
@@ -830,32 +1006,63 @@ def test_candidate_preflight_uses_only_fixed_tmp_outputs_without_mutating_inputs
         path.write_bytes(f"fixed-input-{index}".encode())
         before[path] = path.read_bytes()
     sample = tmp_path / fixed_inputs[1]
-    artifact = tmp_path / fixed_inputs[-1]
+    artifact = tmp_path / "parent.ttl"
+    artifact.write_bytes(b"fixed-parent")
     monkeypatch.setattr(
         replay,
         "_CURRENT_REPLAY_SAMPLE_SHA256",
         hashlib.sha256(sample.read_bytes()).hexdigest(),
         raising=False,
     )
+    run_id = "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"
+    monkeypatch.setattr(replay, "_CURRENT_REPLAY_RUN_ID", run_id, raising=False)
     monkeypatch.setattr(
         replay,
         "_CURRENT_REPLAY_ARTIFACT_SHA256",
         hashlib.sha256(artifact.read_bytes()).hexdigest(),
         raising=False,
     )
-    monkeypatch.setattr(
-        replay,
-        "_CURRENT_REPLAY_RUN_ID",
-        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
-        raising=False,
+    parent = replay.publish_generation(
+        artifacts_root=tmp_path / "tmp/artifacts/v1/generations",
+        family="m1-6-current-replay",
+        generation_id="parent",
+        run_id=run_id,
+        artifact_sources={"artifacts/decomposition.ttl": artifact},
+        parents=(),
+        generator=replay.GeneratorBinding(identity="git:parent", command=("test",)),
+        sources=(),
+        retention=replay.RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
     )
-    runner = _Runner()
+    parent_path = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-current-replay/parent/manifest.json"
+    )
+
+    class ProducingRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            for option, payload in (
+                ("--engine-output", b"new-evidence"),
+                ("--comparison-output", b"new-comparison"),
+            ):
+                Path(arguments[arguments.index(option) + 1]).write_bytes(payload)
+            return result
+
+    runner = ProducingRunner()
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
 
     assert (
         run_agent_replay(
             [
                 "generate-current-evidence-candidate",
-                "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+                str(parent_path.relative_to(tmp_path)),
+                parent.manifest_identity,
             ],
             tmp_path,
             runner=runner,
@@ -864,19 +1071,43 @@ def test_candidate_preflight_uses_only_fixed_tmp_outputs_without_mutating_inputs
     )
 
     command, options = runner.calls[0]
-    assert command[command.index("--engine-output") + 1] == str(
-        tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
+    assert command[command.index("--artifact") + 1] == str(
+        parent_path.parent / "artifacts/decomposition.ttl"
     )
-    assert command[command.index("--comparison-output") + 1] == str(
-        tmp_path / "tmp/m1-6-current-comparison-candidate.json"
-    )
+    assert command[command.index("--run-id") + 1] == run_id
+    assert ".producer-staging" in command[command.index("--engine-output") + 1]
+    assert ".producer-staging" in command[command.index("--comparison-output") + 1]
     assert not any("golden/neoplasm-current-" in value for value in command)
     assert options["shell"] is False
     assert {path: path.read_bytes() for path in before} == before
 
+    manifests = list(
+        (
+            tmp_path / "tmp/artifacts/v1/generations/m1-6-current-evidence-candidate"
+        ).glob("*/manifest.json")
+    )
+    assert len(manifests) == 1
+    candidate = replay.resolve_parent_manifest(manifests[0])
+    assert candidate.parents == (
+        replay.ParentManifestBinding(
+            family=parent.family,
+            generation_id=parent.generation_id,
+            manifest_path=parent_path.relative_to(
+                tmp_path / "tmp/artifacts/v1/generations"
+            ).as_posix(),
+            manifest_identity=parent.manifest_identity,
+        ),
+    )
+    assert [record.relative_path for record in candidate.artifact_records] == [
+        "artifacts/engine-evidence.json",
+        "artifacts/comparison.json",
+    ]
+    assert not (tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json").exists()
+    assert not (tmp_path / "tmp/m1-6-current-comparison-candidate.json").exists()
+
 
 @pytest.mark.unit
-def test_candidate_preflight_refuses_wrong_run_sample_artifact_and_symlink(
+def test_candidate_preflight_refuses_missing_or_wrong_parent_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for relative in (
@@ -886,88 +1117,181 @@ def test_candidate_preflight_refuses_wrong_run_sample_artifact_and_symlink(
         "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
         "ontolib/tests/decomposition/golden/proposal-registry.json",
         "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
-        "tmp/m1-6-current-replay.ttl",
     ):
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"fixed")
-    run_id = "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"
-    monkeypatch.setattr(replay, "_CURRENT_REPLAY_RUN_ID", run_id, raising=False)
-    monkeypatch.setattr(
-        replay,
-        "_CURRENT_REPLAY_SAMPLE_SHA256",
-        hashlib.sha256(b"fixed").hexdigest(),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        replay,
-        "_CURRENT_REPLAY_ARTIFACT_SHA256",
-        hashlib.sha256(b"fixed").hexdigest(),
-        raising=False,
-    )
-
-    with pytest.raises(AgentReplayInputError, match="bounded run"):
+    del monkeypatch
+    with pytest.raises(AgentReplayInputError, match="parent manifest"):
+        run_agent_replay(["generate-current-evidence-candidate"], tmp_path)
+    with pytest.raises(AgentReplayInputError, match="parent manifest"):
         run_agent_replay(
-            [
-                "generate-current-evidence-candidate",
-                "neoplasm-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            ],
+            ["generate-current-evidence-candidate", "missing/manifest.json", "0" * 64],
             tmp_path,
         )
-    (tmp_path / "samples/ncit-26.07d-m1-current-replay.json").write_bytes(b"wrong")
-    with pytest.raises(AgentReplayInputError, match="sample manifest digest"):
-        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
-    (tmp_path / "samples/ncit-26.07d-m1-current-replay.json").write_bytes(b"fixed")
-    (tmp_path / "tmp/m1-6-current-replay.ttl").write_bytes(b"wrong")
-    with pytest.raises(AgentReplayInputError, match="artifact digest"):
-        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
-    (tmp_path / "tmp/m1-6-current-replay.ttl").write_bytes(b"fixed")
-    candidate = tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
-    candidate.symlink_to(tmp_path / "outside.json")
-    with pytest.raises(AgentReplayInputError, match="symlink"):
-        run_agent_replay(["generate-current-evidence-candidate", run_id], tmp_path)
 
 
 @pytest.mark.unit
-def test_group_review_candidate_consumes_candidate_inputs_only(tmp_path: Path) -> None:
+def test_group_review_candidate_consumes_candidate_inputs_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for relative in (
         "scripts/adjudication.py",
-        "tmp/m1-6-current-engine-evidence-candidate.json",
-        "tmp/m1-6-current-comparison-candidate.json",
         "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
     ):
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    runner = _Runner()
+    evidence_manifest, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": b"evidence",
+            "artifacts/comparison.json": b"comparison",
+        },
+    )
+
+    class ProducingRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            for option in (
+                "--output",
+                "--workbook",
+                "--correction-audit",
+                "--blank-validation",
+            ):
+                Path(arguments[arguments.index(option) + 1]).write_bytes(
+                    option.encode()
+                )
+            return result
+
+    runner = ProducingRunner()
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
 
     assert (
         run_agent_replay(
-            ["generate-group-review-rev2-candidate"], tmp_path, runner=runner
+            [
+                "generate-group-review-rev2-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence_manifest.manifest_identity,
+            ],
+            tmp_path,
+            runner=runner,
         )
         == 0
     )
 
     command = runner.calls[0][0]
     assert command[command.index("--current-evidence") + 1] == str(
-        tmp_path / "tmp/m1-6-current-engine-evidence-candidate.json"
+        evidence_path.parent / "artifacts/engine-evidence.json"
     )
     assert command[command.index("--current-comparison") + 1] == str(
-        tmp_path / "tmp/m1-6-current-comparison-candidate.json"
+        evidence_path.parent / "artifacts/comparison.json"
     )
     assert not any("golden/neoplasm-current-" in value for value in command)
-    assert str(tmp_path / "tmp/m1-6-group-review-packet-rev2.json") in command
+    manifests = list(
+        (tmp_path / "tmp/artifacts/v1/generations/m1-6-group-review-candidate").glob(
+            "*/manifest.json"
+        )
+    )
+    assert len(manifests) == 1
+    assert replay.resolve_parent_manifest(manifests[0]).parents[
+        0
+    ].manifest_identity == (evidence_manifest.manifest_identity)
+
+
+@pytest.mark.unit
+def test_normalized_group_candidate_is_immutable_and_parent_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for relative in (
+        "evidence/group-review-packet-26.07d-schema3.json",
+        "evidence/group-review-rationale-26.07d.md",
+        "evidence/group-review-rationale-26.07d.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(relative.encode())
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": b"evidence",
+            "artifacts/comparison.json": b"comparison",
+        },
+    )
+    real_import = replay.importlib.import_module
+
+    def fake_import(name: str):
+        if name == "scripts.research.normalized_group_policy":
+            return SimpleNamespace(
+                generate_active_normalized_group_policy=lambda **kwargs: kwargs[
+                    "output"
+                ].write_bytes(b"policy")
+            )
+        return real_import(name)
+
+    monkeypatch.setattr(replay.importlib, "import_module", fake_import)
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
+
+    assert (
+        run_agent_replay(
+            [
+                "generate-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+            ],
+            tmp_path,
+        )
+        == 0
+    )
+    manifests = list(
+        (
+            tmp_path
+            / "tmp/artifacts/v1/generations/m1-6-normalized-group-policy-candidate"
+        ).glob("*/manifest.json")
+    )
+    assert len(manifests) == 1
+    candidate = replay.resolve_parent_manifest(manifests[0])
+    assert candidate.parents[0].manifest_identity == evidence.manifest_identity
+    assert candidate.artifact_records[0].relative_path == (
+        "artifacts/normalized-group-policy.json"
+    )
+    assert not (tmp_path / "tmp/m1-6-normalized-group-policy-candidate.json").exists()
 
 
 @pytest.mark.unit
 def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    candidates = {
-        "tmp/m1-6-current-engine-evidence-candidate.json": b"new-evidence",
-        "tmp/m1-6-current-comparison-candidate.json": b"new-comparison",
-        "tmp/m1-6-normalized-group-policy-candidate.json": b"new-policy",
-    }
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": b"new-evidence",
+            "artifacts/comparison.json": b"new-comparison",
+        },
+    )
+    evidence_binding = replay.ParentManifestBinding(
+        family=evidence.family,
+        generation_id=evidence.generation_id,
+        manifest_path=evidence_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=evidence.manifest_identity,
+    )
+    policy, policy_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-normalized-group-policy-candidate",
+        generation_id="policy",
+        artifacts={"artifacts/normalized-group-policy.json": b"new-policy"},
+        parents=(evidence_binding,),
+    )
     targets = {
         "ontolib/tests/decomposition/golden/"
         "neoplasm-current-engine-evidence.json": b"old-evidence",
@@ -976,7 +1300,7 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
         "ontolib/src/ontolib/decomposition/data/"
         "normalized-group-policy.json": b"old-policy",
     }
-    for relative, payload in (candidates | targets).items():
+    for relative, payload in targets.items():
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
@@ -1003,11 +1327,115 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
     monkeypatch.setattr(replay.importlib, "import_module", fake_import)
 
     assert (
-        run_agent_replay(["promote-normalized-group-policy-candidate"], tmp_path) == 0
+        run_agent_replay(
+            [
+                "promote-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+            ],
+            tmp_path,
+        )
+        == 0
     )
-    assert [path.read_bytes() for path in map(tmp_path.__truediv__, targets)] == list(
-        candidates.values()
+    assert [path.read_bytes() for path in map(tmp_path.__truediv__, targets)] == [
+        b"new-evidence",
+        b"new-comparison",
+        b"new-policy",
+    ]
+
+
+def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = (
+        (
+            "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
+            "tmp/m1-6-current-full-corpus.ttl",
+            b"current",
+        ),
+        (
+            "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
+            "../m1-6-prechange-v4-full-corpus.ttl",
+            b"prechange",
+        ),
     )
+    records: list[dict[str, object]] = []
+    before: dict[Path, bytes] = {}
+    for run_id, persisted_path, payload in runs:
+        name = (
+            "m1-6-current-full-corpus.ttl"
+            if payload == b"current"
+            else "m1-6-prechange-v4-full-corpus.ttl"
+        )
+        artifact = tmp_path / "tmp" / name
+        artifact.parent.mkdir(exist_ok=True)
+        artifact.write_bytes(payload + run_id.encode())
+        before[artifact] = artifact.read_bytes()
+        records.append(
+            {
+                "run_id": run_id,
+                "status": "complete",
+                "source_identity": "ncit-source",
+                "representation_identity": hashlib.sha256(
+                    artifact.read_bytes()
+                ).hexdigest(),
+                "publication_artifact_path": persisted_path,
+            }
+        )
+
+    async def inspect(*_: object) -> list[dict[str, object]]:
+        return records
+
+    monkeypatch.setattr(replay, "_inspect_decomposition_runs_async", inspect)
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:abc")
+
+    unavailable_path = (
+        tmp_path / "tmp/artifacts/v1/unavailable/"
+        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
+    )
+    stale = replay.ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        expected_sha256="4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d",
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    replay.write_unavailable_record(unavailable_path, stale)
+    stale_bytes = unavailable_path.read_bytes()
+
+    assert run_agent_replay(["record-artifact-registry"], tmp_path) == 0
+
+    assert all(path.read_bytes() == content for path, content in before.items())
+    sidecars = list((tmp_path / "tmp/artifacts/v1/legacy-in-place").glob("*.json"))
+    assert len(sidecars) == 2
+    unavailable = json.loads((unavailable_path).read_text(encoding="utf-8"))
+    assert unavailable["record_type"] == "unavailable-artifact"
+    assert unavailable["reason"] == "overwritten-before-immutable-retention"
+    assert unavailable["references"] == [
+        "tmp/m1-6-normalized-group-policy-candidate.json",
+        "tmp/m1-6-group-review-pre274-observations.json",
+    ]
+    assert "artifact_records" not in unavailable
+    audits = list((unavailable_path.parent / "superseded").glob("*.json"))
+    assert len(audits) == 1
+    assert audits[0].read_bytes() == stale_bytes
+
+    sidecar_bytes = {path: path.read_bytes() for path in sidecars}
+    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:later")
+    assert run_agent_replay(["record-artifact-registry"], tmp_path) == 0
+    assert {path: path.read_bytes() for path in sidecars} == sidecar_bytes
+    assert (
+        unavailable_path.read_bytes()
+        == (
+            json.dumps(unavailable, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+    )
+    assert audits[0].read_bytes() == stale_bytes
 
 
 @pytest.mark.unit

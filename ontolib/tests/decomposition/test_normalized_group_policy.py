@@ -204,6 +204,14 @@ def test_policy_block_and_decision_identities_fail_closed() -> None:
     with pytest.raises(ValueError, match="presence differs"):
         PolicyBlock.model_validate(block_payload)
 
+    singleton = next(
+        block for row in policy.rows for block in row.blocks if len(block.pairs) == 1
+    )
+    singleton_payload = singleton.model_dump()
+    singleton_payload["normalized_group_id"] = "0" * 64
+    with pytest.raises(ValueError, match="presence differs"):
+        PolicyBlock.model_validate(singleton_payload)
+
     decision = next(row.current_decision for row in policy.rows if row.current_decision)
     decision_payload = decision.model_dump()
     decision_payload["decision_identity"] = "0" * 64
