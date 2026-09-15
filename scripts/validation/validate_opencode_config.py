@@ -192,6 +192,7 @@ ORCHESTRATOR_MERGE_DENIES = tuple(
 ORCHESTRATOR_BASH_ALLOWS += (
     *SAFE_WORKTREE_DIFF,
     "pdm run agent-test *",
+    "pdm run agent-replay decompose-current-resume *",
     "pdm run lint",
 )
 READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION

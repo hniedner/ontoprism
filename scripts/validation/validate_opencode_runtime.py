@@ -338,6 +338,11 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ("uname -a", "ask"),
             ("pdm run agent-github issue-close 4", "allow"),
             ("pdm run agent-github issue-delete 4", "deny"),
+            (
+                "pdm run agent-replay decompose-current-resume "
+                "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
+                "allow",
+            ),
         )
     if name in SPECIALIST_ROLES - {"pr-test-analyzer"}:
         return (

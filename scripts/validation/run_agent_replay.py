@@ -112,6 +112,7 @@ _GROUPING_DETECTOR_PARENT_COUNT = 3
 _CURRENT_REPLAY_SAMPLE_SHA256 = (
     "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
 )
+_CURRENT_REPLAY_WORK_ITEM_COUNT = 20
 
 
 class AgentReplayInputError(ValueError):
@@ -1879,9 +1880,121 @@ def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> 
             generation_id=generation_id,
             family_root=family_root,
             staging=staging,
+            resume_run_id=None,
         )
     finally:
         shutil.rmtree(staging)
+
+
+def _decompose_current_resume(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if len(values) != 1:
+        raise AgentReplayInputError(
+            "decompose-current-resume requires exactly one run ID"
+        )
+    run_id = values[0]
+    if _RUN_ID.fullmatch(run_id) is None:
+        raise AgentReplayInputError("invalid bounded decomposition run ID")
+    script, source, sample = _require_files(
+        root,
+        (
+            "scripts/decompose.py",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "samples/ncit-26.07d-m1-current-replay.json",
+        ),
+    )
+    _require_admissible_current_replay_resume(run_id, Path(source), Path(sample))
+    generation_id = str(importlib.import_module("uuid").uuid4())
+    family_root = root / "tmp/artifacts/v1/generations/m1-6-current-replay"
+    staging = family_root / ".staging" / generation_id
+    staging.mkdir(parents=True, exist_ok=False)
+    try:
+        return _decompose_current_staged(
+            root=root,
+            runner=runner,
+            script=script,
+            source=source,
+            sample=sample,
+            generation_id=generation_id,
+            family_root=family_root,
+            staging=staging,
+            resume_run_id=run_id,
+        )
+    finally:
+        shutil.rmtree(staging)
+
+
+def _require_admissible_current_replay_resume(
+    run_id: str, source_path: Path, sample_path: Path
+) -> None:
+    try:
+        source_payload = json.loads(source_path.read_bytes())
+        source_identity = source_payload["source_identity"]
+        sample = importlib.import_module(
+            "ontolib.decomposition.sampling"
+        ).load_sample_manifest(sample_path)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise AgentReplayInputError("fixed bounded replay inputs are invalid") from exc
+    if (
+        not isinstance(source_payload, dict)
+        or not isinstance(source_identity, str)
+        or _SHA256.fullmatch(source_identity) is None
+        or hashlib.sha256(sample_path.read_bytes()).hexdigest()
+        != _CURRENT_REPLAY_SAMPLE_SHA256
+        or sample.source_identity != source_identity
+        or sample.branch != "neoplasm"
+        or sample.scope_root != "C3262"
+        or len(sample.codes) != _CURRENT_REPLAY_WORK_ITEM_COUNT
+    ):
+        raise AgentReplayInputError("fixed bounded replay inputs are invalid")
+    worklist_identity = hashlib.sha256(
+        json.dumps(
+            sample.codes,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+    ).hexdigest()
+    records = asyncio.run(_inspect_decomposition_runs_async((run_id,)))
+    if len(records) != 1 or records[0].get("run_id") != run_id:
+        raise AgentReplayInputError("run is not an admissible bounded replay resume")
+    record = records[0]
+    fingerprint = record.get("fingerprint")
+    required_fingerprint = {
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": sample.scope_version,
+        "sample_manifest_identity": sample.identity,
+        "worklist_count": _CURRENT_REPLAY_WORK_ITEM_COUNT,
+        "worklist_identity": worklist_identity,
+        "total_limit": None,
+        "walker_max_depth": 7,
+        "output_mode": "file",
+        "load_mode": "none",
+    }
+    if (
+        record.get("status") != "complete"
+        or record.get("source_identity") != source_identity
+        or record.get("fingerprint_content_valid") is not True
+        or record.get("routing_state") != "match"
+        or record.get("stage_inventory_complete") is not True
+        or record.get("stage_state") != "complete"
+        or record.get("resume_compatible") is not True
+        or record.get("all_work_items_complete") is not True
+        or record.get("work_item_states")
+        != {"complete": _CURRENT_REPLAY_WORK_ITEM_COUNT}
+        or record.get("publication_state") != "published"
+        or not isinstance(record.get("representation_identity"), str)
+        or _SHA256.fullmatch(cast("str", record["representation_identity"])) is None
+        or not isinstance(record.get("publication_artifact_path"), str)
+        or not cast("str", record["publication_artifact_path"])
+        or not isinstance(fingerprint, dict)
+        or any(
+            fingerprint.get(key) != value for key, value in required_fingerprint.items()
+        )
+    ):
+        raise AgentReplayInputError("run is not an admissible bounded replay resume")
 
 
 def _decompose_current_staged(
@@ -1894,6 +2007,7 @@ def _decompose_current_staged(
     generation_id: str,
     family_root: Path,
     staging: Path,
+    resume_run_id: str | None,
 ) -> int:
     output = staging / "decomposition.ttl"
     command = [
@@ -1907,9 +2021,10 @@ def _decompose_current_staged(
         sample,
         "--walker-max-depth",
         "7",
-        "--out",
-        str(output),
     ]
+    if resume_run_id is not None:
+        command.extend(("--resume", resume_run_id))
+    command.extend(("--out", str(output)))
     result = runner(
         command,
         cwd=root,
@@ -1935,6 +2050,10 @@ def _decompose_current_staged(
             "bounded replay output does not bind exactly one run ID"
         )
     run_id = run_ids.pop()
+    if resume_run_id is not None and run_id != resume_run_id:
+        raise AgentReplayInputError(
+            "bounded replay output does not bind the requested run ID"
+        )
     source_identity = _verify_persisted_replay(run_id, output)
     manifest = publish_generation(
         artifacts_root=root / "tmp/artifacts/v1/generations",
@@ -1998,7 +2117,12 @@ def _git_head_identity(root: Path) -> str:
 
 def _verify_persisted_replay(run_id: str, artifact: Path) -> str:
     records = asyncio.run(_inspect_decomposition_runs_async((run_id,)))
-    if len(records) != 1 or records[0].get("status") != "complete":
+    if (
+        len(records) != 1
+        or records[0].get("run_id") != run_id
+        or records[0].get("status") != "complete"
+        or records[0].get("publication_state") != "published"
+    ):
         raise AgentReplayInputError("bounded replay run is not persisted as complete")
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     if records[0].get("representation_identity") != digest:
@@ -4657,6 +4781,7 @@ _OPERATIONS: dict[str, Operation] = {
     "consolidate-obsolete": _consolidate_obsolete,
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
+    "decompose-current-resume": _decompose_current_resume,
     "inspect-current-replay": _inspect_current_replay,
     "record-artifact-registry": _record_artifact_registry,
     "generate-current-evidence": _generate_current_evidence,

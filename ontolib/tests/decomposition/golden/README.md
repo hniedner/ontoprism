@@ -309,10 +309,23 @@ shell. Read the issue contract through the same narrow entry point:
 pdm run agent-replay read-issue 274
 ```
 
-Run creation remains a separate operation. After the exact current 20-code cohort has completed
-and its publication artifact exists, regenerate both current evidence artifacts with one command
-whose wrapper supplies the tracked sample, oracle, row decisions, schema-2 proposal registry,
-migration envelope, published Turtle path, and both output paths:
+Run creation remains a separate operation. A refused fresh run is never changed into an implicit
+resume. To reconstruct one already completed bounded run into a new immutable generation, supply
+its exact run ID:
+
+```bash
+pdm run agent-replay decompose-current-resume <exact-neoplasm-run-id>
+```
+
+The wrapper admits only the fixed 20-code current sample whose persisted source, fingerprint,
+routing identity, completed work and stages, file-only output mode, and publication are all exact.
+It passes no caller-controlled option or path to `scripts/decompose.py` and refuses rather than
+selecting another run.
+
+After the exact current 20-code cohort has completed and its publication artifact exists,
+regenerate both current evidence artifacts with one command whose wrapper supplies the tracked
+sample, oracle, row decisions, schema-2 proposal registry, migration envelope, published Turtle
+path, and both output paths:
 
 ```bash
 pdm run agent-replay generate-current-evidence \
