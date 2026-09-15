@@ -2532,47 +2532,6 @@ def _generate_axis_diagnostics(
     return _run(command, root, runner)
 
 
-def _generate_group_review_rev2(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if values:
-        raise AgentReplayInputError("generate-group-review-rev2 accepts no arguments")
-    script, evidence, comparison, r101_report = _require_files(
-        root,
-        (
-            "scripts/adjudication.py",
-            "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
-            "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
-            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
-        ),
-    )
-    return _run(
-        [
-            sys.executable,
-            script,
-            "generate-group-review-packet",
-            "--current-evidence",
-            evidence,
-            "--current-comparison",
-            comparison,
-            "--r101-report",
-            r101_report,
-            "--historical-r101-report",
-            r101_report,
-            "--output",
-            str(root / "tmp/m1-6-group-review-packet-rev2.json"),
-            "--workbook",
-            str(root / "tmp/m1-6-group-review-workbook-rev2.xlsx"),
-            "--correction-audit",
-            str(root / "tmp/m1-6-group-correction-audit-rev2.xlsx"),
-            "--blank-validation",
-            str(root / "tmp/m1-6-group-review-blank-validation-rev2.json"),
-        ],
-        root,
-        runner,
-    )
-
-
 def _generate_group_review_rev2_candidate(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -4649,7 +4608,6 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-grouping-detector-candidate": _generate_grouping_detector_candidate,
     "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
-    "generate-group-review-rev2": _generate_group_review_rev2,
     "generate-group-review-rev2-candidate": _generate_group_review_rev2_candidate,
     "generate-normalized-group-policy-candidate": (
         _generate_normalized_group_policy_candidate

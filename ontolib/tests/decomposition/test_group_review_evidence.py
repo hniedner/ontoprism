@@ -238,10 +238,10 @@ def test_evidence_docs_record_exact_governed_commands_and_open_status() -> None:
             "pdm run agent-replay generate-axis-diagnostics "
             "C35501 C12431 MINT-781c8c8c6096" in text
         )
-        assert "pdm run agent-replay generate-group-review-rev2" in text
+        assert "\npdm run agent-replay generate-group-review-rev2\n" not in text
         assert "evidence/group-review-packet-26.07d-schema3.json" in text
         assert "historical" in text.casefold()
-        assert "schema 4" in text
+        assert "schema-4" in text
         assert "transcribe-group-review-evidence" not in text
         assert "11 corrections" in text
         assert "4 escalations" in text

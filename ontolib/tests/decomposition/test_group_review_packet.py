@@ -949,17 +949,17 @@ def test_group_review_boundary_restores_every_output_after_generation_failure(
 
 
 @pytest.mark.unit
-def test_readme_gives_exact_group_post_sme_import_and_dry_run_commands() -> None:
+def test_readme_omits_superseded_fixed_tmp_group_review_instructions() -> None:
     readme = (_GOLDEN / "README.md").read_text(encoding="utf-8")
-    assert (
+    assert "### Group-review candidate" in readme
+    for obsolete in (
         "pdm run adjudication import-group-review --packet "
         "tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx "
         "tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output "
-        "tmp/m1-6-group-review-decisions-rev2.json"
-    ) in readme
-    assert (
+        "tmp/m1-6-group-review-decisions-rev2.json",
         "pdm run adjudication dry-run-group-review --packet "
         "tmp/m1-6-group-review-packet-rev2.json --registry "
         "tmp/m1-6-group-review-decisions-rev2.json --output "
-        "tmp/m1-6-group-review-dry-run-rev2.json"
-    ) in readme
+        "tmp/m1-6-group-review-dry-run-rev2.json",
+    ):
+        assert obsolete not in readme

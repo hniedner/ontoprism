@@ -81,7 +81,7 @@ def test_issue_274_current_docs_name_only_observed_artifact_semantics() -> None:
     golden = _read("ontolib/tests/decomposition/golden/README.md")
     normalized_golden = " ".join(golden.split())
     assert "schema-5\n`tmp/m1-6-group-review-packet-rev2.json`" not in golden
-    assert "schema 4" in golden
+    assert "schema-4" in golden
     assert "detector manifest's parent bindings" in normalized_golden
 
     d87 = _decision_section(_read("docs/DECISIONS.md"), "D87")

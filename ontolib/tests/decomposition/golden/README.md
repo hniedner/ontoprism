@@ -366,22 +366,10 @@ erasure before persistence or current reporting.
 subclass scope rooted at C3262 (15,633 neoplasm concepts scanned). It is not an all-NCIt maximum.
 
 Generate the current axis diagnostics for the three explicit residual-detector branches (detected,
-not detected, and proposed filler absent from source), then the normalized-group machine packet and
-blank SME workbook:
+not detected, and proposed filler absent from source):
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review-rev2
-```
-
-The generated group workbook keeps all human fields blank. For pair-only rows, the SME must
-complete both `Pair Decision` and `Decision` with the same closed value; for grouping rows,
-`Decision` is required and an optional `Pair Decision` must agree. After the SME saves a reviewed
-copy, import it and run the write-free impact preview with these exact commands:
-
-```bash
-pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output tmp/m1-6-group-review-decisions-rev2.json
-pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet-rev2.json --registry tmp/m1-6-group-review-decisions-rev2.json --output tmp/m1-6-group-review-dry-run-rev2.json
 ```
 
 The active normalized-group policy covers each current output pair with exact source-fact evidence.
@@ -395,26 +383,23 @@ The tracked historical admission preserves the completed Markdown verbatim at
 `evidence/group-review-rationale-26.07d.md`; its JSON sidecar is digest/operational binding only,
 and `evidence/group-review-packet-26.07d-schema3.json` preserves the exact schema-3 machine context.
 Schema 3 did not distinguish scoreable release-bound pairs from review-bearing emitted pairs, so
-the old review is historical context rather than an active decision registry. Generate fresh
-schema-4 diagnostics and a blank schema 4 review boundary instead of transcribing it:
+the old review is historical context rather than an active decision registry. Generate fresh axis
+diagnostics instead of transcribing it. The immutable candidate chain supplies the blank schema-4
+review boundary.
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review-rev2
 ```
 
 The historical record contains 11 corrections and 4 escalations. The scoped current policy resolves
 the #274 normalized-group targets without treating historical context as current authorization.
 The broader total-delta classification remains open under #127 and publication remains unauthorized.
 
-### Group-review generation
+### Group-review candidate
 
-The group-review generation writes `tmp/m1-6-axis-diagnostics-rev2.json`,
-`tmp/m1-6-group-review-packet-rev2.json`, `tmp/m1-6-group-review-workbook-rev2.xlsx`,
-`tmp/m1-6-group-correction-audit-rev2.xlsx`, and
-`tmp/m1-6-group-review-blank-validation-rev2.json`; all are gitignored diagnostic/review artifacts.
-The workbook leaves Pair Decision, Decision, Rationale, Reviewer, and Date blank, so generation
-records no SME adjudication (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
+The immutable group-review candidate contains the packet, workbook, pair-relation audit, and blank
+validation. The workbook leaves Pair Decision, Decision, Rationale, Reviewer, and Date blank, so
+candidate generation records no SME adjudication.
 
 The group-review rule-evidence audit is deliberately narrow:
 
@@ -426,9 +411,8 @@ The group-review rule-evidence audit is deliberately narrow:
 | repeated pairs | `generate_current_evidence()` → the complete `CurrentConstituent.source_occurrences` set for one normalized axis/filler pair |
 | reviewed regrouping | `validate_current_comparison()` → current/expected partitions and grouping diagnosis, joined to current source occurrences and output groups; the historical expected partition is explicitly labelled as lacking source citations |
 
-The packet and workbook are generated from exactly the tracked current evidence, tracked current
-comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
-execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
+The candidate resolves its current evidence, current comparison, and R101 conservation report from
+the exact parent manifests. `run_agent_replay.py` checks those parent identities before generation.
 
 ### R103 manual SME review boundary (#294)
 
@@ -584,7 +568,7 @@ by its prior terminal decision; only the C2860 specificity question is pending. 
 human-selected review state satisfies that one requirement while retaining the same source,
 target, and candidate evidence identities.
 
-The schema 4 operation resolves the exact group-review packet through the detector manifest's parent
+The operation resolves the exact schema-4 group-review packet through the detector manifest's parent
 bindings instead of a mutable fixed `tmp/` packet path. It validates all remaining fixed input
 identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,
