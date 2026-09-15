@@ -1254,10 +1254,10 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50"
+    assert evidence.run_id == "neoplasm-9d3614c4-5f32-4178-aeaf-756e716d77f9"
     assert evidence.walker_max_depth == 7
     assert evidence.representation_identity == (
-        "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427"
+        "84d6d482499881d3d9bd465ea9560f61e704fa23c8b3b5dc62387278c627f56d"
     )
     assert comparison.metrics.exact_pair_precision.model_dump() == {
         "numerator": 111,

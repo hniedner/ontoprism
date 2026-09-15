@@ -216,6 +216,8 @@ class _CurrentEvidenceArgs(Protocol):
     proposal_registry_migration: Path
     run_id: str
     artifact: Path
+    artifact_manifest: Path | None
+    artifact_manifest_identity: str | None
     engine_output: Path
     comparison_output: Path
 
@@ -499,6 +501,8 @@ async def _generate_current(args: _CurrentEvidenceArgs) -> None:
             proposal_registry_migration=args.proposal_registry_migration,
             run_id=args.run_id,
             artifact=args.artifact,
+            artifact_manifest=args.artifact_manifest,
+            artifact_manifest_identity=args.artifact_manifest_identity,
             engine_output=args.engine_output,
             comparison_output=args.comparison_output,
             store=ProvenanceStore(make_sessionmaker(engine)),
@@ -1076,6 +1080,8 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
     current_parser.add_argument("--run-id", required=True)
     current_parser.add_argument("--artifact", required=True, type=Path)
+    current_parser.add_argument("--artifact-manifest", type=Path)
+    current_parser.add_argument("--artifact-manifest-identity")
     current_parser.add_argument("--engine-output", required=True, type=Path)
     current_parser.add_argument("--comparison-output", required=True, type=Path)
     axis_parser = subparsers.add_parser("generate-axis-diagnostics")

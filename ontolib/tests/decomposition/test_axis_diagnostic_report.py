@@ -422,7 +422,7 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     }
     assert (
         report.report_identity
-        == "dd1e741f5fb073ac84a9f31bf1b1d93be6b6348ac2e52b96c55603dfe205fc9f"
+        == "a19c7c2e20fff8d4a9c5bec9e537c5b3b82666db3012c39371f9e811c6d50431"
     )
     assert report.residual_diagnostics["C35501"].status == "detected"
     invalid = [
@@ -469,8 +469,8 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
         and row.verdict.status == "invalid"
     ]
     assert Counter(row.group_delta for row in report.revise_rows) == {
-        "unchanged": 13,
-        "changed": 29,
+        "unchanged": 15,
+        "changed": 27,
     }
     assert all(path.read_bytes() == contents for path, contents in before.items())
 

@@ -37,6 +37,7 @@ from ontolib.decomposition.proposal_registry_migration import (
     load_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.publication import validate_artifact
+from ontolib.decomposition.run_artifacts import resolve_parent_manifest
 from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     load_sample_manifest,
@@ -1384,6 +1385,38 @@ def _write_outputs(
             Path(name).unlink(missing_ok=True)
 
 
+def _validate_artifact_binding(
+    artifact: Path,
+    run: CompletedRunForEvidence,
+    artifact_manifest: Path | None,
+    artifact_manifest_identity: str | None,
+) -> None:
+    if artifact.resolve() == Path(run.publication_artifact_path).resolve():
+        return
+    try:
+        if artifact_manifest is None or artifact_manifest_identity is None:
+            raise ValueError("immutable artifact manifest binding is absent")
+        immutable_parent = resolve_parent_manifest(
+            artifact_manifest, artifact_manifest_identity
+        )
+        bound_paths = {
+            (artifact_manifest.parent / record.relative_path).resolve()
+            for record in immutable_parent.artifact_records
+        }
+        if (
+            immutable_parent.run_id != run.run_id
+            or artifact.resolve() not in bound_paths
+        ):
+            raise ValueError(
+                "immutable artifact manifest does not bind supplied artifact"
+            )
+    except (OSError, ValueError) as exc:
+        raise CurrentEvidenceValidationError(
+            "supplied artifact path does not match persisted path or exact "
+            "immutable manifest"
+        ) from exc
+
+
 async def generate_current_evidence(
     *,
     sample_manifest: Path,
@@ -1396,6 +1429,8 @@ async def generate_current_evidence(
     engine_output: Path,
     comparison_output: Path,
     store: CurrentEvidenceStore,
+    artifact_manifest: Path | None = None,
+    artifact_manifest_identity: str | None = None,
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
     """Validate inputs, derive identities, then publish a pair with error rollback.
 
@@ -1461,10 +1496,9 @@ async def generate_current_evidence(
             "persisted run id does not match requested run id"
         )
     _require_run_matches_manifest(run, manifest)
-    if artifact.resolve() != Path(run.publication_artifact_path).resolve():
-        raise CurrentEvidenceValidationError(
-            "supplied artifact path does not match persisted publication artifact path"
-        )
+    _validate_artifact_binding(
+        artifact, run, artifact_manifest, artifact_manifest_identity
+    )
     outcomes = await store.work_item_outcomes(run_id)
     if tuple(item.concept_code for item in outcomes) != manifest.codes:
         raise CurrentEvidenceValidationError("work item outcomes do not match worklist")

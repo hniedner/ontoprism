@@ -673,6 +673,7 @@ async def _decompose_one(
     detector_identity: str,
     walker_max_depth: int = 5,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
+    enable_normalized_group_policy: bool = True,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
@@ -727,13 +728,14 @@ async def _decompose_one(
         complete_definition=definition,
         occurrence_dispositions=routed_selection.dispositions,
     )
-    active_group_policy = (
-        normalized_group_policy or load_packaged_normalized_group_policy()
-    )
-    if active_group_policy.source_identity == source_identity:
-        decomposition = apply_normalized_group_policy(
-            decomposition, active_group_policy
+    if enable_normalized_group_policy:
+        active_group_policy = (
+            normalized_group_policy or load_packaged_normalized_group_policy()
         )
+        if active_group_policy.source_identity == source_identity:
+            decomposition = apply_normalized_group_policy(
+                decomposition, active_group_policy
+            )
     return _CandidateResult(
         decomposition=decomposition,
         outcome="decomposed" if decomposition.constituents else "residual",

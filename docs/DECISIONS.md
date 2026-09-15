@@ -11,32 +11,54 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ### D87. Group correction is additive, source-bound, pair-preserving, and separately governed
 
-**Decision:** the 15 approved concept-level grouping corrections are a strict packaged policy,
-split into four source-evidence rules and eleven reviewed regrouping rules; the three pair-only
-concepts remain outside that policy (`pdm run agent-test
-ontolib/tests/decomposition/test_normalized_group_policy.py -v`, 2026-09-14: 4 passed). Runtime
-applies a row only after its exact concept pair inventory and source-definition/occurrence evidence
-match. The policy changes only `relationship_group`; it neither changes constituent pairs nor
-authorizes publication or NCI adoption.
+**Decision:** active grouping policy rows use the tracked schema-3 packet's actual partition as a
+`historical_observed_partition`; no output-derived diagnostic partition is decision evidence. The
+four source-evidence rows recompute their complete output partition by final axis and then by exact
+source group, anchor, and depth coordinates; genus rows retain exact fact/group/anchor/depth evidence
+without invented occurrences. Reviewed rows retain the historical reviewer, date, decision, and
+rationale, while current decisions identify only `project-owner-current-conversation` and
+`2026-09-14` (`pdm run agent-test ontolib/tests/decomposition/test_normalized_group_policy.py -v`,
+2026-09-15: 21 passed).
 
-The current decision provenance identifies `project-owner-current-conversation` on `2026-09-14`.
-It supersedes the two historical abstentions and activates the eight previously unapproved reviewed
-rows; the three historical approvals and every historical rationale remain unchanged. Each current
-decision binds pre-change packet identity
-`0f60c6f89c59624cf3e95685b3134fba8180f3bb312a1a03b99f8d949aea801f`
-(`grep -n basis_packet_identity
-ontolib/src/ontolib/decomposition/data/normalized-group-policy.json`, 2026-09-14).
+The unavailable prechange replay is represented only by an `unavailable_parent_binding`. Its durable
+record path, expected artifact digest, run ID, overwrite reason, canonical record identity, and exact
+record-byte digest are present in the policy; it is not an artifact manifest and does not supply
+prechange evidence, comparison, or packet bytes (`rg --no-ignore -n
+"unavailable_prechange_parent\|record_identity\|record_sha256\|expected_artifact_sha256"
+ontolib/src/ontolib/decomposition/data/normalized-group-policy.json`, 2026-09-15). The previously
+printed prechange evidence, comparison, and packet identities are not part of the active policy
+(`rg --no-ignore -n "prechange_evidence_identity\|prechange_comparison_identity\|prechange_packet_identity"
+ontolib/src/ontolib/decomposition/data/normalized-group-policy.json`, 2026-09-15: no matches).
 
-The bounded corrected replay is `neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50`; its tracked
-evidence identity is `d9925651dabd1e87be19e493b9adb05699bc7b80ae43336c1c1ffe250bd72c97`
-and comparison identity is `f0eb3088cf291b037d40c72e6d8100dab1512c2acdba6782352e97671d5ec3f8`
-(`grep -n evidence_identity
-ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json` and
-`grep -n comparison_identity
-ontolib/tests/decomposition/golden/neoplasm-current-comparison.json`, 2026-09-14). Exact pair
-precision remains 111/132 and recall remains 111/153, while every remaining review row is pair-only
-and agrees on common-pair grouping (`pdm run agent-test
-ontolib/tests/decomposition/test_group_review_packet.py -v`, 2026-09-14: 37 passed).
+The immutable bounded replay generation is
+`tmp/artifacts/v1/generations/m1-6-current-replay/4f6d35e8-3721-4f5c-8b52-c0dbe0d66506/manifest.json`,
+with run `neoplasm-9d3614c4-5f32-4178-aeaf-756e716d77f9`, artifact digest
+`84d6d482499881d3d9bd465ea9560f61e704fa23c8b3b5dc62387278c627f56d`, and manifest identity
+`8ab7a679c3184f20072f4f94d27dadef1fff6577f1f470cf23ff66ce87bef60c` (`pdm run agent-replay
+decompose-current`, 2026-09-15). Its immutable evidence candidate manifest is
+`f1ed98946c66f82df0dc2857c5ac53c4c4f802b496f912c77eec36bbe51018db` (`pdm run agent-replay
+generate-current-evidence-candidate tmp/artifacts/v1/generations/m1-6-current-replay/4f6d35e8-3721-4f5c-8b52-c0dbe0d66506/manifest.json
+8ab7a679c3184f20072f4f94d27dadef1fff6577f1f470cf23ff66ce87bef60c`, 2026-09-15). The group-review
+candidate manifest is `0ead5dd976d63e07b038a69204b25a003b478e81c35a52264b82d0be66a07beb`
+(`pdm run agent-replay generate-group-review-rev2-candidate
+tmp/artifacts/v1/generations/m1-6-current-evidence-candidate/34cc28d7-91d5-467f-8b39-34d87f07983d/manifest.json
+f1ed98946c66f82df0dc2857c5ac53c4c4f802b496f912c77eec36bbe51018db`, 2026-09-15). The policy
+candidate manifest is `c0bfdd6d5bec0ceec97170f25a095b6f2633c4e21d6882c44f4e017b537e9a3b`
+(`pdm run agent-replay generate-normalized-group-policy-candidate
+tmp/artifacts/v1/generations/m1-6-current-evidence-candidate/34cc28d7-91d5-467f-8b39-34d87f07983d/manifest.json
+f1ed98946c66f82df0dc2857c5ac53c4c4f802b496f912c77eec36bbe51018db
+tmp/artifacts/v1/generations/m1-6-group-review-candidate/2e561288-3616-4c01-8984-bf3d1dc43b36/manifest.json
+0ead5dd976d63e07b038a69204b25a003b478e81c35a52264b82d0be66a07beb`, 2026-09-15). The promoted
+evidence, comparison, current packet, and policy identities are respectively
+`42276acca8d8432c935de4ff3c23caf2b813786f0d2c1f7b9b74b0fc4c2a7f9c`,
+`46ff7df591a2372107ab81a2f98f72bfdc7bfe0b858e5c8dcb9ba923f50149b9`,
+`41a47c4ff3891728efffa9d8a4748edd2bfb9e6fa9abcf61f2564b472921d7e9`, and
+`b8840331b5b03433b095eefea239873926200068c88f6968dde714f72188e299` (`rg --no-ignore -n
+"evidence_identity\|comparison_identity\|packet_identity\|policy_identity"
+ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json
+ontolib/tests/decomposition/golden/neoplasm-current-comparison.json
+tmp/artifacts/v1/generations/m1-6-group-review-candidate/2e561288-3616-4c01-8984-bf3d1dc43b36/artifacts/group-review-packet.json
+ontolib/src/ontolib/decomposition/data/normalized-group-policy.json`, 2026-09-15).
 
 ## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
 

@@ -1132,6 +1132,39 @@ def test_candidate_preflight_refuses_missing_or_wrong_parent_binding(
 
 
 @pytest.mark.unit
+def test_unavailable_record_cannot_satisfy_required_candidate_manifest_parent(
+    tmp_path: Path,
+) -> None:
+    unavailable = tmp_path / "tmp/artifacts/v1/unavailable/prechange.json"
+    unavailable.parent.mkdir(parents=True)
+    unavailable.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "record_type": "unavailable-artifact",
+                "family": "m1-6-current-replay",
+                "run_id": "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+                "expected_sha256": "4" * 64,
+                "last_known_path": "tmp/m1-6-current-replay.ttl",
+                "reason": "overwritten-before-immutable-retention",
+                "references": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentReplayInputError, match="generation registry"):
+        run_agent_replay(
+            [
+                "generate-current-evidence-candidate",
+                str(unavailable.relative_to(tmp_path)),
+                "4" * 64,
+            ],
+            tmp_path,
+        )
+
+
+@pytest.mark.unit
 def test_group_review_candidate_consumes_candidate_inputs_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1224,6 +1257,27 @@ def test_normalized_group_candidate_is_immutable_and_parent_bound(
             "artifacts/comparison.json": b"comparison",
         },
     )
+    evidence_binding = replay.ParentManifestBinding(
+        family=evidence.family,
+        generation_id=evidence.generation_id,
+        manifest_path=evidence_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=evidence.manifest_identity,
+    )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="review",
+        artifacts={"artifacts/group-review-packet.json": b"packet"},
+        parents=(evidence_binding,),
+    )
+    unavailable = tmp_path / (
+        "tmp/artifacts/v1/unavailable/"
+        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
+    )
+    unavailable.parent.mkdir(parents=True, exist_ok=True)
+    unavailable.write_bytes(b"unavailable")
     real_import = replay.importlib.import_module
 
     def fake_import(name: str):
@@ -1244,6 +1298,8 @@ def test_normalized_group_candidate_is_immutable_and_parent_bound(
                 "generate-normalized-group-policy-candidate",
                 str(evidence_path.relative_to(tmp_path)),
                 evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
             ],
             tmp_path,
         )
@@ -1257,11 +1313,25 @@ def test_normalized_group_candidate_is_immutable_and_parent_bound(
     )
     assert len(manifests) == 1
     candidate = replay.resolve_parent_manifest(manifests[0])
-    assert candidate.parents[0].manifest_identity == evidence.manifest_identity
+    assert tuple(parent.manifest_identity for parent in candidate.parents) == (
+        evidence.manifest_identity,
+        review.manifest_identity,
+    )
     assert candidate.artifact_records[0].relative_path == (
         "artifacts/normalized-group-policy.json"
     )
     assert not (tmp_path / "tmp/m1-6-normalized-group-policy-candidate.json").exists()
+
+
+@pytest.mark.unit
+def test_normalized_group_candidate_requires_exact_evidence_and_review_parents(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AgentReplayInputError, match="evidence and group-review"):
+        run_agent_replay(
+            ["generate-normalized-group-policy-candidate", "manifest.json", "0" * 64],
+            tmp_path,
+        )
 
 
 @pytest.mark.unit
@@ -1285,12 +1355,27 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
         ).as_posix(),
         manifest_identity=evidence.manifest_identity,
     )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="review",
+        artifacts={"artifacts/group-review-packet.json": b"review"},
+        parents=(evidence_binding,),
+    )
+    review_binding = replay.ParentManifestBinding(
+        family=review.family,
+        generation_id=review.generation_id,
+        manifest_path=review_path.relative_to(
+            tmp_path / "tmp/artifacts/v1/generations"
+        ).as_posix(),
+        manifest_identity=review.manifest_identity,
+    )
     policy, policy_path = _publish_test_generation(
         tmp_path,
         family="m1-6-normalized-group-policy-candidate",
         generation_id="policy",
         artifacts={"artifacts/normalized-group-policy.json": b"new-policy"},
-        parents=(evidence_binding,),
+        parents=(evidence_binding, review_binding),
     )
     targets = {
         "ontolib/tests/decomposition/golden/"
@@ -1332,6 +1417,8 @@ def test_normalized_group_promotion_replaces_the_validated_three_file_bundle(
                 "promote-normalized-group-policy-candidate",
                 str(evidence_path.relative_to(tmp_path)),
                 evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
                 str(policy_path.relative_to(tmp_path)),
                 policy.manifest_identity,
             ],

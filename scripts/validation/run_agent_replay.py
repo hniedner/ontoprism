@@ -101,12 +101,10 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_CODEPOINT_LIMIT = 32
 _CONSOLIDATION_VALUE_COUNT = 3
 _NORMALIZED_GROUP_POLICY_ROW_COUNT = 15
-_CURRENT_REPLAY_RUN_ID = "neoplasm-93a7a6e8-aefc-40b0-97e8-91d899d7ce50"
+_POLICY_CANDIDATE_PARENT_ARGUMENT_COUNT = 4
+_POLICY_PROMOTION_PARENT_ARGUMENT_COUNT = 6
 _CURRENT_REPLAY_SAMPLE_SHA256 = (
     "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
-)
-_CURRENT_REPLAY_ARTIFACT_SHA256 = (
-    "1ef08bf8313938020d8ce4d73b95a9145b9d2a1df10bb1c3af00ec758dc6c427"
 )
 
 
@@ -2061,8 +2059,6 @@ def _generate_current_evidence_candidate(
     parent, parent_path, parent_binding = _resolve_candidate_parent(
         values, root, expected_family="m1-6-current-replay"
     )
-    if parent.run_id != _CURRENT_REPLAY_RUN_ID:
-        raise AgentReplayInputError("candidate parent is not the expected bounded run")
     script, sample, oracle, rows, registry = _adjudication_inputs(root)
     (migration,) = _require_files(
         root,
@@ -2078,10 +2074,6 @@ def _generate_current_evidence_candidate(
         _CURRENT_REPLAY_SAMPLE_SHA256
     ):
         raise AgentReplayInputError("current replay sample manifest digest differs")
-    if hashlib.sha256(artifact_path.read_bytes()).hexdigest() != (
-        _CURRENT_REPLAY_ARTIFACT_SHA256
-    ):
-        raise AgentReplayInputError("current replay artifact digest differs")
     family = "m1-6-current-evidence-candidate"
     generation_id, staging = _candidate_staging(root, family)
     outputs = (staging / "engine-evidence.json", staging / "comparison.json")
@@ -2115,6 +2107,10 @@ def _generate_current_evidence_candidate(
         parent.run_id,
         "--artifact",
         str(artifact_path),
+        "--artifact-manifest",
+        str(parent_path),
+        "--artifact-manifest-identity",
+        parent.manifest_identity,
         "--engine-output",
         str(outputs[0]),
         "--comparison-output",
@@ -2445,26 +2441,41 @@ def _generate_normalized_group_policy_candidate(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
     del runner
+    if len(values) != _POLICY_CANDIDATE_PARENT_ARGUMENT_COUNT:
+        raise AgentReplayInputError(
+            "exact evidence and group-review parent manifests are required"
+        )
     parent, parent_path, parent_binding = _resolve_candidate_parent(
-        values, root, expected_family="m1-6-current-evidence-candidate"
+        values[:2], root, expected_family="m1-6-current-evidence-candidate"
     )
+    review, review_path, review_binding = _resolve_candidate_parent(
+        values[2:], root, expected_family="m1-6-group-review-candidate"
+    )
+    if review.parents != (parent_binding,):
+        raise AgentReplayInputError(
+            "group-review candidate is not bound to the evidence candidate"
+        )
     required = _require_files(
         root,
         (
             "evidence/group-review-packet-26.07d-schema3.json",
-            "evidence/group-review-packet-26.07d-schema3.json",
             "evidence/group-review-rationale-26.07d.md",
             "evidence/group-review-rationale-26.07d.json",
+            "tmp/artifacts/v1/unavailable/"
+            "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json",
         ),
     )
     evidence = _bound_artifact_path(
         parent, parent_path, "artifacts/engine-evidence.json"
     )
     comparison = _bound_artifact_path(parent, parent_path, "artifacts/comparison.json")
+    packet = _bound_artifact_path(
+        review, review_path, "artifacts/group-review-packet.json"
+    )
     family = "m1-6-normalized-group-policy-candidate"
     generation_id, staging = _candidate_staging(root, family)
     output = staging / "normalized-group-policy.json"
-    for path in (evidence, comparison, *required, output):
+    for path in (evidence, comparison, packet, *required, output):
         _require_no_symlink_components(
             Path(path), root=root, label="normalized group policy candidate path"
         )
@@ -2477,6 +2488,7 @@ def _generate_normalized_group_policy_candidate(
         "scripts.research.normalized_group_policy.generate_active_normalized_group_policy",
         str(evidence),
         str(comparison),
+        str(packet),
         *required,
         str(output),
     )
@@ -2484,10 +2496,11 @@ def _generate_normalized_group_policy_candidate(
         generator(
             evidence_path=evidence,
             comparison_path=comparison,
-            packet_path=Path(required[0]),
-            historical_packet_path=Path(required[1]),
-            rationale_markdown_path=Path(required[2]),
-            rationale_sidecar_path=Path(required[3]),
+            packet_path=packet,
+            historical_packet_path=Path(required[0]),
+            rationale_markdown_path=Path(required[1]),
+            rationale_sidecar_path=Path(required[2]),
+            unavailable_prechange_record_path=Path(required[3]),
             output=output,
         )
         manifest = publish_generation(
@@ -2496,7 +2509,7 @@ def _generate_normalized_group_policy_candidate(
             generation_id=generation_id,
             run_id=parent.run_id,
             artifact_sources={"artifacts/normalized-group-policy.json": output},
-            parents=(parent_binding,),
+            parents=(parent_binding, review_binding),
             generator=GeneratorBinding(
                 identity=_git_head_identity(root), command=command
             ),
@@ -2507,10 +2520,10 @@ def _generate_normalized_group_policy_candidate(
                 )
                 for name, path in zip(
                     (
-                        "schema3-review-packet",
                         "schema3-historical-packet",
                         "group-review-rationale-markdown",
                         "group-review-rationale-sidecar",
+                        "unavailable-prechange-record",
                     ),
                     required,
                     strict=True,
@@ -2550,20 +2563,25 @@ def _promote_normalized_group_policy_candidate(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
     del runner
-    if len(values) != _PROMOTION_MANIFEST_ARGUMENT_COUNT:
+    if len(values) != _POLICY_PROMOTION_PARENT_ARGUMENT_COUNT:
         raise AgentReplayInputError(
-            "promotion requires exact evidence and policy parent manifests"
+            "promotion requires exact evidence, group-review, and policy parent "
+            "manifests"
         )
     evidence, evidence_path, evidence_binding = _resolve_candidate_parent(
         values[:2], root, expected_family="m1-6-current-evidence-candidate"
     )
-    policy, policy_path, _policy_binding = _resolve_candidate_parent(
-        values[2:], root, expected_family="m1-6-normalized-group-policy-candidate"
+    review, _review_path, review_binding = _resolve_candidate_parent(
+        values[2:4], root, expected_family="m1-6-group-review-candidate"
     )
-    if policy.parents != (evidence_binding,):
-        raise AgentReplayInputError(
-            "policy candidate is not bound to the evidence candidate"
-        )
+    policy, policy_path, _policy_binding = _resolve_candidate_parent(
+        values[4:], root, expected_family="m1-6-normalized-group-policy-candidate"
+    )
+    if review.parents != (evidence_binding,) or policy.parents != (
+        evidence_binding,
+        review_binding,
+    ):
+        raise AgentReplayInputError("promotion candidate parent chain differs")
     candidates = (
         _bound_artifact_path(evidence, evidence_path, "artifacts/engine-evidence.json"),
         _bound_artifact_path(evidence, evidence_path, "artifacts/comparison.json"),

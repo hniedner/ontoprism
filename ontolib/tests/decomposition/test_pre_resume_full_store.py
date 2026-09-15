@@ -525,6 +525,7 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                 diagnostic_source=diagnostic_source,
                 detector_identity="0" * 64,
                 walker_max_depth=7,
+                enable_normalized_group_policy=False,
             )
             decomposition = result.decomposition
             assert decomposition is not None

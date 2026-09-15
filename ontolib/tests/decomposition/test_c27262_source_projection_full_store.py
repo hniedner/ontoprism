@@ -20,6 +20,7 @@ from ontolib.decomposition.normalized_group_policy import (
 )
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.run import _decompose_one
+from ontolib.decomposition.run_artifacts import resolve_parent_manifest
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
@@ -30,6 +31,7 @@ _TRACKED_EVIDENCE = Path(__file__).with_name("golden") / (
     "neoplasm-current-engine-evidence.json"
 )
 _C9290_FACT_ID = "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.integration
@@ -178,9 +180,25 @@ async def test_c27262_source_projection_is_conserved_through_current_layers() ->
                 next(item for item in decompositions if item.code == _CONCEPT)
             )
             artifact_path = Path(row["publication_artifact_path"])
-            artifact_projection = (
-                _artifact_morphology(artifact_path) if artifact_path.exists() else None
-            )
+            if not artifact_path.exists():
+                manifests = []
+                family = _ROOT / "tmp/artifacts/v1/generations/m1-6-current-replay"
+                for generation in family.iterdir():
+                    manifest_path = generation / "manifest.json"
+                    if not manifest_path.is_file():
+                        continue
+                    manifest = resolve_parent_manifest(manifest_path)
+                    if manifest.run_id == evidence.run_id:
+                        manifests.append((manifest, manifest_path))
+                assert len(manifests) == 1
+                manifest, manifest_path = manifests[0]
+                record = next(
+                    item
+                    for item in manifest.artifact_records
+                    if item.sha256 == evidence.artifact_identity
+                )
+                artifact_path = manifest_path.parent / record.relative_path
+            artifact_projection = _artifact_morphology(artifact_path)
     finally:
         await dispose_engine(engine)
 
