@@ -106,7 +106,7 @@ _NORMALIZED_GROUP_POLICY_ROW_COUNT = 15
 _POLICY_CANDIDATE_PARENT_ARGUMENT_COUNT = 4
 _GROUP_REVIEW_PARENT_ARGUMENT_COUNT = 4
 _GROUP_REVIEW_PARENT_COUNT = 2
-_POLICY_PROMOTION_PARENT_ARGUMENT_COUNT = 6
+_POLICY_PROMOTION_PARENT_ARGUMENT_COUNT = 8
 _GROUPING_DETECTOR_PARENT_ARGUMENT_COUNT = 6
 _GROUPING_DETECTOR_PARENT_COUNT = 3
 _CURRENT_REPLAY_SAMPLE_SHA256 = (
@@ -2864,8 +2864,8 @@ def _promote_normalized_group_policy_candidate(
     del runner
     if len(values) != _POLICY_PROMOTION_PARENT_ARGUMENT_COUNT:
         raise AgentReplayInputError(
-            "promotion requires exact evidence, group-review, and policy parent "
-            "manifests"
+            "promotion requires exact evidence, group-review, policy, and "
+            "grouping-detector parent manifests"
         )
     evidence, evidence_path, evidence_binding = _resolve_candidate_parent(
         values[:2], root, expected_family="m1-6-current-evidence-candidate"
@@ -2873,8 +2873,11 @@ def _promote_normalized_group_policy_candidate(
     review, _review_path, review_binding = _resolve_candidate_parent(
         values[2:4], root, expected_family="m1-6-group-review-candidate"
     )
-    policy, policy_path, _policy_binding = _resolve_candidate_parent(
-        values[4:], root, expected_family="m1-6-normalized-group-policy-candidate"
+    policy, policy_path, policy_binding = _resolve_candidate_parent(
+        values[4:6], root, expected_family="m1-6-normalized-group-policy-candidate"
+    )
+    detector, detector_path, _detector_binding = _resolve_candidate_parent(
+        values[6:], root, expected_family="m1-6-grouping-detector-candidate"
     )
     if (
         len(review.parents) != _GROUP_REVIEW_PARENT_COUNT
@@ -2886,6 +2889,8 @@ def _promote_normalized_group_policy_candidate(
         )
     ):
         raise AgentReplayInputError("promotion candidate parent chain differs")
+    if detector.parents != (evidence_binding, review_binding, policy_binding):
+        raise AgentReplayInputError("detector parent chain differs")
     r101_binding = _parent_by_family(review, "m1-6-r101-conservation")
     r101, r101_path = _resolve_bound_parent(
         r101_binding, root, expected_family="m1-6-r101-conservation"
@@ -2898,6 +2903,12 @@ def _promote_normalized_group_policy_candidate(
         ),
         _bound_artifact_path(r101, r101_path, "artifacts/conservation.json.gz"),
     )
+    review_artifact = _bound_artifact_path(
+        review, _review_path, "artifacts/group-review-packet.json"
+    )
+    detector_artifact = _bound_artifact_path(
+        detector, detector_path, "artifacts/grouping-detector.json"
+    )
     targets = tuple(
         root / relative
         for relative in (
@@ -2907,17 +2918,62 @@ def _promote_normalized_group_policy_candidate(
             "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
         )
     )
-    for path in (*candidates, *targets):
+    for path in (*candidates, review_artifact, detector_artifact, *targets):
         _require_no_symlink_components(
             path, root=root, label="normalized group policy promotion path"
         )
     sys.path.insert(0, str(root))
-    module = importlib.import_module("ontolib.decomposition.normalized_group_policy")
-    policy = module.load_normalized_group_policy(candidates[2])
-    if len(policy.rows) != _NORMALIZED_GROUP_POLICY_ROW_COUNT:
-        raise AgentReplayInputError("normalized group policy row count differs")
+    policy_module = importlib.import_module(
+        "ontolib.decomposition.normalized_group_policy"
+    )
+    current_module = importlib.import_module("scripts.research.current_evidence")
+    review_module = importlib.import_module("scripts.research.group_review_packet")
+    readiness_module = importlib.import_module("scripts.research.pre_sme_readiness")
     generator = importlib.import_module("scripts.research.normalized_group_policy")
     try:
+        evidence_model = current_module.CurrentEngineEvidence.model_validate_json(
+            candidates[0].read_bytes()
+        )
+        comparison_model = current_module.CurrentComparison.model_validate_json(
+            candidates[1].read_bytes()
+        )
+        review_model = review_module.load_group_review_packet(review_artifact)
+        policy_model = policy_module.load_normalized_group_policy(candidates[2])
+        detector_model = readiness_module.Issue274DetectorReport.model_validate_json(
+            detector_artifact.read_bytes()
+        )
+        if len(policy_model.rows) != _NORMALIZED_GROUP_POLICY_ROW_COUNT:
+            raise AgentReplayInputError("normalized group policy row count differs")
+        if any(
+            (
+                detector_model.axis_contract_violations,
+                detector_model.normalized_group_violations,
+                detector_model.unadjudicated_golden_changes,
+            )
+        ):
+            raise AgentReplayInputError("detector reports violations")
+        if (
+            detector_model.current_evidence_identity != evidence_model.evidence_identity
+            or detector_model.current_comparison_identity
+            != comparison_model.comparison_identity
+            or detector_model.group_packet_identity != review_model.packet_identity
+            or detector_model.normalized_group_policy_identity
+            != policy_model.policy_identity
+        ):
+            raise AgentReplayInputError("detector identities differ")
+        detector_violations = (
+            detector_model.axis_contract_violations,
+            detector_model.normalized_group_violations,
+            detector_model.unadjudicated_golden_changes,
+        )
+        observed_violations = readiness_module._issue_274_semantic_violations(
+            evidence_model,
+            comparison_model,
+            policy_model,
+            review_model.packet_identity,
+        )
+        if detector_violations != observed_violations:
+            raise AgentReplayInputError("detector semantic closure differs")
         generator.validate_promotion_bundle(
             evidence_path=candidates[0],
             comparison_path=candidates[1],
@@ -2927,7 +2983,7 @@ def _promote_normalized_group_policy_candidate(
         generator.promote_bundle_atomically(
             tuple(zip(candidates, targets, strict=True))
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         raise AgentReplayInputError(str(exc)) from exc
     return 0
 

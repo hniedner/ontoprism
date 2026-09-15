@@ -151,6 +151,179 @@ _R101_REPORT = (
 )
 
 
+def _publish_policy_promotion_chain(
+    tmp_path: Path,
+) -> tuple[
+    tuple[ArtifactManifest, Path],
+    tuple[ArtifactManifest, Path],
+    tuple[ArtifactManifest, Path],
+    tuple[ArtifactManifest, Path],
+]:
+    current_evidence = _ROOT / (
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
+    )
+    normalized_policy = _ROOT / (
+        "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"
+    )
+    current_module = __import__(
+        "scripts.research.current_evidence",
+        fromlist=["CurrentComparison", "CurrentEngineEvidence"],
+    )
+    group_module = __import__(
+        "scripts.research.group_review_packet",
+        fromlist=["build_machine_group_review_packet"],
+    )
+    policy_module = __import__(
+        "ontolib.decomposition.normalized_group_policy",
+        fromlist=["load_normalized_group_policy"],
+    )
+    policy_model = policy_module.load_normalized_group_policy(normalized_policy)
+
+    def identity(payload: dict[str, object]) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode()
+        ).hexdigest()
+
+    evidence_payload = json.loads(current_evidence.read_bytes())
+    policy_rows = {row.concept_code: row for row in policy_model.rows}
+    for concept in evidence_payload["concepts"]:
+        row = policy_rows.get(concept["code"])
+        if row is None:
+            continue
+        blocks = {
+            pair: (block.normalized_group_id, block.normalized_group_label)
+            for block in row.blocks
+            for pair in block.pairs
+        }
+        for constituent in concept["constituents"]:
+            group_id, group_label = blocks[(constituent["axis"], constituent["filler"])]
+            constituent["normalized_group_id"] = group_id
+            constituent["normalized_group_label"] = group_label
+    evidence_payload["evidence_identity"] = identity(
+        {
+            key: value
+            for key, value in evidence_payload.items()
+            if key != "evidence_identity"
+        }
+    )
+    evidence_model = current_module.CurrentEngineEvidence.model_validate_json(
+        json.dumps(evidence_payload)
+    )
+    regenerated_evidence = tmp_path / "sources/regenerated/engine-evidence.json"
+    regenerated_comparison = tmp_path / "sources/regenerated/comparison.json"
+    regenerated_evidence.parent.mkdir(parents=True)
+    regenerated_evidence.write_text(evidence_model.model_dump_json(indent=2) + "\n")
+    current_module.regenerate_current_comparison(
+        evidence_path=regenerated_evidence,
+        oracle_path=_ROOT
+        / "ontolib/tests/decomposition/golden/neoplasm-adjudicated.json",
+        row_decisions_path=_ROOT
+        / "ontolib/tests/decomposition/golden/neoplasm-row-decisions.json",
+        proposal_registry_path=_ROOT
+        / "ontolib/tests/decomposition/golden/proposal-registry.json",
+        proposal_registry_migration_path=_ROOT
+        / (
+            "ontolib/tests/decomposition/golden/"
+            "proposal-registry-schema2-migration.json"
+        ),
+        output=regenerated_comparison,
+    )
+    comparison_model = current_module.CurrentComparison.model_validate_json(
+        regenerated_comparison.read_bytes()
+    )
+    review_model = group_module.build_machine_group_review_packet(
+        evidence=evidence_model,
+        comparison=comparison_model,
+        r101_report_path=_ROOT
+        / ("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"),
+    )
+    policy_payload = policy_model.model_dump(mode="json", exclude={"policy_identity"})
+    policy_payload["basis_evidence_identity"] = evidence_model.evidence_identity
+    policy_payload["basis_comparison_identity"] = comparison_model.comparison_identity
+    policy_payload["basis_packet_identity"] = review_model.packet_identity
+    policy_payload["policy_identity"] = identity(policy_payload)
+    policy_model = policy_module.ActiveNormalizedGroupPolicy.model_validate_json(
+        json.dumps(policy_payload)
+    )
+    evidence_bytes = (evidence_model.model_dump_json(indent=2) + "\n").encode()
+    comparison_bytes = (comparison_model.model_dump_json(indent=2) + "\n").encode()
+    policy_bytes = (policy_model.model_dump_json(indent=2) + "\n").encode()
+
+    evidence, evidence_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-current-evidence-candidate",
+        generation_id="evidence",
+        artifacts={
+            "artifacts/engine-evidence.json": evidence_bytes,
+            "artifacts/comparison.json": comparison_bytes,
+        },
+    )
+    artifacts_root = tmp_path / "tmp/artifacts/v1/generations"
+
+    def binding(manifest: ArtifactManifest, path: Path) -> replay.ParentManifestBinding:
+        return replay.ParentManifestBinding(
+            family=manifest.family,
+            generation_id=manifest.generation_id,
+            manifest_path=path.relative_to(artifacts_root).as_posix(),
+            manifest_identity=manifest.manifest_identity,
+        )
+
+    evidence_binding = binding(evidence, evidence_path)
+    r101, r101_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-r101-conservation",
+        generation_id="r101",
+        artifacts={"artifacts/conservation.json.gz": _R101_REPORT.read_bytes()},
+    )
+    review, review_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-group-review-candidate",
+        generation_id="review",
+        artifacts={
+            "artifacts/group-review-packet.json": (
+                review_model.model_dump_json(indent=2) + "\n"
+            ).encode()
+        },
+        parents=(evidence_binding, binding(r101, r101_path)),
+    )
+    review_binding = binding(review, review_path)
+    policy, policy_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-normalized-group-policy-candidate",
+        generation_id="policy",
+        artifacts={"artifacts/normalized-group-policy.json": policy_bytes},
+        parents=(evidence_binding, review_binding),
+    )
+    detector_source = tmp_path / "sources/detector/grouping-detector.json"
+    detector_source.parent.mkdir(parents=True)
+    readiness_module = __import__(
+        "scripts.research.pre_sme_readiness",
+        fromlist=["generate_issue_274_detector_report"],
+    )
+    readiness_module.generate_issue_274_detector_report(
+        evidence_path=evidence_path.parent / "artifacts/engine-evidence.json",
+        comparison_path=evidence_path.parent / "artifacts/comparison.json",
+        group_packet_path=review_path.parent / "artifacts/group-review-packet.json",
+        policy_path=policy_path.parent / "artifacts/normalized-group-policy.json",
+        output=detector_source,
+    )
+    detector, detector_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-grouping-detector-candidate",
+        generation_id="detector",
+        artifacts={"artifacts/grouping-detector.json": detector_source.read_bytes()},
+        parents=(evidence_binding, review_binding, binding(policy, policy_path)),
+    )
+    return (
+        (evidence, evidence_path),
+        (review, review_path),
+        (policy, policy_path),
+        (detector, detector_path),
+    )
+
+
 def _copy_r101_report(tmp_path: Path) -> tuple[Path, Path]:
     relative = Path("evidence/report.json.gz")
     path = tmp_path / relative
@@ -1690,65 +1863,27 @@ def test_grouping_detector_candidate_is_immutable_and_exact_parent_bound(
 
 
 @pytest.mark.unit
-def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
+def test_normalized_group_promotion_replaces_detector_bound_four_file_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    evidence, evidence_path = _publish_test_generation(
-        tmp_path,
-        family="m1-6-current-evidence-candidate",
-        generation_id="evidence",
-        artifacts={
-            "artifacts/engine-evidence.json": b"new-evidence",
-            "artifacts/comparison.json": b"new-comparison",
-        },
-    )
-    evidence_binding = replay.ParentManifestBinding(
-        family=evidence.family,
-        generation_id=evidence.generation_id,
-        manifest_path=evidence_path.relative_to(
-            tmp_path / "tmp/artifacts/v1/generations"
-        ).as_posix(),
-        manifest_identity=evidence.manifest_identity,
-    )
-    r101, r101_path = _publish_test_generation(
-        tmp_path,
-        family="m1-6-r101-conservation",
-        generation_id="r101",
-        artifacts={"artifacts/conservation.json.gz": b"new-r101"},
-    )
-    r101_binding = replay.ParentManifestBinding(
-        family=r101.family,
-        generation_id=r101.generation_id,
-        manifest_path=r101_path.relative_to(
-            tmp_path / "tmp/artifacts/v1/generations"
-        ).as_posix(),
-        manifest_identity=r101.manifest_identity,
-    )
-    review, review_path = _publish_test_generation(
-        tmp_path,
-        family="m1-6-group-review-candidate",
-        generation_id="review",
-        artifacts={"artifacts/group-review-packet.json": b"review"},
-        parents=(evidence_binding, r101_binding),
-    )
-    review_binding = replay.ParentManifestBinding(
-        family=review.family,
-        generation_id=review.generation_id,
-        manifest_path=review_path.relative_to(
-            tmp_path / "tmp/artifacts/v1/generations"
-        ).as_posix(),
-        manifest_identity=review.manifest_identity,
-    )
-    policy, policy_path = _publish_test_generation(
-        tmp_path,
-        family="m1-6-normalized-group-policy-candidate",
-        generation_id="policy",
-        artifacts={"artifacts/normalized-group-policy.json": b"new-policy"},
-        parents=(evidence_binding, review_binding),
+    (
+        (evidence, evidence_path),
+        (review, review_path),
+        (policy, policy_path),
+        (detector, detector_path),
+    ) = _publish_policy_promotion_chain(tmp_path)
+    candidate_paths = (
+        evidence_path.parent / "artifacts/engine-evidence.json",
+        evidence_path.parent / "artifacts/comparison.json",
+        policy_path.parent / "artifacts/normalized-group-policy.json",
+        tmp_path / "tmp/artifacts/v1/generations/m1-6-r101-conservation/r101/"
+        "artifacts/conservation.json.gz",
     )
     targets = {
         "ontolib/tests/decomposition/golden/"
-        "neoplasm-current-engine-evidence.json": b"old-evidence",
+        "neoplasm-current-engine-evidence.json": json.dumps(
+            json.loads(candidate_paths[0].read_bytes()), separators=(",", ":")
+        ).encode(),
         "ontolib/tests/decomposition/golden/"
         "neoplasm-current-comparison.json": b"old-comparison",
         "ontolib/src/ontolib/decomposition/data/"
@@ -1760,34 +1895,29 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
+    policy_generator = __import__(
+        "scripts.research.normalized_group_policy",
+        fromlist=["validate_evidence_policy_group_map"],
+    )
 
-    real_import = replay.importlib.import_module
-    reject_validation = False
+    def validate_map_closure(**paths: Path) -> None:
+        current_module = __import__(
+            "scripts.research.current_evidence", fromlist=["CurrentEngineEvidence"]
+        )
+        policy_module = __import__(
+            "ontolib.decomposition.normalized_group_policy",
+            fromlist=["load_normalized_group_policy"],
+        )
+        policy_generator.validate_evidence_policy_group_map(
+            current_module.CurrentEngineEvidence.model_validate_json(
+                paths["evidence_path"].read_bytes()
+            ),
+            policy_module.load_normalized_group_policy(paths["policy_path"]),
+        )
 
-    def validate_bundle(**_kwargs: object) -> None:
-        if reject_validation:
-            raise ValueError(
-                "evidence normalized-group map differs from exact policy map"
-            )
-
-    def fake_import(name: str):
-        if name == "ontolib.decomposition.normalized_group_policy":
-            return SimpleNamespace(
-                load_normalized_group_policy=lambda _path: SimpleNamespace(
-                    rows=tuple(range(15))
-                )
-            )
-        if name == "scripts.research.normalized_group_policy":
-            return SimpleNamespace(
-                validate_promotion_bundle=validate_bundle,
-                promote_bundle_atomically=lambda replacements: [
-                    target.write_bytes(source.read_bytes())
-                    for source, target in replacements
-                ],
-            )
-        return real_import(name)
-
-    monkeypatch.setattr(replay.importlib, "import_module", fake_import)
+    monkeypatch.setattr(
+        policy_generator, "validate_promotion_bundle", validate_map_closure
+    )
 
     assert (
         run_agent_replay(
@@ -1799,22 +1929,45 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
                 review.manifest_identity,
                 str(policy_path.relative_to(tmp_path)),
                 policy.manifest_identity,
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
             ],
             tmp_path,
         )
         == 0
     )
     assert [path.read_bytes() for path in map(tmp_path.__truediv__, targets)] == [
-        b"new-evidence",
-        b"new-comparison",
-        b"new-policy",
-        b"new-r101",
+        path.read_bytes() for path in candidate_paths
     ]
     accepted = {path: (tmp_path / path).read_bytes() for path in targets}
-    reject_validation = True
-    with pytest.raises(
-        AgentReplayInputError, match="evidence normalized-group map differs"
-    ):
+    (detector_path.parent / "artifacts/grouping-detector.json").write_bytes(b"changed")
+    with pytest.raises(AgentReplayInputError, match="artifact bytes differ"):
+        run_agent_replay(
+            [
+                "promote-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+        )
+    assert {path: (tmp_path / path).read_bytes() for path in targets} == accepted
+
+
+@pytest.mark.unit
+def test_normalized_group_promotion_requires_all_four_exact_manifest_bindings(
+    tmp_path: Path,
+) -> None:
+    (evidence, evidence_path), (review, review_path), (policy, policy_path), _ = (
+        _publish_policy_promotion_chain(tmp_path)
+    )
+
+    with pytest.raises(AgentReplayInputError, match="grouping-detector"):
         run_agent_replay(
             [
                 "promote-normalized-group-policy-candidate",
@@ -1827,7 +1980,187 @@ def test_normalized_group_promotion_replaces_the_validated_four_file_bundle(
             ],
             tmp_path,
         )
-    assert {path: (tmp_path / path).read_bytes() for path in targets} == accepted
+
+
+@pytest.mark.unit
+def test_detector_bound_promotion_rolls_back_all_tracked_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (
+        (evidence, evidence_path),
+        (review, review_path),
+        (policy, policy_path),
+        (detector, detector_path),
+    ) = _publish_policy_promotion_chain(tmp_path)
+    candidate_evidence = evidence_path.parent / "artifacts/engine-evidence.json"
+    target_payloads = {
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-current-engine-evidence.json": json.dumps(
+            json.loads(candidate_evidence.read_bytes()), separators=(",", ":")
+        ).encode(),
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-current-comparison.json": b"comparison-before",
+        "ontolib/src/ontolib/decomposition/data/"
+        "normalized-group-policy.json": b"policy-before",
+        "ontolib/tests/decomposition/golden/"
+        "neoplasm-r101-v5-conservation.json.gz": b"r101-before",
+    }
+    for relative, payload in target_payloads.items():
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    generator = __import__(
+        "scripts.research.normalized_group_policy",
+        fromlist=["validate_evidence_policy_group_map"],
+    )
+
+    def validate_map_closure(**paths: Path) -> None:
+        current_module = __import__(
+            "scripts.research.current_evidence", fromlist=["CurrentEngineEvidence"]
+        )
+        policy_module = __import__(
+            "ontolib.decomposition.normalized_group_policy",
+            fromlist=["load_normalized_group_policy"],
+        )
+        generator.validate_evidence_policy_group_map(
+            current_module.CurrentEngineEvidence.model_validate_json(
+                paths["evidence_path"].read_bytes()
+            ),
+            policy_module.load_normalized_group_policy(paths["policy_path"]),
+        )
+
+    monkeypatch.setattr(generator, "validate_promotion_bundle", validate_map_closure)
+    real_replace = generator.os.replace
+    replacements = 0
+
+    def fail_second_replacement(source: str | Path, target: str | Path) -> None:
+        nonlocal replacements
+        replacements += 1
+        if replacements == 2:
+            raise OSError("injected replacement failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(generator.os, "replace", fail_second_replacement)
+
+    with pytest.raises(AgentReplayInputError, match="injected replacement failure"):
+        run_agent_replay(
+            [
+                "promote-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+                str(detector_path.relative_to(tmp_path)),
+                detector.manifest_identity,
+            ],
+            tmp_path,
+        )
+    assert {
+        path: (tmp_path / path).read_bytes() for path in target_payloads
+    } == target_payloads
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mutation", ["forged-clear", "blocked", "wrong-parent"])
+def test_normalized_group_promotion_rejects_untrusted_detector_before_writes(
+    tmp_path: Path, mutation: str
+) -> None:
+    (
+        (evidence, evidence_path),
+        (review, review_path),
+        (policy, policy_path),
+        (detector, detector_path),
+    ) = _publish_policy_promotion_chain(tmp_path)
+    detector_bytes = (
+        detector_path.parent / "artifacts/grouping-detector.json"
+    ).read_bytes()
+    parents = detector.parents
+    if mutation == "wrong-parent":
+        other_policy, other_policy_path = _publish_test_generation(
+            tmp_path,
+            family="m1-6-normalized-group-policy-candidate",
+            generation_id="other-policy",
+            artifacts={
+                "artifacts/normalized-group-policy.json": (
+                    policy_path.parent / "artifacts/normalized-group-policy.json"
+                ).read_bytes()
+            },
+            parents=policy.parents,
+        )
+        parents = (
+            *parents[:2],
+            replay.ParentManifestBinding(
+                family=other_policy.family,
+                generation_id=other_policy.generation_id,
+                manifest_path=other_policy_path.relative_to(
+                    tmp_path / "tmp/artifacts/v1/generations"
+                ).as_posix(),
+                manifest_identity=other_policy.manifest_identity,
+            ),
+        )
+    else:
+        payload = json.loads(detector_bytes)
+        if mutation == "forged-clear":
+            payload["normalized_group_policy_identity"] = "0" * 64
+        else:
+            payload["status"] = "blocked"
+            payload["normalized_group_violations"] = ["C1:forged"]
+        payload["report_identity"] = hashlib.sha256(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "report_identity"
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode()
+        ).hexdigest()
+        detector_bytes = (json.dumps(payload, indent=2) + "\n").encode()
+    rejected_detector, rejected_path = _publish_test_generation(
+        tmp_path,
+        family="m1-6-grouping-detector-candidate",
+        generation_id=f"detector-{mutation}",
+        artifacts={"artifacts/grouping-detector.json": detector_bytes},
+        parents=parents,
+    )
+    target_paths = (
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
+    )
+    for relative in target_paths:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"tracked-before")
+
+    expected = {
+        "forged-clear": "detector identities differ",
+        "blocked": "detector reports violations",
+        "wrong-parent": "detector parent chain differs",
+    }[mutation]
+    with pytest.raises(AgentReplayInputError, match=expected):
+        run_agent_replay(
+            [
+                "promote-normalized-group-policy-candidate",
+                str(evidence_path.relative_to(tmp_path)),
+                evidence.manifest_identity,
+                str(review_path.relative_to(tmp_path)),
+                review.manifest_identity,
+                str(policy_path.relative_to(tmp_path)),
+                policy.manifest_identity,
+                str(rejected_path.relative_to(tmp_path)),
+                rejected_detector.manifest_identity,
+            ],
+            tmp_path,
+        )
+    assert all(
+        (tmp_path / path).read_bytes() == b"tracked-before" for path in target_paths
+    )
 
 
 def test_record_artifact_registry_writes_sidecars_and_honest_unavailable_record(

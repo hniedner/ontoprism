@@ -45,9 +45,15 @@ producers likewise require exact parent manifest paths and identities. Evidence,
 group-review, and normalized-group-policy candidates publish into separate immutable
 generation families with nonempty tuple of exact `ParentManifestBinding` values; they never write
 shared candidate paths. Each producer must call `publish_generation` only after its
-generator succeeds. Promotion resolves the exact evidence and policy manifests and
-requires the policy generation's persisted parent binding to equal the supplied evidence
-generation before replacing the validated tracked three-file bundle.
+generator succeeds. Promotion requires eight path/identity values resolving the exact
+evidence, group-review, normalized-group-policy, and grouping-detector manifests. It
+verifies every manifest, completion marker, artifact record, and current artifact byte;
+requires the detector's three parent bindings to equal the supplied evidence/review/policy
+bindings; resolves the review's exact R101 parent; and parses the detector as clear with
+empty violation arrays. The detector's evidence, comparison, review-packet, and policy
+identities and independently recomputed semantic and pair-map closure must all match before
+the validated tracked four-file bundle is replaced atomically. There is no detector-optional
+promotion route.
 
 ## Existing and unavailable artifacts
 
