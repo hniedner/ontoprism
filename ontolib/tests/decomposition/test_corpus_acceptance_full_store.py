@@ -11,6 +11,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_acceptance import (
+    PublicationPlaneBinding,
     build_effective_artifact,
     build_review_required_exclusions,
     dry_run_corpus_publication,
@@ -86,11 +87,7 @@ def test_effective_artifact_removes_exact_disputed_pairs_without_source_mutation
     )
 
     assert source.read_bytes() == source_before
-    assert (
-        0
-        < observed.removed_pair_count
-        <= sum(len(item.pair_changes) for item in exclusions)
-    )
+    assert observed.removed_pair_count == 30
     assert {item[0] for item in observed.removed_pairs} == {
         "C102870",
         "C198031",
@@ -116,7 +113,12 @@ async def test_existing_corpus_dry_run_reads_postgres_and_qlever_boundaries() ->
                 candidate_content_identity="a" * 64,
                 run_id=baseline.run_id,
                 source_identity=baseline.source_identity,
-                representation_identity=baseline.representation_identity,
+                planes=PublicationPlaneBinding(
+                    official_persisted_representation_identity=(
+                        baseline.representation_identity
+                    ),
+                    effective_representation_identity=baseline.representation_identity,
+                ),
                 artifact=root / "tmp/m1-6-current-full-corpus.ttl",
                 destination_graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
                 expected_codes=aggregate.decomposed_codes,

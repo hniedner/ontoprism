@@ -20,6 +20,7 @@ from ontolib.decomposition import vocab
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.corpus_acceptance import (
     AcceptedHumanAcceptanceDecision,
+    CandidateMetrics,
     CorpusAcceptanceCandidate,
     CorpusAcceptanceContent,
     CorpusAcceptanceValidationError,
@@ -27,6 +28,7 @@ from ontolib.decomposition.corpus_acceptance import (
     GateEvaluation,
     PendingHumanAcceptanceDecision,
     PublicationDryRunEvidence,
+    PublicationPlaneBinding,
     ReviewRequiredEffectiveExclusion,
     build_accepted_publication_artifact,
     build_effective_artifact,
@@ -39,6 +41,7 @@ from ontolib.decomposition.corpus_acceptance import (
     require_publication_authorization,
     write_pending_human_acceptance_decision,
 )
+from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletedRunForEvidence,
@@ -47,6 +50,7 @@ from ontolib.decomposition.provenance_models import (
 from ontolib.decomposition.r101_conservation import (
     ClassifiedNonR101Delta,
     NonR101MetadataDelta,
+    R101ConservationReport,
     load_r101_conservation_report,
 )
 from ontolib.terminologies.ncit.sibling_store import (
@@ -57,6 +61,17 @@ from ontolib.terminologies.ncit.sibling_store import (
 GOLDEN = Path(__file__).with_name("golden")
 ROOT = Path(__file__).parents[3]
 SHA = "a" * 64
+
+
+def _classify(report: R101ConservationReport):
+    policy = (
+        ROOT / "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"
+    )
+    return classify_corpus_delta(
+        report,
+        routing_policy_identity=hashlib.sha256(policy.read_bytes()).hexdigest(),
+        proposal_registry=load_proposal_registry(GOLDEN / "proposal-registry.json"),
+    )
 
 
 def _identity(value: object) -> str:
@@ -118,7 +133,7 @@ def report():  # type: ignore[no-untyped-def]
 
 @pytest.fixture(scope="module")
 def classification(report, exclusions):  # type: ignore[no-untyped-def]
-    return classify_corpus_delta(report, exclusions=exclusions)
+    return _classify(report)
 
 
 @pytest.fixture(scope="module")
@@ -144,9 +159,9 @@ def test_review_required_exclusions_are_exact_pair_scoped_and_source_preserving(
         (p.axis, p.filler_code, p.comparison_direction)
         for p in by_code["C27262"].pair_changes
     ] == [
-        ("op:AssociatedRegion", "C41165", "missing-from-candidate"),
-        ("op:ClinicalFinding", "C36220", "missing-from-candidate"),
-        ("op:ClinicalFinding", "C41397", "missing-from-candidate"),
+        ("op:AssociatedRegion", "C41165", "grouping-disputed"),
+        ("op:ClinicalFinding", "C36220", "grouping-disputed"),
+        ("op:ClinicalFinding", "C41397", "grouping-disputed"),
         ("op:Morphology", "C35501", "grouping-disputed"),
         ("op:Morphology", "C9290", "grouping-disputed"),
     ]
@@ -154,13 +169,17 @@ def test_review_required_exclusions_are_exact_pair_scoped_and_source_preserving(
         (p.axis, p.filler_code, p.comparison_direction)
         for p in by_code["C102870"].pair_changes
     ] == [
-        ("op:AssociatedSite", "C12321", "missing-from-candidate"),
+        ("op:AssociatedSite", "C12321", "grouping-disputed"),
         ("op:Morphology", "C121619", "grouping-disputed"),
         ("op:Morphology", "C39986", "grouping-disputed"),
-        ("op:PrimarySite", "C12404", "missing-from-candidate"),
+        ("op:PrimarySite", "C12404", "grouping-disputed"),
     ]
-    assert len(by_code["C198031"].pair_changes) == 5
-    assert len(by_code["C35756"].pair_changes) == 16
+    assert all(
+        pair.comparison_direction == "grouping-disputed"
+        for item in exclusions
+        for pair in item.pair_changes
+    )
+    assert sum(len(item.pair_changes) for item in exclusions) == 30
     assert all(item.delta == "removed-from-effective" for item in exclusions)
     assert all(item.official_source_preserved for item in exclusions)
     assert all(
@@ -313,6 +332,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
 
 
 def _gate_paths(tmp_path: Path, *, passing: bool) -> dict[str, Path]:
+    registry = json.loads((GOLDEN / "proposal-registry.json").read_text())
     payloads: dict[str, object] = {
         "primary_site_audit": {"cardinality_violations": [] if passing else ["C1"]},
         "machine_readiness": {
@@ -329,13 +349,36 @@ def _gate_paths(tmp_path: Path, *, passing: bool) -> dict[str, Path]:
                     else [None]
                 )
             },
+            "m1_6_improvement": {
+                "precision_baseline": {"numerator": 80, "denominator": 106},
+                "recall_baseline": {"numerator": 80, "denominator": 153},
+                "precision_improved": passing,
+                "recall_improved": passing,
+                "status": "passed" if passing else "failed",
+            },
+            "metrics": {
+                "exact_pair_precision": {
+                    "fraction": {
+                        "numerator": 81 if passing else 80,
+                        "denominator": 106,
+                        "value": (81 if passing else 80) / 106,
+                    }
+                },
+                "exact_pair_recall": {
+                    "fraction": {
+                        "numerator": 81 if passing else 80,
+                        "denominator": 153,
+                        "value": (81 if passing else 80) / 153,
+                    }
+                },
+            },
         },
         "gate_liveness": {
             "status": "passed" if passing else "failed",
             "observed_exit_code": 0 if passing else 1,
             "git_head": "a" * 40 if passing else "b" * 40,
         },
-        "proposal_registry": {"schema_version": 1},
+        "proposal_registry": registry,
         "current_evidence": {"schema_version": 1},
         "baseline": {"schema_version": 1},
     }
@@ -353,7 +396,12 @@ def test_candidate_gates_derive_each_status_from_named_evidence(
     tmp_path: Path, *, passing: bool
 ) -> None:
     gates = corpus_acceptance_module._candidate_gates(
-        _gate_paths(tmp_path, passing=passing), git_head="a" * 40
+        _gate_paths(tmp_path, passing=passing),
+        git_head="a" * 40,
+        source_identity=(
+            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+        ),
+        roundtrip_fidelity=None,
     )
 
     expected = "passed" if passing else "failed"
@@ -361,17 +409,21 @@ def test_candidate_gates_derive_each_status_from_named_evidence(
     assert gates.proposal_provenance.status == "passed"
     assert gates.projection_loss.status == "blocked"
     assert gates.residual.status == "blocked"
-    assert gates.fidelity.status == expected
+    assert gates.fidelity.status == "unavailable"
     assert gates.issue_274_detector.status == expected
-    assert gates.gate_liveness.status == ("passed" if passing else "blocked")
+    assert gates.m1_6_improvement.status == expected
+    assert gates.gate_liveness.status == "passed"
+    assert gates.verify_currency.status == ("passed" if passing else "blocked")
 
 
 @pytest.mark.unit
 def test_candidate_gates_fail_closed_at_each_short_circuit(tmp_path: Path) -> None:
     paths = _gate_paths(tmp_path, passing=True)
+    readiness = json.loads(paths["machine_readiness"].read_text())
     paths["machine_readiness"].write_text(
         json.dumps(
-            {
+            readiness
+            | {
                 "quality_target": None,
                 "semantic_gate": {
                     "entries": [
@@ -389,16 +441,30 @@ def test_candidate_gates_fail_closed_at_each_short_circuit(tmp_path: Path) -> No
         json.dumps({"status": "passed", "observed_exit_code": 1, "git_head": "a" * 40})
     )
 
-    first = corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
-    assert first.fidelity.status == "failed"
+    first = corpus_acceptance_module._candidate_gates(
+        paths,
+        git_head="a" * 40,
+        source_identity=(
+            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+        ),
+        roundtrip_fidelity=None,
+    )
+    assert first.fidelity.status == "unavailable"
     assert first.issue_274_detector.status == "failed"
-    assert first.gate_liveness.status == "blocked"
+    assert first.verify_currency.status == "blocked"
 
     paths["gate_liveness"].write_text(
         json.dumps({"status": "passed", "observed_exit_code": 0, "git_head": "b" * 40})
     )
-    second = corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
-    assert second.gate_liveness.status == "blocked"
+    second = corpus_acceptance_module._candidate_gates(
+        paths,
+        git_head="a" * 40,
+        source_identity=(
+            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+        ),
+        roundtrip_fidelity=None,
+    )
+    assert second.verify_currency.status == "blocked"
 
 
 @pytest.mark.unit
@@ -413,7 +479,14 @@ def test_candidate_gates_refuse_malformed_source_evidence(
     paths["machine_readiness"].write_text(serialized)
 
     with pytest.raises(CorpusAcceptanceValidationError, match=message):
-        corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
+        corpus_acceptance_module._candidate_gates(
+            paths,
+            git_head="a" * 40,
+            source_identity=(
+                "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+            ),
+            roundtrip_fidelity=None,
+        )
 
 
 @pytest.mark.unit
@@ -502,7 +575,12 @@ def _stub_candidate_input_boundaries(
     monkeypatch.setattr(
         corpus_acceptance_module,
         "classify_corpus_delta",
-        lambda _report, *, exclusions: classification,
+        lambda _report, **_kwargs: classification,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "load_proposal_registry",
+        lambda _path: load_proposal_registry(GOLDEN / "proposal-registry.json"),
     )
     monkeypatch.setattr(
         corpus_acceptance_module,
@@ -524,6 +602,8 @@ def _stub_candidate_input_boundaries(
             "r101_qualification",
             "review_packet",
             "rationale",
+            "policy",
+            "proposal_registry",
             "fanout",
         )
     }
@@ -599,19 +679,25 @@ def test_existing_comparison_is_exhaustively_classified_without_causal_overclaim
     report = load_r101_conservation_report(
         GOLDEN / "neoplasm-r101-v5-conservation.json.gz"
     )
-    result = classify_corpus_delta(report, exclusions=exclusions)
+    result = _classify(report)
 
     assert result.structural_object_count == 2_097
     assert result.metadata_object_count == 38_648
     assert result.raw_row_count == 79_393
     assert len(result.classifications) == 40_745
     assert result.category_counts == {
+        "evidence-bound-metadata-composite": 2_754,
         "group-identity-rebinding": 35_017,
         "semantic-routing-change": 877,
-        "unexplained-blocker": 4_851,
+        "source-role-routed-projection": 2_097,
     }
-    assert len(result.unexplained_blockers) == 4_851
+    assert result.unexplained_blockers == ()
     assert result.causal_attribution == "prohibited"
+    assert all(
+        item.evidence_identities
+        for item in result.classifications
+        if item.category != "unexplained-blocker"
+    )
 
 
 @pytest.mark.unit
@@ -621,7 +707,7 @@ def test_total_classifier_refuses_duplicate_or_omitted_objects(
     report = load_r101_conservation_report(
         GOLDEN / "neoplasm-r101-v5-conservation.json.gz"
     )
-    result = classify_corpus_delta(report, exclusions=exclusions)
+    result = _classify(report)
     payload = {
         **result.__dict__,
         "classifications": (*result.classifications, result.classifications[0]),
@@ -645,43 +731,26 @@ def test_total_classifier_refuses_duplicate_or_omitted_objects(
 @pytest.mark.parametrize(
     ("shape", "expected"),
     [
-        ("excluded", "review-required-effective-exclusion"),
-        ("minted", "proposal-minted-projection"),
+        ("excluded", "source-role-routed-projection"),
+        ("minted", "unexplained-blocker"),
         ("unexplained", "unexplained-blocker"),
         ("r101-linked", "r101-occurrence-linked-output-delta"),
     ],
 )
 def test_structural_classifier_preserves_distinct_evidence_shapes(
     report,  # type: ignore[no-untyped-def]
-    exclusions,  # type: ignore[no-untyped-def]
     shape: str,
     expected: str,
 ) -> None:
     evidence = report.non_r101_delta_evidence
     row = evidence.rows[0]
-    selected_exclusions = ()
     classified = ()
     rows = (row,)
-    if shape == "excluded":
-        selected_exclusions = (
-            exclusions[0].model_copy(
-                update={
-                    "concept_code": row.concept_code,
-                    "pair_changes": (
-                        ExcludedPairChange(
-                            axis=row.axis,
-                            filler_code=row.filler_code,
-                            comparison_direction="grouping-disputed",
-                        ),
-                    ),
-                }
-            ),
-        )
-    elif shape == "minted":
-        rows = (row.model_copy(update={"filler_code": "MINT-test"}),)
+    if shape == "minted":
+        rows = (row.model_copy(update={"filler_code": "MINT-781c8c8c6096"}),)
     elif shape == "unexplained":
-        rows = (row.model_copy(update={"needs_review": False}),)
-    else:
+        rows = (row.model_copy(update={"source_roles": ()}),)
+    elif shape == "r101-linked":
         rows = ()
         classified = (
             ClassifiedNonR101Delta.model_construct(
@@ -702,7 +771,7 @@ def test_structural_classifier_preserves_distinct_evidence_shapes(
         update={"non_r101_delta_evidence": shaped_evidence}
     )
 
-    result = classify_corpus_delta(shaped_report, exclusions=selected_exclusions)
+    result = _classify(shaped_report)
 
     assert result.category_counts == {expected: 1}
 
@@ -757,13 +826,71 @@ def test_metadata_classifier_keeps_provenance_clearance_and_unknown_distinct(
         update={"non_r101_delta_evidence": shaped_evidence}
     )
 
-    result = classify_corpus_delta(shaped_report, exclusions=())
+    result = _classify(shaped_report)
 
     assert result.category_counts == {expected: 1}
 
 
 @pytest.mark.unit
-def test_metadata_classifier_routes_only_the_exact_excluded_pair(
+def test_metadata_classifier_emits_ordered_evidence_bound_composite_rule(
+    report,  # type: ignore[no-untyped-def]
+) -> None:
+    evidence = report.non_r101_delta_evidence
+    delta = next(
+        item for item in evidence.metadata_deltas if len(item.changed_fields) > 1
+    )
+    assert delta.old.source_definition_ids == delta.new.source_definition_ids
+    assert delta.old.source_occurrence_ids == delta.new.source_occurrence_ids
+    assert delta.old.source_roles == delta.new.source_roles
+    shaped = evidence.model_copy(
+        update={
+            "rows": (),
+            "metadata_deltas": (delta,),
+            "classified_rows": (),
+            "raw_typed_delta_count": 2,
+        }
+    )
+
+    result = _classify(report.model_copy(update={"non_r101_delta_evidence": shaped}))
+
+    item = result.classifications[0]
+    assert item.category == "evidence-bound-metadata-composite"
+    assert item.rule_name == (
+        "metadata-composite:group-identity-rebinding+semantic-routing-change-v1"
+    )
+    assert item.evidence_identities
+
+
+@pytest.mark.unit
+def test_structural_classifier_requires_complete_source_role_evidence(
+    report,  # type: ignore[no-untyped-def]
+) -> None:
+    evidence = report.non_r101_delta_evidence
+    row = evidence.rows[0].model_copy(update={"source_roles": ()})
+    shaped = evidence.model_copy(
+        update={
+            "rows": (row,),
+            "metadata_deltas": (),
+            "classified_rows": (),
+            "raw_typed_delta_count": 1,
+        }
+    )
+
+    result = _classify(report.model_copy(update={"non_r101_delta_evidence": shaped}))
+
+    blocker = result.unexplained_blockers[0]
+    assert blocker.category == "missing-source-role-evidence"
+    assert blocker.reason == "structural row lacks source roles"
+    assert blocker.row_key == (
+        row.change,
+        row.concept_code,
+        row.axis,
+        row.filler_code,
+    )
+
+
+@pytest.mark.unit
+def test_exclusion_evidence_stays_on_effective_view_not_metadata_classification(
     report,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -793,10 +920,10 @@ def test_metadata_classifier_routes_only_the_exact_excluded_pair(
         update={"non_r101_delta_evidence": shaped_evidence}
     )
 
-    result = classify_corpus_delta(shaped_report, exclusions=(exclusion,))
+    result = _classify(shaped_report)
 
-    assert result.category_counts == {"review-required-effective-exclusion": 1}
-    assert set(exclusion.evidence_identities) < set(
+    assert result.category_counts == {"group-identity-rebinding": 1}
+    assert not set(exclusion.evidence_identities).intersection(
         result.classifications[0].evidence_identities
     )
 
@@ -829,10 +956,7 @@ def test_exclusion_evidence_does_not_leak_to_another_pair_for_same_concept(
         }
     )
 
-    result = classify_corpus_delta(
-        report.model_copy(update={"non_r101_delta_evidence": shaped}),
-        exclusions=(exclusion,),
-    )
+    result = _classify(report.model_copy(update={"non_r101_delta_evidence": shaped}))
 
     assert result.classifications[0].category != ("review-required-effective-exclusion")
     assert not set(result.classifications[0].evidence_identities).intersection(
@@ -874,9 +998,8 @@ def test_metadata_classifier_fails_closed_for_invalid_changed_fields(
     with pytest.raises(
         CorpusAcceptanceValidationError, match="metadata changed fields"
     ):
-        classify_corpus_delta(
+        _classify(
             report.model_copy(update={"non_r101_delta_evidence": shaped}),
-            exclusions=(),
         )
 
 
@@ -886,7 +1009,17 @@ def test_metadata_classifier_fails_closed_for_invalid_changed_fields(
     [
         ("raw_row_count", 79_392, "raw changed-row arithmetic differs"),
         ("category_counts", {}, "classification category counts differ"),
-        ("unexplained_blockers", (SHA,), "unexplained blocker inventory differs"),
+        (
+            "unexplained_blockers",
+            (
+                {
+                    "category": "missing-source-role-evidence",
+                    "reason": "not the derived inventory",
+                    "row_key": ("added", "C1", "op:CellType", "C2"),
+                },
+            ),
+            "unexplained blocker inventory differs",
+        ),
         ("classification_identity", SHA, "classification identity differs"),
     ],
 )
@@ -1011,12 +1144,25 @@ def _content_payload(
             "decomposed_count": 14_884,
             "atomic_noop_count": 606,
             "residual_count": 1,
+            "residual_concept_codes": ("C1",),
             "semantic_excluded_count": 3,
-            "unknown_count": 139,
+            "unknown_outcome_count": 139,
             "source_occurrence_count": 370_253,
             "selected_occurrence_count": 108_217,
             "emitted_constituent_pair_count": 144_231,
-            "complete_semantic_fact_count": 845_825,
+            "complete_fact_count": 845_825,
+            "projected_fact_count": 144_231,
+            "projection_loss_count": 701_594,
+            "projection_loss_rate": 701_594 / 845_825,
+            "residual_precoordinated_count": 1,
+            "residual_unknown_count": 0,
+            "residual_unknown_rate": 0.0,
+            "roundtrip_fidelity": None,
+            "exact_pair_precision": 111 / 132,
+            "exact_pair_recall": 111 / 153,
+            "common_pair_partition_agreement": 13 / 18,
+            "full_partition_agreement": 3 / 20,
+            "sme_include_rate": 48 / 106,
             "minted_count": 2_649,
         },
         "gates": {
@@ -1032,7 +1178,9 @@ def _content_payload(
                 "residual",
                 "fidelity",
                 "issue_274_detector",
+                "m1_6_improvement",
                 "gate_liveness",
+                "verify_currency",
             )
         },
         "r101_summary": r101,
@@ -1100,6 +1248,13 @@ def _publication_run(**changes: object) -> CompletedRunForEvidence:
     return CompletedRunForEvidence.model_validate(values)
 
 
+def _planes(effective: str = SHA, official: str = SHA) -> PublicationPlaneBinding:
+    return PublicationPlaneBinding(
+        official_persisted_representation_identity=official,
+        effective_representation_identity=effective,
+    )
+
+
 class _PublicationStore:
     def __init__(self, run: CompletedRunForEvidence) -> None:
         self.run = run
@@ -1124,6 +1279,7 @@ def test_publication_authorization_requires_exact_accepted_human_decision() -> N
             candidate_identity=SHA,
             dry_run=dry_run,
             decision=pending,
+            attestation_artifact=Path("not-read-for-pending-decision"),
         )
 
 
@@ -1152,6 +1308,9 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
 ) -> None:
     source = tmp_path / "effective.ttl"
     output = tmp_path / "accepted.ttl"
+    attestation = tmp_path / "independent-attestation.json"
+    attestation.write_text('{"authority":"Dr Example","decision":"accepted"}\n')
+    attestation_identity = hashlib.sha256(attestation.read_bytes()).hexdigest()
     source.write_text(
         "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
         f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
@@ -1172,6 +1331,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             candidate_identity=SHA,
             dry_run=dry_run,
             decision=pending,
+            attestation_artifact=attestation,
             source_release="26.07d",
             source_identity="1" * 64,
             run_id="run-1",
@@ -1186,6 +1346,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
         publication_dry_run_identity=dry_run.evidence_identity,
         accountable_authority="Dr Example",
         decided_at=datetime(2026, 9, 16, tzinfo=UTC),
+        attestation_artifact_identity=attestation_identity,
         decision_evidence_identity="4" * 64,
     )
     build_accepted_publication_artifact(
@@ -1194,6 +1355,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
         candidate_identity=SHA,
         dry_run=dry_run,
         decision=accepted,
+        attestation_artifact=attestation,
         source_release="26.07d",
         source_identity="1" * 64,
         run_id="run-1",
@@ -1217,6 +1379,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             candidate_identity=SHA,
             dry_run=dry_run,
             decision=accepted,
+            attestation_artifact=attestation,
             source_release="26.07d",
             source_identity="1" * 64,
             run_id="run-1",
@@ -1233,6 +1396,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             candidate_identity=SHA,
             dry_run=dry_run,
             decision=accepted,
+            attestation_artifact=attestation,
             source_release="26.07d",
             source_identity="1" * 64,
             run_id="run-1",
@@ -1247,12 +1411,14 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
         publication_dry_run_identity=dry_run.evidence_identity,
         accountable_authority="Dr Example",
         decided_at=datetime(2026, 9, 16, tzinfo=UTC),
+        attestation_artifact_identity=attestation_identity,
         decision_evidence_identity="1" * 64,
     )
     require_publication_authorization(
         candidate_identity=SHA,
         dry_run=dry_run,
         decision=accepted,
+        attestation_artifact=attestation,
     )
 
     with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
@@ -1260,6 +1426,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             candidate_identity="2" * 64,
             dry_run=dry_run,
             decision=accepted,
+            attestation_artifact=attestation,
         )
     with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
         require_publication_authorization(
@@ -1268,6 +1435,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             decision=accepted.model_copy(
                 update={"publication_dry_run_identity": "2" * 64}
             ),
+            attestation_artifact=attestation,
         )
     blocked_payload = dry_run.model_dump()
     blocked_payload.update(status="blocked", postgres_read_verified=False)
@@ -1286,6 +1454,7 @@ def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
             decision=accepted.model_copy(
                 update={"publication_dry_run_identity": blocked.evidence_identity}
             ),
+            attestation_artifact=attestation,
         )
 
 
@@ -1336,7 +1505,7 @@ async def test_publication_dry_run_refuses_another_destination_before_reads() ->
             candidate_content_identity=SHA,
             run_id="run-1",
             source_identity=SHA,
-            representation_identity=SHA,
+            planes=_planes(),
             artifact=GOLDEN / "neoplasm-current-corpus-baseline.json",
             destination_graph_iri="https://example.org/wrong",
             expected_codes=(),
@@ -1366,7 +1535,7 @@ async def test_publication_dry_run_refuses_each_persisted_run_binding_mismatch(
             candidate_content_identity=SHA,
             run_id="run-1",
             source_identity=source_identity,
-            representation_identity=representation_identity,
+            planes=_planes(official=representation_identity),
             artifact=GOLDEN / "neoplasm-current-corpus-baseline.json",
             destination_graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
             expected_codes=("C1",),
@@ -1395,7 +1564,7 @@ async def test_publication_dry_run_refuses_invalid_or_unbound_artifact(
             candidate_content_identity=SHA,
             run_id="run-1",
             source_identity=SHA,
-            representation_identity=SHA,
+            planes=_planes(),
             artifact=artifact,
             destination_graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
             expected_codes=(),
@@ -1407,7 +1576,7 @@ async def test_publication_dry_run_refuses_invalid_or_unbound_artifact(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("gate", ["projection_loss", "residual", "fidelity"])
-def test_failed_mechanical_gate_is_represented_and_blocks_candidate(
+def test_report_only_metric_gate_failure_is_represented_without_blocking_candidate(
     classification,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
     gate: str,
@@ -1428,7 +1597,70 @@ def test_failed_mechanical_gate_is_represented_and_blocks_candidate(
     candidate = finalize_corpus_acceptance_candidate(
         content, _dry_run(content.content_identity)
     )
-    assert candidate.status == "machine-blocked"
+    assert candidate.status == "ready-for-human-authorization"
+
+
+@pytest.mark.unit
+def test_candidate_metrics_validate_projection_and_unknown_arithmetic() -> None:
+    metrics = CandidateMetrics.model_validate(
+        {
+            "worklist_count": 10,
+            "decomposed_count": 6,
+            "atomic_noop_count": 1,
+            "residual_count": 1,
+            "residual_concept_codes": ("C1",),
+            "semantic_excluded_count": 1,
+            "unknown_outcome_count": 1,
+            "source_occurrence_count": 20,
+            "selected_occurrence_count": 10,
+            "emitted_constituent_pair_count": 7,
+            "complete_fact_count": 10,
+            "projected_fact_count": 7,
+            "projection_loss_count": 3,
+            "projection_loss_rate": 0.3,
+            "residual_precoordinated_count": 1,
+            "residual_unknown_count": 0,
+            "residual_unknown_rate": 0.0,
+            "roundtrip_fidelity": None,
+            "exact_pair_precision": 0.8,
+            "exact_pair_recall": 0.6,
+            "common_pair_partition_agreement": 0.5,
+            "full_partition_agreement": 0.25,
+            "sme_include_rate": 0.4,
+            "minted_count": 2,
+        }
+    )
+    assert metrics.roundtrip_fidelity is None
+    for field, value in (
+        ("projection_loss_count", 2),
+        ("projection_loss_rate", 0.2),
+        ("unknown_outcome_count", 2),
+    ):
+        with pytest.raises(ValidationError):
+            CandidateMetrics.model_validate(metrics.model_dump() | {field: value})
+
+
+@pytest.mark.unit
+def test_unavailable_roundtrip_is_report_only_and_does_not_block_candidate(
+    classification,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+) -> None:
+    payload = _content_payload(classification, exclusions)
+    gates = cast("dict[str, object]", payload["gates"]).copy()
+    fidelity = cast("dict[str, object]", gates["fidelity"]).copy()
+    fidelity["status"] = "unavailable"
+    gates["fidelity"] = fidelity
+    payload["gates"] = gates
+    content = CorpusAcceptanceContent.model_validate(
+        {**payload, "content_identity": _identity(payload)}
+    )
+
+    candidate = finalize_corpus_acceptance_candidate(
+        content, _dry_run(content.content_identity)
+    )
+
+    assert candidate.gates.fidelity.status == "unavailable"
+    assert candidate.status == "ready-for-human-authorization"
 
 
 @pytest.mark.unit
@@ -1461,7 +1693,7 @@ def test_candidate_content_refuses_changed_content_identity(
 
 
 @pytest.mark.unit
-def test_candidate_finalization_preserves_machine_blockers_without_requesting_human(
+def test_candidate_finalization_is_ready_without_requesting_human(
     classification,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -1471,7 +1703,7 @@ def test_candidate_finalization_preserves_machine_blockers_without_requesting_hu
     )
 
     assert isinstance(candidate, CorpusAcceptanceCandidate)
-    assert candidate.status == "machine-blocked"
+    assert candidate.status == "ready-for-human-authorization"
     assert candidate.human_authorization.status == "not-requested"
     assert candidate.candidate_content_identity == content.content_identity
     assert candidate.publication_dry_run.publication_writes_performed is False
@@ -1519,7 +1751,7 @@ def test_unexplained_delta_keeps_candidate_machine_blocked(
     report,  # type: ignore[no-untyped-def]
 ) -> None:
     evidence = report.non_r101_delta_evidence
-    unexplained = evidence.rows[0].model_copy(update={"needs_review": False})
+    unexplained = evidence.rows[0].model_copy(update={"source_roles": ()})
     shaped_evidence = evidence.model_copy(
         update={
             "rows": (unexplained,),
@@ -1528,9 +1760,8 @@ def test_unexplained_delta_keeps_candidate_machine_blocked(
             "raw_typed_delta_count": 1,
         }
     )
-    classification = classify_corpus_delta(
-        report.model_copy(update={"non_r101_delta_evidence": shaped_evidence}),
-        exclusions=(),
+    classification = _classify(
+        report.model_copy(update={"non_r101_delta_evidence": shaped_evidence})
     )
     content = _content(classification, ())
 
@@ -1562,7 +1793,7 @@ def test_candidate_refuses_dry_run_bound_to_other_content(
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("status", "ready-for-human-authorization", "candidate status differs"),
+        ("status", "machine-blocked", "candidate status differs"),
         (
             "candidate_content_identity",
             "f" * 64,

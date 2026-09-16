@@ -19,6 +19,7 @@ from ontolib.decomposition.corpus_acceptance import (
     AcceptedHumanAcceptanceDecision,
     ExcludedPairChange,
     PublicationDryRunEvidence,
+    PublicationPlaneBinding,
     ReviewRequiredEffectiveExclusion,
     build_accepted_publication_artifact,
     dry_run_corpus_publication,
@@ -111,6 +112,8 @@ async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
 ) -> None:
     source = tmp_path / "effective.ttl"
     accepted = tmp_path / "accepted.ttl"
+    attestation = tmp_path / "independent-attestation.json"
+    attestation.write_text('{"authority":"Integration test authority"}\n')
     source.write_text(
         f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
         f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
@@ -124,6 +127,9 @@ async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
         publication_dry_run_identity=dry_run.evidence_identity,
         accountable_authority="Integration test authority",
         decided_at=datetime.datetime(2026, 9, 16, tzinfo=datetime.UTC),
+        attestation_artifact_identity=hashlib.sha256(
+            attestation.read_bytes()
+        ).hexdigest(),
         decision_evidence_identity="2" * 64,
     )
     exclusion = ReviewRequiredEffectiveExclusion(
@@ -149,6 +155,7 @@ async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
         candidate_identity="9" * 64,
         dry_run=dry_run,
         decision=decision,
+        attestation_artifact=attestation,
         source_release="26.07d",
         source_identity="1" * 64,
         run_id=_RUN_ID,
@@ -235,7 +242,10 @@ async def _assert_publication_dry_run_is_read_only(
             candidate_content_identity="9" * 64,
             run_id=_RUN_ID,
             source_identity="a" * 64,
-            representation_identity=representation_identity,
+            planes=PublicationPlaneBinding(
+                official_persisted_representation_identity=representation_identity,
+                effective_representation_identity=representation_identity,
+            ),
             artifact=destination,
             destination_graph_iri=_PUBLIC,
             expected_codes=(),
