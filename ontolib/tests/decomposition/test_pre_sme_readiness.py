@@ -96,64 +96,70 @@ def _baseline(
     )
 
 
-def _composed_readiness_inputs(
-    tmp_path: Path,
+def _stale_grouping_artifacts(
+    evidence: CurrentEngineEvidence,
+    comparison: CurrentComparison,
+    normalized_group_policy: Any,
+) -> tuple[CurrentEngineEvidence, CurrentComparison]:
+    policy_row = normalized_group_policy.rows[0]
+    target_pair = policy_row.blocks[0].pairs[0]
+    concept_index, concept = next(
+        (index, item)
+        for index, item in enumerate(evidence.concepts)
+        if item.code == policy_row.concept_code
+    )
+    constituent_index, constituent = next(
+        (index, item)
+        for index, item in enumerate(concept.constituents)
+        if (item.axis, item.filler) == target_pair
+    )
+    mutated_constituent = constituent.model_copy(
+        update={
+            "normalized_group_id": "0" * 64,
+            "normalized_group_label": (
+                f"stale-grouping:{policy_row.concept_code}:{'0' * 12}"
+            ),
+        }
+    )
+    constituents = list(concept.constituents)
+    constituents[constituent_index] = mutated_constituent
+    concepts = list(evidence.concepts)
+    concepts[concept_index] = concept.model_copy(
+        update={"constituents": tuple(constituents)}
+    )
+    mutated_evidence = evidence.model_copy(update={"concepts": tuple(concepts)})
+    evidence_payload = mutated_evidence.model_dump(
+        mode="json", exclude={"evidence_identity"}
+    )
+    current_evidence = CurrentEngineEvidence.model_validate_json(
+        json.dumps(
+            {**evidence_payload, "evidence_identity": _identity(evidence_payload)}
+        )
+    )
+    comparison_payload = comparison.model_dump(
+        mode="json", exclude={"comparison_identity"}
+    )
+    comparison_payload["current_evidence_identity"] = current_evidence.evidence_identity
+    current_comparison = CurrentComparison.model_validate_json(
+        json.dumps(
+            {
+                **comparison_payload,
+                "comparison_identity": _identity(comparison_payload),
+            }
+        )
+    )
+    return current_evidence, current_comparison
+
+
+def _patch_composed_readiness_loaders(
+    module: Any,
     monkeypatch: pytest.MonkeyPatch,
-    *,
-    stale_grouping: bool = False,
-) -> tuple[dict[str, Any], Any, Any, Any, Any]:
-    module = __import__(
-        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
-    )
-    golden = Path(__file__).parent / "golden"
-    evidence_path = golden / "neoplasm-current-engine-evidence.json"
-    comparison_path = golden / "neoplasm-current-comparison.json"
-    evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
-    comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
-    report = load_r101_conservation_report(_R101_REPORT)
-    corpus_artifact = tmp_path / "corpus.ttl"
-    corpus_artifact.write_text(_site_line("C1", "C10"))
-    baseline = _baseline(
-        corpus_artifact,
-        source_identity=report.source_identity,
-        ontology_release=report.source_release_id,
-    )
-    audit = audit_primary_site_artifact(
-        artifact=corpus_artifact,
-        baseline=baseline,
-        source_identity=report.source_identity,
-        source_release=report.source_release_id,
-    )
-    manifest = tmp_path / "source-manifest.json"
-    manifest.write_text("{}", encoding="utf-8")
-    validation = build_r101_reuse_validation(
-        report_identity=report.report_identity,
-        existing_packet_identity="1" * 64,
-        current_packet_identity="2" * 64,
-        registry_identity="3" * 64,
-    )
-    validation_path = tmp_path / "r101-validation.json"
-    validation_path.write_text(validation.model_dump_json())
-    audit_path = tmp_path / "audit.json"
-    audit_path.write_text(audit.model_dump_json())
-    verify_path = tmp_path / "verify.json"
-    write_verify_evidence(
-        verify_path,
-        git_head="a" * 40,
-        docker_context="ontoprism-podman",
-        docker_endpoint="unix:///tmp/podman.sock",
-        gate_executable="/opt/homebrew/bin/pdm",
-        gate_version="PDM, version test",
-        observed_exit_code=0,
-    )
-    normalized_group_policy = module.load_packaged_normalized_group_policy()
-    group = SimpleNamespace(
-        current_evidence_identity=evidence.evidence_identity,
-        current_comparison_identity=comparison.comparison_identity,
-        r101_report_identity=report.report_identity,
-        packet_identity=normalized_group_policy.basis_packet_identity,
-        review_rows=(None,) * 18,
-    )
+    golden: Path,
+    report: Any,
+    baseline: CorpusBaseline,
+    evidence: CurrentEngineEvidence,
+    group: Any,
+) -> None:
     source_fixture = module.load_source_inventory(
         golden / "r103-source-inventory-26.07d.json"
     )
@@ -201,6 +207,77 @@ def _composed_readiness_inputs(
         ),
     )
     monkeypatch.setattr(module, "load_group_review_packet", lambda _path: group)
+
+
+def _composed_readiness_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stale_grouping: bool = False,
+) -> tuple[dict[str, Any], Any, Any, Any, Any]:
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+    golden = Path(__file__).parent / "golden"
+    evidence_path = golden / "neoplasm-current-engine-evidence.json"
+    comparison_path = golden / "neoplasm-current-comparison.json"
+    evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
+    comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
+    normalized_group_policy = module.load_packaged_normalized_group_policy()
+    if stale_grouping:
+        evidence, comparison = _stale_grouping_artifacts(
+            evidence, comparison, normalized_group_policy
+        )
+        evidence_path = tmp_path / "stale-grouping-evidence.json"
+        comparison_path = tmp_path / "stale-grouping-comparison.json"
+        evidence_path.write_text(evidence.model_dump_json(), encoding="utf-8")
+        comparison_path.write_text(comparison.model_dump_json(), encoding="utf-8")
+    report = load_r101_conservation_report(_R101_REPORT)
+    corpus_artifact = tmp_path / "corpus.ttl"
+    corpus_artifact.write_text(_site_line("C1", "C10"))
+    baseline = _baseline(
+        corpus_artifact,
+        source_identity=report.source_identity,
+        ontology_release=report.source_release_id,
+    )
+    audit = audit_primary_site_artifact(
+        artifact=corpus_artifact,
+        baseline=baseline,
+        source_identity=report.source_identity,
+        source_release=report.source_release_id,
+    )
+    manifest = tmp_path / "source-manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    validation = build_r101_reuse_validation(
+        report_identity=report.report_identity,
+        existing_packet_identity="1" * 64,
+        current_packet_identity="2" * 64,
+        registry_identity="3" * 64,
+    )
+    validation_path = tmp_path / "r101-validation.json"
+    validation_path.write_text(validation.model_dump_json())
+    audit_path = tmp_path / "audit.json"
+    audit_path.write_text(audit.model_dump_json())
+    verify_path = tmp_path / "verify.json"
+    write_verify_evidence(
+        verify_path,
+        git_head="a" * 40,
+        docker_context="ontoprism-podman",
+        docker_endpoint="unix:///tmp/podman.sock",
+        gate_executable="/opt/homebrew/bin/pdm",
+        gate_version="PDM, version test",
+        observed_exit_code=0,
+    )
+    group = SimpleNamespace(
+        current_evidence_identity=evidence.evidence_identity,
+        current_comparison_identity=comparison.comparison_identity,
+        r101_report_identity=report.report_identity,
+        packet_identity=normalized_group_policy.basis_packet_identity,
+        review_rows=(None,) * 18,
+    )
+    _patch_composed_readiness_loaders(
+        module, monkeypatch, golden, report, baseline, evidence, group
+    )
     unused = tmp_path / "unused.json"
     unused.write_text("{}")
     detector_path = tmp_path / "grouping-detector.json"
@@ -1155,25 +1232,11 @@ def test_composed_readiness_rejects_false_clear_detector_for_stale_grouping(
         group.packet_identity,
     )
     assert violations[0] == ()
-    assert set(violations[1]) == {
-        f"{code}:normalized-group-mismatch"
-        for code in (
-            "C27262",
-            "C102870",
-            "C115057",
-            "C101539",
-            "C132677",
-            "C181564",
-            "C186620",
-            "C162226",
-            "C206219",
-            "C6135",
-            "C89995",
-            "C27787",
-            "C115118",
-        )
-    }
-    assert violations[2] == ()
+    assert violations[1] == ("C100051:normalized-group-mismatch",)
+    assert violations[2] == (
+        "policy-evidence-binding",
+        "policy-comparison-binding",
+    )
     with pytest.raises(PreSmeValidationError, match="detector violations differ"):
         generate_pre_sme_readiness(**arguments)
     assert not Path(arguments["output"]).exists()

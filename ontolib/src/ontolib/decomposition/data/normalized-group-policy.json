@@ -2,11 +2,11 @@
   "schema_version": 7,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
   "ncit_version": "26.07d",
-  "basis_run_id": "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572",
-  "basis_artifact_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
-  "basis_evidence_identity": "142a581ab7227e38276be1988f62a8e81c982a38c6d132742fa188b02d19ebdc",
-  "basis_comparison_identity": "09a050b6e8861be62e8a5c2bec80403119242577f953ba2a97905058f1e080ec",
-  "basis_packet_identity": "af90958390d3f0d72712d20596ef7759281f5bf643e2f8ee3873ac1ad80cb636",
+  "basis_run_id": "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
+  "basis_artifact_identity": "e55ac02f155bb99d6c7ab1e70666df755360c59c526883ee679757e584b8161e",
+  "basis_evidence_identity": "85ffd2de0cbcbb519c140a828725acba826935178e018d90bf7297778ef8dfca",
+  "basis_comparison_identity": "4e5eb49dfad504f5cf08dfa91bde84cca0a5f6e8ff917198b21cee7991c56c30",
+  "basis_packet_identity": "e6fc078a5e07e9c147c17a501378a1f1490edc6fb91cbd343d8c7fd130652c3e",
   "unavailable_historical_artifact": {
     "status": "not-retained",
     "family": "m1-6-current-replay",
@@ -9874,5 +9874,5 @@
     "C198031",
     "C35756"
   ],
-  "policy_identity": "9473d78cfe5ab735b5b5cc24fed1d8ae12ecf74ccebeb33bebe082da8ecced06"
+  "policy_identity": "41a48bdb8e6e26a8592a01287b4fcef77607e0ab2bdafc5e54a75346ab635b19"
 }

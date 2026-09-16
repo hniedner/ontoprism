@@ -1,6 +1,6 @@
 {
-  "artifact_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
-  "comparison_identity": "09a050b6e8861be62e8a5c2bec80403119242577f953ba2a97905058f1e080ec",
+  "artifact_identity": "e55ac02f155bb99d6c7ab1e70666df755360c59c526883ee679757e584b8161e",
+  "comparison_identity": "4e5eb49dfad504f5cf08dfa91bde84cca0a5f6e8ff917198b21cee7991c56c30",
   "concepts": [
     {
       "code": "C27262",
@@ -16,7 +16,9 @@
             [
               "op:Morphology",
               "C35501"
-            ],
+            ]
+          ],
+          [
             [
               "op:Morphology",
               "C9290"
@@ -35,7 +37,7 @@
             ]
           ]
         ],
-        "agrees": true,
+        "agrees": false,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [
@@ -83,7 +85,52 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C35501"
+            ],
+            [
+              "op:Morphology",
+              "C9290"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -98,7 +145,9 @@
             [
               "op:Morphology",
               "C35501"
-            ],
+            ]
+          ],
+          [
             [
               "op:Morphology",
               "C9290"
@@ -181,7 +230,52 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C35501"
+            ],
+            [
+              "op:Morphology",
+              "C9290"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -254,14 +348,16 @@
             [
               "op:Morphology",
               "C121619"
-            ],
+            ]
+          ],
+          [
             [
               "op:Morphology",
               "C39986"
             ]
           ]
         ],
-        "agrees": true,
+        "agrees": false,
         "current_only_scoreable_pairs": [],
         "eligible": true,
         "expected_not_scoreable_pairs": [
@@ -301,7 +397,52 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C121619"
+            ],
+            [
+              "op:Morphology",
+              "C39986"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 5
       },
       "full_partition": {
@@ -328,7 +469,9 @@
             [
               "op:Morphology",
               "C121619"
-            ],
+            ]
+          ],
+          [
             [
               "op:Morphology",
               "C39986"
@@ -381,7 +524,52 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C121619"
+            ],
+            [
+              "op:Morphology",
+              "C39986"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 5
       },
       "pair_relations": {
@@ -1328,99 +1516,9 @@
             [
               "op:StageSystem",
               "C180901"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ]
-        ],
-        "agrees": true,
-        "current_only_scoreable_pairs": [
-          [
-            "op:CellType",
-            "C36753"
-          ]
-        ],
-        "eligible": true,
-        "expected_not_scoreable_pairs": [],
-        "expected_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
             ]
           ],
           [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C180901"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ]
-        ],
-        "ineligibility_reason": null,
-        "primary_diagnosis": null,
-        "shared_pair_count": 6
-      },
-      "full_partition": {
-        "actual_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
-            ]
-          ],
-          [
-            [
-              "op:CellType",
-              "C36753"
-            ]
-          ],
-          [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C180901"
-            ],
             [
               "op:StageValue",
               "C27966"
@@ -1473,7 +1571,203 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C180901"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C180901"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C180901"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
+        "shared_pair_count": 6
+      },
+      "full_partition": {
+        "actual_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C180901"
+            ]
+          ],
+          [
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ]
+        ],
+        "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        "eligible": true,
+        "expected_not_scoreable_pairs": [],
+        "expected_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C180901"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ]
+        ],
+        "ineligibility_reason": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C180901"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C180901"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C180901"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -1552,99 +1846,9 @@
             [
               "op:StageSystem",
               "C186618"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ]
-        ],
-        "agrees": true,
-        "current_only_scoreable_pairs": [
-          [
-            "op:CellType",
-            "C36753"
-          ]
-        ],
-        "eligible": true,
-        "expected_not_scoreable_pairs": [],
-        "expected_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
             ]
           ],
           [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C186618"
-            ],
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ]
-        ],
-        "ineligibility_reason": null,
-        "primary_diagnosis": null,
-        "shared_pair_count": 6
-      },
-      "full_partition": {
-        "actual_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
-            ]
-          ],
-          [
-            [
-              "op:CellType",
-              "C36753"
-            ]
-          ],
-          [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C186618"
-            ],
             [
               "op:StageValue",
               "C27966"
@@ -1697,7 +1901,203 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C186618"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C186618"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C186618"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
+        "shared_pair_count": 6
+      },
+      "full_partition": {
+        "actual_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C186618"
+            ]
+          ],
+          [
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ]
+        ],
+        "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        "eligible": true,
+        "expected_not_scoreable_pairs": [],
+        "expected_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C186618"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ]
+        ],
+        "ineligibility_reason": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C186618"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C186618"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C186618"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C27966"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -1771,99 +2171,9 @@
             [
               "op:StageSystem",
               "C186617"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ]
-        ],
-        "agrees": true,
-        "current_only_scoreable_pairs": [
-          [
-            "op:CellType",
-            "C36753"
-          ]
-        ],
-        "eligible": true,
-        "expected_not_scoreable_pairs": [],
-        "expected_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
             ]
           ],
           [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C186617"
-            ],
-            [
-              "op:StageValue",
-              "C96244"
-            ]
-          ]
-        ],
-        "ineligibility_reason": null,
-        "primary_diagnosis": null,
-        "shared_pair_count": 6
-      },
-      "full_partition": {
-        "actual_partition": [
-          [
-            [
-              "op:AssociatedRegion",
-              "C12402"
-            ]
-          ],
-          [
-            [
-              "op:CellType",
-              "C36753"
-            ]
-          ],
-          [
-            [
-              "op:Morphology",
-              "C9039"
-            ]
-          ],
-          [
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ]
-          ],
-          [
-            [
-              "op:PrimarySite",
-              "C12311"
-            ]
-          ],
-          [
-            [
-              "op:StageSystem",
-              "C186617"
-            ],
             [
               "op:StageValue",
               "C96244"
@@ -1916,7 +2226,203 @@
           ]
         ],
         "ineligibility_reason": null,
-        "primary_diagnosis": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C186617"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C96244"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C186617"
+            ],
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C186617"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C96244"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
+        "shared_pair_count": 6
+      },
+      "full_partition": {
+        "actual_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:CellType",
+              "C36753"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C186617"
+            ]
+          ],
+          [
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ]
+        ],
+        "agrees": false,
+        "current_only_scoreable_pairs": [
+          [
+            "op:CellType",
+            "C36753"
+          ]
+        ],
+        "eligible": true,
+        "expected_not_scoreable_pairs": [],
+        "expected_partition": [
+          [
+            [
+              "op:AssociatedRegion",
+              "C12402"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9039"
+            ]
+          ],
+          [
+            [
+              "op:NormalTissueOrigin",
+              "C49218"
+            ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12311"
+            ]
+          ],
+          [
+            [
+              "op:StageSystem",
+              "C186617"
+            ],
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ]
+        ],
+        "ineligibility_reason": null,
+        "primary_diagnosis": {
+          "actual_pair_citations": [
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
+              ],
+              "pair": [
+                "op:StageSystem",
+                "C186617"
+              ]
+            },
+            {
+              "availability": "available",
+              "occurrence_ids": [
+                "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
+              ],
+              "pair": [
+                "op:StageValue",
+                "C96244"
+              ]
+            }
+          ],
+          "affected_pairs": [
+            [
+              "op:StageSystem",
+              "C186617"
+            ],
+            [
+              "op:StageValue",
+              "C96244"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageSystem",
+                "C186617"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:StageValue",
+                "C96244"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
         "shared_pair_count": 6
       },
       "pair_relations": {
@@ -4979,14 +5485,14 @@
       }
     }
   ],
-  "current_evidence_identity": "142a581ab7227e38276be1988f62a8e81c982a38c6d132742fa188b02d19ebdc",
+  "current_evidence_identity": "85ffd2de0cbcbb519c140a828725acba826935178e018d90bf7297778ef8dfca",
   "detector_identity": "149a975b5b0531c710da99e8976eb5cad2c037aea4b64ea2e307b3757df06645",
   "metrics": {
     "common_pair_partition_agreement": {
       "denominator": 18,
       "ineligible": 2,
-      "numerator": 18,
-      "rate": 1.0
+      "numerator": 13,
+      "rate": 0.7222222222222222
     },
     "exact_pair_precision": {
       "denominator": 132,
@@ -5008,7 +5514,7 @@
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
   "proposal_registry_migration_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
-  "representation_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
+  "representation_identity": "e55ac02f155bb99d6c7ab1e70666df755360c59c526883ee679757e584b8161e",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
   "row_replay": {
     "aggregates": {
@@ -7516,8 +8022,8 @@
       }
     ]
   },
-  "run_fingerprint_identity": "4a04f83eabd64cae22fa200a7ea3134b0f561c4e6701e247e12fcaf2d5871a20",
-  "run_id": "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572",
+  "run_fingerprint_identity": "c57b635463c4e752030d936870cd17f9e0d0b7143a30b55152b81ab0d1353046",
+  "run_id": "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 4,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",

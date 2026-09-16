@@ -109,13 +109,29 @@ def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> 
     assert packet.schema_version == 4
     assert any(item.pair_relations.expected_not_emitted for item in packet.concepts)
     assert any(item.pair_relations.current_only_scoreable for item in packet.concepts)
-    assert {item.grouping_diagnosis.kind for item in packet.concepts} == {
-        "agrees-on-common-pairs"
-    }
+    assert {
+        item.code
+        for item in packet.concepts
+        if item.grouping_diagnosis.kind == "over-split"
+    } == {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    assert {
+        item.grouping_diagnosis.kind
+        for item in packet.concepts
+        if item.code not in {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    } == {"agrees-on-common-pairs"}
     a, b, c = ("op:A", "C1"), ("op:B", "C2"), ("op:C", "C3")
     assert diagnose_grouping(((a, b), (c,)), ((a, c), (b,))).kind == "misassignment"
     assert all(item.disposition.status != "accepted" for item in packet.concepts)
-    assert all(item.review_type == "pair-only" for item in packet.review_rows)
+    assert {
+        item.concept_code
+        for item in packet.review_rows
+        if item.review_type == "grouping"
+    } == {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    assert all(
+        item.review_type
+        == ("grouping" if item.grouping_diagnosis.kind == "over-split" else "pair-only")
+        for item in packet.review_rows
+    )
     assert {item.disposition.status for item in packet.concepts} == {
         "human-review-pending"
     }

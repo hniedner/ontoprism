@@ -1,5 +1,5 @@
 {
-  "artifact_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
+  "artifact_identity": "e55ac02f155bb99d6c7ab1e70666df755360c59c526883ee679757e584b8161e",
   "concepts": [
     {
       "all_source_occurrences": [
@@ -239,8 +239,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C41063",
           "needs_review": false,
-          "normalized_group_id": "019f80bf9aa1855c77490c9c324eabaa42897438e795a1e4b4bd00f74b75e1a7",
-          "normalized_group_label": "source-evidence-grouping:C27262:019f80bf9aa1",
+          "normalized_group_id": "589caf9899703fdc3dace554a91cead8ec918887d2bf035f666760e8667093ba",
+          "normalized_group_label": "source-evidence-grouping:C27262:589caf989970",
           "source_definition_ids": [
             "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
           ],
@@ -284,8 +284,8 @@
           "axis_ambiguity_group_id": "op:ClinicalFinding",
           "filler": "C36220",
           "needs_review": true,
-          "normalized_group_id": "c0760f7ec6103c7bec087daa2c6f9219ae812a0d8fb3cc5a55f035a33b78bd44",
-          "normalized_group_label": "source-evidence-grouping:C27262:c0760f7ec610",
+          "normalized_group_id": "e8cc9ca32a0a00914a44b26a7ce9e3ce147dd10681a730b4aed0a533616fbc10",
+          "normalized_group_label": "source-evidence-grouping:C27262:e8cc9ca32a0a",
           "source_definition_ids": [
             "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2"
           ],
@@ -329,8 +329,8 @@
           "axis_ambiguity_group_id": "op:ClinicalFinding",
           "filler": "C41397",
           "needs_review": true,
-          "normalized_group_id": "c0760f7ec6103c7bec087daa2c6f9219ae812a0d8fb3cc5a55f035a33b78bd44",
-          "normalized_group_label": "source-evidence-grouping:C27262:c0760f7ec610",
+          "normalized_group_id": "e8cc9ca32a0a00914a44b26a7ce9e3ce147dd10681a730b4aed0a533616fbc10",
+          "normalized_group_label": "source-evidence-grouping:C27262:e8cc9ca32a0a",
           "source_definition_ids": [
             "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
           ],
@@ -374,8 +374,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C35501",
           "needs_review": false,
-          "normalized_group_id": "85c41f06a5dd6c86e3f7aad51efe4de797cbbefede69c9e72f2eb8903d388a1b",
-          "normalized_group_label": "source-evidence-grouping:C27262:85c41f06a5dd",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_definition_ids": [
             "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6"
           ],
@@ -401,8 +401,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C9290",
           "needs_review": false,
-          "normalized_group_id": "85c41f06a5dd6c86e3f7aad51efe4de797cbbefede69c9e72f2eb8903d388a1b",
-          "normalized_group_label": "source-evidence-grouping:C27262:85c41f06a5dd",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_definition_ids": [
             "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
           ],
@@ -428,8 +428,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C13051",
           "needs_review": false,
-          "normalized_group_id": "f7585f76cbfe0783762efe9378654ffc7560090d5b77d9c2889085b1ac650ab6",
-          "normalized_group_label": "source-evidence-grouping:C27262:f7585f76cbfe",
+          "normalized_group_id": "afd4818cd24d8227f590b446e1cb7fd8dbd30bcf4bc260376fc0eabd43b72183",
+          "normalized_group_label": "source-evidence-grouping:C27262:afd4818cd24d",
           "source_definition_ids": [
             "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
           ],
@@ -473,8 +473,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C12431",
           "needs_review": false,
-          "normalized_group_id": "fa5db9b22e87f61f73fb719f098617d6839350b5f700d84e5f58c5fbde2bb8cc",
-          "normalized_group_label": "source-evidence-grouping:C27262:fa5db9b22e87",
+          "normalized_group_id": "8b4977a17a9b4451af174706b1d4eb905c0a5c7b50c26687b3fda0e58d16de6d",
+          "normalized_group_label": "source-evidence-grouping:C27262:8b4977a17a9b",
           "source_definition_ids": [
             "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
           ],
@@ -864,8 +864,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C12321",
           "needs_review": false,
-          "normalized_group_id": "dbaad1618f510a38dc68681ff00583104ae253253b1828685534c3805fea225f",
-          "normalized_group_label": "source-evidence-grouping:C102870:dbaad1618f51",
+          "normalized_group_id": "27a6825c346663f432f0a3ee5e21ddc078c2e24f4b15ba3d35e1ef5900c59656",
+          "normalized_group_label": "source-evidence-grouping:C102870:27a6825c3466",
           "source_definition_ids": [
             "84b8e8c13909cfb065a96e12591f2dbc573d1858910016bb48bf90cd917bd108"
           ],
@@ -909,8 +909,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C36903",
           "needs_review": false,
-          "normalized_group_id": "8be6048f926c720ddcb24a01995d81227702b9fb02ba021ccdaed8301e5ecbe1",
-          "normalized_group_label": "source-evidence-grouping:C102870:8be6048f926c",
+          "normalized_group_id": "143c1eb07a01debfe75709cac2b59b12e22a3bdc171faca18c1927d66b67a49e",
+          "normalized_group_label": "source-evidence-grouping:C102870:143c1eb07a01",
           "source_definition_ids": [
             "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
           ],
@@ -954,8 +954,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C156460",
           "needs_review": false,
-          "normalized_group_id": "90cd992b550e4a267f534acea20cb2e8e612bf8a370b59b07041cc592f9fb204",
-          "normalized_group_label": "source-evidence-grouping:C102870:90cd992b550e",
+          "normalized_group_id": "296761d27581f824f058ecee48444fafe828f3008207041fc45639a79ecb2859",
+          "normalized_group_label": "source-evidence-grouping:C102870:296761d27581",
           "source_definition_ids": [
             "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
           ],
@@ -999,8 +999,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C121619",
           "needs_review": false,
-          "normalized_group_id": "65a17c905fb7143b202d8f0f779685e0f241d0b88ee83a498d60a3ee7616c7a9",
-          "normalized_group_label": "source-evidence-grouping:C102870:65a17c905fb7",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_definition_ids": [
             "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
           ],
@@ -1026,8 +1026,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C39986",
           "needs_review": false,
-          "normalized_group_id": "65a17c905fb7143b202d8f0f779685e0f241d0b88ee83a498d60a3ee7616c7a9",
-          "normalized_group_label": "source-evidence-grouping:C102870:65a17c905fb7",
+          "normalized_group_id": null,
+          "normalized_group_label": null,
           "source_definition_ids": [
             "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac"
           ],
@@ -1653,8 +1653,8 @@
           "axis_ambiguity_group_id": "op:StageSystem",
           "filler": "C90529",
           "needs_review": false,
-          "normalized_group_id": "0e6a32b3b13a59d96435c13b1e1176906e50d4be995a9c753dc1ae15cadfbc80",
-          "normalized_group_label": "reviewed-regrouping:C115057:0e6a32b3b13a",
+          "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
+          "normalized_group_label": "reviewed-regrouping:C115057:b379aa04e16b",
           "source_definition_ids": [
             "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191"
           ],
@@ -1698,8 +1698,8 @@
           "axis_ambiguity_group_id": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "normalized_group_id": "0e6a32b3b13a59d96435c13b1e1176906e50d4be995a9c753dc1ae15cadfbc80",
-          "normalized_group_label": "reviewed-regrouping:C115057:0e6a32b3b13a",
+          "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
+          "normalized_group_label": "reviewed-regrouping:C115057:b379aa04e16b",
           "source_definition_ids": [
             "f3fa83b96bb1fa3ab2cfc2c1b7aea4f1012fbb47a5088867cf7bf79f241d4915"
           ],
@@ -1755,8 +1755,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27966",
           "needs_review": false,
-          "normalized_group_id": "0e6a32b3b13a59d96435c13b1e1176906e50d4be995a9c753dc1ae15cadfbc80",
-          "normalized_group_label": "reviewed-regrouping:C115057:0e6a32b3b13a",
+          "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
+          "normalized_group_label": "reviewed-regrouping:C115057:b379aa04e16b",
           "source_definition_ids": [
             "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944"
           ],
@@ -2994,8 +2994,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C140961",
           "needs_review": false,
-          "normalized_group_id": "811d3313a41960348e0322790b884417538a03e17004fe1117d6d8a0ffe2e997",
-          "normalized_group_label": "reviewed-regrouping:C101539:811d3313a419",
+          "normalized_group_id": "f44e8375c054be5ba69054566902fe284ecda9635aa584e952d8acf3eb672536",
+          "normalized_group_label": "reviewed-regrouping:C101539:f44e8375c054",
           "source_definition_ids": [
             "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3"
           ],
@@ -3051,8 +3051,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27966",
           "needs_review": false,
-          "normalized_group_id": "811d3313a41960348e0322790b884417538a03e17004fe1117d6d8a0ffe2e997",
-          "normalized_group_label": "reviewed-regrouping:C101539:811d3313a419",
+          "normalized_group_id": "f44e8375c054be5ba69054566902fe284ecda9635aa584e952d8acf3eb672536",
+          "normalized_group_label": "reviewed-regrouping:C101539:f44e8375c054",
           "source_definition_ids": [
             "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
           ],
@@ -3989,8 +3989,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C132248",
           "needs_review": false,
-          "normalized_group_id": "27476c9b9e566816fb6afcd011f2960c273df0b6d555c523d3107a104f43a2a7",
-          "normalized_group_label": "reviewed-regrouping:C132677:27476c9b9e56",
+          "normalized_group_id": "bef73e9f0d61bd8f593423cc29cf0d33c900bd55896e54f77fce88e0e7b1e0e4",
+          "normalized_group_label": "reviewed-regrouping:C132677:bef73e9f0d61",
           "source_definition_ids": [
             "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326"
           ],
@@ -4046,8 +4046,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27970",
           "needs_review": false,
-          "normalized_group_id": "27476c9b9e566816fb6afcd011f2960c273df0b6d555c523d3107a104f43a2a7",
-          "normalized_group_label": "reviewed-regrouping:C132677:27476c9b9e56",
+          "normalized_group_id": "bef73e9f0d61bd8f593423cc29cf0d33c900bd55896e54f77fce88e0e7b1e0e4",
+          "normalized_group_label": "reviewed-regrouping:C132677:bef73e9f0d61",
           "source_definition_ids": [
             "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
           ],
@@ -4867,8 +4867,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C180901",
           "needs_review": false,
-          "normalized_group_id": "f574a8179d5ca1c5974854feba04f8087491c10750e24d55b9102f0fdf94641d",
-          "normalized_group_label": "reviewed-regrouping:C181564:f574a8179d5c",
+          "normalized_group_id": "cdc4d1db2bfb4d4dd9c39d0625e787fb5ccf265823499e7f30118993e0fe6347",
+          "normalized_group_label": "reviewed-regrouping:C181564:cdc4d1db2bfb",
           "source_definition_ids": [
             "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c"
           ],
@@ -4924,8 +4924,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27966",
           "needs_review": false,
-          "normalized_group_id": "f574a8179d5ca1c5974854feba04f8087491c10750e24d55b9102f0fdf94641d",
-          "normalized_group_label": "reviewed-regrouping:C181564:f574a8179d5c",
+          "normalized_group_id": "d20fdee0e094394ca8816bb72b5aaf0842266de9b349f3efce232634c2dd8cbe",
+          "normalized_group_label": "reviewed-regrouping:C181564:d20fdee0e094",
           "source_definition_ids": [
             "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
           ],
@@ -5745,8 +5745,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C186618",
           "needs_review": false,
-          "normalized_group_id": "f7e82e95bb178457f7ff60c9c7aa4d85290158093c081a0b2b8e5bbb5c3c5d21",
-          "normalized_group_label": "reviewed-regrouping:C186620:f7e82e95bb17",
+          "normalized_group_id": "d9c3c8d6aa2948857c6327cda6921849d80a8ef66b7d71db97104eab74530b24",
+          "normalized_group_label": "reviewed-regrouping:C186620:d9c3c8d6aa29",
           "source_definition_ids": [
             "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47"
           ],
@@ -5790,8 +5790,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27966",
           "needs_review": false,
-          "normalized_group_id": "f7e82e95bb178457f7ff60c9c7aa4d85290158093c081a0b2b8e5bbb5c3c5d21",
-          "normalized_group_label": "reviewed-regrouping:C186620:f7e82e95bb17",
+          "normalized_group_id": "bd87c1965e4afbb518e22b6c05626101907efea13e79448afde5caaa62eb05f0",
+          "normalized_group_label": "reviewed-regrouping:C186620:bd87c1965e4a",
           "source_definition_ids": [
             "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
           ],
@@ -6611,8 +6611,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C186617",
           "needs_review": false,
-          "normalized_group_id": "d15bc65202c675acd14ea932d30e03a2d9f597b75fba37bde327e09bb1eb5f71",
-          "normalized_group_label": "reviewed-regrouping:C162226:d15bc65202c6",
+          "normalized_group_id": "eae55cbe985feefd0bff886c79a51ce594143051076c25a3448e939d7383aa26",
+          "normalized_group_label": "reviewed-regrouping:C162226:eae55cbe985f",
           "source_definition_ids": [
             "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d"
           ],
@@ -6656,8 +6656,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C96244",
           "needs_review": false,
-          "normalized_group_id": "d15bc65202c675acd14ea932d30e03a2d9f597b75fba37bde327e09bb1eb5f71",
-          "normalized_group_label": "reviewed-regrouping:C162226:d15bc65202c6",
+          "normalized_group_id": "297314d5ad8bbf290f408a3295d22157271c56223c51b5404eb0bfcd0efe5c6b",
+          "normalized_group_label": "reviewed-regrouping:C162226:297314d5ad8b",
           "source_definition_ids": [
             "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
           ],
@@ -7477,8 +7477,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C206211",
           "needs_review": false,
-          "normalized_group_id": "2c67a82f0878e942970e26486c049f514bf6db91727e38bc750a51f2551aa287",
-          "normalized_group_label": "reviewed-regrouping:C206219:2c67a82f0878",
+          "normalized_group_id": "f3e7da41260049c2ab7368394df470bdbf7b2a09e8f358ba2ed964fb46e0e655",
+          "normalized_group_label": "reviewed-regrouping:C206219:f3e7da412600",
           "source_definition_ids": [
             "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c"
           ],
@@ -7522,8 +7522,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C96244",
           "needs_review": false,
-          "normalized_group_id": "2c67a82f0878e942970e26486c049f514bf6db91727e38bc750a51f2551aa287",
-          "normalized_group_label": "reviewed-regrouping:C206219:2c67a82f0878",
+          "normalized_group_id": "f3e7da41260049c2ab7368394df470bdbf7b2a09e8f358ba2ed964fb46e0e655",
+          "normalized_group_label": "reviewed-regrouping:C206219:f3e7da412600",
           "source_definition_ids": [
             "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
           ],
@@ -12053,8 +12053,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C90530",
           "needs_review": false,
-          "normalized_group_id": "9e8be35b436c89fa3a26af0eed1f7049a8a68093bca0e7674a7034f97a7fff11",
-          "normalized_group_label": "reviewed-regrouping:C6135:9e8be35b436c",
+          "normalized_group_id": "2549fbc65fa2d2a112e20053549ab467b5a779f8b3f0fc614643ce0965c040d5",
+          "normalized_group_label": "reviewed-regrouping:C6135:2549fbc65fa2",
           "source_definition_ids": [
             "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022"
           ],
@@ -12110,8 +12110,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27970",
           "needs_review": false,
-          "normalized_group_id": "9e8be35b436c89fa3a26af0eed1f7049a8a68093bca0e7674a7034f97a7fff11",
-          "normalized_group_label": "reviewed-regrouping:C6135:9e8be35b436c",
+          "normalized_group_id": "2549fbc65fa2d2a112e20053549ab467b5a779f8b3f0fc614643ce0965c040d5",
+          "normalized_group_label": "reviewed-regrouping:C6135:2549fbc65fa2",
           "source_definition_ids": [
             "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
           ],
@@ -17746,8 +17746,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C90530",
           "needs_review": false,
-          "normalized_group_id": "542dfe533ddb1a20f627dbd4b31b39f5df31381687cbb06ec5967be5ec36b53e",
-          "normalized_group_label": "reviewed-regrouping:C89995:542dfe533ddb",
+          "normalized_group_id": "d8878121ddff72956996e30278367b3107c8d07b67a9221c9ef7b605c1441bf7",
+          "normalized_group_label": "reviewed-regrouping:C89995:d8878121ddff",
           "source_definition_ids": [
             "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
           ],
@@ -17803,8 +17803,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27970",
           "needs_review": false,
-          "normalized_group_id": "542dfe533ddb1a20f627dbd4b31b39f5df31381687cbb06ec5967be5ec36b53e",
-          "normalized_group_label": "reviewed-regrouping:C89995:542dfe533ddb",
+          "normalized_group_id": "d8878121ddff72956996e30278367b3107c8d07b67a9221c9ef7b605c1441bf7",
+          "normalized_group_label": "reviewed-regrouping:C89995:d8878121ddff",
           "source_definition_ids": [
             "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01"
           ],
@@ -18572,8 +18572,8 @@
           "axis_ambiguity_group_id": "op:StageSystem",
           "filler": "C90529",
           "needs_review": false,
-          "normalized_group_id": "6ff549ec95e4a5a0626ffc9b1da71a3e069cae09baae4fd33ae2deac3846b2fe",
-          "normalized_group_label": "reviewed-regrouping:C27787:6ff549ec95e4",
+          "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
+          "normalized_group_label": "reviewed-regrouping:C27787:8fb1309bfc89",
           "source_definition_ids": [
             "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30"
           ],
@@ -18617,8 +18617,8 @@
           "axis_ambiguity_group_id": "op:StageSystem",
           "filler": "C90530",
           "needs_review": false,
-          "normalized_group_id": "6ff549ec95e4a5a0626ffc9b1da71a3e069cae09baae4fd33ae2deac3846b2fe",
-          "normalized_group_label": "reviewed-regrouping:C27787:6ff549ec95e4",
+          "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
+          "normalized_group_label": "reviewed-regrouping:C27787:8fb1309bfc89",
           "source_definition_ids": [
             "8c0734fad6e28903e2b64be66be514fd16797b3caf48fb4847f5501d518bbfe8"
           ],
@@ -18674,8 +18674,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27970",
           "needs_review": false,
-          "normalized_group_id": "6ff549ec95e4a5a0626ffc9b1da71a3e069cae09baae4fd33ae2deac3846b2fe",
-          "normalized_group_label": "reviewed-regrouping:C27787:6ff549ec95e4",
+          "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
+          "normalized_group_label": "reviewed-regrouping:C27787:8fb1309bfc89",
           "source_definition_ids": [
             "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1"
           ],
@@ -19422,8 +19422,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C90530",
           "needs_review": false,
-          "normalized_group_id": "6ac7a0453c1b99e04e1337301e7372dfb454b4ade1682a4f2c042b24f0fd45c8",
-          "normalized_group_label": "reviewed-regrouping:C115118:6ac7a0453c1b",
+          "normalized_group_id": "3965fa8aadd0c230f4336e9a5f87e630c5ce946b953b5c73b3b340e80af07885",
+          "normalized_group_label": "reviewed-regrouping:C115118:3965fa8aadd0",
           "source_definition_ids": [
             "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
           ],
@@ -19479,8 +19479,8 @@
           "axis_ambiguity_group_id": null,
           "filler": "C27976",
           "needs_review": false,
-          "normalized_group_id": "6ac7a0453c1b99e04e1337301e7372dfb454b4ade1682a4f2c042b24f0fd45c8",
-          "normalized_group_label": "reviewed-regrouping:C115118:6ac7a0453c1b",
+          "normalized_group_id": "3965fa8aadd0c230f4336e9a5f87e630c5ce946b953b5c73b3b340e80af07885",
+          "normalized_group_label": "reviewed-regrouping:C115118:3965fa8aadd0",
           "source_definition_ids": [
             "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d"
           ],
@@ -19725,15 +19725,15 @@
     }
   ],
   "detector_identity": "149a975b5b0531c710da99e8976eb5cad2c037aea4b64ea2e307b3757df06645",
-  "evidence_identity": "142a581ab7227e38276be1988f62a8e81c982a38c6d132742fa188b02d19ebdc",
+  "evidence_identity": "85ffd2de0cbcbb519c140a828725acba826935178e018d90bf7297778ef8dfca",
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
   "proposal_registry_migration_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
-  "representation_identity": "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8",
+  "representation_identity": "e55ac02f155bb99d6c7ab1e70666df755360c59c526883ee679757e584b8161e",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
-  "run_fingerprint_identity": "4a04f83eabd64cae22fa200a7ea3134b0f561c4e6701e247e12fcaf2d5871a20",
-  "run_id": "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572",
+  "run_fingerprint_identity": "c57b635463c4e752030d936870cd17f9e0d0b7143a30b55152b81ab0d1353046",
+  "run_id": "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 4,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",

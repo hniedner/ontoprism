@@ -55,6 +55,9 @@ from ontolib.decomposition.models import (
     canonical_definition_group_id,
     canonical_source_occurrence_id,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -1293,15 +1296,17 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
         _TRACKED_CURRENT_COMPARISON.read_bytes()
     )
     validate_current_comparison(evidence, comparison)
+    policy = load_packaged_normalized_group_policy()
 
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-f4d14d8a-4667-41d5-9021-a20e55095572"
+    assert policy.basis_run_id == evidence.run_id == comparison.run_id
+    assert policy.basis_evidence_identity == evidence.evidence_identity
+    assert policy.basis_comparison_identity == comparison.comparison_identity
+    assert policy.basis_artifact_identity == evidence.artifact_identity
     assert evidence.walker_max_depth == 7
-    assert evidence.representation_identity == (
-        "7ea233aaf83d5bfce0b4d06c0b0637ad22614980f2a637f473b26f7dd66c7fd8"
-    )
+    assert evidence.representation_identity == evidence.artifact_identity
     assert comparison.metrics.exact_pair_precision.model_dump() == {
         "numerator": 111,
         "denominator": 132,
