@@ -63,6 +63,9 @@ _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
 _MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
+_PODMAN_READINESS_ATTEMPTS = 3
+_PODMAN_ENSURED_ENV = "ONTOPRISM_PODMAN_STACK_ENSURED"
+_MAX_TCP_PORT = 65_535
 _MAX_DIAGNOSTIC_CHARS = 8_192
 _MAX_R101_STRUCTURAL_ROWS = 2_500
 _MAX_R101_METADATA_PAIRS = 40_000
@@ -3714,7 +3717,14 @@ def _labelled_streams(stdout: str, stderr: str, *, display_limit: int | None) ->
     )
 
 
-def _podman_socket(root: Path, runner: CommandRunner) -> Path:
+@dataclass(frozen=True)
+class PodmanMachine:
+    state: Literal["running", "stopped"]
+    socket_path: Path
+    ssh_port: int
+
+
+def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
     output = _capture_required(
         [_PODMAN, "machine", "inspect", _PODMAN_MACHINE], root, runner
     )
@@ -3722,19 +3732,36 @@ def _podman_socket(root: Path, runner: CommandRunner) -> Path:
         payload = json.loads(output)
         machine = payload[0]
         socket_path = Path(machine["ConnectionInfo"]["PodmanSocket"]["Path"])
+        ssh = machine["SSHConfig"]
+        ssh_port = ssh["Port"]
     except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise AgentReplayInputError("invalid Podman machine contract") from exc
     if (
         len(payload) != 1
         or machine.get("Name") != _PODMAN_MACHINE
-        or machine.get("State") != "running"
+        or machine.get("State") not in {"running", "stopped"}
         or machine.get("Rootful") is not False
+        or not isinstance(ssh, dict)
+        or ssh.get("RemoteUsername") != "core"
+        or not isinstance(ssh_port, int)
+        or not 0 < ssh_port <= _MAX_TCP_PORT
         or not socket_path.is_absolute()
         or socket_path.name != "ontoprism-vm-api.sock"
         or socket_path.parent.name != "podman"
     ):
         raise AgentReplayInputError("invalid Podman machine contract")
-    return socket_path
+    return PodmanMachine(
+        cast("Literal['running', 'stopped']", machine["State"]),
+        socket_path,
+        ssh_port,
+    )
+
+
+def _podman_socket(root: Path, runner: CommandRunner) -> Path:
+    machine = _podman_machine(root, runner)
+    if machine.state != "running":
+        raise AgentReplayInputError("invalid Podman machine contract")
+    return machine.socket_path
 
 
 def _docker_context_environment() -> dict[str, str]:
@@ -3794,6 +3821,75 @@ def _validate_podman_api_info(output: str) -> None:
         or info.get("ProductLicense") != "Apache-2.0"
     ):
         raise AgentReplayInputError("invalid Podman API contract")
+
+
+def _validate_machine_connection(output: str, machine: PodmanMachine) -> None:
+    try:
+        connections = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise AgentReplayInputError("invalid Podman connection contract") from exc
+    expected_uri = re.compile(
+        rf"ssh://core@127\.0\.0\.1:{machine.ssh_port}/run/user/[0-9]+/podman/podman\.sock"
+    )
+    matches = [
+        connection
+        for connection in connections
+        if isinstance(connection, dict) and connection.get("Name") == _PODMAN_MACHINE
+    ]
+    if (
+        len(matches) != 1
+        or not isinstance(matches[0].get("URI"), str)
+        or expected_uri.fullmatch(cast("str", matches[0]["URI"])) is None
+        or matches[0].get("IsMachine") is not True
+        or matches[0].get("ReadWrite") is not True
+    ):
+        raise AgentReplayInputError("invalid Podman connection contract")
+
+
+def _probe_machine_api(
+    machine: PodmanMachine, root: Path, runner: CommandRunner
+) -> None:
+    if machine.state != "running":
+        raise AgentReplayInputError("Podman machine is not running")
+    connections = _capture_required(
+        [_PODMAN, "system", "connection", "list", "--format", "json"],
+        root,
+        runner,
+    )
+    _validate_machine_connection(connections, machine)
+    _capture_required(
+        [_PODMAN, "machine", "ssh", _PODMAN_MACHINE, "true"], root, runner
+    )
+    if not machine.socket_path.exists():
+        raise AgentReplayInputError(
+            f"Podman API socket is absent: {machine.socket_path}"
+        )
+    info = _capture_required(
+        [_DOCKER, "info", "--format", "{{json .}}"],
+        root,
+        runner,
+        environment=_podman_environment(root, machine.socket_path),
+    )
+    _validate_podman_api_info(info)
+
+
+def _wait_for_machine_api(root: Path, runner: CommandRunner) -> PodmanMachine:
+    failures: list[str] = []
+    for attempt in range(1, _PODMAN_READINESS_ATTEMPTS + 1):
+        machine = _podman_machine(root, runner)
+        try:
+            _probe_machine_api(machine, root, runner)
+        except AgentReplayInputError as exc:
+            failures.append(f"attempt {attempt}: {exc}")
+            if attempt < _PODMAN_READINESS_ATTEMPTS:
+                _capture_required(["/bin/sleep", "2"], root, runner)
+            continue
+        print(f"podman-readiness-attempt={attempt}/{_PODMAN_READINESS_ATTEMPTS}")
+        return machine
+    raise AgentReplayInputError(
+        "Podman API readiness failed after "
+        f"{_PODMAN_READINESS_ATTEMPTS} bounded attempts: " + " | ".join(failures)
+    )
 
 
 def _activate_podman_docker_context(
@@ -3936,6 +4032,8 @@ def _podman_gate(
 ) -> Literal[0]:
     if values:
         raise AgentReplayInputError(f"{operation} accepts no arguments")
+    if os.environ.get(_PODMAN_ENSURED_ENV) != "1":
+        _ensure_podman_stack([], root, runner)
     socket_path = _podman_socket(root, runner)
     if routing == "environment":
         environment = _podman_environment(root, socket_path)
@@ -3956,6 +4054,7 @@ def _podman_gate(
             environment=environment,
         )
         _validate_active_podman_context(inspected, socket_path)
+    environment[_PODMAN_ENSURED_ENV] = "1"
     _capture_required(
         [_PDM, "run", script],
         root,
@@ -4096,11 +4195,27 @@ def _add_cleanup_note(primary: BaseException, cleanup: AgentReplayInputError) ->
 def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("podman-compose-up accepts no arguments")
-    with _reserved_fixed_ports(_DATA_PORTS):
-        pass
     compose_file = _require_files(root, ("docker-compose.yml",))[0]
     socket_path = _podman_socket(root, runner)
     environment = _podman_environment(root, socket_path)
+    inventory = _owned_compose_inventory(root, runner, environment)
+    for service in inventory:
+        output = _capture_required(
+            [_DOCKER, "inspect", f"ontoprism-{service}"],
+            root,
+            runner,
+            environment=environment,
+        )
+        _validate_compose_resource(
+            output, root=root, service=service, require_healthy=False
+        )
+    missing_ports = tuple(
+        int(_SERVICE_EXPECTATIONS[service].host_port)
+        for service in _COMPOSE_SERVICES
+        if service not in inventory
+    )
+    with _reserved_fixed_ports(missing_ports):
+        pass
     compose = _compose_command(compose_file)
     _capture_required(
         [*compose, "config"],
@@ -4212,7 +4327,11 @@ def _expected_mount(
 
 
 def _validate_compose_resource(
-    output: str, *, root: Path, service: ComposeService
+    output: str,
+    *,
+    root: Path,
+    service: ComposeService,
+    require_healthy: bool = True,
 ) -> None:
     expectation = _SERVICE_EXPECTATIONS[service]
     try:
@@ -4238,7 +4357,7 @@ def _validate_compose_resource(
         raise AgentReplayInputError(f"{service} project owner predicate failed")
     if labels.get("com.docker.compose.service") != service:
         raise AgentReplayInputError(f"{service} service label predicate failed")
-    if health != "healthy":
+    if require_healthy and health != "healthy":
         raise AgentReplayInputError(f"{service} health predicate failed")
     if bindings != [{"HostIp": "127.0.0.1", "HostPort": expectation.host_port}]:
         raise AgentReplayInputError(f"{service} port binding predicate failed")
@@ -4289,6 +4408,127 @@ def _podman_compose_check(values: list[str], root: Path, runner: CommandRunner) 
         runner,
         environment=environment,
     )
+    return 0
+
+
+def _owned_compose_inventory(
+    root: Path, runner: CommandRunner, environment: dict[str, str]
+) -> tuple[ComposeService, ...]:
+    present: list[ComposeService] = []
+    for service in _COMPOSE_SERVICES:
+        output = _capture_optional_absent(
+            [_DOCKER, "inspect", f"ontoprism-{service}"],
+            root,
+            runner,
+            environment,
+            absent_phrase="no such object",
+        )
+        if output is None:
+            continue
+        _validate_compose_resource(
+            output, root=root, service=service, require_healthy=False
+        )
+        present.append(service)
+    if "postgres" not in present:
+        volume = _capture_optional_absent(
+            [_DOCKER, "volume", "inspect", _PODMAN_VOLUME],
+            root,
+            runner,
+            environment,
+            absent_phrase="no such volume",
+        )
+        if volume is not None:
+            _validate_owned_volume(volume)
+    return tuple(present)
+
+
+def _capture_optional_absent(
+    command: list[str],
+    root: Path,
+    runner: CommandRunner,
+    environment: dict[str, str],
+    *,
+    absent_phrase: str,
+) -> str | None:
+    try:
+        result = runner(
+            command,
+            cwd=root,
+            shell=False,
+            check=False,
+            timeout=_DIAGNOSTIC_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AgentReplayInputError(
+            f"resource inspection failed: {' '.join(command)}: "
+            f"{_bounded_sanitized(str(exc))}"
+        ) from exc
+    if result.returncode == 0:
+        return result.stdout
+    detail = _labelled_streams(
+        result.stdout, result.stderr, display_limit=_MAX_DIAGNOSTIC_CHARS
+    )
+    if absent_phrase in f"{result.stdout}\n{result.stderr}".lower():
+        return None
+    raise AgentReplayInputError(
+        f"resource inspection failed ({result.returncode}): {' '.join(command)}"
+        f"{f': {detail}' if detail else ''}"
+    )
+
+
+def _ensure_podman_stack(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("ensure-podman-stack accepts no arguments")
+    machine = _podman_machine(root, runner)
+    machine_action = "no-op"
+    if machine.state == "stopped":
+        _capture_required([_PODMAN, "machine", "start", _PODMAN_MACHINE], root, runner)
+        machine_action = "started"
+    else:
+        try:
+            _probe_machine_api(machine, root, runner)
+        except AgentReplayInputError as stale:
+            print(f"stale-machine-diagnostic={_bounded_sanitized(str(stale))}")
+            _capture_required(
+                [_PODMAN, "machine", "stop", _PODMAN_MACHINE], root, runner
+            )
+            _capture_required(
+                [_PODMAN, "machine", "start", _PODMAN_MACHINE], root, runner
+            )
+            machine_action = "restarted-stale"
+
+    machine = _wait_for_machine_api(root, runner)
+    _activate_podman_docker_context([], root, runner)
+    environment = _podman_environment(root, machine.socket_path)
+    stack_action = "no-op"
+    try:
+        _podman_compose_check([], root, runner)
+    except AgentReplayInputError as unhealthy:
+        print(f"stack-reconcile-reason={_bounded_sanitized(str(unhealthy))}")
+        inventory = _owned_compose_inventory(root, runner, environment)
+        for service in inventory:
+            output = _capture_required(
+                [_DOCKER, "inspect", f"ontoprism-{service}"],
+                root,
+                runner,
+                environment=environment,
+            )
+            _validate_compose_resource(
+                output, root=root, service=service, require_healthy=False
+            )
+        _podman_compose_up([], root, runner)
+        stack_action = "started-or-reconciled"
+
+    _check_podman_api([], root, runner)
+    _podman_compose_check([], root, runner)
+    print(f"machine-action={machine_action}")
+    print(f"stack-action={stack_action}")
+    print(f"final-endpoint=unix://{machine.socket_path}")
+    print(f"active-docker-context={_PODMAN_DOCKER_CONTEXT}")
+    print("stack-health=healthy")
     return 0
 
 
@@ -4693,6 +4933,7 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
+    "ensure-podman-stack": _ensure_podman_stack,
     "inspect-decomposition-runs": _inspect_decomposition_runs,
     "qualify-current-r101-comparator": _qualify_current_r101_comparator,
     "generate-current-r101-conservation": _generate_current_r101_conservation,

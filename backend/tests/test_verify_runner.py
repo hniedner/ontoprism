@@ -55,6 +55,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     assert run_verify(runner=runner, pdm_executable=pdm_executable) == 0
 
     assert [command for command, _options in runner.calls] == [
+        [pdm_executable, "run", "agent-replay", "ensure-podman-stack"],
         [
             sys.executable,
             "scripts/validation/validate_opencode_config.py",
@@ -106,14 +107,14 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
     )
 
     assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
-    assert len(runner.calls) == 5
+    assert len(runner.calls) == 6
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("fail_at", "expected_calls"), [(2, 2), (5, 5)])
+@pytest.mark.parametrize(("fail_at", "expected_calls"), [(1, 1), (3, 3), (6, 6)])
 def test_verify_runner_stops_at_first_failed_gate_including_hierarchy_report(
     monkeypatch: pytest.MonkeyPatch,
     fail_at: int,
@@ -125,6 +126,20 @@ def test_verify_runner_stops_at_first_failed_gate_including_hierarchy_report(
 
     assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 1
     assert len(runner.calls) == expected_calls
+
+
+@pytest.mark.unit
+def test_verify_runner_keeps_ci_docker_behavior_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _Runner()
+    monkeypatch.setattr("scripts.validation.run_verify.os.environ", {"CI": "true"})
+
+    assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
+    assert ["/test/bin/pdm", "run", "agent-replay", "ensure-podman-stack"] not in [
+        command for command, _options in runner.calls
+    ]
+    assert len(runner.calls) == 5
 
 
 @pytest.mark.unit

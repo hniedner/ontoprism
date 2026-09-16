@@ -145,6 +145,7 @@ Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine so
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
 
 ```bash
+pdm run agent-replay ensure-podman-stack
 pdm run agent-replay inspect-podman
 pdm run agent-replay check-podman-api
 pdm run agent-replay podman-compose-up
@@ -177,6 +178,20 @@ context first:
 pdm run agent-replay activate-podman-docker-context
 pdm run verify
 ```
+
+`ensure-podman-stack` is the normal autonomous local preflight used by `pdm run verify` and the
+Podman integration/full-store wrappers. It accepts no arguments. It inspects the exact rootless
+`ontoprism-vm`, its SSH connection, forwarded socket, and Docker-compatible API. A stopped machine
+is started. A machine that claims `running` while any of those probes fail receives exactly one
+normal stop/start recovery, followed by three bounded readiness attempts; there is no reset,
+recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
+and selects only `ontoprism-podman`. It validates every existing stack resource's owner, mount, and
+loopback port before reconciling an absent, stopped, or partial stack, and refuses uncertain
+ownership, storage identity, or port use. Success is reported only after `check-podman-api` and
+`podman-compose-check` pass, with machine/stack actions and the final endpoint/context/health.
+Agents are authorized to invoke this fixed recovery without prompting when local health requires
+it; this is not authority for arbitrary Podman or Docker commands. GitHub CI continues to use its
+existing Docker service path and does not execute this local preflight.
 
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact

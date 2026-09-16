@@ -974,6 +974,10 @@ class _PodmanDiagnosticRunner:
                             "Name": "ontoprism-vm",
                             "State": "running",
                             "Rootful": False,
+                            "SSHConfig": {
+                                "Port": 49969,
+                                "RemoteUsername": "core",
+                            },
                             "ConnectionInfo": {
                                 "PodmanSocket": {"Path": str(self.socket_path)}
                             },
@@ -1004,6 +1008,12 @@ class _PodmanApiRunner:
 
     def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
         self.calls.append((arguments, kwargs))
+        if arguments[:2] == ["/opt/homebrew/bin/docker", "ps"]:
+            return _Result(0)
+        if arguments[:2] == ["/opt/homebrew/bin/docker", "inspect"]:
+            return _Result(1, stderr="no such object")
+        if arguments[:3] == ["/opt/homebrew/bin/docker", "volume", "inspect"]:
+            return _Result(1, stderr="no such volume")
         if arguments == [
             "/opt/homebrew/bin/podman",
             "machine",
@@ -1018,6 +1028,10 @@ class _PodmanApiRunner:
                             "Name": "ontoprism-vm",
                             "State": "running",
                             "Rootful": False,
+                            "SSHConfig": {
+                                "Port": 49969,
+                                "RemoteUsername": "core",
+                            },
                             "ConnectionInfo": {
                                 "PodmanSocket": {"Path": str(self.socket_path)}
                             },
@@ -1058,6 +1072,10 @@ class _DockerContextRunner(_PodmanApiRunner):
                             "Name": "ontoprism-vm",
                             "State": "running",
                             "Rootful": False,
+                            "SSHConfig": {
+                                "Port": 49969,
+                                "RemoteUsername": "core",
+                            },
                             "ConnectionInfo": {
                                 "PodmanSocket": {"Path": str(self.socket_path)}
                             },
@@ -2886,8 +2904,9 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
 
 @pytest.mark.unit
 def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     socket_path.parent.mkdir()
     socket_path.touch()
@@ -2962,7 +2981,10 @@ def test_pre_sme_verify_refuses_dirty_worktree_without_running_gate_or_writing(
 
 
 @pytest.mark.unit
-def test_pre_sme_verify_gate_failure_removes_stale_evidence(tmp_path: Path) -> None:
+def test_pre_sme_verify_gate_failure_removes_stale_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     socket_path.parent.mkdir()
     socket_path.touch()
@@ -3144,7 +3166,7 @@ def test_podman_documentation_states_manual_setup_and_selected_context_contract(
     ) in data_setup
     assert "when the `ontoprism-podman` Docker context is selected" in architecture
     assert "current selected Docker context" in agents
-    assert "activate-podman-docker-context" in agents
+    assert "ensure-podman-stack" in agents
 
 
 @pytest.mark.unit
@@ -3413,7 +3435,15 @@ def test_podman_gate_operations_use_fixed_commands_and_controlled_runtime(
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _PodmanApiRunner(socket_path)
-    monkeypatch.setattr(os, "environ", {"SAFE_SETTING": "retained", "PATH": "unsafe"})
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "SAFE_SETTING": "retained",
+            "PATH": "unsafe",
+            "ONTOPRISM_PODMAN_STACK_ENSURED": "1",
+        },
+    )
 
     assert run_agent_replay([operation], tmp_path, runner=runner) == 0
 
@@ -3429,6 +3459,7 @@ def test_podman_gate_operations_use_fixed_commands_and_controlled_runtime(
         ),
         "DOCKER_HOST": f"unix://{socket_path}",
         "PODMAN_COMPOSE_PROVIDER": "/opt/homebrew/bin/docker-compose",
+        "ONTOPRISM_PODMAN_STACK_ENSURED": "1",
     }
 
 
@@ -3440,7 +3471,15 @@ def test_podman_verify_requires_selected_exact_context_and_endpoint(
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(socket_path)
     runner.current = "ontoprism-podman"
-    monkeypatch.setattr(os, "environ", {"SAFE_SETTING": "retained", "PATH": "safe"})
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "SAFE_SETTING": "retained",
+            "PATH": "safe",
+            "ONTOPRISM_PODMAN_STACK_ENSURED": "1",
+        },
+    )
 
     assert run_agent_replay(["podman-verify"], tmp_path, runner=runner) == 0
 
@@ -3455,7 +3494,11 @@ def test_podman_verify_requires_selected_exact_context_and_endpoint(
         ["/opt/homebrew/bin/pdm", "run", "verify"],
     ]
     gate_environment = runner.calls[-1][1]["env"]
-    assert gate_environment == {"SAFE_SETTING": "retained", "PATH": "safe"}
+    assert gate_environment == {
+        "SAFE_SETTING": "retained",
+        "PATH": "safe",
+        "ONTOPRISM_PODMAN_STACK_ENSURED": "1",
+    }
 
 
 @pytest.mark.unit
@@ -3463,7 +3506,9 @@ def test_podman_verify_requires_selected_exact_context_and_endpoint(
 def test_podman_verify_refuses_non_podman_selected_context(
     failure: str,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(socket_path)
     runner.current = "default" if failure == "wrong-context" else "ontoprism-podman"
@@ -3501,8 +3546,9 @@ def test_podman_gate_operations_reject_all_user_arguments(tmp_path: Path) -> Non
 
 @pytest.mark.unit
 def test_podman_gate_failure_reports_labelled_stdout_and_stderr(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
 
     class _FailedGate(_DockerContextRunner):
@@ -3536,8 +3582,9 @@ def test_podman_gate_failure_reports_labelled_stdout_and_stderr(
 
 @pytest.mark.unit
 def test_podman_gate_timeout_names_command_and_preserves_sanitized_streams(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
 
     class _TimedOutGate(_DockerContextRunner):
@@ -3627,7 +3674,11 @@ def test_port_preflight_names_the_port_and_operating_system_error(
 
     monkeypatch.setattr(socket, "socket", lambda *_args: _OccupiedSocket())
     with pytest.raises(AgentReplayInputError) as raised:
-        run_agent_replay(["podman-compose-up"], tmp_path, runner=_Runner())
+        run_agent_replay(
+            ["podman-compose-up"],
+            tmp_path,
+            runner=_PodmanApiRunner(tmp_path / "podman/ontoprism-vm-api.sock"),
+        )
 
     assert "port 5433" in str(raised.value)
     assert "Address already in use" in str(raised.value)
@@ -3716,6 +3767,312 @@ class _ComposeCheckRunner(_PodmanApiRunner):
                 ),
             )
         return super().__call__(arguments, **kwargs)
+
+
+class _PodmanRecoveryRunner(_ComposeCheckRunner):
+    def __init__(
+        self,
+        socket_path: Path,
+        *,
+        machine_state: str = "running",
+        stale: bool = False,
+        stack_state: str = "healthy",
+        restart_succeeds: bool = True,
+    ) -> None:
+        super().__init__(socket_path)
+        self.machine_state = machine_state
+        self.stale = stale
+        self.stack_state = stack_state
+        self.restart_succeeds = restart_succeeds
+        self.contexts = ("default", "ontoprism-podman")
+        self.current = "ontoprism-podman"
+
+    def __call__(  # noqa: C901, PLR0911, PLR0912 - fixed recovery CLI fake
+        self, arguments: list[str], **kwargs: object
+    ) -> _Result:
+        self.calls.append((arguments, kwargs))
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-vm",
+                            "State": self.machine_state,
+                            "Rootful": False,
+                            "SSHConfig": {
+                                "Port": 49969,
+                                "RemoteUsername": "core",
+                            },
+                            "ConnectionInfo": {
+                                "PodmanSocket": {"Path": str(self.socket_path)}
+                            },
+                        }
+                    ]
+                ),
+            )
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "ssh",
+            "ontoprism-vm",
+            "true",
+        ]:
+            return _Result(1 if self.stale else 0, stderr="PASSWORD=hunter2")
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "system",
+            "connection",
+            "list",
+            "--format",
+            "json",
+        ]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-vm",
+                            "URI": "ssh://core@127.0.0.1:49969/run/user/501/podman/podman.sock",
+                            "IsMachine": True,
+                            "ReadWrite": True,
+                        }
+                    ]
+                ),
+            )
+        if arguments[-3:] == ["machine", "stop", "ontoprism-vm"]:
+            self.machine_state = "stopped"
+            return _Result(0)
+        if arguments[-3:] == ["machine", "start", "ontoprism-vm"]:
+            if not self.restart_succeeds:
+                return _Result(1, stderr="start failed TOKEN=abc123")
+            self.machine_state = "running"
+            self.stale = False
+            return _Result(0)
+        if arguments == ["/opt/homebrew/bin/docker", "context", "show"]:
+            return _Result(0, stdout=f"{self.current}\n")
+        if arguments[1:4] == ["context", "ls", "--format"]:
+            return _Result(0, stdout="default\nontoprism-podman\n")
+        if arguments[-3:] == ["context", "inspect", "ontoprism-podman"]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-podman",
+                            "Metadata": {
+                                "Description": "OntoPrism rootless Podman machine"
+                            },
+                            "Endpoints": {
+                                "docker": {
+                                    "Host": f"unix://{self.socket_path}",
+                                    "SkipTLSVerify": False,
+                                }
+                            },
+                        }
+                    ]
+                ),
+            )
+        if arguments[-3:] == ["context", "use", "ontoprism-podman"]:
+            self.current = "ontoprism-podman"
+            return _Result(0)
+        if arguments == ["/opt/homebrew/bin/docker", "version"]:
+            if self.stale:
+                return _Result(1, stderr="API unavailable")
+            return _Result(0, stdout="Server:\n Podman Engine:\n")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "info",
+            "--format",
+            "{{json .}}",
+        ]:
+            if self.stale:
+                return _Result(1, stderr="API unavailable")
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    {
+                        "OSType": "linux",
+                        "ServerVersion": "6.1.0",
+                        "DockerRootDir": "/home/core/.local/share/containers/storage",
+                        "SecurityOptions": ["name=rootless"],
+                        "ProductLicense": "Apache-2.0",
+                    }
+                ),
+            )
+        if arguments[:2] == ["/opt/homebrew/bin/docker", "ps"]:
+            if self.stack_state == "absent":
+                return _Result(0)
+            if self.stack_state == "partial":
+                return _Result(0, stdout="postgres\nqlever-ncit\n")
+        if arguments[:2] == ["/opt/homebrew/bin/docker", "inspect"]:
+            service = arguments[2].removeprefix("ontoprism-")
+            if self.stack_state == "absent" or (
+                self.stack_state == "partial" and service == "qlever-uberon"
+            ):
+                return _Result(1, stderr="no such object")
+        if arguments[-3:] == ["up", "--detach", "--wait"]:
+            self.stack_state = "healthy"
+            return _Result(0)
+        self.calls.pop()
+        return super().__call__(arguments, **kwargs)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("machine_state", "stale", "expected_action"),
+    [
+        ("running", False, "machine-action=no-op"),
+        ("stopped", False, "machine-action=started"),
+        ("running", True, "machine-action=restarted-stale"),
+    ],
+)
+def test_ensure_podman_stack_recovers_machine_once_and_reports_action(
+    machine_state: str,
+    stale: bool,
+    expected_action: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(
+        socket_path, machine_state=machine_state, stale=stale
+    )
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    commands = [command for command, _options in runner.calls]
+    assert commands.count(
+        ["/opt/homebrew/bin/podman", "machine", "stop", "ontoprism-vm"]
+    ) == int(stale)
+    assert commands.count(
+        ["/opt/homebrew/bin/podman", "machine", "start", "ontoprism-vm"]
+    ) == int(stale or machine_state == "stopped")
+    assert not any(
+        forbidden in command
+        for command in commands
+        for forbidden in ("reset", "rm", "init", "set", "volume")
+    )
+    output = capsys.readouterr().out
+    assert expected_action in output
+    assert "active-docker-context=ontoprism-podman" in output
+    assert "stack-health=healthy" in output
+
+
+@pytest.mark.unit
+def test_ensure_podman_stack_failed_restart_is_bounded_and_redacted(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, restart_succeeds=False)
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    commands = [command for command, _options in runner.calls]
+    assert (
+        commands.count(["/opt/homebrew/bin/podman", "machine", "stop", "ontoprism-vm"])
+        == 1
+    )
+    assert (
+        commands.count(["/opt/homebrew/bin/podman", "machine", "start", "ontoprism-vm"])
+        == 1
+    )
+    assert len(commands) < 10
+    assert "abc123" not in str(raised.value)
+    assert "[REDACTED]" in str(raised.value)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stack_state", ["absent", "partial"])
+def test_ensure_podman_stack_starts_or_reconciles_owned_stack(
+    stack_state: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(socket_path, stack_state=stack_state)
+
+    class _AvailableSocket:
+        def bind(self, _address: tuple[str, int]) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(socket, "socket", lambda *_args: _AvailableSocket())
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert any(
+        command[-3:] == ["up", "--detach", "--wait"] for command, _ in runner.calls
+    )
+    assert "stack-action=started-or-reconciled" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        ("owner", "project owner predicate failed"),
+        ("port", "port binding predicate failed"),
+        ("volume", "mount source failed"),
+    ],
+)
+def test_ensure_podman_stack_refuses_uncertain_existing_resources(
+    failure: str, message: str, tmp_path: Path
+) -> None:
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class _Uncertain(_PodmanRecoveryRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == [
+                "/opt/homebrew/bin/docker",
+                "inspect",
+                "ontoprism-postgres",
+            ]:
+                payload = json.loads(result.stdout)
+                if failure == "owner":
+                    payload[0]["Config"]["Labels"]["com.docker.compose.project"] = (
+                        "decoy"
+                    )
+                elif failure == "port":
+                    payload[0]["NetworkSettings"]["Ports"]["5432/tcp"] = [
+                        {"HostIp": "0.0.0.0", "HostPort": "5433"}  # noqa: S104
+                    ]
+                else:
+                    payload[0]["Mounts"][0]["Name"] = "decoy-volume"
+                result.stdout = json.dumps(payload)
+            return result
+
+    runner = _Uncertain(socket_path, stack_state="partial")
+    with pytest.raises(AgentReplayInputError, match=message):
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+    assert not any(
+        command[-3:] == ["up", "--detach", "--wait"] for command, _ in runner.calls
+    )
+
+
+@pytest.mark.unit
+def test_ensure_podman_stack_rejects_arguments(tmp_path: Path) -> None:
+    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
+        run_agent_replay(["ensure-podman-stack", "unsafe"], tmp_path)
 
 
 @pytest.mark.unit
