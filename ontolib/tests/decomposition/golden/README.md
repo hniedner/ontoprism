@@ -718,7 +718,7 @@ pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neop
 The report binds old run `neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820` and new run
 `neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, records 43,414 R101 source occurrences as
 30,276 projected and 13,138 unchanged-unprojected with zero unresolved occurrences, and has report
-identity `23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b`.
+identity `1383ccf0d79fb8aab509e8cc94e6e9123e16f0596279d8dea4c526bfa846be57`.
 Its exact typed non-R101 inventory has 79,393 rows: 38,648 paired semantic metadata changes consume
 77,296 rows and 2,097 are structural rows. No row has occurrence-level evidence that proves
 causation by a changed R101 link, so none is classified. Every raw typed row is represented exactly
@@ -730,13 +730,15 @@ non-R101 inventory as `24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d7
 `unqualified`, the comparison is not fully controlled, causal attribution is prohibited,
 authorization is pending, and publication is blocked
 (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-11). The tracked gzip SHA-256 is
-`fba1e472b6a072f5089f6931742ab6a1c8b42c4b8106306a24db110a28dac0dc`
+2026-09-16). The tracked gzip SHA-256 is
+`0b9d40c68e24b9aa368b7294d01a6d29a8ae314994743349d958412fc48f3d74`
 (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-12). The comparator qualification identity is
-`b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a`; its file SHA-256 is
-`ff8a7a384009b0104c889ae932af4ffff09461124ebc5efad5786735bc34b278`
-(`shasum -a 256 tmp/m1-6-r101-v5-comparator-qualification.json`, 2026-09-11). This current report
+2026-09-16). The report identity is
+`1383ccf0d79fb8aab509e8cc94e6e9123e16f0596279d8dea4c526bfa846be57`, and the comparator
+qualification identity is `59cce9246e8d309fab5c41d70fba195628bcd43647b0f5408a60a50666b8de51`
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`
+and `pdm run agent-replay qualify-current-r101-comparator neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820 neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`,
+2026-09-16). This current report
 does not replace the historical v3→v4 review packet: v5
 routes source R101 directly before R82 collapse, so it has no `covered-by-retained-r82` patterns
 from which to regenerate that historical 162-pattern review boundary.
