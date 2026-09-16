@@ -7,6 +7,42 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-16 — #127 acceptance is the certified C3262 corpus, with exact effective exclusions
+
+### D88. Mechanical corpus acceptance is C3262-scoped, source-preserving, and human-authorized only
+
+**Decision:** Issue #127 covers exactly the certified NCIt `C3262` neoplasm scope, not all NCIt
+and not another ontology. The current immutable baseline contains 15,633 worklist concepts under
+`stated-genus-subclass-v1`, release `26.07d`, source identity
+`b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092`, run
+`neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, and representation identity
+`8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2`
+(`pdm run agent-test --full-store ontolib/tests/decomposition/test_corpus_acceptance_full_store.py
+-v`, 2026-09-16). The existing full-corpus artifact remains technical evidence until a human
+accepts the exact candidate after its no-write publication dry-run; software cannot supply that
+authorization.
+
+`C27262`, `C102870`, `C198031`, and `C35756` are pair-scoped
+`review-required` exclusions from the accepted effective projection. Their exact disputed grouping,
+missing, and extra pair sets are loaded from the identity-validated schema-3 review packet and bind
+nonempty source assertion and review evidence identities (`pdm run agent-test
+ontolib/tests/decomposition/test_corpus_acceptance.py::test_review_required_exclusions_are_exact_pair_scoped_and_source_preserving
+-v`, 2026-09-16). This is not a concept-wide deletion: official NCIt 26.07d assertions remain in
+the official stated plane and the effective delta is named `removed-from-effective`. The status
+implies neither human approval, NCI adoption, equivalence, nor that the official source assertion is
+absent. The effective-source distinction and evidence qualifications remain those in D86; the mCODE
+page cited in D87 corroborates only its stated modelling distinction and does not decide these four
+OntoPrism exclusions.
+
+The 8fb→cd4b comparator inventory is mechanically total: 2,097 structural objects and 38,648
+metadata objects account for 79,393 raw rows exactly once. Its evidence-supported categories are
+2,097 conservative review escalations, 35,017 group identity rebindings, 877 semantic routing
+changes, and 2,754 compound metadata changes; causal attribution to R101 remains prohibited
+(`pdm run agent-test ontolib/tests/decomposition/test_corpus_acceptance.py::test_existing_comparison_is_exhaustively_classified_without_causal_overclaim
+-v`, 2026-09-16). Mechanical completeness is not scientific acceptance. Final acceptance and
+publication authorization remain an accountable human decision bound to the exact candidate and
+dry-run identities; no request is created by the mechanical candidate.
+
 ## 2026-09-14 — normalized relationship groups remain source-bound and review-scoped
 
 ### D87. Group correction is additive, source-bound, pair-preserving, and separately governed

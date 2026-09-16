@@ -541,6 +541,18 @@ retained as the exact pre-selection input, not as current readiness state.
 
 ### Final machine-readiness evidence
 
+Issue #127's successor authority is the typed immutable `CorpusAcceptanceCandidate`; the schema-3
+pre-SME report below remains historical machine input and is no longer the final go/no-go authority.
+The candidate is restricted to the certified 15,633-concept C3262 neoplasm scope, never described as
+all NCIt. It exhaustively classifies each 8fb→cd4b structural and metadata change object, records the
+four exact evidence-bound `review-required` effective exclusions, and can reach
+`ready-for-human-authorization` only after a no-write PostgreSQL/QLever publication dry-run. Its
+human authorization state remains `not-requested`; publication refuses any decision that is not an
+exact accepted human decision binding both candidate and dry-run identity (`pdm run agent-test
+ontolib/tests/decomposition/test_corpus_acceptance.py -v` and `pdm run agent-test --full-store
+ontolib/tests/decomposition/test_corpus_acceptance_full_store.py -v`, 2026-09-16). No publication or
+human acceptance is recorded here.
+
 Capture the exact verification gate only from a clean worktree with the valid rootless
 `ontoprism-vm` running and the selected Docker context set to `ontoprism-podman` at that
 machine's inspected socket:

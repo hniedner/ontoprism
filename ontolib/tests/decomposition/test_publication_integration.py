@@ -13,6 +13,7 @@ import pytest
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
+from ontolib.decomposition.corpus_acceptance import dry_run_corpus_publication
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -103,6 +104,37 @@ async def _assert_runs_published(store: ProvenanceStore) -> None:
         assert summary is not None
         assert summary.status == "complete"
         assert summary.publication_state == "published"
+
+
+async def _assert_publication_dry_run_is_read_only(
+    *,
+    url: str,
+    store: ProvenanceStore,
+    destination: Path,
+    representation_identity: str,
+) -> None:
+    before = await store.get_run(_RUN_ID)
+    async with ncit_sparql_client(url) as client:
+        marker_before = await read_publication_marker(client)
+        dry_run = await dry_run_corpus_publication(
+            candidate_content_identity="9" * 64,
+            run_id=_RUN_ID,
+            source_identity="a" * 64,
+            representation_identity=representation_identity,
+            artifact=destination,
+            destination_graph_iri=_PUBLIC,
+            expected_codes=(),
+            expected_worklist_count=0,
+            graph=client,
+            provenance=store,
+        )
+        marker_after = await read_publication_marker(client)
+    assert dry_run.status == "passed"
+    assert dry_run.postgres_read_verified is True
+    assert dry_run.qlever_read_verified is True
+    assert dry_run.publication_writes_performed is False
+    assert marker_after == marker_before
+    assert await store.get_run(_RUN_ID) == before
 
 
 async def _completion_metrics(
@@ -320,6 +352,14 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
         assert complete.publication_state == "published"
         assert destination.exists()
         assert not artifact.exists()
+
+        assert complete.representation_identity is not None
+        await _assert_publication_dry_run_is_read_only(
+            url=isolated_qlever_url,
+            store=store,
+            destination=destination,
+            representation_identity=complete.representation_identity,
+        )
     finally:
         await conn.execute("DELETE FROM decomp_run WHERE id = $1", _RUN_ID)
         await conn.close()

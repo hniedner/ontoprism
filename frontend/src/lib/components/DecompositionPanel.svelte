@@ -59,9 +59,24 @@
 		<p class="text-sm italic text-subtle">Decomposition unavailable.</p>
 	{:else if !loaded}
 		<LoadingState active label="Loading decomposition" minHeight="4rem" />
-	{:else if !data?.is_legacy_precoordinated}
-		<p class="text-sm italic text-subtle">No published decomposition is available.</p>
 	{:else}
-		<DecompositionAxes {axes} />
+		{#if data?.acceptance.status === 'review-required-excluded'}
+			<div class="mb-3 space-y-1 text-sm">
+				<p class="font-semibold text-amber-700 dark:text-amber-300">
+					{data.acceptance.exclusion_summary}
+				</p>
+				<p class="text-subtle">
+					Official NCIt source {data.acceptance.source_release} remains accessible. No human approval,
+					NCI adoption, or equivalence is implied.
+				</p>
+			</div>
+		{/if}
+		{#if !data?.is_legacy_precoordinated}
+			{#if data?.acceptance.status !== 'review-required-excluded'}
+				<p class="text-sm italic text-subtle">No published decomposition is available.</p>
+			{/if}
+		{:else}
+			<DecompositionAxes {axes} />
+		{/if}
 	{/if}
 </section>

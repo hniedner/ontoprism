@@ -11,8 +11,11 @@ from typing import TYPE_CHECKING, cast, get_args
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read_models import (
+    AcceptedEffectiveProjection,
     ConceptDecomposition,
     DecompositionConstituent,
+    NotAcceptedProjection,
+    ReviewRequiredExcludedProjection,
     UpstreamMapping,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -166,10 +169,25 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     status: str | None = None
     decomposed_on: str | None = None
     constituents: dict[tuple[str, str], DecompositionConstituent] = {}
+    acceptance_rows: set[tuple[str | None, ...]] = set()
 
     for row in rows:
         status = status or row.get("status")
         decomposed_on = decomposed_on or row.get("decomposedOn")
+        acceptance_rows.add(
+            tuple(
+                row.get(field)
+                for field in (
+                    "acceptanceStatus",
+                    "sourceRelease",
+                    "sourceIdentity",
+                    "acceptedRun",
+                    "acceptedRepresentation",
+                    "publicationIdentity",
+                    "exclusionSummary",
+                )
+            )
+        )
         axis_iri = row.get("axis")
         filler_iri = row.get("filler")
         if not axis_iri or not filler_iri:
@@ -181,12 +199,51 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
             candidate,
         )
 
+    acceptance = _acceptance_from_rows(acceptance_rows)
     return ConceptDecomposition(
         code=code,
         is_legacy_precoordinated=status == vocab.LEGACY_PRECOORDINATED,
         decomposed_on=decomposed_on,
         constituents=sorted(constituents.values(), key=lambda c: (c.axis, c.filler)),
+        acceptance=acceptance,
     )
+
+
+def _acceptance_from_rows(
+    acceptance_rows: set[tuple[str | None, ...]],
+) -> (
+    NotAcceptedProjection
+    | AcceptedEffectiveProjection
+    | ReviewRequiredExcludedProjection
+):
+    if len(acceptance_rows) > 1:
+        raise ValueError("concept resolved to conflicting acceptance metadata")
+    acceptance_values = next(iter(acceptance_rows), (None,) * 7)
+    acceptance_status = acceptance_values[0]
+    if acceptance_status is None:
+        return NotAcceptedProjection()
+    common = {
+        "status": acceptance_status,
+        "source_release": acceptance_values[1],
+        "source_identity": acceptance_values[2],
+        "run_id": acceptance_values[3],
+        "representation_identity": acceptance_values[4],
+        "publication_identity": acceptance_values[5],
+        "official_source_preserved": True,
+    }
+    if acceptance_status == "accepted-effective":
+        return AcceptedEffectiveProjection(
+            **common, effective_status="accepted-effective"
+        )
+    if acceptance_status == "review-required-excluded":
+        return ReviewRequiredExcludedProjection.model_validate(
+            common
+            | {
+                "effective_status": "excluded-from-accepted-effective-projection",
+                "exclusion_summary": acceptance_values[6],
+            }
+        )
+    raise ValueError("persisted acceptance status is invalid")
 
 
 def attach_upstream(

@@ -7,7 +7,7 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 from __future__ import annotations
 
 import re
-from typing import Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -100,6 +100,43 @@ class DecompositionConstituent(StrictBoundaryModel):
         return self
 
 
+class NotAcceptedProjection(StrictBoundaryModel):
+    status: Literal["not-accepted"] = "not-accepted"
+
+
+class AcceptedEffectiveProjection(StrictBoundaryModel):
+    status: Literal["accepted-effective"]
+    source_release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_status: Literal["accepted-effective"]
+    official_source_preserved: Literal[True]
+
+
+class ReviewRequiredExcludedProjection(StrictBoundaryModel):
+    status: Literal["review-required-excluded"]
+    source_release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_status: Literal["excluded-from-accepted-effective-projection"]
+    exclusion_summary: Literal[
+        "Review required — excluded from accepted effective projection"
+    ]
+    official_source_preserved: Literal[True]
+
+
+AcceptanceProjection = Annotated[
+    NotAcceptedProjection
+    | AcceptedEffectiveProjection
+    | ReviewRequiredExcludedProjection,
+    Field(discriminator="status"),
+]
+
+
 class ConceptDecomposition(StrictBoundaryModel):
     """A concept's decomposition as read from the ``ncit_decomposed`` named graph.
 
@@ -112,3 +149,4 @@ class ConceptDecomposition(StrictBoundaryModel):
     is_legacy_precoordinated: bool
     decomposed_on: str | None = None
     constituents: list[DecompositionConstituent] = Field(default_factory=list)
+    acceptance: AcceptanceProjection = Field(default_factory=NotAcceptedProjection)

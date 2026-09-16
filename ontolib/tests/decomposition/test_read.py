@@ -164,6 +164,97 @@ def test_not_decomposed_concept_resolves_without_flag() -> None:
     d = decomposition_from_rows("C0", [_row()])
     assert d.is_legacy_precoordinated is False
     assert d.constituents == []
+    assert d.acceptance.status == "not-accepted"
+
+
+@pytest.mark.unit
+def test_review_required_exclusion_remains_visible_with_official_source_identity() -> (
+    None
+):
+    d = decomposition_from_rows(
+        "C198031",
+        [
+            _row(
+                status=vocab.LEGACY_PRECOORDINATED,
+                acceptanceStatus="review-required-excluded",
+                sourceRelease="26.07d",
+                sourceIdentity="a" * 64,
+                acceptedRun="run-1",
+                acceptedRepresentation="b" * 64,
+                publicationIdentity="c" * 64,
+                exclusionSummary=(
+                    "Review required — excluded from accepted effective projection"
+                ),
+            )
+        ],
+    )
+
+    assert d.acceptance.status == "review-required-excluded"
+    assert d.acceptance.official_source_preserved is True
+    assert d.acceptance.source_release == "26.07d"
+    assert d.acceptance.source_identity == "a" * 64
+    assert d.acceptance.exclusion_summary == (
+        "Review required — excluded from accepted effective projection"
+    )
+
+
+@pytest.mark.unit
+def test_accepted_effective_projection_retains_exact_publication_binding() -> None:
+    d = decomposition_from_rows(
+        "C6135",
+        [
+            _row(
+                acceptanceStatus="accepted-effective",
+                sourceRelease="26.07d",
+                sourceIdentity="a" * 64,
+                acceptedRun="run-1",
+                acceptedRepresentation="b" * 64,
+                publicationIdentity="c" * 64,
+            )
+        ],
+    )
+
+    assert d.acceptance.status == "accepted-effective"
+    assert d.acceptance.effective_status == "accepted-effective"
+    assert d.acceptance.run_id == "run-1"
+    assert d.acceptance.representation_identity == "b" * 64
+    assert d.acceptance.publication_identity == "c" * 64
+
+
+@pytest.mark.unit
+def test_conflicting_acceptance_metadata_fails_closed() -> None:
+    common = {
+        "acceptanceStatus": "accepted-effective",
+        "sourceRelease": "26.07d",
+        "sourceIdentity": "a" * 64,
+        "acceptedRun": "run-1",
+        "acceptedRepresentation": "b" * 64,
+        "publicationIdentity": "c" * 64,
+    }
+
+    with pytest.raises(ValueError, match="conflicting acceptance metadata"):
+        decomposition_from_rows(
+            "C6135",
+            [_row(**common), _row(**(common | {"acceptedRun": "run-2"}))],
+        )
+
+
+@pytest.mark.unit
+def test_unknown_persisted_acceptance_status_fails_closed() -> None:
+    with pytest.raises(ValueError, match="acceptance status is invalid"):
+        decomposition_from_rows(
+            "C6135",
+            [
+                _row(
+                    acceptanceStatus="accepted-ish",
+                    sourceRelease="26.07d",
+                    sourceIdentity="a" * 64,
+                    acceptedRun="run-1",
+                    acceptedRepresentation="b" * 64,
+                    publicationIdentity="c" * 64,
+                )
+            ],
+        )
 
 
 @pytest.mark.unit
@@ -323,6 +414,27 @@ def test_read_constituent_rejects_invalid_source_role_invariants(
             filler="C12400",
             axis_source=axis_source,
             source_roles=source_roles,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source_group_ids", "message"),
+    [
+        (("b" * 64, "a" * 64), "canonical and unique"),
+        (("not-a-digest",), "SHA-256 identities"),
+    ],
+)
+def test_read_constituent_rejects_invalid_source_group_identities(
+    source_group_ids: tuple[str, ...],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        DecompositionConstituent(
+            axis="op:Morphology",
+            filler="C3499",
+            axis_source="parent",
+            source_group_ids=source_group_ids,
         )
 
 

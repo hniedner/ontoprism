@@ -375,11 +375,36 @@ export interface DecompositionConstituent {
 	normalized_group_label: string | null;
 }
 
+export type AcceptanceProjection =
+	| { status: 'not-accepted' }
+	| {
+			status: 'accepted-effective';
+			source_release: string;
+			source_identity: string;
+			run_id: string;
+			representation_identity: string;
+			publication_identity: string;
+			effective_status: 'accepted-effective';
+			official_source_preserved: true;
+	  }
+	| {
+			status: 'review-required-excluded';
+			source_release: string;
+			source_identity: string;
+			run_id: string;
+			representation_identity: string;
+			publication_identity: string;
+			effective_status: 'excluded-from-accepted-effective-projection';
+			exclusion_summary: 'Review required — excluded from accepted effective projection';
+			official_source_preserved: true;
+	  };
+
 export interface ConceptDecomposition {
 	code: string;
 	is_legacy_precoordinated: boolean;
 	decomposed_on: string | null;
 	constituents: DecompositionConstituent[];
+	acceptance: AcceptanceProjection;
 }
 
 export type ShowcaseDisposition = 'include' | 'exclude' | 'unresolved-visible';

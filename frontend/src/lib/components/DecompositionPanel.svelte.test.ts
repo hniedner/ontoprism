@@ -8,11 +8,13 @@ vi.mock('$lib/api', () => ({ getDecomposition: vi.fn() }));
 import { getDecomposition } from '$lib/api';
 
 const mock = vi.mocked(getDecomposition);
+const notAccepted = { status: 'not-accepted' } as const;
 
 const decomposed: ConceptDecomposition = {
 	code: 'C6135',
 	is_legacy_precoordinated: true,
 	decomposed_on: '2026-07-06',
+	acceptance: notAccepted,
 	constituents: [
 		{
 			axis: 'R88',
@@ -85,7 +87,8 @@ describe('DecompositionPanel', () => {
 			code: 'C6135',
 			is_legacy_precoordinated: false,
 			decomposed_on: null,
-			constituents: []
+			constituents: [],
+			acceptance: notAccepted
 		});
 		vi.useRealTimers();
 	});
@@ -95,11 +98,49 @@ describe('DecompositionPanel', () => {
 			code: 'C3262',
 			is_legacy_precoordinated: false,
 			decomposed_on: null,
-			constituents: []
+			constituents: [],
+			acceptance: notAccepted
 		});
 		render(DecompositionPanel, { code: 'C3262' });
 		await screen.findByText('No published decomposition is available.');
 		expect(mock).toHaveBeenCalledWith('C3262', undefined, expect.any(AbortSignal));
+	});
+
+	it('renders an exclusion warning without hiding retained effective pairs', async () => {
+		mock.mockResolvedValue({
+			code: 'C198031',
+			is_legacy_precoordinated: true,
+			decomposed_on: 'run-1',
+			constituents: [
+				{
+					...decomposed.constituents[0],
+					axis: 'op:Morphology',
+					axis_label: 'Morphology',
+					filler: 'C40263',
+					filler_label: 'Retained morphology'
+				}
+			],
+			acceptance: {
+				status: 'review-required-excluded',
+				source_release: '26.07d',
+				source_identity: 'a'.repeat(64),
+				run_id: 'run-1',
+				representation_identity: 'b'.repeat(64),
+				publication_identity: 'c'.repeat(64),
+				effective_status: 'excluded-from-accepted-effective-projection',
+				exclusion_summary: 'Review required — excluded from accepted effective projection',
+				official_source_preserved: true
+			}
+		} as ConceptDecomposition);
+
+		render(DecompositionPanel, { code: 'C198031' });
+
+		expect(
+			await screen.findByText('Review required — excluded from accepted effective projection')
+		).toBeInTheDocument();
+		expect(screen.queryByText('No published decomposition is available.')).not.toBeInTheDocument();
+		expect(screen.getByText(/Official NCIt source 26.07d remains accessible/)).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Retained morphology' })).toBeInTheDocument();
 	});
 
 	it('renders the legacy badge, axes and filler links for a decomposed concept', async () => {
@@ -121,7 +162,8 @@ describe('DecompositionPanel', () => {
 			code: 'C12400',
 			is_legacy_precoordinated: false,
 			decomposed_on: null,
-			constituents: []
+			constituents: [],
+			acceptance: notAccepted
 		});
 		render(DecompositionPanel, { code: 'C12400' });
 		expect(await screen.findByText('No published decomposition is available.')).toBeInTheDocument();
@@ -140,6 +182,7 @@ describe('DecompositionPanel', () => {
 			code: 'C6135',
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
+			acceptance: notAccepted,
 			constituents: [
 				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
 				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
@@ -214,7 +257,8 @@ describe('DecompositionPanel', () => {
 			code: 'C6135',
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
-			constituents: null
+			constituents: null,
+			acceptance: notAccepted
 		} as unknown as ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
 		// Legacy badge shown, null constituents treated as empty list → no error.
@@ -226,6 +270,7 @@ describe('DecompositionPanel', () => {
 			code: 'C6135',
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
+			acceptance: notAccepted,
 			constituents: [
 				{
 					axis: 'op:Morphology',

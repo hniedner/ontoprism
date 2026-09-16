@@ -24,13 +24,38 @@ def build_decomposition_query(concept_code: str) -> str:
     """
     concept_uri = safe_iri(concept_code, NCIT_NS)
     return f"""
-        SELECT ?status ?decomposedOn ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
+        SELECT ?status ?decomposedOn ?acceptanceStatus ?sourceRelease ?sourceIdentity
+               ?acceptedRun ?acceptedRepresentation ?publicationIdentity
+               ?exclusionSummary
+               ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
                ?axisAmbiguityGroup ?sourceStructuralGroup
                ?normalizedProjectionGroup ?normalizedProjectionGroupLabel
                ?needsReview ?sourceDefinitionFact WHERE {{
             GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}> {{
                 OPTIONAL {{ <{concept_uri}> <{vocab.REPRESENTATION_STATUS}> ?status }}
                 OPTIONAL {{ <{concept_uri}> <{vocab.DECOMPOSED_ON}> ?decomposedOn }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_STATUS}> ?acceptanceStatus
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_SOURCE_RELEASE}> ?sourceRelease
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_SOURCE_IDENTITY}> ?sourceIdentity
+                }}
+                OPTIONAL {{ <{concept_uri}> <{vocab.ACCEPTANCE_RUN}> ?acceptedRun }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_REPRESENTATION}>
+                        ?acceptedRepresentation
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_PUBLICATION}>
+                        ?publicationIdentity
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_EXCLUSION_SUMMARY}>
+                        ?exclusionSummary
+                }}
                 OPTIONAL {{
                     <{concept_uri}> <{vocab.HAS_CONSTITUENT}> ?c .
                     ?c <{vocab.AXIS}> ?axis ;

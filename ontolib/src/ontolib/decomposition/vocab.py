@@ -48,6 +48,13 @@ PUBLICATION_RUN = f"{ONTOPRISM_NS}publicationRun"
 PUBLICATION_SOURCE_IDENTITY = f"{ONTOPRISM_NS}publicationSourceIdentity"
 PUBLICATION_REPRESENTATION_IDENTITY = f"{ONTOPRISM_NS}publicationRepresentationIdentity"
 PUBLICATION_BUILT_AT = f"{ONTOPRISM_NS}publicationBuiltAt"
+ACCEPTANCE_STATUS = f"{ONTOPRISM_NS}acceptanceStatus"
+ACCEPTANCE_SOURCE_RELEASE = f"{ONTOPRISM_NS}acceptanceSourceRelease"
+ACCEPTANCE_SOURCE_IDENTITY = f"{ONTOPRISM_NS}acceptanceSourceIdentity"
+ACCEPTANCE_RUN = f"{ONTOPRISM_NS}acceptanceRun"
+ACCEPTANCE_REPRESENTATION = f"{ONTOPRISM_NS}acceptanceRepresentationIdentity"
+ACCEPTANCE_PUBLICATION = f"{ONTOPRISM_NS}acceptancePublicationIdentity"
+ACCEPTANCE_EXCLUSION_SUMMARY = f"{ONTOPRISM_NS}acceptanceExclusionSummary"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"

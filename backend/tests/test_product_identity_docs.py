@@ -556,10 +556,11 @@ def test_documents_decisions_are_descending_and_preserve_d60_verbatim() -> None:
     ids = [
         int(value) for value in re.findall(r"^### D(\d+)\.", decisions, re.MULTILINE)
     ]
-    assert ids[:2] == [87, 86]
+    assert ids[:2] == [88, 87]
+    assert ids.count(88) == 1
     assert ids.count(87) == 1
     assert ids.count(86) == 1
-    assert max(ids) == 87
+    assert max(ids) == 88
 
     current_d60 = _decision_section(decisions, "D60")
     fixture = _read(_D60_FIXTURE)
