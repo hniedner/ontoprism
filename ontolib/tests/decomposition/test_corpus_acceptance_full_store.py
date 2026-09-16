@@ -78,6 +78,7 @@ def test_effective_artifact_removes_exact_disputed_pairs_without_source_mutation
     exclusions = build_review_required_exclusions(
         root / "evidence/group-review-packet-26.07d-schema3.json",
         root / "evidence/group-review-rationale-26.07d.md",
+        source,
     )
 
     observed = build_effective_artifact(
@@ -87,8 +88,25 @@ def test_effective_artifact_removes_exact_disputed_pairs_without_source_mutation
     )
 
     assert source.read_bytes() == source_before
-    assert observed.removed_pair_count == 30
-    assert {item[0] for item in observed.removed_pairs} == {
+    assert observed.removed_pair_count == 27
+    assert observed.non_emitted_pair_count == 3
+    assert {
+        (item.concept_code, item.axis, item.filler_code)
+        for item in observed.non_emitted_pairs
+    } == {
+        ("C102870", "op:PrimarySite", "C12404"),
+        ("C27262", "op:AssociatedRegion", "C41165"),
+        ("C35756", "op:StageSystem", "C141685"),
+    }
+    assert all(
+        item.input_present and not item.output_present
+        for item in observed.removed_pairs
+    )
+    assert all(
+        not item.input_present and not item.output_present
+        for item in observed.non_emitted_pairs
+    )
+    assert {item.concept_code for item in observed.removed_pairs} == {
         "C102870",
         "C198031",
         "C27262",

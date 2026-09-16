@@ -24,7 +24,6 @@ from ontolib.decomposition.corpus_acceptance import (
     CorpusAcceptanceCandidate,
     CorpusAcceptanceContent,
     CorpusAcceptanceValidationError,
-    ExcludedPairChange,
     GateEvaluation,
     PendingHumanAcceptanceDecision,
     PublicationDryRunEvidence,
@@ -93,22 +92,34 @@ def _jsonable(value: object) -> object:
 def _exclusion(
     *,
     filler: str = "C2",
-    direction: str = "grouping-disputed",
+    relation: str = "grouping-disputed",
+    disposition: str = "removed-from-effective",
 ) -> ReviewRequiredEffectiveExclusion:
+    pair: dict[str, object] = {
+        "axis": "op:Morphology",
+        "filler_code": filler,
+        "review_relations": (relation,),
+        "effective_disposition": disposition,
+        "historical_evidence_identities": ("2" * 64,),
+        "source_assertion_identities": (
+            ("1" * 64,) if disposition == "removed-from-effective" else ()
+        ),
+        "next_step": (
+            "specialist-decision-required-before-inclusion"
+            if disposition == "removed-from-effective"
+            else (
+                "engineering-source-provenance-prerequisite-plus-specialist-decision-"
+                "before-inclusion"
+            )
+        ),
+    }
+    if disposition == "review-required-non-emitted":
+        pair["interpretation"] = "absence-is-scoped-evidence-not-falsehood"
     return ReviewRequiredEffectiveExclusion.model_validate(
         {
             "concept_code": "C1",
-            "pair_changes": (
-                {
-                    "axis": "op:Morphology",
-                    "filler_code": filler,
-                    "comparison_direction": direction,
-                },
-            ),
-            "source_assertion_identities": ("1" * 64,),
-            "evidence_identities": ("2" * 64,),
+            "pair_changes": (pair,),
             "reason": "unresolved-semantic-ambiguity",
-            "delta": "removed-from-effective",
             "official_source_preserved": True,
             "human_approval": False,
             "nci_approval": False,
@@ -121,6 +132,7 @@ def exclusions():  # type: ignore[no-untyped-def]
     return build_review_required_exclusions(
         ROOT / "evidence/group-review-packet-26.07d-schema3.json",
         ROOT / "evidence/group-review-rationale-26.07d.md",
+        ROOT / "tmp/m1-6-current-full-corpus.ttl",
     )
 
 
@@ -155,41 +167,213 @@ def test_review_required_exclusions_are_exact_pair_scoped_and_source_preserving(
         "C35756",
     ]
     by_code = {item.concept_code: item for item in exclusions}
-    assert [
-        (p.axis, p.filler_code, p.comparison_direction)
-        for p in by_code["C27262"].pair_changes
-    ] == [
-        ("op:AssociatedRegion", "C41165", "grouping-disputed"),
-        ("op:ClinicalFinding", "C36220", "grouping-disputed"),
-        ("op:ClinicalFinding", "C41397", "grouping-disputed"),
-        ("op:Morphology", "C35501", "grouping-disputed"),
-        ("op:Morphology", "C9290", "grouping-disputed"),
+    assert [(p.axis, p.filler_code) for p in by_code["C27262"].pair_changes] == [
+        ("op:AssociatedRegion", "C41165"),
+        ("op:ClinicalFinding", "C36220"),
+        ("op:ClinicalFinding", "C41397"),
+        ("op:Morphology", "C35501"),
+        ("op:Morphology", "C9290"),
     ]
-    assert [
-        (p.axis, p.filler_code, p.comparison_direction)
-        for p in by_code["C102870"].pair_changes
-    ] == [
-        ("op:AssociatedSite", "C12321", "grouping-disputed"),
-        ("op:Morphology", "C121619", "grouping-disputed"),
-        ("op:Morphology", "C39986", "grouping-disputed"),
-        ("op:PrimarySite", "C12404", "grouping-disputed"),
+    assert [(p.axis, p.filler_code) for p in by_code["C102870"].pair_changes] == [
+        ("op:AssociatedSite", "C12321"),
+        ("op:Morphology", "C121619"),
+        ("op:Morphology", "C39986"),
+        ("op:PrimarySite", "C12404"),
     ]
     assert all(
-        pair.comparison_direction == "grouping-disputed"
-        for item in exclusions
-        for pair in item.pair_changes
+        pair.review_relations for item in exclusions for pair in item.pair_changes
     )
     assert sum(len(item.pair_changes) for item in exclusions) == 30
-    assert all(item.delta == "removed-from-effective" for item in exclusions)
+    pairs = {
+        (item.concept_code, pair.axis, pair.filler_code): pair
+        for item in exclusions
+        for pair in item.pair_changes
+    }
+    non_emitted_keys = {
+        ("C102870", "op:PrimarySite", "C12404"),
+        ("C27262", "op:AssociatedRegion", "C41165"),
+        ("C35756", "op:StageSystem", "C141685"),
+    }
+    assert {
+        key
+        for key, pair in pairs.items()
+        if pair.effective_disposition == "review-required-non-emitted"
+    } == non_emitted_keys
+    assert all(
+        "missing-from-candidate" in pair.review_relations
+        for key, pair in pairs.items()
+        if key in non_emitted_keys
+    )
+    packet = load_historical_group_review_packet(
+        ROOT / "evidence/group-review-packet-26.07d-schema3.json"
+    )
+    rows = {row.concept_code: row for row in packet.review_rows}
+    for key, pair in pairs.items():
+        code, axis, filler = key
+        packet_row = rows[code]
+        expected_relations = {
+            relation
+            for relation, packet_pairs in (
+                ("grouping-disputed", packet_row.grouping_diagnosis.affected_pairs),
+                ("added-to-candidate", packet_row.pair_delta.extra_pairs),
+                ("missing-from-candidate", packet_row.pair_delta.missing_pairs),
+            )
+            if (axis, filler) in packet_pairs
+        }
+        assert set(pair.review_relations) == expected_relations
+    assert all(
+        not pair.source_assertion_identities
+        and pair.historical_evidence_identities
+        and pair.interpretation == "absence-is-scoped-evidence-not-falsehood"
+        and pair.next_step
+        == (
+            "engineering-source-provenance-prerequisite-plus-specialist-decision-"
+            "before-inclusion"
+        )
+        for key, pair in pairs.items()
+        if key in non_emitted_keys
+    )
+    assert all(
+        pair.effective_disposition == "removed-from-effective"
+        and pair.source_assertion_identities
+        for key, pair in pairs.items()
+        if key not in non_emitted_keys
+    )
     assert all(item.official_source_preserved for item in exclusions)
     assert all(
         item.human_approval is False and item.nci_approval is False
         for item in exclusions
     )
     assert all(
-        item.source_assertion_identities and item.evidence_identities
+        pair.historical_evidence_identities
         for item in exclusions
+        for pair in item.pair_changes
     )
+
+
+@pytest.mark.unit
+def test_effective_artifact_distinguishes_removed_and_non_emitted_liveness(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
+    )
+    common = {
+        "axis": "op:Morphology",
+        "review_relations": ("grouping-disputed",),
+        "historical_evidence_identities": ("2" * 64,),
+    }
+    removed = {
+        **common,
+        "filler_code": "C2",
+        "effective_disposition": "removed-from-effective",
+        "source_assertion_identities": ("1" * 64,),
+        "next_step": "specialist-decision-required-before-inclusion",
+    }
+    non_emitted = {
+        **common,
+        "filler_code": "C3",
+        "review_relations": ("missing-from-candidate",),
+        "effective_disposition": "review-required-non-emitted",
+        "source_assertion_identities": (),
+        "interpretation": "absence-is-scoped-evidence-not-falsehood",
+        "next_step": (
+            "engineering-source-provenance-prerequisite-plus-specialist-decision-"
+            "before-inclusion"
+        ),
+    }
+    exclusion = ReviewRequiredEffectiveExclusion.model_validate(
+        {
+            "concept_code": "C1",
+            "pair_changes": (removed, non_emitted),
+            "reason": "unresolved-semantic-ambiguity",
+            "official_source_preserved": True,
+            "human_approval": False,
+            "nci_approval": False,
+        }
+    )
+
+    evidence = build_effective_artifact(
+        source_artifact=source,
+        destination=tmp_path / "effective.ttl",
+        exclusions=(exclusion,),
+    )
+
+    assert evidence.removed_pair_count == 1
+    assert evidence.non_emitted_pair_count == 1
+    assert evidence.removed_pairs[0].input_present is True
+    assert evidence.removed_pairs[0].output_present is False
+    assert evidence.non_emitted_pairs[0].input_present is False
+    assert evidence.non_emitted_pairs[0].output_present is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("filler", "disposition"),
+    [
+        ("C2", "review-required-non-emitted"),
+        ("C3", "removed-from-effective"),
+    ],
+)
+def test_effective_artifact_rejects_false_pair_dispositions(
+    tmp_path: Path,
+    filler: str,
+    disposition: str,
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
+    )
+    pair = {
+        "axis": "op:Morphology",
+        "filler_code": filler,
+        "review_relations": (
+            ("missing-from-candidate",)
+            if disposition == "review-required-non-emitted"
+            else ("grouping-disputed",)
+        ),
+        "effective_disposition": disposition,
+        "source_assertion_identities": ()
+        if disposition == "review-required-non-emitted"
+        else ("1" * 64,),
+        "historical_evidence_identities": ("2" * 64,),
+        "next_step": (
+            "engineering-source-provenance-prerequisite-plus-specialist-decision-"
+            "before-inclusion"
+            if disposition == "review-required-non-emitted"
+            else "specialist-decision-required-before-inclusion"
+        ),
+    }
+    if disposition == "review-required-non-emitted":
+        pair["interpretation"] = "absence-is-scoped-evidence-not-falsehood"
+    exclusion = ReviewRequiredEffectiveExclusion.model_validate(
+        {
+            "concept_code": "C1",
+            "pair_changes": (pair,),
+            "reason": "unresolved-semantic-ambiguity",
+            "official_source_preserved": True,
+            "human_approval": False,
+            "nci_approval": False,
+        }
+    )
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="disposition"):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=tmp_path / "effective.ttl",
+            exclusions=(exclusion,),
+        )
 
 
 @pytest.mark.unit
@@ -215,6 +399,7 @@ def test_review_required_exclusions_refuse_missing_target_concept(
         build_review_required_exclusions(
             packet_path,
             ROOT / "evidence/group-review-rationale-26.07d.md",
+            ROOT / "tmp/m1-6-current-full-corpus.ttl",
         )
 
 
@@ -245,23 +430,7 @@ def test_effective_artifact_withholds_only_exact_excluded_pairs(
         "<urn:unrelated> <urn:predicate> <urn:object> .\n"
     )
     source_before = hashlib.sha256(source.read_bytes()).hexdigest()
-    exclusion = ReviewRequiredEffectiveExclusion(
-        concept_code="C1",
-        pair_changes=(
-            ExcludedPairChange(
-                axis="op:Morphology",
-                filler_code="C2",
-                comparison_direction="grouping-disputed",
-            ),
-        ),
-        source_assertion_identities=("1" * 64,),
-        evidence_identities=("2" * 64,),
-        reason="unresolved-semantic-ambiguity",
-        delta="removed-from-effective",
-        official_source_preserved=True,
-        human_approval=False,
-        nci_approval=False,
-    )
+    exclusion = _exclusion()
 
     observed = build_effective_artifact(
         source_artifact=source,
@@ -271,9 +440,15 @@ def test_effective_artifact_withholds_only_exact_excluded_pairs(
 
     assert hashlib.sha256(source.read_bytes()).hexdigest() == source_before
     assert observed.removed_pair_count == 1
-    assert observed.removed_pairs == (
-        ("C1", "op:Morphology", "C2", "grouping-disputed"),
-    )
+    assert observed.removed_pairs[0].model_dump() == {
+        "concept_code": "C1",
+        "axis": "op:Morphology",
+        "filler_code": "C2",
+        "review_relations": ("grouping-disputed",),
+        "effective_disposition": "removed-from-effective",
+        "input_present": True,
+        "output_present": False,
+    }
     rendered = effective.read_text()
     assert "vocab#Morphology" not in rendered
     assert "vocab#PrimarySite" in rendered
@@ -298,7 +473,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
         "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
     )
 
-    with pytest.raises(CorpusAcceptanceValidationError, match="lacks exact"):
+    with pytest.raises(CorpusAcceptanceValidationError, match="disposition differs"):
         build_effective_artifact(
             source_artifact=source,
             destination=destination,
@@ -310,7 +485,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
             destination=destination,
             exclusions=(
                 _exclusion(),
-                _exclusion(direction="added-to-candidate"),
+                _exclusion(relation="added-to-candidate"),
             ),
         )
     destination.write_text("already present")
@@ -319,15 +494,6 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
             source_artifact=source,
             destination=destination,
             exclusions=(_exclusion(),),
-        )
-    destination.unlink()
-    with pytest.raises(
-        CorpusAcceptanceValidationError, match="nonempty effective delta"
-    ):
-        build_effective_artifact(
-            source_artifact=source,
-            destination=destination,
-            exclusions=(_exclusion(filler="C9", direction="missing-from-candidate"),),
         )
 
 
@@ -570,7 +736,7 @@ def _stub_candidate_input_boundaries(
     monkeypatch.setattr(
         corpus_acceptance_module,
         "build_review_required_exclusions",
-        lambda _packet, _rationale: exclusions,
+        lambda _packet, _rationale, _artifact: exclusions,
     )
     monkeypatch.setattr(
         corpus_acceptance_module,
@@ -900,10 +1066,13 @@ def test_exclusion_evidence_stays_on_effective_view_not_metadata_classification(
         update={
             "concept_code": delta.new.concept_code,
             "pair_changes": (
-                ExcludedPairChange(
-                    axis=delta.new.axis,
-                    filler_code=delta.new.filler_code,
-                    comparison_direction="grouping-disputed",
+                exclusions[0]
+                .pair_changes[0]
+                .model_copy(
+                    update={
+                        "axis": delta.new.axis,
+                        "filler_code": delta.new.filler_code,
+                    }
                 ),
             ),
         }
@@ -923,9 +1092,9 @@ def test_exclusion_evidence_stays_on_effective_view_not_metadata_classification(
     result = _classify(shaped_report)
 
     assert result.category_counts == {"group-identity-rebinding": 1}
-    assert not set(exclusion.evidence_identities).intersection(
-        result.classifications[0].evidence_identities
-    )
+    assert not set(
+        exclusion.pair_changes[0].historical_evidence_identities
+    ).intersection(result.classifications[0].evidence_identities)
 
 
 @pytest.mark.unit
@@ -939,11 +1108,9 @@ def test_exclusion_evidence_does_not_leak_to_another_pair_for_same_concept(
         update={
             "concept_code": delta.new.concept_code,
             "pair_changes": (
-                ExcludedPairChange(
-                    axis="op:AnotherAxis",
-                    filler_code="C1",
-                    comparison_direction="grouping-disputed",
-                ),
+                exclusions[0]
+                .pair_changes[0]
+                .model_copy(update={"axis": "op:AnotherAxis", "filler_code": "C1"}),
             ),
         }
     )
@@ -960,7 +1127,7 @@ def test_exclusion_evidence_does_not_leak_to_another_pair_for_same_concept(
 
     assert result.classifications[0].category != ("review-required-effective-exclusion")
     assert not set(result.classifications[0].evidence_identities).intersection(
-        exclusion.evidence_identities
+        exclusion.pair_changes[0].historical_evidence_identities
     )
 
 
@@ -1038,33 +1205,23 @@ def test_total_classifier_refuses_inconsistent_partition_evidence(
 
 @pytest.mark.unit
 def test_review_required_exclusion_refuses_noncanonical_pair_or_evidence() -> None:
-    pair = ExcludedPairChange(
-        axis="op:Morphology",
-        filler_code="C1",
-        comparison_direction="grouping-disputed",
-    )
-    common = {
-        "concept_code": "C2",
-        "pair_changes": (pair,),
-        "source_assertion_identities": ("1" * 64,),
-        "evidence_identities": ("2" * 64,),
-        "reason": "unresolved-semantic-ambiguity",
-        "delta": "removed-from-effective",
-        "official_source_preserved": True,
-        "human_approval": False,
-        "nci_approval": False,
-    }
+    common = _exclusion(filler="C1").model_dump()
+    pair = common["pair_changes"][0]
     with pytest.raises(ValidationError, match="canonical and unique"):
         ReviewRequiredEffectiveExclusion.model_validate(
             common | {"pair_changes": (pair, pair)}
         )
+    invalid_source = dict(pair)
+    invalid_source["source_assertion_identities"] = ("not-a-digest",)
     with pytest.raises(ValidationError, match="source assertion identities"):
         ReviewRequiredEffectiveExclusion.model_validate(
-            common | {"source_assertion_identities": ("not-a-digest",)}
+            common | {"pair_changes": (invalid_source,)}
         )
-    with pytest.raises(ValidationError, match="review evidence identities"):
+    invalid_history = dict(pair)
+    invalid_history["historical_evidence_identities"] = ("2" * 64, "2" * 64)
+    with pytest.raises(ValidationError, match="historical evidence identities"):
         ReviewRequiredEffectiveExclusion.model_validate(
-            common | {"evidence_identities": ("2" * 64, "2" * 64)}
+            common | {"pair_changes": (invalid_history,)}
         )
 
 

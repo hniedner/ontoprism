@@ -29,6 +29,10 @@ from rdflib import Graph, URIRef
 from rdflib import Literal as RdfLiteral
 from rdflib.term import Node
 from scripts.research.group_review_packet import (
+    ActualGenusFactEvidence,
+    ActualPairEvidence,
+    ActualSourceFactEvidence,
+    HistoricalGroupReviewConcept,
     load_historical_group_review_packet,
 )
 
@@ -104,21 +108,75 @@ def _identity(value: object) -> str:
     ).hexdigest()
 
 
-class ExcludedPairChange(_StrictModel):
+ReviewRelation = Literal[
+    "grouping-disputed", "added-to-candidate", "missing-from-candidate"
+]
+_REVIEW_RELATION_ORDER: dict[ReviewRelation, int] = {
+    "added-to-candidate": 0,
+    "missing-from-candidate": 1,
+    "grouping-disputed": 2,
+}
+
+
+class _ReviewRequiredPair(_StrictModel):
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=_CODE)
-    comparison_direction: Literal[
-        "grouping-disputed", "added-to-candidate", "missing-from-candidate"
+    review_relations: tuple[ReviewRelation, ...] = Field(min_length=1)
+    historical_evidence_identities: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _canonical_evidence(self) -> Self:
+        expected_relations = tuple(
+            sorted(set(self.review_relations), key=_REVIEW_RELATION_ORDER.__getitem__)
+        )
+        if self.review_relations != expected_relations:
+            raise ValueError("review relations must be canonical and unique")
+        _require_canonical_identities(
+            "historical evidence", self.historical_evidence_identities
+        )
+        return self
+
+
+class RemovedFromEffectivePair(_ReviewRequiredPair):
+    effective_disposition: Literal["removed-from-effective"]
+    source_assertion_identities: tuple[str, ...] = Field(min_length=1)
+    next_step: Literal["specialist-decision-required-before-inclusion"]
+
+    @model_validator(mode="after")
+    def _canonical_source_assertions(self) -> Self:
+        _require_canonical_identities(
+            "source assertion", self.source_assertion_identities
+        )
+        return self
+
+
+class ReviewRequiredNonEmittedPair(_ReviewRequiredPair):
+    effective_disposition: Literal["review-required-non-emitted"]
+    source_assertion_identities: tuple[()] = ()
+    interpretation: Literal["absence-is-scoped-evidence-not-falsehood"]
+    next_step: Literal[
+        "engineering-source-provenance-prerequisite-plus-specialist-decision-before-inclusion"
     ]
+
+    @model_validator(mode="after")
+    def _historical_oracle_relation_is_bound(self) -> Self:
+        if "missing-from-candidate" not in self.review_relations:
+            raise ValueError(
+                "review-required-non-emitted pair requires historical missing relation"
+            )
+        return self
+
+
+ReviewRequiredPairChange = Annotated[
+    RemovedFromEffectivePair | ReviewRequiredNonEmittedPair,
+    Field(discriminator="effective_disposition"),
+]
 
 
 class ReviewRequiredEffectiveExclusion(_StrictModel):
     concept_code: str = Field(pattern=_CODE)
-    pair_changes: tuple[ExcludedPairChange, ...] = Field(min_length=1)
-    source_assertion_identities: tuple[str, ...] = Field(min_length=1)
-    evidence_identities: tuple[str, ...] = Field(min_length=1)
+    pair_changes: tuple[ReviewRequiredPairChange, ...] = Field(min_length=1)
     reason: Literal["unresolved-semantic-ambiguity"]
-    delta: Literal["removed-from-effective"]
     official_source_preserved: Literal[True]
     human_approval: Literal[False]
     nci_approval: Literal[False]
@@ -129,23 +187,19 @@ class ReviewRequiredEffectiveExclusion(_StrictModel):
             raise ValueError(
                 "review-required pair changes must be canonical and unique"
             )
-        _require_canonical_identities(
-            "source assertion", self.source_assertion_identities
-        )
-        _require_canonical_identities("review evidence", self.evidence_identities)
         return self
 
 
 def _canonical_pair_changes(
-    values: tuple[ExcludedPairChange, ...],
-) -> tuple[ExcludedPairChange, ...]:
+    values: tuple[ReviewRequiredPairChange, ...],
+) -> tuple[ReviewRequiredPairChange, ...]:
     return tuple(
         sorted(
             set(values),
             key=lambda item: (
                 item.axis,
                 item.filler_code,
-                item.comparison_direction,
+                item.effective_disposition,
             ),
         )
     )
@@ -164,11 +218,17 @@ def _require_canonical_identities(label: str, values: tuple[str, ...]) -> None:
 def build_review_required_exclusions(
     review_packet_path: Path,
     rationale_path: Path,
+    source_artifact: Path,
 ) -> tuple[ReviewRequiredEffectiveExclusion, ...]:
     """Derive the four exact exclusions from the validated tracked review evidence."""
     packet = load_historical_group_review_packet(review_packet_path)
     rationale_identity = hashlib.sha256(rationale_path.read_bytes()).hexdigest()
     rows = {row.concept_code: row for row in packet.review_rows}
+    concepts = {concept.code: concept for concept in packet.concepts}
+    source_assertions = _source_projection_assertion_identities(
+        source_artifact.read_bytes()
+    )
+    input_keys = set(source_assertions)
     if set(_TARGET_EXCLUSIONS) - rows.keys():
         raise CorpusAcceptanceValidationError(
             "review packet lacks an exclusion concept"
@@ -177,46 +237,38 @@ def build_review_required_exclusions(
     exclusions: list[ReviewRequiredEffectiveExclusion] = []
     for code in _TARGET_EXCLUSIONS:
         row = rows[code]
-        changes = [
-            ExcludedPairChange(
-                axis=axis,
-                filler_code=filler,
-                comparison_direction="grouping-disputed",
+        concept = concepts[code]
+        relations = _pair_review_relations(row)
+        changes = tuple(
+            _review_required_pair(
+                pair,
+                review_relations=tuple(
+                    sorted(pair_relations, key=_REVIEW_RELATION_ORDER.__getitem__)
+                ),
+                concept=concept,
+                rule_evidence=packet.rule_evidence,
+                input_present=(code, pair[0], pair[1]) in input_keys,
+                projection_assertion_identities=source_assertions.get(
+                    (code, pair[0], pair[1]), ()
+                ),
+                historical_evidence_identities=tuple(
+                    sorted(
+                        {
+                            row.row_identity,
+                            packet.packet_identity,
+                            rationale_identity,
+                            *_historical_group_identities(concept, pair),
+                        }
+                    )
+                ),
             )
-            for axis, filler in row.grouping_diagnosis.affected_pairs
-        ]
-        changes.extend(
-            ExcludedPairChange(
-                axis=axis,
-                filler_code=filler,
-                comparison_direction="grouping-disputed",
-            )
-            for axis, filler in (
-                *row.pair_delta.extra_pairs,
-                *row.pair_delta.missing_pairs,
-            )
+            for pair, pair_relations in sorted(relations.items())
         )
         exclusions.append(
             ReviewRequiredEffectiveExclusion(
                 concept_code=code,
-                pair_changes=tuple(
-                    sorted(
-                        changes,
-                        key=lambda item: (
-                            item.axis,
-                            item.filler_code,
-                            item.comparison_direction,
-                        ),
-                    )
-                ),
-                source_assertion_identities=tuple(sorted(row.evidence_row_ids)),
-                evidence_identities=tuple(
-                    sorted(
-                        (row.row_identity, packet.packet_identity, rationale_identity)
-                    )
-                ),
+                pair_changes=changes,
                 reason="unresolved-semantic-ambiguity",
-                delta="removed-from-effective",
                 official_source_preserved=True,
                 human_approval=False,
                 nci_approval=False,
@@ -225,12 +277,136 @@ def build_review_required_exclusions(
     return tuple(exclusions)
 
 
+def _pair_review_relations(row) -> dict[tuple[str, str], set[ReviewRelation]]:  # type: ignore[no-untyped-def]
+    relations: dict[tuple[str, str], set[ReviewRelation]] = {}
+    for pair in row.grouping_diagnosis.affected_pairs:
+        relations.setdefault(pair, set()).add("grouping-disputed")
+    for pair in row.pair_delta.extra_pairs:
+        relations.setdefault(pair, set()).add("added-to-candidate")
+    for pair in row.pair_delta.missing_pairs:
+        relations.setdefault(pair, set()).add("missing-from-candidate")
+    return relations
+
+
+def _historical_group_identities(
+    concept: HistoricalGroupReviewConcept, pair: tuple[str, str]
+) -> tuple[str, ...]:
+    return tuple(
+        group.normalized_group_id
+        for group in concept.expected_groups
+        if pair in group.pairs
+    )
+
+
+def _current_source_assertion_identities(
+    concept: HistoricalGroupReviewConcept,
+    pair: tuple[str, str],
+    rule_evidence,  # type: ignore[no-untyped-def]
+) -> tuple[str, ...]:
+    identities: set[str] = set()
+    for group in concept.actual_groups:
+        for documented in group.pairs:
+            if documented.pair != pair:
+                continue
+            identities.update(_documented_source_assertion_identities(documented))
+    for evidence in rule_evidence:
+        if evidence.concept_code == concept.code and pair in evidence.output_pairs:
+            identities.update(evidence.source_occurrence_ids)
+            identities.update(evidence.source_fact_ids)
+    return tuple(sorted(identities))
+
+
+def _documented_source_assertion_identities(documented) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+    if isinstance(documented, ActualPairEvidence):
+        return tuple(
+            {
+                *documented.occurrence_ids,
+                *(item.source_fact_id for item in documented.occurrences),
+            }
+        )
+    if isinstance(documented, ActualGenusFactEvidence | ActualSourceFactEvidence):
+        return tuple(item.fact_id for item in documented.source_facts)
+    return ()
+
+
+def _source_projection_assertion_identities(
+    artifact: bytes,
+) -> dict[tuple[str, str, str], tuple[str, ...]]:
+    identities: dict[tuple[str, str, str], set[str]] = {}
+    for line in artifact.splitlines(keepends=True):
+        key = _effective_constituent_key(line)
+        if key is not None:
+            identities.setdefault(key, set()).add(hashlib.sha256(line).hexdigest())
+    return {key: tuple(sorted(values)) for key, values in identities.items()}
+
+
+def _review_required_pair(
+    pair: tuple[str, str],
+    *,
+    review_relations: tuple[ReviewRelation, ...],
+    concept: HistoricalGroupReviewConcept,
+    rule_evidence,  # type: ignore[no-untyped-def]
+    input_present: bool,
+    projection_assertion_identities: tuple[str, ...],
+    historical_evidence_identities: tuple[str, ...],
+) -> ReviewRequiredPairChange:
+    axis, filler = pair
+    if not input_present:
+        return ReviewRequiredNonEmittedPair(
+            axis=axis,
+            filler_code=filler,
+            review_relations=review_relations,
+            historical_evidence_identities=historical_evidence_identities,
+            effective_disposition="review-required-non-emitted",
+            source_assertion_identities=(),
+            interpretation="absence-is-scoped-evidence-not-falsehood",
+            next_step=(
+                "engineering-source-provenance-prerequisite-plus-specialist-decision-"
+                "before-inclusion"
+            ),
+        )
+    source_identities = tuple(
+        sorted(
+            {
+                *_current_source_assertion_identities(concept, pair, rule_evidence),
+                *projection_assertion_identities,
+            }
+        )
+    )
+    if not source_identities:
+        raise CorpusAcceptanceValidationError(
+            f"physically removed pair lacks exact source assertions: {pair!r}"
+        )
+    return RemovedFromEffectivePair(
+        axis=axis,
+        filler_code=filler,
+        review_relations=review_relations,
+        historical_evidence_identities=historical_evidence_identities,
+        effective_disposition="removed-from-effective",
+        source_assertion_identities=source_identities,
+        next_step="specialist-decision-required-before-inclusion",
+    )
+
+
+class EffectivePairDispositionEvidence(_StrictModel):
+    concept_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=_CODE)
+    review_relations: tuple[ReviewRelation, ...] = Field(min_length=1)
+    effective_disposition: Literal[
+        "removed-from-effective", "review-required-non-emitted"
+    ]
+    input_present: bool
+    output_present: bool
+
+
 class EffectiveArtifactEvidence(_StrictModel):
     source_artifact_identity: str = Field(pattern=_SHA256)
     effective_artifact_identity: str = Field(pattern=_SHA256)
     removed_pair_count: int = Field(gt=0)
-    removed_pairs: tuple[tuple[str, str, str, str], ...] = Field(min_length=1)
-    excluded_pairs: tuple[tuple[str, str, str, str], ...] = Field(min_length=1)
+    non_emitted_pair_count: int = Field(ge=0)
+    removed_pairs: tuple[EffectivePairDispositionEvidence, ...] = Field(min_length=1)
+    non_emitted_pairs: tuple[EffectivePairDispositionEvidence, ...]
     source_artifact_preserved: Literal[True]
 
 
@@ -253,8 +429,10 @@ def build_effective_artifact(
     source = source_artifact.read_bytes()
     source_identity = hashlib.sha256(source).hexdigest()
     by_key = _effective_exclusion_map(exclusions)
-    payload, observed = _filter_effective_lines(source, by_key)
-    excluded = _validate_effective_delta(observed, exclusions, by_key)
+    payload, removed_keys = _filter_effective_lines(source, by_key)
+    evidence = _validate_effective_delta(
+        source, payload, removed_keys, exclusions, by_key
+    )
     if destination.exists():
         raise CorpusAcceptanceValidationError("effective artifact destination exists")
     atomic_write_bytes(destination, payload)
@@ -265,9 +443,10 @@ def build_effective_artifact(
     return EffectiveArtifactEvidence(
         source_artifact_identity=source_identity,
         effective_artifact_identity=hashlib.sha256(payload).hexdigest(),
-        removed_pair_count=len(observed),
-        removed_pairs=observed,
-        excluded_pairs=excluded,
+        removed_pair_count=len(evidence[0]),
+        non_emitted_pair_count=len(evidence[1]),
+        removed_pairs=evidence[0],
+        non_emitted_pairs=evidence[1],
         source_artifact_preserved=True,
     )
 
@@ -286,76 +465,134 @@ def _effective_constituent_key(line: bytes) -> tuple[str, str, str] | None:
 
 
 def _filter_effective_lines(
-    source: bytes, by_key: dict[tuple[str, str, str], str]
-) -> tuple[bytes, tuple[tuple[str, str, str, str], ...]]:
-    removed: list[tuple[str, str, str, str]] = []
+    source: bytes, by_key: dict[tuple[str, str, str], ReviewRequiredPairChange]
+) -> tuple[bytes, tuple[tuple[str, str, str], ...]]:
+    removed: set[tuple[str, str, str]] = set()
     retained: list[bytes] = []
     for line in source.splitlines(keepends=True):
         key = _effective_constituent_key(line)
-        direction = by_key.get(key) if key is not None else None
-        if key is None or direction is None:
-            retained.append(line)
+        pair = by_key.get(key) if key is not None else None
+        if (
+            key is not None
+            and pair is not None
+            and pair.effective_disposition == "removed-from-effective"
+        ):
+            removed.add(key)
         else:
-            removed.append((*key, direction))
-    return b"".join(retained), tuple(sorted(set(removed)))
+            retained.append(line)
+    return b"".join(retained), tuple(sorted(removed))
 
 
 def _validate_effective_delta(
-    observed: tuple[tuple[str, str, str, str], ...],
+    source: bytes,
+    payload: bytes,
+    removed_keys: tuple[tuple[str, str, str], ...],
     exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
-    by_key: dict[tuple[str, str, str], str],
-) -> tuple[tuple[str, str, str, str], ...]:
-    excluded = _excluded_pair_inventory(by_key)
-    missing = _missing_required_pairs(observed, excluded)
-    if missing:
-        raise CorpusAcceptanceValidationError(
-            f"effective artifact lacks exact exclusion pairs: {missing!r}"
-        )
-    if not _each_excluded_concept_has_delta(observed, exclusions):
+    by_key: dict[tuple[str, str, str], ReviewRequiredPairChange],
+) -> tuple[
+    tuple[EffectivePairDispositionEvidence, ...],
+    tuple[EffectivePairDispositionEvidence, ...],
+]:
+    input_keys = _constituent_keys(source)
+    output_keys = _constituent_keys(payload)
+    required_removed = {
+        key
+        for key, pair in by_key.items()
+        if pair.effective_disposition == "removed-from-effective"
+    }
+    observed_removed = set(removed_keys)
+    non_emitted_keys = {
+        key
+        for key, pair in by_key.items()
+        if pair.effective_disposition == "review-required-non-emitted"
+    }
+    _require_effective_pair_presence(
+        observed_removed=observed_removed,
+        required_removed=required_removed,
+        non_emitted_keys=non_emitted_keys,
+        input_keys=input_keys,
+        output_keys=output_keys,
+    )
+    if not _each_excluded_concept_has_delta(required_removed, exclusions):
         raise CorpusAcceptanceValidationError(
             "each review-required concept must have a nonempty effective delta"
         )
-    return excluded
+    return (
+        _disposition_evidence(required_removed, by_key, input_keys, output_keys),
+        _disposition_evidence(non_emitted_keys, by_key, input_keys, output_keys),
+    )
 
 
-def _excluded_pair_inventory(
-    by_key: dict[tuple[str, str, str], str],
-) -> tuple[tuple[str, str, str, str], ...]:
-    return tuple(sorted((*key, direction) for key, direction in by_key.items()))
+def _require_effective_pair_presence(
+    *,
+    observed_removed: set[tuple[str, str, str]],
+    required_removed: set[tuple[str, str, str]],
+    non_emitted_keys: set[tuple[str, str, str]],
+    input_keys: set[tuple[str, str, str]],
+    output_keys: set[tuple[str, str, str]],
+) -> None:
+    if observed_removed != required_removed:
+        raise CorpusAcceptanceValidationError(
+            "removed-from-effective disposition differs from input pair presence"
+        )
+    if non_emitted_keys & (input_keys | output_keys):
+        raise CorpusAcceptanceValidationError(
+            "review-required-non-emitted disposition differs from pair presence"
+        )
+    if output_keys & required_removed:
+        raise CorpusAcceptanceValidationError(
+            "removed-from-effective pair remains in effective output"
+        )
 
 
-def _missing_required_pairs(
-    observed: tuple[tuple[str, str, str, str], ...],
-    excluded: tuple[tuple[str, str, str, str], ...],
-) -> tuple[tuple[str, str, str, str], ...]:
-    observed_set = set(observed)
+def _constituent_keys(artifact: bytes) -> set[tuple[str, str, str]]:
+    return {
+        key
+        for line in artifact.splitlines(keepends=True)
+        if (key := _effective_constituent_key(line)) is not None
+    }
+
+
+def _disposition_evidence(
+    keys: set[tuple[str, str, str]],
+    by_key: dict[tuple[str, str, str], ReviewRequiredPairChange],
+    input_keys: set[tuple[str, str, str]],
+    output_keys: set[tuple[str, str, str]],
+) -> tuple[EffectivePairDispositionEvidence, ...]:
     return tuple(
-        item
-        for item in excluded
-        if item[3] != "missing-from-candidate" and item not in observed_set
+        EffectivePairDispositionEvidence(
+            concept_code=key[0],
+            axis=key[1],
+            filler_code=key[2],
+            review_relations=by_key[key].review_relations,
+            effective_disposition=by_key[key].effective_disposition,
+            input_present=key in input_keys,
+            output_present=key in output_keys,
+        )
+        for key in sorted(keys)
     )
 
 
 def _each_excluded_concept_has_delta(
-    observed: tuple[tuple[str, str, str, str], ...],
+    removed_keys: set[tuple[str, str, str]],
     exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
 ) -> bool:
-    observed_concepts = {item[0] for item in observed}
+    observed_concepts = {item[0] for item in removed_keys}
     excluded_concepts = {item.concept_code for item in exclusions}
     return observed_concepts == excluded_concepts
 
 
 def _effective_exclusion_map(
     exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
-) -> dict[tuple[str, str, str], str]:
-    by_key: dict[tuple[str, str, str], str] = {}
+) -> dict[tuple[str, str, str], ReviewRequiredPairChange]:
+    by_key: dict[tuple[str, str, str], ReviewRequiredPairChange] = {}
     for exclusion in exclusions:
         for pair in exclusion.pair_changes:
             key = (exclusion.concept_code, pair.axis, pair.filler_code)
-            previous = by_key.setdefault(key, pair.comparison_direction)
-            if previous != pair.comparison_direction:
+            previous = by_key.setdefault(key, pair)
+            if previous != pair:
                 raise CorpusAcceptanceValidationError(
-                    "effective exclusion has ambiguous pair directions"
+                    "effective exclusion has ambiguous pair dispositions"
                 )
     return by_key
 
@@ -2054,7 +2291,9 @@ def _validate_candidate_inputs(
         "R101 qualification binding differs",
     )
     exclusions = build_review_required_exclusions(
-        paths["review_packet"], paths["rationale"]
+        paths["review_packet"],
+        paths["rationale"],
+        paths["artifact"],
     )
     policy_identity = _file_identity(paths["policy"])
     try:
@@ -2200,11 +2439,8 @@ async def generate_c3262_acceptance_candidate(
                 "projection": CandidateProjection(
                     artifact_sha256=effective.effective_artifact_identity,
                     representation_identity=effective.effective_artifact_identity,
-                    served_semantic_projection_identity=_identity(
-                        {
-                            "artifact": effective.effective_artifact_identity,
-                            "removed_pairs": effective.removed_pairs,
-                        }
+                    served_semantic_projection_identity=_served_projection_identity(
+                        effective
                     ),
                     no_equivalence=True,
                 ),
@@ -2315,6 +2551,7 @@ async def generate_c3262_acceptance_candidate(
         ),
         "effective_artifact_identity": effective.effective_artifact_identity,
         "removed_from_effective_count": effective.removed_pair_count,
+        "review_required_non_emitted_count": effective.non_emitted_pair_count,
         "dry_run_identity": dry_run.evidence_identity,
         "dry_run_status": dry_run.status,
         "postgres_before_identity": dry_run.postgres_before_identity,
@@ -2330,6 +2567,20 @@ def _require_certified_acceptance_inputs(root: Path) -> None:
             raise CorpusAcceptanceValidationError(
                 f"certified acceptance input is absent: {relative}"
             )
+
+
+def _served_projection_identity(effective: EffectiveArtifactEvidence) -> str:
+    return _identity(
+        {
+            "artifact": effective.effective_artifact_identity,
+            "removed_pairs": [
+                item.model_dump(mode="json") for item in effective.removed_pairs
+            ],
+            "non_emitted_pairs": [
+                item.model_dump(mode="json") for item in effective.non_emitted_pairs
+            ],
+        }
+    )
 
 
 def _r101_candidate_summary(report: R101ConservationReport) -> R101CandidateSummary:

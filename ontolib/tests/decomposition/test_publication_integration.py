@@ -17,9 +17,9 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_acceptance import (
     AcceptedHumanAcceptanceDecision,
-    ExcludedPairChange,
     PublicationDryRunEvidence,
     PublicationPlaneBinding,
+    RemovedFromEffectivePair,
     ReviewRequiredEffectiveExclusion,
     build_accepted_publication_artifact,
     dry_run_corpus_publication,
@@ -135,16 +135,17 @@ async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
     exclusion = ReviewRequiredEffectiveExclusion(
         concept_code="C2",
         pair_changes=(
-            ExcludedPairChange(
+            RemovedFromEffectivePair(
                 axis="op:Morphology",
                 filler_code="C3",
-                comparison_direction="grouping-disputed",
+                review_relations=("grouping-disputed",),
+                historical_evidence_identities=("2" * 64,),
+                effective_disposition="removed-from-effective",
+                source_assertion_identities=("1" * 64,),
+                next_step="specialist-decision-required-before-inclusion",
             ),
         ),
-        source_assertion_identities=("1" * 64,),
-        evidence_identities=("2" * 64,),
         reason="unresolved-semantic-ambiguity",
-        delta="removed-from-effective",
         official_source_preserved=True,
         human_approval=False,
         nci_approval=False,
