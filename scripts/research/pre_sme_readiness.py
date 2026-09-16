@@ -1793,7 +1793,11 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             "Issue #274 grouping detector",
         ),
         (
-            group.r101_report_identity == validation.report_identity,
+            group.r101_report_identity == report.report_identity,
+            "current group R101",
+        ),
+        (
+            group.historical_r101_report_identity == validation.report_identity,
             "historical group R101",
         ),
         (r103.source_identity == manifest.source_identity, "R103 source"),

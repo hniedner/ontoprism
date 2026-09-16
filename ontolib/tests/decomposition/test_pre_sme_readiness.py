@@ -249,7 +249,7 @@ def _composed_readiness_inputs(
     manifest = tmp_path / "source-manifest.json"
     manifest.write_text("{}", encoding="utf-8")
     validation = build_r101_reuse_validation(
-        report_identity=report.report_identity,
+        report_identity="4" * 64,
         existing_packet_identity="1" * 64,
         current_packet_identity="2" * 64,
         registry_identity="3" * 64,
@@ -272,6 +272,7 @@ def _composed_readiness_inputs(
         current_evidence_identity=evidence.evidence_identity,
         current_comparison_identity=comparison.comparison_identity,
         r101_report_identity=report.report_identity,
+        historical_r101_report_identity=validation.report_identity,
         packet_identity=normalized_group_policy.basis_packet_identity,
         review_rows=(None,) * 18,
     )
@@ -1297,6 +1298,51 @@ def test_composed_readiness_rejects_changed_historical_row_decisions_without_out
     arguments["row_decisions"] = changed
 
     with pytest.raises(PreSmeValidationError, match="row decision"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_composed_readiness_binds_current_and_historical_r101_planes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.identities.r101_current_report_identity == report.report_identity
+    assert readiness.identities.r101_historical_report_identity == "4" * 64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("r101_report_identity", "current group R101"),
+        ("historical_r101_report_identity", "historical group R101"),
+    ],
+)
+def test_composed_readiness_independently_rejects_wrong_r101_plane_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    message: str,
+) -> None:
+    arguments, module, _report, _comparison, group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(
+        module,
+        "load_group_review_packet",
+        lambda _path: SimpleNamespace(
+            **{**group.__dict__, field: "f" * 64},
+        ),
+    )
+
+    with pytest.raises(PreSmeValidationError, match=message):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()
