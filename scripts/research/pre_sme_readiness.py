@@ -26,11 +26,17 @@ from scripts.research.golden_review import load_row_decisions
 from scripts.research.group_review_packet import load_group_review_packet
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
 from ontolib.decomposition.evaluation import (
     M1_6_METRIC_CONTRACTS,
     EvaluationMetricName,
     MetricDenominatorRule,
+)
+from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
+    load_normalized_group_policy,
+    load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.proposal_registry_migration import (
     load_proposal_registry_migration_envelope,
@@ -39,6 +45,7 @@ from ontolib.decomposition.proposal_registry_migration import (
 )
 from ontolib.decomposition.r101_conservation import (
     R101ConservationReport,
+    load_historical_r101_review_report,
     load_r101_conservation_report,
 )
 from ontolib.decomposition.r101_review import (
@@ -435,6 +442,11 @@ class MachineReadinessInputs(_StrictModel):
     primary_site_review_required_count: int = Field(ge=0)
     primary_site_cardinality_violations: tuple[PrimarySiteCardinalityViolation, ...]
     group_packet_identity: str = Field(pattern=_SHA256)
+    normalized_group_policy_identity: str = Field(pattern=_SHA256)
+    grouping_detector_report_identity: str = Field(pattern=_SHA256)
+    axis_contract_violations: tuple[str, ...]
+    normalized_group_violations: tuple[str, ...]
+    unadjudicated_golden_changes: tuple[str, ...]
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_c3264_terminal_decision_identity: str = Field(
@@ -475,7 +487,7 @@ class MachineReadinessInputs(_StrictModel):
     r101_causal_attribution: Literal["prohibited"]
 
     @model_validator(mode="after")
-    def _validate_reuse_status(self) -> Self:
+    def _validate_reuse_status(self) -> Self:  # noqa: C901
         exact = self.r101_existing_packet_identity == self.r101_current_packet_identity
         if self.r101_historical_validation_established != exact:
             raise ValueError(
@@ -512,6 +524,13 @@ class MachineReadinessInputs(_StrictModel):
             > self.primary_site_resolved_count
         ):
             raise ValueError("primary-site violations exceed resolved observations")
+        for name, violations in (
+            ("axis-contract", self.axis_contract_violations),
+            ("normalized-group", self.normalized_group_violations),
+            ("unadjudicated-golden", self.unadjudicated_golden_changes),
+        ):
+            if violations != tuple(sorted(set(violations))):
+                raise ValueError(f"{name} violations must be canonical and unique")
         return self
 
     @model_validator(mode="after")
@@ -630,7 +649,7 @@ def generate_r101_reuse_validation(
     evidence; this operation never creates or rebinds an authorization.
     """
     try:
-        report_value = load_r101_conservation_report(report)
+        report_value = load_historical_r101_review_report(report)
         existing = load_r101_review_packet(existing_packet)
         current = load_r101_review_packet(current_packet)
         registry_value = load_r101_decision_registry(registry)
@@ -937,6 +956,8 @@ class ReportIdentities(_StrictModel):
     row_decisions_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     group_packet_identity: str = Field(pattern=_SHA256)
+    normalized_group_policy_identity: str = Field(pattern=_SHA256)
+    grouping_detector_report_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(pattern=_SHA256)
     r103_c3264_terminal_decision_identity: str = Field(pattern=_SHA256)
@@ -985,7 +1006,7 @@ class MachineReadinessReport(_StrictModel):
     report_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
-    def _validate_identity(  # noqa: C901, PLR0912 - full report checks
+    def _validate_identity(  # noqa: C901, PLR0912, PLR0915 - full report checks
         self,
     ) -> Self:
         requirements = [item.requirement for item in self.human_requirements]
@@ -1056,6 +1077,13 @@ class MachineReadinessReport(_StrictModel):
         metadata = blockers["r101-semantic-metadata-delta"]
         if metadata.blocker_count != self.r101_metadata_delta:  # type: ignore[union-attr]
             raise ValueError("R101 metadata delta blocker differs")
+        for kind in (
+            "axis-contract-violation",
+            "normalized-group-violation",
+            "unadjudicated-golden-change",
+        ):
+            if isinstance(blockers[kind], NotEvaluatedSemanticBlocker):
+                raise ValueError(f"{kind} must be evaluated")
         if not isinstance(blockers["unclassified-delta"], NotEvaluatedSemanticBlocker):
             raise ValueError("total delta classification must remain not evaluated")
         r101 = by_requirement[_R101_AUTHORIZATION]
@@ -1148,23 +1176,23 @@ def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
             owning_issue="#127",
             reason="the R101-isolated comparison is not a total delta classification",
         ),
-        NotEvaluatedSemanticBlocker(
-            kind="axis-contract-violation",
-            status="not-evaluated",
-            owning_issue="#274",
-            reason="the final stabilized current-engine contract detector has not run",
+        _evaluated_blocker(
+            "axis-contract-violation",
+            len(inputs.axis_contract_violations),
+            (f"current-evidence:{inputs.current_evidence_identity}",),
         ),
-        NotEvaluatedSemanticBlocker(
-            kind="normalized-group-violation",
-            status="not-evaluated",
-            owning_issue="#274",
-            reason="the final normalized-group correction and detector have not run",
+        _evaluated_blocker(
+            "normalized-group-violation",
+            len(inputs.normalized_group_violations),
+            (f"normalized-group-policy:{inputs.normalized_group_policy_identity}",),
         ),
-        NotEvaluatedSemanticBlocker(
-            kind="unadjudicated-golden-change",
-            status="not-evaluated",
-            owning_issue="#274",
-            reason="the final current-engine golden-cohort replay has not run",
+        _evaluated_blocker(
+            "unadjudicated-golden-change",
+            len(inputs.unadjudicated_golden_changes),
+            (
+                f"current-comparison:{inputs.current_comparison_identity}",
+                f"normalized-group-policy:{inputs.normalized_group_policy_identity}",
+            ),
         ),
         _evaluated_blocker(
             "primary-site-cardinality",
@@ -1448,6 +1476,150 @@ def _validated_current_metrics(comparison: CurrentComparison) -> CurrentMetrics:
         raise PreSmeValidationError(str(exc)) from exc
 
 
+def _issue_274_semantic_violations(
+    evidence: CurrentEngineEvidence,
+    comparison: CurrentComparison,
+    policy: ActiveNormalizedGroupPolicy,
+    group_packet_identity: str,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    axis_violations = tuple(
+        sorted(
+            f"{concept.code}:{constituent.axis}"
+            for concept in evidence.concepts
+            for constituent in concept.constituents
+            if constituent.axis not in AXIS_CONTRACTS
+        )
+    )
+    concepts = {concept.code: concept for concept in evidence.concepts}
+    group_violations: list[str] = []
+    for row in policy.rows:
+        concept = concepts.get(row.concept_code)
+        if concept is None:
+            group_violations.append(f"{row.concept_code}:missing-current-concept")
+            continue
+        actual_rows = [
+            (
+                (item.axis, item.filler),
+                item.normalized_group_id,
+                item.normalized_group_label,
+            )
+            for item in concept.constituents
+        ]
+        if len(actual_rows) != len({item[0] for item in actual_rows}):
+            group_violations.append(f"{row.concept_code}:duplicate-current-pair")
+            continue
+        actual = {item[0]: item[1:] for item in actual_rows}
+        expected = {
+            pair: (block.normalized_group_id, block.normalized_group_label)
+            for block in row.blocks
+            for pair in block.pairs
+        }
+        if actual != expected:
+            group_violations.append(f"{row.concept_code}:normalized-group-mismatch")
+    golden_violations = tuple(
+        label
+        for accepted, label in (
+            (
+                policy.basis_evidence_identity == evidence.evidence_identity,
+                "policy-evidence-binding",
+            ),
+            (
+                policy.basis_comparison_identity == comparison.comparison_identity,
+                "policy-comparison-binding",
+            ),
+            (
+                policy.basis_packet_identity == group_packet_identity,
+                "policy-group-review-binding",
+            ),
+            (policy.basis_run_id == evidence.run_id, "policy-run-binding"),
+            (
+                policy.basis_artifact_identity == evidence.artifact_identity,
+                "policy-artifact-binding",
+            ),
+        )
+        if not accepted
+    )
+    return axis_violations, tuple(sorted(group_violations)), golden_violations
+
+
+class Issue274DetectorReport(_StrictModel):
+    schema_version: Literal[1]
+    status: Literal["clear", "blocked"]
+    current_evidence_identity: str = Field(pattern=_SHA256)
+    current_comparison_identity: str = Field(pattern=_SHA256)
+    group_packet_identity: str = Field(pattern=_SHA256)
+    normalized_group_policy_identity: str = Field(pattern=_SHA256)
+    axis_contract_violations: tuple[str, ...]
+    normalized_group_violations: tuple[str, ...]
+    unadjudicated_golden_changes: tuple[str, ...]
+    report_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _validate_report(self) -> Self:
+        violations = (
+            *self.axis_contract_violations,
+            *self.normalized_group_violations,
+            *self.unadjudicated_golden_changes,
+        )
+        if self.status != ("blocked" if violations else "clear"):
+            raise ValueError("Issue #274 detector status differs from violations")
+        expected = _identity(self.model_dump(mode="json", exclude={"report_identity"}))
+        if self.report_identity != expected:
+            raise ValueError("Issue #274 detector report identity differs")
+        return self
+
+
+def generate_issue_274_detector_report(
+    *,
+    evidence_path: Path,
+    comparison_path: Path,
+    group_packet_path: Path,
+    policy_path: Path,
+    output: Path,
+) -> Issue274DetectorReport:
+    """Write an identity-bound report for the three #274 semantic detectors."""
+    try:
+        evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
+        comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
+        validate_current_comparison(evidence, comparison)
+        group = load_group_review_packet(group_packet_path)
+        policy = load_normalized_group_policy(policy_path)
+    except (OSError, ValidationError, ValueError) as exc:
+        raise PreSmeValidationError(str(exc)) from exc
+    violations = _issue_274_semantic_violations(
+        evidence, comparison, policy, group.packet_identity
+    )
+    payload = {
+        "schema_version": 1,
+        "status": "blocked" if any(violations) else "clear",
+        "current_evidence_identity": evidence.evidence_identity,
+        "current_comparison_identity": comparison.comparison_identity,
+        "group_packet_identity": group.packet_identity,
+        "normalized_group_policy_identity": policy.policy_identity,
+        "axis_contract_violations": violations[0],
+        "normalized_group_violations": violations[1],
+        "unadjudicated_golden_changes": violations[2],
+    }
+    report = Issue274DetectorReport.model_validate(
+        {**payload, "report_identity": _identity(payload)}
+    )
+    _atomic_write(output, _canonical_bytes(report))
+    return report
+
+
+def _require_matching_issue_274_detector(
+    detector: Issue274DetectorReport,
+    violations: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]],
+) -> None:
+    detector_violations = (
+        detector.axis_contract_violations,
+        detector.normalized_group_violations,
+        detector.unadjudicated_golden_changes,
+    )
+    if detector_violations != violations:
+        raise PreSmeValidationError("Issue #274 detector violations differ")
+
+
 def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     *,
     source_manifest: Path,
@@ -1462,6 +1634,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     row_decisions: Path,
     primary_site_audit: Path,
     group_packet: Path,
+    grouping_detector: Path,
     r103_review_state: Path,
     r103_source_inventory: Path,
     r103_candidates: Path,
@@ -1516,6 +1689,12 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
         group = load_group_review_packet(group_packet)
+        normalized_group_policy = load_packaged_normalized_group_policy()
+        issue_274_detector = Issue274DetectorReport.model_validate_json(
+            _load_json_no_duplicates(grouping_detector, "Issue #274 grouping detector")[
+                1
+            ]
+        )
         r103_revision = load_r103_promoted_review_revision(r103_review_state)
         validate_historical_migration_artifact(
             migration, "r103-review-revision", r103_review_state
@@ -1555,6 +1734,24 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     require_current_verify_evidence(gate.git_head, expected_git_head)
+    (
+        axis_contract_violations,
+        normalized_group_violations,
+        unadjudicated_golden_changes,
+    ) = _issue_274_semantic_violations(
+        evidence,
+        comparison,
+        normalized_group_policy,
+        group.packet_identity,
+    )
+    _require_matching_issue_274_detector(
+        issue_274_detector,
+        (
+            axis_contract_violations,
+            normalized_group_violations,
+            unadjudicated_golden_changes,
+        ),
+    )
     migration_history = {
         binding.kind: binding for binding in migration.historical_artifacts
     }
@@ -1585,7 +1782,22 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             "group comparison",
         ),
         (
-            group.r101_report_identity == validation.report_identity,
+            issue_274_detector.status == "clear"
+            and issue_274_detector.current_evidence_identity
+            == evidence.evidence_identity
+            and issue_274_detector.current_comparison_identity
+            == comparison.comparison_identity
+            and issue_274_detector.group_packet_identity == group.packet_identity
+            and issue_274_detector.normalized_group_policy_identity
+            == normalized_group_policy.policy_identity,
+            "Issue #274 grouping detector",
+        ),
+        (
+            group.r101_report_identity == report.report_identity,
+            "current group R101",
+        ),
+        (
+            group.historical_r101_report_identity == validation.report_identity,
             "historical group R101",
         ),
         (r103.source_identity == manifest.source_identity, "R103 source"),
@@ -1715,6 +1927,11 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             primary_site_review_required_count=audit.review_required_site_count,
             primary_site_cardinality_violations=audit.cardinality_violations,
             group_packet_identity=group.packet_identity,
+            normalized_group_policy_identity=normalized_group_policy.policy_identity,
+            grouping_detector_report_identity=issue_274_detector.report_identity,
+            axis_contract_violations=axis_contract_violations,
+            normalized_group_violations=normalized_group_violations,
+            unadjudicated_golden_changes=unadjudicated_golden_changes,
             r103_packet_identity=r103.packet_identity,
             r103_registry_identity=r103_revision.registry.registry_identity,
             r103_c3264_terminal_decision_identity=(

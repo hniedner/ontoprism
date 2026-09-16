@@ -42,6 +42,22 @@ class UpstreamMapping(StrictBoundaryModel):
         )
 
 
+def _validate_axis_source_roles(
+    axis_source: AxisSource, source_roles: tuple[str, ...]
+) -> None:
+    if axis_source == "role" and not source_roles:
+        raise ValueError("role-derived constituent requires source_roles")
+    if axis_source in {"parent", "nlp"} and source_roles:
+        raise ValueError("parent/NLP constituents must have empty source_roles")
+
+
+def _validate_source_group_ids(source_group_ids: tuple[str, ...]) -> None:
+    if tuple(sorted(set(source_group_ids))) != source_group_ids:
+        raise ValueError("source_group_ids must be canonical and unique")
+    if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in source_group_ids):
+        raise ValueError("source_group_ids must contain SHA-256 identities")
+
+
 class DecompositionConstituent(StrictBoundaryModel):
     """One decomposed constituent: the axis and the concept that fills it.
 
@@ -59,7 +75,10 @@ class DecompositionConstituent(StrictBoundaryModel):
     source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
-    group: str | None = None
+    axis_ambiguity_group_id: str | None = None
+    source_group_ids: tuple[str, ...] = ()
+    normalized_group_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    normalized_group_label: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     upstream: list[UpstreamMapping] = Field(default_factory=list)
 
@@ -74,10 +93,10 @@ class DecompositionConstituent(StrictBoundaryModel):
 
     @model_validator(mode="after")
     def _source_roles_match_axis_source(self) -> Self:
-        if self.axis_source == "role" and not self.source_roles:
-            raise ValueError("role-derived constituent requires source_roles")
-        if self.axis_source in {"parent", "nlp"} and self.source_roles:
-            raise ValueError("parent/NLP constituents must have empty source_roles")
+        _validate_axis_source_roles(self.axis_source, self.source_roles)
+        _validate_source_group_ids(self.source_group_ids)
+        if (self.normalized_group_id is None) != (self.normalized_group_label is None):
+            raise ValueError("normalized group identity and label must be paired")
         return self
 
 

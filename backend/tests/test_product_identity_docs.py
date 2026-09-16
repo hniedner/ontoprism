@@ -77,6 +77,29 @@ def _read(path: str) -> str:
     return (_ROOT / path).read_text(encoding="utf-8")
 
 
+def test_issue_274_current_docs_name_only_observed_artifact_semantics() -> None:
+    golden = _read("ontolib/tests/decomposition/golden/README.md")
+    normalized_golden = " ".join(golden.split())
+    assert "schema-5\n`tmp/m1-6-group-review-packet-rev2.json`" not in golden
+    assert "schema-4" in golden
+    assert "detector manifest's parent bindings" in normalized_golden
+
+    d87 = _decision_section(_read("docs/DECISIONS.md"), "D87")
+    normalized_d87 = " ".join(d87.split())
+    assert "unavailable_historical_artifact" in d87
+    assert "status `not-retained`" in d87
+    assert "evidentiary use `none`" in d87
+    assert "unavailable_parent_binding" not in d87
+    assert "project-owner-current-conversation" not in d87
+    assert "tmp/" not in d87
+    assert "pre-migration" not in d87.casefold()
+    assert (
+        "https://hl7.org/fhir/us/mcode/STU4/StructureDefinition-mcode-cancer-stage.html"
+        in d87
+    )
+    assert "does not prescribe OntoPrism normalized group IDs" in normalized_d87
+
+
 def _assignment_expression(path: str, name: str) -> ast.expr:
     module = ast.parse(_read(path), filename=path)
     matches: list[ast.expr] = []
@@ -528,14 +551,15 @@ def test_documents_frontend_development_uses_supported_root_command() -> None:
 
 
 @pytest.mark.unit
-def test_documents_d86_is_newest_and_preserves_d60_verbatim() -> None:
+def test_documents_decisions_are_descending_and_preserve_d60_verbatim() -> None:
     decisions = _read("docs/DECISIONS.md")
     ids = [
         int(value) for value in re.findall(r"^### D(\d+)\.", decisions, re.MULTILINE)
     ]
-    assert ids[:2] == [86, 85]
+    assert ids[:2] == [87, 86]
+    assert ids.count(87) == 1
     assert ids.count(86) == 1
-    assert max(ids) == 86
+    assert max(ids) == 87
 
     current_d60 = _decision_section(decisions, "D60")
     fixture = _read(_D60_FIXTURE)

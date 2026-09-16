@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-_INVENTORY_VERSION = b"ontoprism-routing-implementation-files-v1\0"
+_INVENTORY_VERSION = b"ontoprism-routing-implementation-files-v2\0"
 ROUTING_IMPLEMENTATION_FILES = (
     Path("ontolib/src/ontolib/decomposition/axes.py"),
     Path("ontolib/src/ontolib/decomposition/axis_contracts.py"),
@@ -15,6 +15,8 @@ ROUTING_IMPLEMENTATION_FILES = (
     Path("ontolib/src/ontolib/decomposition/detector.py"),
     Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
     Path("ontolib/src/ontolib/decomposition/models.py"),
+    Path("ontolib/src/ontolib/decomposition/normalized_group_policy.py"),
+    Path("ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"),
     Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
     Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
 )

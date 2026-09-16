@@ -758,7 +758,8 @@ def test_coequal_nonnested_leaves_share_a_group_and_are_not_review() -> None:
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     assert {c.axis for c in cons} == {ASSOCIATED_REGION_AXIS}
     assert all(
-        c.group == ASSOCIATED_REGION_AXIS and c.needs_review is False for c in cons
+        c.axis_ambiguity_group_id == ASSOCIATED_REGION_AXIS and c.needs_review is False
+        for c in cons
     )
 
 
@@ -767,7 +768,7 @@ def test_single_filler_axis_has_no_group() -> None:
     assert (
         select_constituents(
             [RoleRestriction("R88", "C27970", "Disease_Is_Stage")], lambda a, b: False
-        )[0].group
+        )[0].axis_ambiguity_group_id
         is None
     )
 
@@ -790,7 +791,9 @@ def test_lineage_leaves_are_ungrouped_without_source_group_evidence() -> None:
     ]
     cons = select_constituents(r, lambda a, b: False)
     assert {c.axis for c in cons} == {ASSOCIATED_LINEAGE_AXIS}
-    assert all(c.group is None and c.needs_review is False for c in cons)
+    assert all(
+        c.axis_ambiguity_group_id is None and c.needs_review is False for c in cons
+    )
 
 
 @pytest.mark.unit
@@ -810,7 +813,7 @@ def test_r82_partonomy_does_not_collapse_or_group_lineage_classifiers() -> None:
         (ASSOCIATED_LINEAGE_AXIS, "C12704"),
         (ASSOCIATED_LINEAGE_AXIS, "C12705"),
     }
-    assert all(item.group is None for item in constituents)
+    assert all(item.axis_ambiguity_group_id is None for item in constituents)
 
 
 @pytest.mark.unit
@@ -829,7 +832,7 @@ def test_semantic_type_ranking_one_organ_one_region() -> None:
     assert by_filler["C12400"].needs_review is False
     assert by_filler["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert by_filler["C12418"].needs_review is False
-    assert by_filler["C12418"].group is None
+    assert by_filler["C12418"].axis_ambiguity_group_id is None
 
 
 @pytest.mark.unit
@@ -845,7 +848,7 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     assert {c.axis for c in cons} == {PRIMARY_SITE_AXIS}
     assert all(c.needs_review for c in cons)
-    assert {c.group for c in cons} == {PRIMARY_SITE_AXIS}
+    assert {c.axis_ambiguity_group_id for c in cons} == {PRIMARY_SITE_AXIS}
 
 
 @pytest.mark.unit
@@ -1113,7 +1116,8 @@ def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None
         if constituent.axis == ASSOCIATED_REGION_AXIS
     ]
     assert all(
-        constituent.group is None and constituent.needs_review is False
+        constituent.axis_ambiguity_group_id is None
+        and constituent.needs_review is False
         for constituent in regions
     )
 
@@ -1348,7 +1352,7 @@ def test_multiple_stage_systems_are_grouped_and_not_flagged() -> None:
     assert len(stage_sys) == 2
     assert {c.filler_code for c in stage_sys} == {"C90529", "C90530"}
     assert all(c.needs_review is False for c in stage_sys)
-    assert all(c.group == "op:StageSystem" for c in stage_sys)
+    assert all(c.axis_ambiguity_group_id == "op:StageSystem" for c in stage_sys)
 
 
 @pytest.mark.unit

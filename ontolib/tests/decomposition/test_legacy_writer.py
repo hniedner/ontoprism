@@ -382,7 +382,7 @@ async def test_normal_output_never_contains_equivalence(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-async def test_group_id_is_rendered(tmp_path: Path) -> None:
+async def test_distinct_group_identities_are_rendered(tmp_path: Path) -> None:
     decs = [
         Decomposition(
             code="C6135",
@@ -393,14 +393,20 @@ async def test_group_id_is_rendered(tmp_path: Path) -> None:
                     filler_code="C12418",
                     axis_source="role",
                     source_roles=("R101",),
-                    group="op:AssociatedRegion",
+                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    source_group_ids=("a" * 64,),
+                    normalized_group_id="b" * 64,
+                    normalized_group_label="Reviewed associated-region block",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
                     source_roles=("R101",),
-                    group="op:AssociatedRegion",
+                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    source_group_ids=("a" * 64,),
+                    normalized_group_id="b" * 64,
+                    normalized_group_label="Reviewed associated-region block",
                 ),
             ],
         )
@@ -408,12 +414,15 @@ async def test_group_id_is_rendered(tmp_path: Path) -> None:
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
     content = out.read_text()
-    assert vocab.GROUP in content
+    assert vocab.AXIS_AMBIGUITY_GROUP in content
+    assert vocab.SOURCE_STRUCTURAL_GROUP in content
+    assert vocab.NORMALIZED_PROJECTION_GROUP in content
+    assert vocab.NORMALIZED_PROJECTION_GROUP_LABEL in content
     assert '"op:AssociatedRegion"' in content
 
 
 @pytest.mark.unit
-async def test_no_group_triple_when_group_is_none(tmp_path: Path) -> None:
+async def test_no_group_triples_without_group_identities(tmp_path: Path) -> None:
     decs = [
         Decomposition(
             code="C100",
@@ -425,7 +434,10 @@ async def test_no_group_triple_when_group_is_none(tmp_path: Path) -> None:
     ]
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
-    assert vocab.GROUP not in out.read_text()
+    content = out.read_text()
+    assert vocab.AXIS_AMBIGUITY_GROUP not in content
+    assert vocab.SOURCE_STRUCTURAL_GROUP not in content
+    assert vocab.NORMALIZED_PROJECTION_GROUP not in content
 
 
 @pytest.mark.unit
@@ -440,14 +452,14 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
                     filler_code="C12418",
                     axis_source="role",
                     source_roles=("R101",),
-                    group="op:AssociatedRegion",
+                    axis_ambiguity_group_id="op:AssociatedRegion",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
                     source_roles=("R101",),
-                    group="op:AssociatedRegion",
+                    axis_ambiguity_group_id="op:AssociatedRegion",
                 ),
             ],
         )
@@ -485,7 +497,8 @@ async def test_complete_definition_and_projection_trace_are_rendered(
                     filler_code="C27970",
                     axis_source="role",
                     needs_review=True,
-                    group="disease-1",
+                    axis_ambiguity_group_id="R88",
+                    source_group_ids=(nested_group_id,),
                     source_definition_ids=(restriction_id,),
                 )
             ],

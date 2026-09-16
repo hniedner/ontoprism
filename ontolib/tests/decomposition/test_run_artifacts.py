@@ -111,6 +111,35 @@ def test_parent_manifest_refuses_partial_deletion_and_substitution(
 
 
 @pytest.mark.unit
+def test_parent_manifest_refuses_wrong_record_type_and_nonmanifest_locator(
+    tmp_path: Path,
+) -> None:
+    manifest = _publish(tmp_path, "wrong-parent-record")
+    directory = tmp_path / "artifacts/m1-6-current-replay/wrong-parent-record"
+
+    with pytest.raises(ArtifactConflictError, match="path differs"):
+        resolve_parent_manifest(
+            directory / "not-manifest.json", manifest.manifest_identity
+        )
+
+    unavailable = ArtifactUnavailableRecord(
+        schema_version=1,
+        record_type="unavailable-artifact",
+        family="m1-6-current-replay",
+        run_id=RUN_ID,
+        expected_sha256="a" * 64,
+        last_known_path="tmp/m1-6-current-replay.ttl",
+        reason="overwritten-before-immutable-retention",
+        references=(),
+    )
+    (directory / "manifest.json").write_text(
+        json.dumps(unavailable.to_dict()), encoding="utf-8"
+    )
+    with pytest.raises(ArtifactConflictError, match="wrong record type"):
+        resolve_parent_manifest(directory / "manifest.json", manifest.manifest_identity)
+
+
+@pytest.mark.unit
 def test_interrupted_markerless_generation_is_refused_and_never_adopted(
     tmp_path: Path,
 ) -> None:
@@ -191,6 +220,17 @@ def test_manifest_binds_parents_and_rejects_identity_run_and_source_drift(
     )
 
     assert ArtifactManifest.from_dict(child.to_dict()).parents == (binding,)
+    with pytest.raises(ValueError, match="nonempty"):
+        ArtifactManifest.create(
+            family="m1-6-current-replay",
+            generation_id="empty-generation",
+            run_id=RUN_ID,
+            parents=(),
+            generator=GeneratorBinding(identity="git:abc", command=("test",)),
+            sources=(),
+            artifact_records=(),
+            retention=child.retention,
+        )
     with pytest.raises(ArtifactConflictError, match="canonical content"):
         ArtifactManifest.from_dict({**child.to_dict(), "family": "changed-family"})
     with pytest.raises(ValueError, match="run ID"):
@@ -332,6 +372,8 @@ def test_unavailable_record_reader_rejects_invalid_evidence_fields() -> None:
     with pytest.raises(ValueError, match="must be an object"):
         ArtifactUnavailableRecord.from_dict([])
     with pytest.raises(ValueError, match="references must be strings"):
+        ArtifactUnavailableRecord.from_dict({**valid, "references": "reference"})
+    with pytest.raises(ValueError, match="references must be strings"):
         ArtifactUnavailableRecord.from_dict({**valid, "references": [1]})
     with pytest.raises(ValueError, match="run or digest"):
         ArtifactUnavailableRecord.from_dict({**valid, "run_id": "invalid"})
@@ -339,6 +381,8 @@ def test_unavailable_record_reader_rejects_invalid_evidence_fields() -> None:
         ArtifactUnavailableRecord.from_dict({**valid, "expected_sha256": "invalid"})
     with pytest.raises(ValueError, match="references are invalid"):
         ArtifactUnavailableRecord.from_dict({**valid, "references": [""]})
+    with pytest.raises(ValueError, match="references are invalid"):
+        ArtifactUnavailableRecord.from_dict({**valid, "references": ["bad\nreference"]})
 
 
 @pytest.mark.unit
@@ -542,6 +586,19 @@ def test_concurrent_publishers_have_one_create_and_identical_idempotence(
     assert (final / ".complete").read_text(encoding="ascii").strip() == results[
         0
     ].manifest_identity
+
+
+@pytest.mark.unit
+def test_abandoned_concurrent_generation_claim_refuses_after_bounded_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    family = tmp_path / "artifacts/m1-6-current-replay"
+    (family / ".claims/blocked").mkdir(parents=True)
+    clock = iter((0.0, run_artifacts._CONCURRENT_WAIT_SECONDS))
+    monkeypatch.setattr(run_artifacts.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(ArtifactConflictError, match="concurrent generation claim"):
+        run_artifacts._acquire_generation_claim(family, "blocked")
 
 
 @pytest.mark.unit

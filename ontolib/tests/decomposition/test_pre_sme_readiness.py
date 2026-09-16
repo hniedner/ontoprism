@@ -5,7 +5,7 @@ import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from scripts.research.current_evidence import (
@@ -13,10 +13,9 @@ from scripts.research.current_evidence import (
     CurrentEngineEvidence,
     CurrentRateMetric,
 )
-from scripts.research.golden_review import load_row_decisions
 from scripts.research.pre_sme_readiness import (
+    ClearSemanticBlocker,
     MachineReadinessInputs,
-    MachineReadinessReport,
     PreSmeValidationError,
     PrimarySiteAudit,
     PrimarySiteObservation,
@@ -97,60 +96,70 @@ def _baseline(
     )
 
 
-def _composed_readiness_inputs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[dict[str, Any], Any, Any, Any, Any]:
-    module = __import__(
-        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+def _stale_grouping_artifacts(
+    evidence: CurrentEngineEvidence,
+    comparison: CurrentComparison,
+    normalized_group_policy: Any,
+) -> tuple[CurrentEngineEvidence, CurrentComparison]:
+    policy_row = normalized_group_policy.rows[0]
+    target_pair = policy_row.blocks[0].pairs[0]
+    concept_index, concept = next(
+        (index, item)
+        for index, item in enumerate(evidence.concepts)
+        if item.code == policy_row.concept_code
     )
-    golden = Path(__file__).parent / "golden"
-    evidence_path = golden / "neoplasm-current-engine-evidence.json"
-    comparison_path = golden / "neoplasm-current-comparison.json"
-    evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
-    comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
-    report = load_r101_conservation_report(_R101_REPORT)
-    corpus_artifact = tmp_path / "corpus.ttl"
-    corpus_artifact.write_text(_site_line("C1", "C10"))
-    baseline = _baseline(
-        corpus_artifact,
-        source_identity=report.source_identity,
-        ontology_release=report.source_release_id,
+    constituent_index, constituent = next(
+        (index, item)
+        for index, item in enumerate(concept.constituents)
+        if (item.axis, item.filler) == target_pair
     )
-    audit = audit_primary_site_artifact(
-        artifact=corpus_artifact,
-        baseline=baseline,
-        source_identity=report.source_identity,
-        source_release=report.source_release_id,
+    mutated_constituent = constituent.model_copy(
+        update={
+            "normalized_group_id": "0" * 64,
+            "normalized_group_label": (
+                f"stale-grouping:{policy_row.concept_code}:{'0' * 12}"
+            ),
+        }
     )
-    manifest = tmp_path / "source-manifest.json"
-    manifest.write_text("{}", encoding="utf-8")
-    validation = build_r101_reuse_validation(
-        report_identity=report.report_identity,
-        existing_packet_identity="1" * 64,
-        current_packet_identity="2" * 64,
-        registry_identity="3" * 64,
+    constituents = list(concept.constituents)
+    constituents[constituent_index] = mutated_constituent
+    concepts = list(evidence.concepts)
+    concepts[concept_index] = concept.model_copy(
+        update={"constituents": tuple(constituents)}
     )
-    validation_path = tmp_path / "r101-validation.json"
-    validation_path.write_text(validation.model_dump_json())
-    audit_path = tmp_path / "audit.json"
-    audit_path.write_text(audit.model_dump_json())
-    verify_path = tmp_path / "verify.json"
-    write_verify_evidence(
-        verify_path,
-        git_head="a" * 40,
-        docker_context="ontoprism-podman",
-        docker_endpoint="unix:///tmp/podman.sock",
-        gate_executable="/opt/homebrew/bin/pdm",
-        gate_version="PDM, version test",
-        observed_exit_code=0,
+    mutated_evidence = evidence.model_copy(update={"concepts": tuple(concepts)})
+    evidence_payload = mutated_evidence.model_dump(
+        mode="json", exclude={"evidence_identity"}
     )
-    group = SimpleNamespace(
-        current_evidence_identity=evidence.evidence_identity,
-        current_comparison_identity=comparison.comparison_identity,
-        r101_report_identity=report.report_identity,
-        packet_identity="4" * 64,
-        review_rows=(None,) * 18,
+    current_evidence = CurrentEngineEvidence.model_validate_json(
+        json.dumps(
+            {**evidence_payload, "evidence_identity": _identity(evidence_payload)}
+        )
     )
+    comparison_payload = comparison.model_dump(
+        mode="json", exclude={"comparison_identity"}
+    )
+    comparison_payload["current_evidence_identity"] = current_evidence.evidence_identity
+    current_comparison = CurrentComparison.model_validate_json(
+        json.dumps(
+            {
+                **comparison_payload,
+                "comparison_identity": _identity(comparison_payload),
+            }
+        )
+    )
+    return current_evidence, current_comparison
+
+
+def _patch_composed_readiness_loaders(
+    module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    golden: Path,
+    report: Any,
+    baseline: CorpusBaseline,
+    evidence: CurrentEngineEvidence,
+    group: Any,
+) -> None:
     source_fixture = module.load_source_inventory(
         golden / "r103-source-inventory-26.07d.json"
     )
@@ -198,6 +207,102 @@ def _composed_readiness_inputs(
         ),
     )
     monkeypatch.setattr(module, "load_group_review_packet", lambda _path: group)
+
+
+def _composed_readiness_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stale_grouping: bool = False,
+) -> tuple[dict[str, Any], Any, Any, Any, Any]:
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+    golden = Path(__file__).parent / "golden"
+    evidence_path = golden / "neoplasm-current-engine-evidence.json"
+    comparison_path = golden / "neoplasm-current-comparison.json"
+    evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
+    comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
+    normalized_group_policy = module.load_packaged_normalized_group_policy()
+    if stale_grouping:
+        evidence, comparison = _stale_grouping_artifacts(
+            evidence, comparison, normalized_group_policy
+        )
+        evidence_path = tmp_path / "stale-grouping-evidence.json"
+        comparison_path = tmp_path / "stale-grouping-comparison.json"
+        evidence_path.write_text(evidence.model_dump_json(), encoding="utf-8")
+        comparison_path.write_text(comparison.model_dump_json(), encoding="utf-8")
+    report = load_r101_conservation_report(_R101_REPORT)
+    corpus_artifact = tmp_path / "corpus.ttl"
+    corpus_artifact.write_text(_site_line("C1", "C10"))
+    baseline = _baseline(
+        corpus_artifact,
+        source_identity=report.source_identity,
+        ontology_release=report.source_release_id,
+    )
+    audit = audit_primary_site_artifact(
+        artifact=corpus_artifact,
+        baseline=baseline,
+        source_identity=report.source_identity,
+        source_release=report.source_release_id,
+    )
+    manifest = tmp_path / "source-manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    validation = build_r101_reuse_validation(
+        report_identity="4" * 64,
+        existing_packet_identity="1" * 64,
+        current_packet_identity="2" * 64,
+        registry_identity="3" * 64,
+    )
+    validation_path = tmp_path / "r101-validation.json"
+    validation_path.write_text(validation.model_dump_json())
+    audit_path = tmp_path / "audit.json"
+    audit_path.write_text(audit.model_dump_json())
+    verify_path = tmp_path / "verify.json"
+    write_verify_evidence(
+        verify_path,
+        git_head="a" * 40,
+        docker_context="ontoprism-podman",
+        docker_endpoint="unix:///tmp/podman.sock",
+        gate_executable="/opt/homebrew/bin/pdm",
+        gate_version="PDM, version test",
+        observed_exit_code=0,
+    )
+    group = SimpleNamespace(
+        current_evidence_identity=evidence.evidence_identity,
+        current_comparison_identity=comparison.comparison_identity,
+        r101_report_identity=report.report_identity,
+        historical_r101_report_identity=validation.report_identity,
+        packet_identity=normalized_group_policy.basis_packet_identity,
+        review_rows=(None,) * 18,
+    )
+    _patch_composed_readiness_loaders(
+        module, monkeypatch, golden, report, baseline, evidence, group
+    )
+    unused = tmp_path / "unused.json"
+    unused.write_text("{}")
+    detector_path = tmp_path / "grouping-detector.json"
+    detector_payload = {
+        "schema_version": 1,
+        "status": "clear",
+        "current_evidence_identity": evidence.evidence_identity,
+        "current_comparison_identity": comparison.comparison_identity,
+        "group_packet_identity": group.packet_identity,
+        "normalized_group_policy_identity": normalized_group_policy.policy_identity,
+        "axis_contract_violations": (),
+        "normalized_group_violations": (),
+        "unadjudicated_golden_changes": (),
+    }
+    detector = module.Issue274DetectorReport.model_validate(
+        {**detector_payload, "report_identity": module._identity(detector_payload)}
+    )
+    detector_path.write_text(detector.model_dump_json(), encoding="utf-8")
+    if not stale_grouping:
+        monkeypatch.setattr(
+            module,
+            "_issue_274_semantic_violations",
+            lambda _evidence, _comparison, _policy, _packet_identity: ((), (), ()),
+        )
     original_r103_loader = module.load_r103_promoted_review_revision
 
     def load_r103_with_fixture_manifest(path: Path) -> Any:
@@ -217,8 +322,6 @@ def _composed_readiness_inputs(
         "load_r103_promoted_review_revision",
         load_r103_with_fixture_manifest,
     )
-    unused = tmp_path / "unused.json"
-    unused.write_text("{}")
     arguments: dict[str, Any] = {
         "source_manifest": manifest,
         "current_evidence": evidence_path,
@@ -233,6 +336,7 @@ def _composed_readiness_inputs(
         "row_decisions": golden / "neoplasm-row-decisions.json",
         "primary_site_audit": audit_path,
         "group_packet": unused,
+        "grouping_detector": detector_path,
         "r103_review_state": golden / "r103-review-state-26.07d-rev2.json",
         "r103_source_inventory": golden / "r103-source-inventory-26.07d.json",
         "r103_candidates": golden / "r103-c12950-candidates-26.07d.json",
@@ -495,6 +599,11 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "primary_site_review_required_count": 0,
         "primary_site_cardinality_violations": (),
         "group_packet_identity": "9" * 64,
+        "normalized_group_policy_identity": "1" * 64,
+        "grouping_detector_report_identity": "2" * 64,
+        "axis_contract_violations": (),
+        "normalized_group_violations": (),
+        "unadjudicated_golden_changes": (),
         "r103_packet_identity": "0" * 64,
         "verify_evidence_identity": "a" * 64,
         "git_head": "b" * 40,
@@ -659,7 +768,7 @@ def test_quality_target_indicators_have_independent_inclusive_boundaries(
 
 
 @pytest.mark.unit
-def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> None:
+def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() -> None:
     report = build_machine_readiness(
         MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
     )
@@ -675,9 +784,24 @@ def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> 
         "primary-site-cardinality",
         "unexplained-r101-loss",
     ]
-    deferred = report.semantic_gate.entries[2:6]
-    assert all(entry.status == "not-evaluated" for entry in deferred)
-    assert all(not hasattr(entry, "blocker_count") for entry in deferred)
+    assert report.semantic_gate.entries[2].status == "not-evaluated"
+    evaluated = tuple(
+        cast("ClearSemanticBlocker", entry)
+        for entry in report.semantic_gate.entries[3:6]
+    )
+    assert all(isinstance(entry, ClearSemanticBlocker) for entry in evaluated)
+    assert all(entry.status == "clear" for entry in evaluated)
+    assert all(entry.blocker_count == 0 for entry in evaluated)
+    assert evaluated[0].evidence == (
+        f"current-evidence:{report.identities.current_evidence_identity}",
+    )
+    assert evaluated[1].evidence == (
+        f"normalized-group-policy:{report.identities.normalized_group_policy_identity}",
+    )
+    assert evaluated[2].evidence == (
+        f"current-comparison:{report.identities.current_comparison_identity}",
+        f"normalized-group-policy:{report.identities.normalized_group_policy_identity}",
+    )
     assert report.authorization is False
     assert report.publication.status == "not-attempted"
 
@@ -700,6 +824,24 @@ def test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default() -> 
             3,
         ),
         ("r101_metadata_delta", 4, "r101-semantic-metadata-delta", 4),
+        (
+            "axis_contract_violations",
+            ("C1:op:UnknownAxis",),
+            "axis-contract-violation",
+            1,
+        ),
+        (
+            "normalized_group_violations",
+            ("C1:group-mismatch",),
+            "normalized-group-violation",
+            1,
+        ),
+        (
+            "unadjudicated_golden_changes",
+            ("C1:unbound-change",),
+            "unadjudicated-golden-change",
+            1,
+        ),
     ],
 )
 def test_supported_semantic_violations_emit_blocked_reports(
@@ -858,11 +1000,11 @@ def test_pre_sme_documentation_names_runtime_and_readiness_contracts() -> None:
     assert "tmp/m1-6-verify-evidence.json" in evidence_guide
     assert "tmp/m1-6-machine-readiness.json" in evidence_guide
     assert "clean worktree" in evidence_guide
-    group_section = evidence_guide.index("### Group-review generation")
+    group_section = evidence_guide.index("### Group-review candidate")
     r103_section = evidence_guide.index("### R103 manual SME review boundary (#294)")
     assert group_section < r103_section
     assert (
-        "The group-review generation writes"
+        "The immutable group-review candidate contains"
         in evidence_guide[group_section:r103_section]
     )
 
@@ -1056,6 +1198,7 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             row_decisions=tmp_path / "absent-row-decisions.json",
             primary_site_audit=tmp_path / "absent-audit.json",
             group_packet=tmp_path / "absent-group.json",
+            grouping_detector=tmp_path / "absent-grouping-detector.json",
             r103_review_state=tmp_path / "absent-r103-state.json",
             r103_source_inventory=tmp_path / "absent-r103-inventory.json",
             r103_candidates=tmp_path / "absent-r103-candidates.json",
@@ -1073,38 +1216,67 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
 
 
 @pytest.mark.unit
-def test_composed_readiness_derives_zero_delta_from_current_r101_report(
+def test_composed_readiness_rejects_false_clear_detector_for_stale_grouping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    arguments, _module, report, _comparison, _group = _composed_readiness_inputs(
-        tmp_path, monkeypatch
+    arguments, module, _report, comparison, group = _composed_readiness_inputs(
+        tmp_path, monkeypatch, stale_grouping=True
     )
 
-    readiness = generate_pre_sme_readiness(**arguments)
+    evidence = CurrentEngineEvidence.model_validate_json(
+        Path(arguments["current_evidence"]).read_bytes()
+    )
+    violations = module._issue_274_semantic_violations(
+        evidence,
+        comparison,
+        module.load_packaged_normalized_group_policy(),
+        group.packet_identity,
+    )
+    assert violations[0] == ()
+    assert violations[1] == ("C100051:normalized-group-mismatch",)
+    assert violations[2] == (
+        "policy-evidence-binding",
+        "policy-comparison-binding",
+    )
+    with pytest.raises(PreSmeValidationError, match="detector violations differ"):
+        generate_pre_sme_readiness(**arguments)
+    assert not Path(arguments["output"]).exists()
 
-    assert readiness.r101_mechanical_unresolved == report.counts.unresolved
-    assert readiness.r101_non_r101_delta == report.counts.non_r101_delta
-    assert (
-        readiness.r101_occurrence_certification == report.r101_occurrence_certification
+
+@pytest.mark.unit
+def test_issue_274_detector_reject_branches_are_live_on_current_artifacts() -> None:
+    module = __import__(
+        "scripts.research.pre_sme_readiness",
+        fromlist=["_issue_274_semantic_violations"],
     )
-    assert readiness.r101_non_r101_enumeration == report.non_r101_enumeration
-    assert readiness.r101_explanation == report.explanation
-    assert readiness.r101_semantic_isolation == report.semantic_isolation
-    assert readiness.r101_execution_comparability == "unqualified"
-    assert readiness.r101_fully_controlled is False
-    assert readiness.r101_all_controls_equal is False
-    assert readiness.r101_causal_attribution == "prohibited"
-    rows = load_row_decisions(Path(arguments["row_decisions"]))
-    assert readiness.identities.row_decisions_identity == rows.payload_identity
-    assert readiness.metrics.sme_include_rate.fraction.numerator == 48
-    assert readiness.metrics.sme_include_rate.fraction.denominator == 106
-    assert Path(arguments["output"]).is_file()
-    assert (
-        MachineReadinessReport.model_validate_json(
-            Path(arguments["output"]).read_bytes()
-        )
-        == readiness
+    evidence = CurrentEngineEvidence.model_validate_json(
+        (
+            Path(__file__).parent / "golden/neoplasm-current-engine-evidence.json"
+        ).read_bytes()
     )
+    comparison = CurrentComparison.model_validate_json(
+        (Path(__file__).parent / "golden/neoplasm-current-comparison.json").read_bytes()
+    )
+    policy = module.load_packaged_normalized_group_policy()
+    concept = evidence.concepts[0]
+    constituent = concept.constituents[0]
+    mutated_constituent = constituent.model_copy(
+        update={"axis": "op:UncontractedAxis", "normalized_group_id": "0" * 64}
+    )
+    mutated_concept = concept.model_copy(
+        update={"constituents": (mutated_constituent, *concept.constituents[1:])}
+    )
+    mutated = evidence.model_copy(
+        update={"concepts": (mutated_concept, *evidence.concepts[1:])}
+    )
+
+    axis, groups, golden = module._issue_274_semantic_violations(
+        mutated, comparison, policy, "0" * 64
+    )
+
+    assert axis == (f"{concept.code}:op:UncontractedAxis",)
+    assert groups
+    assert golden == ("policy-group-review-binding",)
 
 
 @pytest.mark.unit
@@ -1126,6 +1298,51 @@ def test_composed_readiness_rejects_changed_historical_row_decisions_without_out
     arguments["row_decisions"] = changed
 
     with pytest.raises(PreSmeValidationError, match="row decision"):
+        generate_pre_sme_readiness(**arguments)
+
+    assert not Path(arguments["output"]).exists()
+
+
+@pytest.mark.unit
+def test_composed_readiness_binds_current_and_historical_r101_planes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arguments, _module, report, _comparison, _group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+
+    readiness = generate_pre_sme_readiness(**arguments)
+
+    assert readiness.identities.r101_current_report_identity == report.report_identity
+    assert readiness.identities.r101_historical_report_identity == "4" * 64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("r101_report_identity", "current group R101"),
+        ("historical_r101_report_identity", "historical group R101"),
+    ],
+)
+def test_composed_readiness_independently_rejects_wrong_r101_plane_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    message: str,
+) -> None:
+    arguments, module, _report, _comparison, group = _composed_readiness_inputs(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(
+        module,
+        "load_group_review_packet",
+        lambda _path: SimpleNamespace(
+            **{**group.__dict__, field: "f" * 64},
+        ),
+    )
+
+    with pytest.raises(PreSmeValidationError, match=message):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()

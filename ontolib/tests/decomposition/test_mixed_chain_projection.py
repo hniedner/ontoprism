@@ -94,7 +94,7 @@ def test_projection_replaces_only_the_exact_mixed_chain_axis_outcome() -> None:
             axis_source="role",
             source_roles=("R100",),
             needs_review=True,
-            group="op:PrimarySite",
+            axis_ambiguity_group_id="op:PrimarySite",
             source_definition_ids=(_BROAD_FACT,),
             source_occurrence_ids=(_BROAD_OCCURRENCE,),
         ),
@@ -104,7 +104,7 @@ def test_projection_replaces_only_the_exact_mixed_chain_axis_outcome() -> None:
             axis_source="role",
             source_roles=("R100",),
             needs_review=True,
-            group="op:PrimarySite",
+            axis_ambiguity_group_id="op:PrimarySite",
             source_definition_ids=(_TERMINAL_FACT,),
             source_occurrence_ids=(_TERMINAL_OCCURRENCE,),
         ),
@@ -218,7 +218,7 @@ def test_projection_replaces_only_the_exact_mixed_chain_axis_outcome() -> None:
         "group_changed": 1,
     }
     assert artifact.projections[0].constituent_transitions[1].changed_fields == (
-        "group",
+        "axis_ambiguity_group_id",
         "most_specific",
         "needs_review",
     )
@@ -239,7 +239,7 @@ def test_tracked_projection_covers_the_exact_structural_inventory() -> None:
     )
 
     assert artifact.projection_identity == (
-        "9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6"
+        "361db1ef8bc78317d07022a9242baf3ff908cd5af50da91917316a3eb341010b"
     )
     assert artifact.inventory_identity == inventory.identity
     assert artifact.source_report_identity == inventory.source_report_identity
@@ -254,7 +254,7 @@ def test_tracked_projection_covers_the_exact_structural_inventory() -> None:
         "most_specific_true_to_false": 0,
         "needs_review_false_to_true": 0,
         "needs_review_true_to_false": 36,
-        "group_changed": 6,
+        "group_changed": 42,
     }
     removed = {
         (projection.concept_code, transition.axis, transition.filler_code)

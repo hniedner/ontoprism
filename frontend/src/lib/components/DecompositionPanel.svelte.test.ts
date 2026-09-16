@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
+import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
 import type { ConceptDecomposition } from '$lib/types';
 
@@ -19,7 +20,11 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C27970',
 			filler_label: 'Stage III',
 			axis_source: 'role',
-			most_specific: false
+			most_specific: false,
+			axis_ambiguity_group_id: null,
+			source_group_ids: ['source-stage'],
+			normalized_group_id: 'normalized-stage',
+			normalized_group_label: 'Stage block'
 		},
 		{
 			axis: 'R101',
@@ -27,7 +32,11 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C12400',
 			filler_label: 'Thyroid Gland',
 			axis_source: 'role',
-			most_specific: true
+			most_specific: true,
+			axis_ambiguity_group_id: 'ambiguous-site',
+			source_group_ids: ['source-site'],
+			normalized_group_id: 'normalized-site',
+			normalized_group_label: 'Primary site block'
 		}
 	]
 };
@@ -132,12 +141,72 @@ describe('DecompositionPanel', () => {
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
 			constituents: [
-				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false },
-				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true }
+				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
+				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
 			]
 		} satisfies ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
-		expect(await screen.findByText('R88')).toBeInTheDocument();
+		expect(await screen.findAllByText('R88')).toHaveLength(2);
+	});
+
+	it('groups within an axis by normalized policy and exposes separate provenance', async () => {
+		mock.mockResolvedValue({
+			...decomposed,
+			constituents: [
+				{ ...decomposed.constituents[0], filler: 'C1', filler_label: 'First', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s1'] },
+				{ ...decomposed.constituents[0], filler: 'C2', filler_label: 'Second', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s2'], axis_ambiguity_group_id: 'a1' }
+			]
+		});
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(await screen.findByText('Reviewed block')).toBeInTheDocument();
+		expect(screen.getByText('Source groups: s1')).toBeInTheDocument();
+		expect(screen.getByText('Source groups: s2')).toBeInTheDocument();
+		expect(screen.getByText('Axis ambiguity: a1')).toBeInTheDocument();
+	});
+
+	it('renders one cross-axis normalized block without erasing axis or pair provenance', async () => {
+		const normalizedId = 'a'.repeat(64);
+		const stageSystemSource = 'b'.repeat(64);
+		const stageValueSource = 'c'.repeat(64);
+		const ambiguityId = 'd'.repeat(64);
+		mock.mockResolvedValue({
+			...decomposed,
+			constituents: [
+				{
+					...decomposed.constituents[0],
+					axis: 'op:StageSystem',
+					axis_label: 'Stage System',
+					filler: 'C90530',
+					filler_label: 'AJCC 8th Edition',
+					source_group_ids: [stageSystemSource],
+					normalized_group_id: normalizedId,
+					normalized_group_label: 'Reviewed stage assessment'
+				},
+				{
+					...decomposed.constituents[0],
+					axis: 'op:StageValue',
+					axis_label: 'Stage Value',
+					filler: 'C27966',
+					filler_label: 'Stage II',
+					axis_ambiguity_group_id: ambiguityId,
+					source_group_ids: [stageValueSource],
+					normalized_group_id: normalizedId,
+					normalized_group_label: 'Reviewed stage assessment'
+				}
+			]
+		});
+
+		render(DecompositionPanel, { code: 'C6135' });
+
+		const block = await screen.findByRole('group', { name: 'Reviewed stage assessment' });
+		expect(screen.getAllByText('Reviewed stage assessment')).toHaveLength(1);
+		expect(within(block).getByText('Stage System')).toBeInTheDocument();
+		expect(within(block).getByText('Stage Value')).toBeInTheDocument();
+		expect(within(block).getByRole('link', { name: 'AJCC 8th Edition' })).toBeInTheDocument();
+		expect(within(block).getByRole('link', { name: 'Stage II' })).toBeInTheDocument();
+		expect(within(block).getByText(`Source groups: ${stageSystemSource}`)).toBeInTheDocument();
+		expect(within(block).getByText(`Source groups: ${stageValueSource}`)).toBeInTheDocument();
+		expect(within(block).getByText(`Axis ambiguity: ${ambiguityId}`)).toBeInTheDocument();
 	});
 
 	it('handles null constituents gracefully', async () => {
@@ -164,7 +233,11 @@ describe('DecompositionPanel', () => {
 					filler: 'C40384',
 					filler_label: null,
 					axis_source: 'parent',
-					most_specific: false
+					most_specific: false,
+					axis_ambiguity_group_id: null,
+					source_group_ids: [],
+					normalized_group_id: null,
+					normalized_group_label: null
 				}
 			]
 		});

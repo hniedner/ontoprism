@@ -23,7 +23,12 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome, SemanticRoute
+from ontolib.decomposition.models import (
+    ConceptOutcome,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+    SemanticRoute,
+)
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -32,6 +37,7 @@ from ontolib.decomposition.proposal_registry_migration import (
     load_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.publication import validate_artifact
+from ontolib.decomposition.run_artifacts import resolve_parent_manifest
 from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     load_sample_manifest,
@@ -74,6 +80,7 @@ if TYPE_CHECKING:
     )
 
 _SHA256 = r"^[0-9a-f]{64}$"
+_CURRENT_EVIDENCE_SCHEMA_VERSION = 4
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -119,14 +126,34 @@ class CurrentSourceOccurrence(_StrictModel):
     member_position: int = Field(ge=0)
 
 
+class CurrentSourceFact(_StrictModel):
+    fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str
+    depth: int = Field(ge=0)
+    kind: Literal["genus", "restriction"]
+    filler_code: str
+    role_code: str | None
+
+    @model_validator(mode="after")
+    def _kind_matches_role(self) -> Self:
+        if (self.kind == "restriction") != (self.role_code is not None):
+            raise ValueError("source fact kind differs from role availability")
+        return self
+
+
 class CurrentConstituent(_StrictModel):
     axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
-    relationship_group: str | None
+    axis_ambiguity_group_id: str | None
+    source_group_ids: tuple[str, ...]
+    normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
+    normalized_group_label: str | None
     needs_review: bool
     source_definition_ids: tuple[str, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
+    source_facts: tuple[CurrentSourceFact, ...] = ()
     source_occurrence_ids: tuple[str, ...]
     source_occurrences: tuple[CurrentSourceOccurrence, ...]
 
@@ -140,7 +167,7 @@ class CurrentConstituent(_StrictModel):
         )
 
     @model_validator(mode="after")
-    def _citations_match_selected_ids(self) -> Self:
+    def _citations_match_selected_ids(self) -> Self:  # noqa: C901
         if len(set(self.source_definition_ids)) != len(self.source_definition_ids):
             raise ValueError("duplicate source definition citations")
         if tuple(sorted(self.source_definition_ids)) != self.source_definition_ids:
@@ -154,11 +181,26 @@ class CurrentConstituent(_StrictModel):
             raise ValueError("source occurrence citations do not match selected IDs")
         if self.source_occurrences and not self.source_definition_ids:
             raise ValueError("source occurrences require source definition citations")
+        source_fact_ids = tuple(item.fact_id for item in self.source_facts)
+        if len(source_fact_ids) != len(set(source_fact_ids)):
+            raise ValueError("duplicate source fact citations")
+        if not set(self.source_definition_ids) <= set(source_fact_ids):
+            raise ValueError("selected definition citation lacks a source fact")
         occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
         if self.source_definition_ids and not occurrence_fact_ids <= set(
             self.source_definition_ids
         ):
             raise ValueError("source occurrences cite an unselected definition fact")
+        expected_groups = tuple(
+            sorted({item.source_group_id for item in self.source_facts})
+        )
+        if self.source_group_ids != expected_groups:
+            raise ValueError(
+                "source group identities differ from selected source facts: "
+                f"declared={self.source_group_ids!r}, facts={expected_groups!r}"
+            )
+        if (self.normalized_group_id is None) != (self.normalized_group_label is None):
+            raise ValueError("normalized group identity and label must be paired")
         return self
 
 
@@ -260,7 +302,7 @@ class CurrentConceptEvidence(_StrictModel):
 
 
 class CurrentEngineEvidence(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -532,7 +574,7 @@ class CurrentRowReplay(_StrictModel):
 
 
 class CurrentComparison(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -708,13 +750,60 @@ def _concepts(
             )
         )
         occurrences = {item.occurrence_id: item for item in all_occurrences}
+        facts = {
+            item.fact_id: item
+            for item in (
+                decomposition.complete_definition.facts
+                if decomposition is not None
+                and decomposition.complete_definition is not None
+                else ()
+            )
+        }
         constituents = tuple(
             CurrentConstituent(
                 axis=item.axis,
                 filler=item.filler_code,
-                relationship_group=item.group,
+                axis_ambiguity_group_id=item.axis_ambiguity_group_id,
+                source_group_ids=item.source_group_ids,
+                normalized_group_id=item.normalized_group_id,
+                normalized_group_label=item.normalized_group_label,
                 needs_review=item.needs_review,
                 source_definition_ids=item.source_definition_ids,
+                source_facts=tuple(
+                    CurrentSourceFact(
+                        fact_id=fact.fact_id,
+                        source_group_id=fact.group_id,
+                        anchor_code=fact.anchor_code,
+                        depth=fact.depth,
+                        kind=(
+                            "genus"
+                            if isinstance(fact, GenusDefinitionFact)
+                            else "restriction"
+                        ),
+                        filler_code=(
+                            fact.genus_code
+                            if isinstance(fact, GenusDefinitionFact)
+                            else fact.filler_code
+                        ),
+                        role_code=(
+                            fact.role_code
+                            if isinstance(fact, RestrictionDefinitionFact)
+                            else None
+                        ),
+                    )
+                    for fact in sorted(
+                        (
+                            fact
+                            for fact in facts.values()
+                            if (
+                                fact.fact_id in item.source_definition_ids
+                                if item.source_definition_ids
+                                else fact.group_id in item.source_group_ids
+                            )
+                        ),
+                        key=lambda row: row.fact_id,
+                    )
+                ),
                 source_occurrence_ids=item.source_occurrence_ids,
                 source_occurrences=tuple(
                     occurrences[occurrence_id]
@@ -724,7 +813,11 @@ def _concepts(
             for item in (
                 sorted(
                     decomposition.constituents,
-                    key=lambda row: (row.axis, row.filler_code, row.group or ""),
+                    key=lambda row: (
+                        row.axis,
+                        row.filler_code,
+                        row.normalized_group_id or "",
+                    ),
                 )
                 if decomposition is not None
                 else ()
@@ -756,7 +849,12 @@ def _scoreable_partition_rows(
     constituents: tuple[GoldenConstituent, ...] | tuple[CurrentConstituent, ...],
 ) -> tuple[tuple[tuple[str, str], str | None], ...]:
     return tuple(
-        ((item.axis, item.filler), item.relationship_group)
+        (
+            (item.axis, item.filler),
+            item.normalized_group_id
+            if isinstance(item, CurrentConstituent)
+            else item.relationship_group,
+        )
         for item in constituents
         if not item.needs_review and item.provenance_status == "ncit-26.07d"
     )
@@ -1176,7 +1274,7 @@ def _build_current_comparison(
     metrics, reports = _comparison_payload(adjudicated, evidence)
     row_replay = _row_replay(rows, adjudicated, registry, evidence.concepts)
     comparison_payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         **common,
         "current_evidence_identity": evidence.evidence_identity,
         "metrics": metrics,
@@ -1324,6 +1422,38 @@ def _write_outputs(
             Path(name).unlink(missing_ok=True)
 
 
+def _validate_artifact_binding(
+    artifact: Path,
+    run: CompletedRunForEvidence,
+    artifact_manifest: Path | None,
+    artifact_manifest_identity: str | None,
+) -> None:
+    if artifact.resolve() == Path(run.publication_artifact_path).resolve():
+        return
+    try:
+        if artifact_manifest is None or artifact_manifest_identity is None:
+            raise ValueError("immutable artifact manifest binding is absent")
+        immutable_parent = resolve_parent_manifest(
+            artifact_manifest, artifact_manifest_identity
+        )
+        bound_paths = {
+            (artifact_manifest.parent / record.relative_path).resolve()
+            for record in immutable_parent.artifact_records
+        }
+        if (
+            immutable_parent.run_id != run.run_id
+            or artifact.resolve() not in bound_paths
+        ):
+            raise ValueError(
+                "immutable artifact manifest does not bind supplied artifact"
+            )
+    except (OSError, ValueError) as exc:
+        raise CurrentEvidenceValidationError(
+            "supplied artifact path does not match persisted path or exact "
+            "immutable manifest"
+        ) from exc
+
+
 async def generate_current_evidence(
     *,
     sample_manifest: Path,
@@ -1336,6 +1466,8 @@ async def generate_current_evidence(
     engine_output: Path,
     comparison_output: Path,
     store: CurrentEvidenceStore,
+    artifact_manifest: Path | None = None,
+    artifact_manifest_identity: str | None = None,
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
     """Validate inputs, derive identities, then publish a pair with error rollback.
 
@@ -1401,10 +1533,9 @@ async def generate_current_evidence(
             "persisted run id does not match requested run id"
         )
     _require_run_matches_manifest(run, manifest)
-    if artifact.resolve() != Path(run.publication_artifact_path).resolve():
-        raise CurrentEvidenceValidationError(
-            "supplied artifact path does not match persisted publication artifact path"
-        )
+    _validate_artifact_binding(
+        artifact, run, artifact_manifest, artifact_manifest_identity
+    )
     outcomes = await store.work_item_outcomes(run_id)
     if tuple(item.concept_code for item in outcomes) != manifest.codes:
         raise CurrentEvidenceValidationError("work item outcomes do not match worklist")
@@ -1422,7 +1553,7 @@ async def generate_current_evidence(
         )
     concepts = _concepts(outcomes, await store.decompositions_for_run(run_id))
     common = {
-        "schema_version": 3,
+        "schema_version": _CURRENT_EVIDENCE_SCHEMA_VERSION,
         "ncit_version": run.ncit_version,
         "source_identity": manifest.source_identity,
         "sample_manifest_identity": manifest.identity,

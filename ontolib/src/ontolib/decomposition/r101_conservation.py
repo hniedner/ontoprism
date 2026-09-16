@@ -145,7 +145,7 @@ def r101_non_r101_delta_query() -> str:
     return (
         "WITH supported AS (SELECT c.run_id,c.concept_code,c.axis,c.filler_code,"
         "c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
-        "c.relationship_group,c.source_definition_ids,COALESCE(array_agg("
+        "c.axis_ambiguity_group_id,c.source_definition_ids,COALESCE(array_agg("
         "co.occurrence_id ORDER BY co.occurrence_id) FILTER (WHERE o.role_code "
         "IS NOT NULL AND o.role_code<>'R101'),ARRAY[]::text[]) "
         "source_occurrence_ids,count(co.occurrence_id)=0 unbound,COALESCE("
@@ -155,21 +155,22 @@ def r101_non_r101_delta_query() -> str:
         "USING (run_id,concept_code,occurrence_id) WHERE c.run_id IN "
         "(:old_run_id,:new_run_id) GROUP BY c.run_id,c.concept_code,c.axis,"
         "c.filler_code,c.axis_source,c.source_roles,c.most_specific,c.needs_review,"
-        "c.relationship_group,c.source_definition_ids), old_non AS (SELECT "
+        "c.axis_ambiguity_group_id,c.source_definition_ids), old_non AS (SELECT "
         "concept_code,axis,filler_code,axis_source,source_roles,most_specific,"
-        "needs_review,relationship_group,source_definition_ids,source_occurrence_ids "
+        "needs_review,axis_ambiguity_group_id,source_definition_ids,"
+        "source_occurrence_ids "
         "FROM supported WHERE run_id=:old_run_id AND (unbound OR "
         "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
         "source_roles @> '[\"R101\"]'::jsonb), new_non AS (SELECT concept_code,"
         "axis,filler_code,axis_source,source_roles,most_specific,needs_review,"
-        "relationship_group,source_definition_ids,source_occurrence_ids FROM "
+        "axis_ambiguity_group_id,source_definition_ids,source_occurrence_ids FROM "
         "supported WHERE run_id=:new_run_id AND (unbound OR "
         "cardinality(source_occurrence_ids)>0) AND NOT r101_bound AND NOT "
         "source_roles @> '[\"R101\"]'::jsonb) SELECT 'removed' change,* FROM "
         "(SELECT * FROM old_non EXCEPT SELECT * FROM new_non) removed UNION ALL "
         "SELECT 'added' change,* FROM (SELECT * FROM new_non EXCEPT SELECT * FROM "
         "old_non) added ORDER BY change,concept_code,axis,filler_code,axis_source,"
-        "source_roles,most_specific,needs_review,relationship_group,"
+        "source_roles,most_specific,needs_review,axis_ambiguity_group_id,"
         "source_definition_ids,source_occurrence_ids"
     )
 
@@ -359,7 +360,7 @@ class NonR101DeltaRow(_StrictModel):
     source_roles: tuple[SourceRoleCode, ...]
     most_specific: bool
     needs_review: bool
-    relationship_group: str | None
+    axis_ambiguity_group_id: str | None
     source_definition_ids: tuple[SourceEvidenceIdentity, ...]
     source_occurrence_ids: tuple[SourceEvidenceIdentity, ...]
 
@@ -375,7 +376,7 @@ _NON_R101_METADATA_FIELDS = (
     "source_roles",
     "most_specific",
     "needs_review",
-    "relationship_group",
+    "axis_ambiguity_group_id",
     "source_definition_ids",
     "source_occurrence_ids",
 )
@@ -384,7 +385,7 @@ NonR101MetadataField = Literal[
     "source_roles",
     "most_specific",
     "needs_review",
-    "relationship_group",
+    "axis_ambiguity_group_id",
     "source_definition_ids",
     "source_occurrence_ids",
 ]
@@ -1690,6 +1691,33 @@ def load_historical_r101_review_report(
             "invalid historical JSON report"
         ) from error
     return HistoricalR101ConservationReport.model_validate_json(content)
+
+
+def load_group_review_r101_report(
+    path: Path,
+) -> HistoricalR101ConservationReport | R101ConservationReport:
+    """Load the certified historical review input or a strict current report."""
+    raw = path.read_bytes()
+    if (
+        _sha256(raw)
+        == "2ca4e259b26c31bad0ba41e724c3d8631a493d59f90680a6b15af2cfb97111f3"
+    ):
+        content = _decompress_report(raw)
+        try:
+            json.loads(content, object_pairs_hook=_unique_json_object)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise R101ConservationValidationError(
+                "invalid historical JSON report"
+            ) from error
+        return HistoricalR101ConservationReport.model_validate_json(content)
+    if not path.name.endswith(".json.gz"):
+        raise R101ConservationValidationError("report path must end in .json.gz")
+    content = _decompress_report(raw)
+    try:
+        json.loads(content, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise R101ConservationValidationError("invalid JSON report") from error
+    return R101ConservationReport.model_validate_json(content)
 
 
 def _decompress_report(compressed: bytes) -> bytes:

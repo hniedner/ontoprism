@@ -51,9 +51,12 @@ class ConstituentSnapshot(_StrictModel):
     source_roles: tuple[str, ...]
     most_specific: bool
     needs_review: bool
-    group: str | None = Field(
+    axis_ambiguity_group_id: str | None = Field(
         default=None, pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$"
     )
+    source_group_ids: tuple[str, ...]
+    normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
+    normalized_group_label: str | None
     source_definition_ids: tuple[str, ...]
     source_occurrence_ids: tuple[str, ...]
 
@@ -85,7 +88,10 @@ class ConstituentSnapshot(_StrictModel):
             source_roles=row.source_roles,
             most_specific=row.most_specific,
             needs_review=row.needs_review,
-            group=row.group,
+            axis_ambiguity_group_id=row.axis_ambiguity_group_id,
+            source_group_ids=row.source_group_ids,
+            normalized_group_id=row.normalized_group_id,
+            normalized_group_label=row.normalized_group_label,
             source_definition_ids=row.source_definition_ids,
             source_occurrence_ids=row.source_occurrence_ids,
         )
@@ -896,7 +902,21 @@ def _metadata_transition_counts(
         needs_review_true_to_false=_boolean_transition_count(
             pairs, "needs_review", True, False
         ),
-        group_changed=sum(before.group != after.group for before, after in pairs),
+        group_changed=sum(
+            (
+                before.axis_ambiguity_group_id,
+                before.source_group_ids,
+                before.normalized_group_id,
+                before.normalized_group_label,
+            )
+            != (
+                after.axis_ambiguity_group_id,
+                after.source_group_ids,
+                after.normalized_group_id,
+                after.normalized_group_label,
+            )
+            for before, after in pairs
+        ),
     )
 
 

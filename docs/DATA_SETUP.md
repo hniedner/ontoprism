@@ -145,6 +145,7 @@ Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine so
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
 
 ```bash
+pdm run agent-replay ensure-podman-stack
 pdm run agent-replay inspect-podman
 pdm run agent-replay check-podman-api
 pdm run agent-replay podman-compose-up
@@ -177,6 +178,20 @@ context first:
 pdm run agent-replay activate-podman-docker-context
 pdm run verify
 ```
+
+`ensure-podman-stack` is the normal autonomous local preflight used by `pdm run verify` and the
+Podman integration/full-store wrappers. It accepts no arguments. It inspects the exact rootless
+`ontoprism-vm`, its SSH connection, forwarded socket, and Docker-compatible API. A stopped machine
+is started. A machine that claims `running` while any of those probes fail receives exactly one
+normal stop/start recovery, followed by three bounded readiness attempts; there is no reset,
+recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
+and selects only `ontoprism-podman`. It validates every existing stack resource's owner, mount, and
+loopback port before reconciling an absent, stopped, or partial stack, and refuses uncertain
+ownership, storage identity, or port use. Success is reported only after `check-podman-api` and
+`podman-compose-check` pass, with machine/stack actions and the final endpoint/context/health.
+Agents are authorized to invoke this fixed recovery without prompting when local health requires
+it; this is not authority for arbitrary Podman or Docker commands. GitHub CI continues to use its
+existing Docker service path and does not execute this local preflight.
 
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
@@ -269,6 +284,22 @@ tables already exist but Alembic has never tracked them, `migrate-stamp` stamps 
 actual predecessor (`0001_embedding_tables`) and then upgrades through every later
 migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
+
+Migration `0028_distinct_group_identities` renames the former relationship-group
+column to `axis_ambiguity_group_id`, backfills canonical `source_group_ids`, adds the
+paired nullable normalized-group fields, and installs database constraints for all
+three representations. For #274, no genuine configured-database backup was captured
+before migration 0028. A dump captured after 0028 is recovery material only and must
+not be represented as before/after migration evidence. Preservation is instead proved
+against a disposable pre-0028 database by:
+
+```bash
+pdm run agent-test --safe-integration backend/tests/test_migrations_integration.py::test_distinct_group_identity_migration_preserves_existing_runs -v
+```
+
+That contract checks row counts and historical values across the upgrade, the ambiguity
+rename, source-group backfill, null normalized groups, and rejection of malformed group
+arrays. Do not infer preservation of the configured database from its post-0028 state.
 
 ## Rebuild from public sources
 

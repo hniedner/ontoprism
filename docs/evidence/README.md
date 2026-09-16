@@ -44,13 +44,12 @@ publication, or publication authorization.
 
 Schema 3 did not distinguish scoreable release-bound pairs from review-bearing emitted
 pairs. It is retained only to interpret the historical review and is not converted into
-the active schema 4 packet or replayed through the active importer. Generate fresh
-ignored schema-4 diagnostics, review packet, blank workbook, pair-relation audit, and
-blank validation with:
+the active schema 4 packet or replayed through the active importer. Current schema-4
+review artifacts are produced only through the immutable candidate chain. Generate the
+independent ignored axis diagnostics with:
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review-rev2
 ```
 
 The historical record contains 11 corrections and 4 escalations. Those dispositions are

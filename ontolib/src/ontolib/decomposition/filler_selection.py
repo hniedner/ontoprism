@@ -608,7 +608,7 @@ def _constituent_from_routed(
         source_roles=source_roles,
         most_specific=chosen_over_broader,
         needs_review=needs_review,
-        group=group,
+        axis_ambiguity_group_id=group,
         source_definition_ids=source_definition_ids,
         source_occurrence_ids=source_occurrence_ids,
     )

@@ -26,6 +26,9 @@ from ontolib.decomposition.complete_definition import (
 )
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -742,12 +745,16 @@ async def run_pipeline(
     **kwargs: Any,
 ) -> RunMetrics:
     """Keep individual behavior tests concise while production requires a proof."""
+    test_group_policy = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "a" * 64, "rows": ()}
+    )
     return await _run_pipeline_impl(
         config,
         client,
         provenance,
         get_source_snapshot=get_source_snapshot,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        normalized_group_policy=test_group_policy,
         **kwargs,
     )
 

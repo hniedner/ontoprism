@@ -20,6 +20,9 @@ from ontolib.decomposition.collapse_policy import (
 )
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.fanout_baseline import load_fanout_baseline
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.pre_resume import (
     acquire_candidate_evidence,
     affected_missing_p106,
@@ -186,7 +189,7 @@ async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> 
 
 @pytest.mark.integration
 @pytest.mark.full_store
-async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> None:
+async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() -> None:
     manifest = validate_ncit_sibling_manifest(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
     )
@@ -196,6 +199,7 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
             "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
         ).read_bytes()
     )
+    group_policy = load_packaged_normalized_group_policy()
     engine = make_engine(get_settings().database_url)
     outcomes: list[WorkItemOutcome] = []
     decompositions = []
@@ -252,9 +256,30 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
         item.code for item in expected.concepts
     )
     for actual_item, expected_item in zip(actual, expected.concepts, strict=True):
-        assert len(actual_item.constituents) == len(expected_item.constituents)
+        policy_row = group_policy.by_code.get(expected_item.code)
+        policy_expected_item = expected_item
+        if policy_row is not None:
+            policy_expected_item = expected_item.model_copy(
+                update={
+                    "constituents": tuple(
+                        expected_row.model_copy(
+                            update={
+                                "normalized_group_id": block.normalized_group_id,
+                                "normalized_group_label": block.normalized_group_label,
+                            }
+                        )
+                        for expected_row in expected_item.constituents
+                        for block in [
+                            policy_row.block_for(
+                                (expected_row.axis, expected_row.filler)
+                            )
+                        ]
+                    )
+                }
+            )
+        assert len(actual_item.constituents) == len(policy_expected_item.constituents)
         for actual_row, expected_row in zip(
-            actual_item.constituents, expected_item.constituents, strict=True
+            actual_item.constituents, policy_expected_item.constituents, strict=True
         ):
             actual_fields = actual_row.model_dump(mode="json")
             expected_fields = expected_row.model_dump(mode="json")
@@ -270,7 +295,7 @@ async def test_current_twenty_code_replay_matches_exact_tracked_semantics() -> N
                     if expected_fields.get(field) != actual_fields.get(field)
                 },
             }
-        assert actual_item.model_dump(mode="json") == expected_item.model_dump(
+        assert actual_item.model_dump(mode="json") == policy_expected_item.model_dump(
             mode="json"
         ), actual_item.code
 
@@ -509,6 +534,9 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
         diagnostic_source = await read_axis_diagnostic_source(
             client, manifest.source_identity
         )
+        no_group_policy = load_packaged_normalized_group_policy().model_copy(
+            update={"rows": ()}
+        )
         for code, (
             broader,
             retained_region,
@@ -522,6 +550,7 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                 label_lookup=no_label_match,
                 source_identity=manifest.source_identity,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                normalized_group_policy=no_group_policy,
                 diagnostic_source=diagnostic_source,
                 detector_identity="0" * 64,
                 walker_max_depth=7,

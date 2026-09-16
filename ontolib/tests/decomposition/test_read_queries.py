@@ -23,11 +23,15 @@ def test_query_projects_status_and_constituent_fields() -> None:
         "?filler",
         "?axisSource",
         "?mostSpecific",
-        "?group",
+        "?axisAmbiguityGroup",
+        "?sourceStructuralGroup",
+        "?normalizedProjectionGroup",
+        "?normalizedProjectionGroupLabel",
         "?needsReview",
         "?sourceDefinitionFact",
     ):
         assert var in q
+    assert "?group" not in q
 
 
 @pytest.mark.unit

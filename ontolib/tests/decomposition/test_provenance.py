@@ -1416,7 +1416,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             "source_roles": ["R101"],
             "most_specific": True,
             "needs_review": True,
-            "relationship_group": "anatomy-1",
+            "axis_ambiguity_group_id": "op:PrimarySite",
+            "source_group_ids": [group_id],
+            "normalized_group_id": None,
+            "normalized_group_label": None,
             "source_definition_ids": f'["{restriction_id}"]',
         }
     ]
@@ -1490,7 +1493,8 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
                     source_roles=("R101",),
                     most_specific=True,
                     needs_review=True,
-                    group="anatomy-1",
+                    axis_ambiguity_group_id="op:PrimarySite",
+                    source_group_ids=(group_id,),
                     source_definition_ids=(restriction_id,),
                 )
             ],
@@ -1532,7 +1536,10 @@ async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
             "source_roles": ["R100"],
             "most_specific": False,
             "needs_review": False,
-            "relationship_group": None,
+            "axis_ambiguity_group_id": None,
+            "source_group_ids": [],
+            "normalized_group_id": None,
+            "normalized_group_label": None,
             "source_definition_ids": ["d" * 64],
         }
     ]

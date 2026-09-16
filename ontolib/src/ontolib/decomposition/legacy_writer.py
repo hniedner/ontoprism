@@ -63,6 +63,32 @@ def _definition_group_iri(root_code: str, group_id: str) -> str:
     return f"<{vocab.DEFINITION_GROUP_NS}{root_code}/{group_id}>"
 
 
+def _render_selection_flags(constituent: Constituent) -> str:
+    rendered = ""
+    if constituent.most_specific:
+        rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
+    if constituent.axis_ambiguity_group_id is not None:
+        rendered += (
+            f" ; {_p(vocab.AXIS_AMBIGUITY_GROUP)} "
+            f'"{constituent.axis_ambiguity_group_id}"'
+        )
+    return rendered
+
+
+def _render_projection_flags(constituent: Constituent) -> str:
+    rendered = ""
+    if constituent.normalized_group_id is not None:
+        rendered += (
+            f" ; {_p(vocab.NORMALIZED_PROJECTION_GROUP)} "
+            f'"{constituent.normalized_group_id}" ; '
+            f"{_p(vocab.NORMALIZED_PROJECTION_GROUP_LABEL)} "
+            f"{json.dumps(constituent.normalized_group_label)}"
+        )
+    if constituent.needs_review:
+        rendered += f" ; {_p(vocab.NEEDS_REVIEW)} true"
+    return rendered
+
+
 def _render_constituent(subj: str, root_code: str, constituent: Constituent) -> str:
     filler = _filler_iri(constituent.filler_code)
     auri = _axis_uri(constituent.axis)
@@ -73,12 +99,10 @@ def _render_constituent(subj: str, root_code: str, constituent: Constituent) -> 
     )
     for source_role in constituent.source_roles:
         rendered += f" ; {_p(vocab.SOURCE_ROLE)} <{NCIT_NS}{source_role}>"
-    if constituent.most_specific:
-        rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
-    if constituent.group is not None:
-        rendered += f' ; {_p(vocab.GROUP)} "{constituent.group}"'
-    if constituent.needs_review:
-        rendered += f" ; {_p(vocab.NEEDS_REVIEW)} true"
+    rendered += _render_selection_flags(constituent)
+    for source_group_id in constituent.source_group_ids:
+        rendered += f' ; {_p(vocab.SOURCE_STRUCTURAL_GROUP)} "{source_group_id}"'
+    rendered += _render_projection_flags(constituent)
     for source_id in constituent.source_definition_ids:
         rendered += (
             f" ; {_p(vocab.SOURCE_DEFINITION_FACT)} "

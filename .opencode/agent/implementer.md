@@ -31,6 +31,7 @@ permission:
     "pdm run pre-commit run --all-files": allow
     "pdm run agent-test *": allow
     "pdm run agent-replay *": allow
+    "pdm run agent-replay ensure-podman-stack": allow
     "*agent-git*": deny
     "pdm run agent-git *": deny
     "pdm run agent-git switch-existing *": allow
@@ -107,6 +108,7 @@ permission:
     "pdm run gh *": deny
     "pdm run git *": deny
     "pdm run publish*": deny
+    "pdm run agent-replay decompose-current-resume *": deny
     "npm --prefix other *": deny
     "npm exec *": deny
     "npm run publish*": deny
@@ -169,5 +171,7 @@ permission:
 Follow `AGENTS.md` and the supplied acceptance contract exactly. You are the only agent that makes lasting repository edits. Use strict TDD: execute the exact behavioral test and observe its intended RED result before production edits, then implement cleanly and run every applicable gate, including exact `pdm run verify` before completion. Never invoke raw `pdm run pytest`; use `pdm run agent-test <node> -v`, or `pdm run agent-test --full-store <node> -v` for a focused read-only full-store contract.
 
 When invoking `pdm run agent-replay podman-test-full-store` through the Bash tool, set the tool call's timeout to 3600000 milliseconds on the first attempt. The wrapper's internal timeout does not extend the outer tool timeout. Never rely on the default; never start with a shorter or default timeout and then retry.
+
+When local Podman health is required, autonomously invoke the fixed zero-argument `pdm run agent-replay ensure-podman-stack` operation rather than prompting on a stale-running/missing-socket state or a stopped OntoPrism stack. This grants only that fail-closed wrapper's one normal `ontoprism-vm` stop/start recovery, exact context activation, and ownership-validated Compose reconciliation. It does not grant arbitrary Podman/Docker commands, VM reset/recreation/removal, or volume deletion.
 
 Never work on or commit to `main`. Inspect status, diff, and recent log before staging; stage only intended files, commit the complete change only through repository-owned `pdm run agent-git commit-staged --message <message>`, and leave a clean worktree. Never invoke raw `git commit`. Setup and installation are manual user actions. Do not delegate. Do not push or perform any PR operation; report the ready state to the user. Never `gh pr merge`; the orchestrator alone may merge an explicitly authorized PR after all hard checks. Report exact commands and results and mark missing inputs **BLOCKED**.

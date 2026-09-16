@@ -271,6 +271,16 @@ async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:
             "unused-complete", "26.07d", empty_fingerprint, empty
         )
         assert completed == Refused(reason=RefusalReason.COMPLETED_RUN_EXISTS)
+        explicit_completed_resume = await store.admit_run(
+            "unused-complete-resume",
+            "26.07d",
+            empty_fingerprint,
+            empty,
+            resume_run_id=run_ids[2],
+        )
+        assert explicit_completed_resume == Refused(
+            reason=RefusalReason.COMPLETED_RUN_EXISTS
+        )
 
         publication = empty.model_copy(
             update={

@@ -45,9 +45,7 @@ class PartialGenerationError(ArtifactError):
 
 
 def _plain_token(value: str, label: str) -> str:
-    if _TOKEN.fullmatch(value) is None or any(
-        ord(char) < _CONTROL_CODEPOINT_LIMIT for char in value
-    ):
+    if _TOKEN.fullmatch(value) is None:
         raise ArtifactPathError(f"{label} is not a safe token")
     return value
 

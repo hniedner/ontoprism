@@ -178,7 +178,8 @@ export ONTOPRISM_ROBOT_DIR="$PWD/.tools/robot-1.9.10"
 pdm run data-build owl
 pdm run data-build ncit-bootstrap
 pdm run data-build uberon-store
-pdm run up               # Compose via current selected Docker context; run `pdm run agent-replay activate-podman-docker-context` for supported Podman
+pdm run agent-replay ensure-podman-stack  # Recover/select the supported Podman VM and exact data stack
+pdm run up               # Compose via current selected Docker context
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
@@ -190,6 +191,15 @@ before installing from the lock.
 Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
 so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;
 defaults point at the services above.
+
+Agents have standing authority to run the fixed, zero-argument
+`pdm run agent-replay ensure-podman-stack` operation without prompting when local Podman health is
+required. It may start a stopped `ontoprism-vm`, or perform one normal stop/start when that exact
+rootless machine claims to run but its SSH/socket/API contract fails; activate only the
+`ontoprism-podman` context; and start or reconcile only the ownership-validated three-service
+OntoPrism stack. It never authorizes free-form `podman machine`/Docker commands, VM reset/removal,
+volume deletion, or destructive recovery. A refusal or failed bounded recovery is reported, not
+worked around.
 
 ## Testing
 

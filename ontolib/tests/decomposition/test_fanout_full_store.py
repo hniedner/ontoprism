@@ -45,7 +45,12 @@ async def test_observed_highest_fanout_matches_source_and_fixed_budgets() -> Non
             client, manifest.source_identity
         )
         observations = [
-            await rerun_fanout_concept(client, code, diagnostic_source)
+            await rerun_fanout_concept(
+                client,
+                code,
+                diagnostic_source,
+                source_identity=manifest.source_identity,
+            )
             for code in baseline.concept_codes
         ]
 

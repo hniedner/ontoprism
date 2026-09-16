@@ -501,7 +501,12 @@ def _constituent_rows(
             ),
             "most_specific": constituent.most_specific,
             "needs_review": constituent.needs_review,
-            "relationship_group": constituent.group,
+            "axis_ambiguity_group_id": constituent.axis_ambiguity_group_id,
+            "source_group_ids": _json.dumps(
+                constituent.source_group_ids, separators=(",", ":")
+            ),
+            "normalized_group_id": constituent.normalized_group_id,
+            "normalized_group_label": constituent.normalized_group_label,
             "source_definition_ids": _json.dumps(
                 constituent.source_definition_ids,
                 separators=(",", ":"),
@@ -734,10 +739,12 @@ async def _persist_completion_rows(
         session,
         "INSERT INTO decomp_constituent "
         "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
-        "most_specific, needs_review, relationship_group, source_definition_ids) "
+        "most_specific, needs_review, axis_ambiguity_group_id, source_group_ids, "
+        "normalized_group_id, normalized_group_label, source_definition_ids) "
         "VALUES (:run_id, :concept_code, :axis, :filler_code, :axis_source, "
         "CAST(:source_roles AS jsonb), :most_specific, :needs_review, "
-        ":relationship_group, "
+        ":axis_ambiguity_group_id, CAST(:source_group_ids AS jsonb), "
+        ":normalized_group_id, :normalized_group_label, "
         "CAST(:source_definition_ids AS jsonb))",
         _constituent_rows(run_id, concept_code, constituents),
     )
@@ -1099,7 +1106,8 @@ async def _load_decomposition_rows(
     constituent_result = await session.execute(
         text(
             "SELECT concept_code, axis, filler_code, axis_source, source_roles, "
-            "most_specific, needs_review, relationship_group, source_definition_ids "
+            "most_specific, needs_review, axis_ambiguity_group_id, source_group_ids, "
+            "normalized_group_id, normalized_group_label, source_definition_ids "
             "FROM decomp_constituent WHERE run_id = :run_id "
             "ORDER BY concept_code, axis, filler_code"
         ),
@@ -1187,6 +1195,9 @@ def _constituents_by_code(
         raw_source_roles = row["source_roles"]
         if isinstance(raw_source_roles, str):
             raw_source_roles = _json.loads(raw_source_roles)
+        raw_source_group_ids = row["source_group_ids"]
+        if isinstance(raw_source_group_ids, str):
+            raw_source_group_ids = _json.loads(raw_source_group_ids)
         by_code.setdefault(row["concept_code"], []).append(
             Constituent(
                 axis=row["axis"],
@@ -1195,7 +1206,10 @@ def _constituents_by_code(
                 source_roles=tuple(raw_source_roles),
                 most_specific=row["most_specific"],
                 needs_review=row["needs_review"],
-                group=row["relationship_group"],
+                axis_ambiguity_group_id=row["axis_ambiguity_group_id"],
+                source_group_ids=tuple(raw_source_group_ids),
+                normalized_group_id=row["normalized_group_id"],
+                normalized_group_label=row["normalized_group_label"],
                 source_definition_ids=tuple(raw_source_ids),
                 source_occurrence_ids=tuple(
                     occurrence_ids_by_constituent.get(
@@ -2615,8 +2629,10 @@ class ProvenanceStore:
             constituent_result = await session.execute(
                 text(
                     "SELECT concept_code, axis, filler_code, axis_source, "
-                    "source_roles, most_specific, needs_review, relationship_group, "
-                    "source_definition_ids FROM decomp_constituent WHERE "
+                    "source_roles, most_specific, needs_review, "
+                    "axis_ambiguity_group_id, source_group_ids, normalized_group_id, "
+                    "normalized_group_label, source_definition_ids "
+                    "FROM decomp_constituent WHERE "
                     "run_id = :run_id AND concept_code = ANY(CAST(:codes AS text[])) "
                     "ORDER BY concept_code, axis, filler_code"
                 ),

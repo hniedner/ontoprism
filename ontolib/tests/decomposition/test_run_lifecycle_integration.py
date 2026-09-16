@@ -30,6 +30,9 @@ from ontolib.decomposition.models import (
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
@@ -535,7 +538,8 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                     axis_source="role",
                     most_specific=True,
                     needs_review=True,
-                    group="anatomy-1",
+                    axis_ambiguity_group_id="R101",
+                    source_group_ids=(restriction_group_id,),
                     source_definition_ids=(restriction_id,),
                 )
             ],
@@ -697,10 +701,13 @@ async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
             await conn.execute(
                 "INSERT INTO decomp_constituent "
                 "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
-                "most_specific, needs_review, relationship_group, "
+                "most_specific, needs_review, axis_ambiguity_group_id, "
+                "source_group_ids, normalized_group_id, normalized_group_label, "
                 "source_definition_ids) SELECT run_id, concept_code, 'op:Extra', "
                 "'C999999', axis_source, source_roles, most_specific, needs_review, "
-                "relationship_group, source_definition_ids FROM decomp_constituent "
+                "axis_ambiguity_group_id, source_group_ids, normalized_group_id, "
+                "normalized_group_label, source_definition_ids "
+                "FROM decomp_constituent "
                 "WHERE run_id = $1 AND concept_code = 'C0' LIMIT 1",
                 run_id,
             )
@@ -1598,6 +1605,9 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
     resumed_out = tmp_path / "resumed.ttl"
     fresh_out = tmp_path / "fresh.ttl"
     run_ids: list[str] = []
+    no_group_policy = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "a" * 64, "rows": ()}
+    )
     try:
         with pytest.raises(RuntimeError, match="interruption"):
             await run_pipeline(
@@ -1606,6 +1616,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
                 store,
                 get_source_snapshot=_source,
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                normalized_group_policy=no_group_policy,
             )
         interrupted_run = store.created[-1]
         run_ids.append(interrupted_run)
@@ -1620,6 +1631,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             store,
             get_source_snapshot=_source,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            normalized_group_policy=no_group_policy,
         )
         fresh = await run_pipeline(
             RunConfig(branch="neoplasm", out=fresh_out, walker_max_depth=6),
@@ -1627,6 +1639,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             store,
             get_source_snapshot=_source,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            normalized_group_policy=no_group_policy,
         )
         fresh_run = store.created[-1]
         run_ids.append(fresh_run)

@@ -7,6 +7,40 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-14 — normalized relationship groups remain source-bound and review-scoped
+
+### D87. Group correction is additive, source-bound, pair-preserving, and separately governed
+
+**Decision:** normalized projection groups are a separate plane from source structural groups and
+axis-ambiguity groups. Policy rows preserve the tracked historical expected and observed partitions,
+exact pair-level source facts and coordinates, and the historical reviewer/date/rationale identity
+(`pdm run agent-test ontolib/tests/decomposition/test_normalized_group_policy.py -v`). Human review
+governs only its exact StageSystem/StageValue target subset. C181564, C186620, and C162226 retain the
+reviewed singleton partition; the eight reviewed rows whose exact historical partition keeps stage
+method and value together retain one shared stage block. Other pairs remain machine/source-derived
+and carry no human identity (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_historical_stage_review_preserves_exact_separate_and_together_partitions
+-v`).
+
+C27262 and C102870 retain their historical `Abstain / escalate` records. Their disputed morphology
+pairs are explicitly unresolved and therefore have neither a normalized group ID nor a human or
+machine decision identity; their pair membership and exact NCIt 26.07d source evidence remain
+available (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_c27262_source_evidence_partitions_each_final_axis_without_conflation
+-v`). The `unavailable_historical_artifact` records only status `not-retained`, the expected historical
+digest, run/family, overwrite reason, and evidentiary use `none`; it is not a parent binding and cannot
+supply evidence bytes (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_unavailable_prechange_metadata_is_self_contained
+-v`).
+
+HL7 mCODE Cancer Stage 4.0.0 STU4 distinguishes the staging system in `method` from the stage in
+`value[x]` within one assessment
+(https://hl7.org/fhir/us/mcode/STU4/StructureDefinition-mcode-cancer-stage.html, retrieved
+2026-09-15). This corroborates retaining distinct StageSystem and StageValue axes; it does not
+prescribe OntoPrism normalized group IDs, and it does not make either a together or separate
+OntoPrism partition source-mandated. Fresh bounded artifacts acquire their path, manifest identity,
+and byte digests only after generation; this decision intentionally predeclares none.
+
 ## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
 
 ### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
