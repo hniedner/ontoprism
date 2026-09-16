@@ -94,6 +94,120 @@ def _group_inventory(
     }
 
 
+def _partition_projection(
+    partition: tuple[tuple[tuple[str, str], ...], ...],
+    pairs: frozenset[tuple[str, str]],
+) -> tuple[tuple[tuple[str, str], ...], ...]:
+    return tuple(
+        sorted(
+            tuple(sorted(pair for pair in block if pair in pairs))
+            for block in partition
+            if any(pair in pairs for pair in block)
+        )
+    )
+
+
+def _target_blocks(
+    partition: tuple[tuple[tuple[str, str], ...], ...],
+    pairs: frozenset[tuple[str, str]],
+) -> tuple[tuple[tuple[str, str], ...], ...]:
+    return tuple(
+        sorted(block for block in partition if any(pair in pairs for pair in block))
+    )
+
+
+def _reviewed_disagreement_contracts(
+    policy: ActiveNormalizedGroupPolicy,
+) -> dict[
+    str,
+    tuple[
+        frozenset[tuple[str, str]],
+        tuple[tuple[tuple[str, str], ...], ...],
+        tuple[tuple[tuple[str, str], ...], ...],
+    ],
+]:
+    contracts = {}
+    for row in policy.rows:
+        target = frozenset(row.decision_target_pair_set)
+        historical = _partition_projection(row.historical_expected_partition, target)
+        reviewed = _partition_projection(row.reviewed_partition, target)
+        if (
+            row.historical_decision.decision == "Approve intentional normalization"
+            and historical != reviewed
+        ):
+            contracts[row.concept_code] = (target, historical, reviewed)
+    for code, block in UNRESOLVED_ABSTENTION_BLOCKS.items():
+        row = policy.by_code[code]
+        target = frozenset(block)
+        unresolved = tuple(
+            item for item in row.blocks if item.grouping_status == "unresolved"
+        )
+        if len(unresolved) != 1 or frozenset(unresolved[0].pairs) != target:
+            raise ValueError(
+                f"candidate policy alters unresolved abstention contract: {code}"
+            )
+        historical = _partition_projection(row.historical_expected_partition, target)
+        separated = tuple((pair,) for pair in sorted(target))
+        contracts[code] = (target, historical, separated)
+    return contracts
+
+
+def _validate_reviewed_disagreements(
+    comparison: CurrentComparison, policy: ActiveNormalizedGroupPolicy
+) -> None:
+    common = comparison.metrics.common_pair_partition_agreement
+    if (common.denominator, common.ineligible) != (18, 2):
+        raise ValueError(
+            "candidate replay changes common-pair eligibility boundary: "
+            f"eligible={common.denominator}, ineligible={common.ineligible}"
+        )
+    contracts = _reviewed_disagreement_contracts(policy)
+    by_code = {concept.code: concept for concept in comparison.concepts}
+    observed = {
+        code
+        for code, concept in by_code.items()
+        if concept.common_pair_partition.eligible
+        and concept.common_pair_partition.agrees is False
+    }
+    expected = set(contracts)
+    if observed != expected:
+        missing = ", ".join(sorted(expected - observed)) or "none"
+        extra = ", ".join(sorted(observed - expected)) or "none"
+        kind = "unaccounted" if observed - expected else "altered"
+        raise ValueError(
+            f"candidate replay has {kind} reviewed disagreement set: "
+            f"missing={missing}; extra={extra}"
+        )
+    for code, (target, expected_partition, actual_partition) in contracts.items():
+        concept = by_code[code].common_pair_partition
+        diagnosis = concept.primary_diagnosis
+        if (
+            not concept.eligible
+            or concept.agrees is not False
+            or diagnosis is None
+            or frozenset(diagnosis.affected_pairs) != target
+            or _target_blocks(concept.expected_partition, target) != expected_partition
+            or _target_blocks(concept.actual_partition, target) != actual_partition
+        ):
+            raise ValueError(
+                f"candidate replay has altered reviewed disagreement: {code}"
+            )
+    eligible = tuple(
+        concept
+        for concept in comparison.concepts
+        if concept.common_pair_partition.eligible
+    )
+    agreements = sum(
+        concept.common_pair_partition.agrees is True for concept in eligible
+    )
+    if (
+        len(eligible) != common.denominator
+        or agreements != common.numerator
+        or agreements != common.denominator - len(contracts)
+    ):
+        raise ValueError("candidate replay has altered reviewed disagreement metrics")
+
+
 def validate_evidence_policy_group_map(
     evidence: CurrentEngineEvidence, policy: ActiveNormalizedGroupPolicy
 ) -> None:
@@ -170,20 +284,7 @@ def validate_promotion_bundle(
         recall.denominator,
     ) != (111, 153):
         raise ValueError("candidate replay changes the approved pair metrics")
-    common = comparison.metrics.common_pair_partition_agreement
-    if (common.numerator, common.denominator, common.ineligible) != (18, 18, 2):
-        raise ValueError("candidate replay changes common-pair grouping eligibility")
-    by_code = {concept.code: concept for concept in comparison.concepts}
-    unresolved = {
-        code
-        for code in ACTIVE_GROUP_CODES
-        if not by_code[code].common_pair_partition.agrees
-    }
-    if unresolved:
-        raise ValueError(
-            "candidate replay retains normalized grouping disagreement: "
-            + ", ".join(sorted(unresolved))
-        )
+    _validate_reviewed_disagreements(comparison, policy)
 
 
 def promote_bundle_atomically(replacements: tuple[tuple[Path, Path], ...]) -> None:
