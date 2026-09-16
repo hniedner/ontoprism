@@ -1221,220 +1221,17 @@ def test_current_replay_uses_only_the_documented_fixed_inputs(
     assert len(completed) == 2
 
 
-def _current_resume_inspection(tmp_path: Path) -> tuple[str, dict[str, object]]:
-    run_id = "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51"
-    sample_bytes = (_ROOT / "samples/ncit-26.07d-m1-current-replay.json").read_bytes()
-    sample_payload = json.loads(sample_bytes)
-    sample_identity = hashlib.sha256(
-        json.dumps(
-            sample_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-    ).hexdigest()
-    worklist = [concept["code"] for concept in sample_payload["concepts"]]
-    worklist_identity = hashlib.sha256(
-        json.dumps(
-            worklist,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-    ).hexdigest()
-    source_identity = sample_payload["source_identity"]
-    for relative, payload in (
-        ("scripts/decompose.py", b""),
-        (
-            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-            json.dumps({"source_identity": source_identity}).encode(),
-        ),
-        ("samples/ncit-26.07d-m1-current-replay.json", sample_bytes),
-    ):
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
-
-    artifact_bytes = f"<{run_id}> <p> <o> .\n".encode()
-    return run_id, {
-        "run_id": run_id,
-        "status": "complete",
-        "source_identity": source_identity,
-        "fingerprint": {
-            "branch": "neoplasm",
-            "scope_root": "C3262",
-            "scope_version": sample_payload["scope_version"],
-            "sample_manifest_identity": sample_identity,
-            "worklist_count": 20,
-            "worklist_identity": worklist_identity,
-            "total_limit": None,
-            "walker_max_depth": 7,
-            "output_mode": "file",
-            "load_mode": "none",
-        },
-        "fingerprint_content_valid": True,
-        "routing_state": "match",
-        "stage_inventory_complete": True,
-        "stage_state": "complete",
-        "resume_compatible": True,
-        "work_item_states": {"complete": 20},
-        "all_work_items_complete": True,
-        "publication_state": "published",
-        "representation_identity": hashlib.sha256(artifact_bytes).hexdigest(),
-        "publication_artifact_path": "persisted/decomposition.ttl",
-    }
-
-
-class _ResumeRunner(_Runner):
-    def __init__(self, run_id: str) -> None:
-        super().__init__()
-        self.emitted_run_id = run_id
-
-    def __call__(
-        self, arguments: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        self.calls.append((arguments, kwargs))
-        output = Path(arguments[arguments.index("--out") + 1])
-        output.write_text(f"<{self.emitted_run_id}> <p> <o> .\n")
-        return subprocess.CompletedProcess(
-            arguments, 0, f"run={self.emitted_run_id}\n", ""
-        )
-
-
 @pytest.mark.unit
-def test_current_replay_resume_admits_only_the_exact_completed_bounded_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_id, inspection = _current_resume_inspection(tmp_path)
-    returned_run_id = "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
+def test_completed_current_replay_resume_operation_is_absent(tmp_path: Path) -> None:
+    operation = "decompose-current-resume"
 
-    async def inspect_exact(run_ids: tuple[str, ...]) -> list[dict[str, object]]:
-        assert run_ids == (run_id,)
-        return [deepcopy(inspection)]
-
-    runner = _ResumeRunner(run_id)
-    monkeypatch.setattr(replay, "_inspect_decomposition_runs_async", inspect_exact)
-    monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:current")
-
-    assert (
-        run_agent_replay(["decompose-current-resume", run_id], tmp_path, runner=runner)
-        == 0
-    )
-    command = runner.calls[0][0]
-    assert command[1:-1] == [
-        str(tmp_path / "scripts/decompose.py"),
-        "--source-manifest",
-        str(tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json"),
-        "--branch",
-        "neoplasm",
-        "--sample-manifest",
-        str(tmp_path / "samples/ncit-26.07d-m1-current-replay.json"),
-        "--walker-max-depth",
-        "7",
-        "--resume",
-        run_id,
-        "--out",
-    ]
-    first_output = Path(command[-1])
-    first_generation = first_output.parents[2] / first_output.parent.name
-    first_bytes = {
-        path.relative_to(first_generation): path.read_bytes()
-        for path in first_generation.rglob("*")
-        if path.is_file()
-    }
-    assert (
-        json.loads((first_generation / "manifest.json").read_text(encoding="utf-8"))[
-            "run_id"
-        ]
-        == run_id
-    )
-
-    assert (
-        run_agent_replay(["decompose-current-resume", run_id], tmp_path, runner=runner)
-        == 0
-    )
-    assert {
-        path.relative_to(first_generation): path.read_bytes()
-        for path in first_generation.rglob("*")
-        if path.is_file()
-    } == first_bytes
-    second_output = Path(runner.calls[1][0][-1])
-    assert second_output.parents[2] / second_output.parent.name != first_generation
-
-    for invalid in ("not-a-run", run_id + " --load"):
-        with pytest.raises(AgentReplayInputError, match="run ID"):
-            run_agent_replay(
-                ["decompose-current-resume", invalid], tmp_path, runner=runner
-            )
-    with pytest.raises(AgentReplayInputError, match="exactly one"):
-        run_agent_replay(["decompose-current-resume"], tmp_path, runner=runner)
-    assert len(runner.calls) == 2
-
-    refusals = (
-        ("status", "failed"),
-        ("status", "active"),
-        ("all_work_items_complete", False),
-        ("work_item_states", {"complete": 19}),
-        ("resume_compatible", False),
-        ("fingerprint_content_valid", False),
-        ("routing_state", "differs"),
-        ("stage_inventory_complete", False),
-        ("stage_state", "incomplete"),
-        ("source_identity", "f" * 64),
-        ("publication_state", "pending"),
-    )
-    for key, value in refusals:
-        rejected = deepcopy(inspection)
-        rejected[key] = value
-
-        async def inspect_rejected(
-            _run_ids: tuple[str, ...], record: dict[str, object] = rejected
-        ) -> list[dict[str, object]]:
-            return [record]
-
-        monkeypatch.setattr(
-            replay, "_inspect_decomposition_runs_async", inspect_rejected
+    assert operation not in replay._OPERATIONS
+    with pytest.raises(AgentReplayInputError, match="unsupported"):
+        run_agent_replay(
+            [operation, "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51"],
+            tmp_path,
         )
-        with pytest.raises(AgentReplayInputError, match="not an admissible"):
-            run_agent_replay(
-                ["decompose-current-resume", run_id], tmp_path, runner=runner
-            )
-        assert len(runner.calls) == 2
-
-    for key, value in (
-        ("sample_manifest_identity", "f" * 64),
-        ("worklist_count", 12_000_000),
-        ("worklist_identity", "f" * 64),
-        ("total_limit", 20),
-        ("output_mode", "none"),
-        ("load_mode", "named-graph"),
-    ):
-        rejected = deepcopy(inspection)
-        rejected_fingerprint = deepcopy(inspection["fingerprint"])
-        assert isinstance(rejected_fingerprint, dict)
-        rejected_fingerprint[key] = value
-        rejected["fingerprint"] = rejected_fingerprint
-
-        async def inspect_wrong_shape(
-            _run_ids: tuple[str, ...], record: dict[str, object] = rejected
-        ) -> list[dict[str, object]]:
-            return [record]
-
-        monkeypatch.setattr(
-            replay, "_inspect_decomposition_runs_async", inspect_wrong_shape
-        )
-        with pytest.raises(AgentReplayInputError, match="not an admissible"):
-            run_agent_replay(
-                ["decompose-current-resume", run_id], tmp_path, runner=runner
-            )
-        assert len(runner.calls) == 2
-
-    monkeypatch.setattr(replay, "_inspect_decomposition_runs_async", inspect_exact)
-    runner.emitted_run_id = returned_run_id
-    with pytest.raises(AgentReplayInputError, match="requested run ID"):
-        run_agent_replay(["decompose-current-resume", run_id], tmp_path, runner=runner)
-    assert len(runner.calls) == 3
+    assert not (tmp_path / "tmp/artifacts/v1/generations").exists()
 
 
 @pytest.mark.unit
@@ -1631,7 +1428,9 @@ def test_candidate_preflight_publishes_an_immutable_parent_bound_generation(
         run_id=run_id,
         artifact_sources={"artifacts/decomposition.ttl": artifact},
         parents=(),
-        generator=replay.GeneratorBinding(identity="git:parent", command=("test",)),
+        generator=replay.GeneratorBinding(
+            identity="git:historical-parent", command=("test",)
+        ),
         sources=(),
         retention=replay.RetentionBinding(
             retention_class="referenced-bounded-run",
@@ -1658,6 +1457,13 @@ def test_candidate_preflight_publishes_an_immutable_parent_bound_generation(
 
     runner = ProducingRunner()
     monkeypatch.setattr(replay, "_git_head_identity", lambda *_: "git:candidate")
+    verified: list[tuple[str, Path]] = []
+
+    def verify_persisted(run: str, path: Path) -> str:
+        verified.append((run, path))
+        return "source-id"
+
+    monkeypatch.setattr(replay, "_verify_persisted_replay", verify_persisted)
 
     assert (
         run_agent_replay(
@@ -1677,6 +1483,7 @@ def test_candidate_preflight_publishes_an_immutable_parent_bound_generation(
         parent_path.parent / "artifacts/decomposition.ttl"
     )
     assert command[command.index("--run-id") + 1] == run_id
+    assert verified == [(run_id, parent_path.parent / "artifacts/decomposition.ttl")]
     assert ".producer-staging" in command[command.index("--engine-output") + 1]
     assert ".producer-staging" in command[command.index("--comparison-output") + 1]
     assert not any("golden/neoplasm-current-" in value for value in command)
@@ -1729,6 +1536,56 @@ def test_candidate_preflight_refuses_missing_or_wrong_parent_binding(
     with pytest.raises(AgentReplayInputError, match="parent manifest"):
         run_agent_replay(
             ["generate-current-evidence-candidate", "missing/manifest.json", "0" * 64],
+            tmp_path,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mutation", ["identity", "bytes", "missing"])
+def test_candidate_preflight_refuses_changed_parent_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    artifact = tmp_path / "parent.ttl"
+    artifact.write_bytes(b"immutable-parent")
+    parent = replay.publish_generation(
+        artifacts_root=tmp_path / "tmp/artifacts/v1/generations",
+        family="m1-6-current-replay",
+        generation_id="historical",
+        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
+        artifact_sources={"artifacts/decomposition.ttl": artifact},
+        parents=(),
+        generator=replay.GeneratorBinding(identity="git:old", command=("test",)),
+        sources=(),
+        retention=replay.RetentionBinding(
+            retention_class="referenced-bounded-run",
+            owner="tests",
+            expires_at=None,
+        ),
+    )
+    manifest_path = (
+        tmp_path
+        / "tmp/artifacts/v1/generations/m1-6-current-replay/historical/manifest.json"
+    )
+    identity = parent.manifest_identity
+    if mutation == "identity":
+        identity = "0" * 64
+    elif mutation == "bytes":
+        (manifest_path.parent / "artifacts/decomposition.ttl").write_bytes(b"changed")
+    else:
+        (manifest_path.parent / "artifacts/decomposition.ttl").unlink()
+    monkeypatch.setattr(
+        replay,
+        "_adjudication_inputs",
+        lambda _root: (_ for _ in ()).throw(AssertionError("parent must fail first")),
+    )
+
+    with pytest.raises(AgentReplayInputError):
+        run_agent_replay(
+            [
+                "generate-current-evidence-candidate",
+                str(manifest_path.relative_to(tmp_path)),
+                identity,
+            ],
             tmp_path,
         )
 

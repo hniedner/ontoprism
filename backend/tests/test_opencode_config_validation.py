@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from scripts.validation.validate_opencode_config import (
     CROSS_COMMAND_DENIES,
+    ORCHESTRATOR_BASH_ALLOWS,
     RESERVES,
     ROLES,
     SPECIALIST_ROLES,
@@ -34,6 +35,13 @@ FULL_STORE_TIMEOUT_PROMPTS = (
     ".opencode/agent/ontoprism-team.md",
     ".opencode/command/review-pr.md",
 )
+
+
+def test_completed_replay_resume_is_absent_from_permission_configuration() -> None:
+    operation = "decompose-current-resume"
+
+    assert all(operation not in rule for rule in ORCHESTRATOR_BASH_ALLOWS)
+    assert operation not in (ROOT / ".opencode/agent/ontoprism-team.md").read_text()
 
 
 @pytest.fixture

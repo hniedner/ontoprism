@@ -57,7 +57,6 @@ permission:
     "git diff --check": allow
     "git diff --no-index /dev/null *": allow
     "pdm run agent-test *": allow
-    "pdm run agent-replay decompose-current-resume *": allow
     "pdm run lint": allow
     "pdm run agent-github issue-delete *": deny
     "pdm run agent-github milestone-delete *": deny

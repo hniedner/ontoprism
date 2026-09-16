@@ -107,6 +107,7 @@ permission:
     "pdm run gh *": deny
     "pdm run git *": deny
     "pdm run publish*": deny
+    "pdm run agent-replay decompose-current-resume *": deny
     "npm --prefix other *": deny
     "npm exec *": deny
     "npm run publish*": deny
