@@ -31,6 +31,46 @@ class _Runner:
         )
 
 
+def _expected_verify_commands(
+    pdm_executable: str, *, stack_ensured: bool
+) -> list[list[str]]:
+    gates = [
+        [
+            sys.executable,
+            "scripts/validation/validate_opencode_config.py",
+            "--root",
+            ".",
+        ],
+        [sys.executable, "-m", "pre_commit", "run", "--all-files"],
+        [pdm_executable, "run", "test-ci"],
+        ["npm", "--prefix", "frontend", "run", "test:coverage"],
+        [
+            pdm_executable,
+            "run",
+            "python",
+            "-m",
+            "scripts.validation.frontend_coverage_hierarchy",
+        ],
+    ]
+    if stack_ensured:
+        return gates
+    return [
+        [pdm_executable, "run", "agent-replay", "ensure-podman-stack"],
+        *gates,
+    ]
+
+
+_FAILURE_CASES = [
+    (stack_ensured, fail_at)
+    for stack_ensured in (False, True)
+    for fail_at in range(
+        1,
+        len(_expected_verify_commands("/test/bin/pdm", stack_ensured=stack_ensured))
+        + 1,
+    )
+]
+
+
 @pytest.mark.unit
 def test_verify_runner_docstring_describes_default_context_selection() -> None:
     assert inspect.getdoc(run_verify) == (
@@ -54,25 +94,9 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
 
     assert run_verify(runner=runner, pdm_executable=pdm_executable) == 0
 
-    assert [command for command, _options in runner.calls] == [
-        [pdm_executable, "run", "agent-replay", "ensure-podman-stack"],
-        [
-            sys.executable,
-            "scripts/validation/validate_opencode_config.py",
-            "--root",
-            ".",
-        ],
-        [sys.executable, "-m", "pre_commit", "run", "--all-files"],
-        [pdm_executable, "run", "test-ci"],
-        ["npm", "--prefix", "frontend", "run", "test:coverage"],
-        [
-            pdm_executable,
-            "run",
-            "python",
-            "-m",
-            "scripts.validation.frontend_coverage_hierarchy",
-        ],
-    ]
+    assert [command for command, _options in runner.calls] == (
+        _expected_verify_commands(pdm_executable, stack_ensured=False)
+    )
     for _command, options in runner.calls:
         assert options == {
             "check": False,
@@ -114,18 +138,26 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("fail_at", "expected_calls"), [(1, 1), (3, 3), (6, 6)])
+@pytest.mark.parametrize(("stack_ensured", "fail_at"), _FAILURE_CASES)
 def test_verify_runner_stops_at_first_failed_gate_including_hierarchy_report(
     monkeypatch: pytest.MonkeyPatch,
+    stack_ensured: bool,
     fail_at: int,
-    expected_calls: int,
 ) -> None:
+    pdm_executable = "/test/bin/pdm"
     runner = _Runner(fail_at=fail_at)
     for selector in DOCKER_SELECTOR_VARIABLES:
         monkeypatch.delenv(selector, raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    if stack_ensured:
+        monkeypatch.setenv("ONTOPRISM_PODMAN_STACK_ENSURED", "1")
+    else:
+        monkeypatch.delenv("ONTOPRISM_PODMAN_STACK_ENSURED", raising=False)
 
-    assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 1
-    assert len(runner.calls) == expected_calls
+    assert run_verify(runner=runner, pdm_executable=pdm_executable) == 1
+    assert [command for command, _options in runner.calls] == (
+        _expected_verify_commands(pdm_executable, stack_ensured=stack_ensured)[:fail_at]
+    )
 
 
 @pytest.mark.unit
