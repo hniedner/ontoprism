@@ -8,18 +8,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import tempfile
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
+from rdflib import Graph, URIRef
+from rdflib import Literal as RdfLiteral
+from rdflib.term import Node
 from scripts.research.group_review_packet import (
     load_historical_group_review_packet,
 )
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.atomic_write import atomic_write_bytes
 from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
-from ontolib.decomposition.corpus_baseline import load_corpus_baseline
+from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
 from ontolib.decomposition.fanout_baseline import (
     load_fanout_baseline,
     rerun_fanout_concept,
@@ -33,6 +48,7 @@ from ontolib.decomposition.publication import (
     PublicationMarker,
     PublicationValidationError,
     build_replacement_update,
+    publication_recovery_decision,
     read_publication_marker,
     staging_graph_iri,
     validate_artifact,
@@ -43,14 +59,24 @@ from ontolib.decomposition.r101_conservation import (
     R101ConservationReport,
     load_r101_conservation_report,
 )
+from ontolib.decomposition.run_artifacts import (
+    GeneratorBinding,
+    RetentionBinding,
+    SourceIdentity,
+    publish_generation,
+)
 from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
+from ontolib.terminologies.ncit.sibling_store import (
+    NcitSiblingStoreManifest,
+    validate_ncit_sibling_manifest,
+)
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _SHA256_LENGTH = 64
 _CODE = r"^C[0-9]+$"
 _TARGET_EXCLUSIONS = ("C102870", "C198031", "C27262", "C35756")
+_CERTIFIED_WORKLIST_COUNT = 15_633
 
 
 class CorpusAcceptanceValidationError(ValueError):
@@ -195,13 +221,145 @@ def build_review_required_exclusions(
     return tuple(exclusions)
 
 
+class EffectiveArtifactEvidence(_StrictModel):
+    source_artifact_identity: str = Field(pattern=_SHA256)
+    effective_artifact_identity: str = Field(pattern=_SHA256)
+    removed_pair_count: int = Field(gt=0)
+    removed_pairs: tuple[tuple[str, str, str, str], ...] = Field(min_length=1)
+    excluded_pairs: tuple[tuple[str, str, str, str], ...] = Field(min_length=1)
+    source_artifact_preserved: Literal[True]
+
+
+_CONSTITUENT_LINE = re.compile(
+    rf"^<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)> "
+    rf"<{re.escape(vocab.HAS_CONSTITUENT)}>\s+"
+    rf"\[<{re.escape(vocab.AXIS)}> <(?P<axis>[^>]+)> ; "
+    rf"<{re.escape(vocab.FILLER)}> <{re.escape(NCIT_NS)}(?P<filler>C[0-9]+)>"
+    rf"(?: ;| \])"
+)
+
+
+def build_effective_artifact(
+    *,
+    source_artifact: Path,
+    destination: Path,
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+) -> EffectiveArtifactEvidence:
+    """Write a source-derived artifact with only exact disputed pairs withheld."""
+    source = source_artifact.read_bytes()
+    source_identity = hashlib.sha256(source).hexdigest()
+    by_key = _effective_exclusion_map(exclusions)
+    payload, observed = _filter_effective_lines(source, by_key)
+    excluded = _validate_effective_delta(observed, exclusions, by_key)
+    if destination.exists():
+        raise CorpusAcceptanceValidationError("effective artifact destination exists")
+    atomic_write_bytes(destination, payload)
+    if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
+        raise CorpusAcceptanceValidationError(
+            "source artifact changed during projection"
+        )
+    return EffectiveArtifactEvidence(
+        source_artifact_identity=source_identity,
+        effective_artifact_identity=hashlib.sha256(payload).hexdigest(),
+        removed_pair_count=len(observed),
+        removed_pairs=observed,
+        excluded_pairs=excluded,
+        source_artifact_preserved=True,
+    )
+
+
+def _effective_constituent_key(line: bytes) -> tuple[str, str, str] | None:
+    match = _CONSTITUENT_LINE.match(line.decode("utf-8"))
+    if match is None:
+        return None
+    axis_iri = match.group("axis")
+    axis = (
+        f"op:{axis_iri.removeprefix(vocab.ONTOPRISM_NS)}"
+        if axis_iri.startswith(vocab.ONTOPRISM_NS)
+        else axis_iri
+    )
+    return match.group("concept"), axis, match.group("filler")
+
+
+def _filter_effective_lines(
+    source: bytes, by_key: dict[tuple[str, str, str], str]
+) -> tuple[bytes, tuple[tuple[str, str, str, str], ...]]:
+    removed: list[tuple[str, str, str, str]] = []
+    retained: list[bytes] = []
+    for line in source.splitlines(keepends=True):
+        key = _effective_constituent_key(line)
+        direction = by_key.get(key) if key is not None else None
+        if key is None or direction is None:
+            retained.append(line)
+        else:
+            removed.append((*key, direction))
+    return b"".join(retained), tuple(sorted(set(removed)))
+
+
+def _validate_effective_delta(
+    observed: tuple[tuple[str, str, str, str], ...],
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+    by_key: dict[tuple[str, str, str], str],
+) -> tuple[tuple[str, str, str, str], ...]:
+    excluded = _excluded_pair_inventory(by_key)
+    missing = _missing_required_pairs(observed, excluded)
+    if missing:
+        raise CorpusAcceptanceValidationError(
+            f"effective artifact lacks exact exclusion pairs: {missing!r}"
+        )
+    if not _each_excluded_concept_has_delta(observed, exclusions):
+        raise CorpusAcceptanceValidationError(
+            "each review-required concept must have a nonempty effective delta"
+        )
+    return excluded
+
+
+def _excluded_pair_inventory(
+    by_key: dict[tuple[str, str, str], str],
+) -> tuple[tuple[str, str, str, str], ...]:
+    return tuple(sorted((*key, direction) for key, direction in by_key.items()))
+
+
+def _missing_required_pairs(
+    observed: tuple[tuple[str, str, str, str], ...],
+    excluded: tuple[tuple[str, str, str, str], ...],
+) -> tuple[tuple[str, str, str, str], ...]:
+    observed_set = set(observed)
+    return tuple(
+        item
+        for item in excluded
+        if item[3] != "missing-from-candidate" and item not in observed_set
+    )
+
+
+def _each_excluded_concept_has_delta(
+    observed: tuple[tuple[str, str, str, str], ...],
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+) -> bool:
+    observed_concepts = {item[0] for item in observed}
+    excluded_concepts = {item.concept_code for item in exclusions}
+    return observed_concepts == excluded_concepts
+
+
+def _effective_exclusion_map(
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+) -> dict[tuple[str, str, str], str]:
+    by_key: dict[tuple[str, str, str], str] = {}
+    for exclusion in exclusions:
+        for pair in exclusion.pair_changes:
+            key = (exclusion.concept_code, pair.axis, pair.filler_code)
+            previous = by_key.setdefault(key, pair.comparison_direction)
+            if previous != pair.comparison_direction:
+                raise CorpusAcceptanceValidationError(
+                    "effective exclusion has ambiguous pair directions"
+                )
+    return by_key
+
+
 StructuralCategory = Literal[
     "review-required-effective-exclusion",
-    "named-source-preserving-policy-transformation",
     "r101-occurrence-linked-output-delta",
     "proposal-minted-projection",
-    "conservative-review-escalation",
-    "semantic-routing-change",
     "unexplained-blocker",
 ]
 MetadataCategory = Literal[
@@ -211,7 +369,7 @@ MetadataCategory = Literal[
     "conservative-review-escalation",
     "authority-required-review-clearance",
     "semantic-routing-change",
-    "compound-metadata-change",
+    "unexplained-blocker",
 ]
 
 
@@ -219,14 +377,18 @@ class StructuralChangeClassification(_StrictModel):
     object_kind: Literal["structural"]
     category: StructuralCategory
     row: NonR101DeltaRow
-    evidence_identities: tuple[str, ...] = ()
+    rule_name: str = Field(min_length=1)
+    evidence_identities: tuple[str, ...] = Field(min_length=1)
+    source_identities: tuple[str, ...] = Field(min_length=1)
 
 
 class MetadataChangeClassification(_StrictModel):
     object_kind: Literal["metadata"]
     category: MetadataCategory
     delta: NonR101MetadataDelta
-    evidence_identities: tuple[str, ...] = ()
+    rule_name: str = Field(min_length=1)
+    evidence_identities: tuple[str, ...] = Field(min_length=1)
+    source_identities: tuple[str, ...] = Field(min_length=1)
 
 
 ChangedObjectClassification = Annotated[
@@ -299,21 +461,36 @@ def _validate_classification_summary(value: CorpusDeltaClassification) -> None:
 
 def _effective_exclusion_keys(
     exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
-) -> tuple[set[tuple[str, str, str]], dict[str, tuple[str, ...]]]:
-    keys: set[tuple[str, str, str]] = set()
-    evidence: dict[str, tuple[str, ...]] = {}
+) -> dict[tuple[str, str, str, str], ReviewRequiredEffectiveExclusion]:
+    keys: dict[tuple[str, str, str, str], ReviewRequiredEffectiveExclusion] = {}
     for exclusion in exclusions:
-        evidence[exclusion.concept_code] = exclusion.evidence_identities
         for pair in exclusion.pair_changes:
-            if pair.comparison_direction in {"grouping-disputed", "added-to-candidate"}:
-                keys.add((exclusion.concept_code, pair.axis, pair.filler_code))
-    return keys, evidence
+            keys[
+                (
+                    exclusion.concept_code,
+                    pair.axis,
+                    pair.filler_code,
+                    pair.comparison_direction,
+                )
+            ] = exclusion
+    return keys
 
 
 def _metadata_category(delta: NonR101MetadataDelta) -> MetadataCategory:
     fields = set(delta.changed_fields)
+    allowed = {
+        "axis_ambiguity_group_id",
+        "source_definition_ids",
+        "source_occurrence_ids",
+        "axis_source",
+        "source_roles",
+        "most_specific",
+        "needs_review",
+    }
+    if not fields or not fields <= allowed:
+        raise CorpusAcceptanceValidationError("metadata changed fields are invalid")
     if len(fields) > 1:
-        return "compound-metadata-change"
+        return "unexplained-blocker"
     field = next(iter(fields))
     if field == "needs_review":
         return (
@@ -339,22 +516,34 @@ def classify_corpus_delta(
 ) -> CorpusDeltaClassification:
     """Classify every typed comparator object without inferring R101 causation."""
     evidence = report.non_r101_delta_evidence
-    exclusion_keys, exclusion_evidence = _effective_exclusion_keys(exclusions)
+    exclusion_keys = _effective_exclusion_keys(exclusions)
     classifications = _classify_structural_rows(
-        evidence.rows, exclusion_keys, exclusion_evidence
+        evidence.rows,
+        exclusion_keys,
+        report_identity=report.report_identity,
+        source_identity=report.source_identity,
     )
     classifications.extend(
         StructuralChangeClassification(
             object_kind="structural",
             category="r101-occurrence-linked-output-delta",
             row=item.row,
-            evidence_identities=item.r101_occurrence_ids,
+            rule_name="r101-occurrence-link-v1",
+            evidence_identities=tuple(
+                sorted({report.report_identity, *item.r101_occurrence_ids})
+            ),
+            source_identities=_row_source_identities(
+                item.row, source_identity=report.source_identity
+            ),
         )
         for item in evidence.classified_rows
     )
     classifications.extend(
         _classify_metadata_rows(
-            evidence.metadata_deltas, exclusion_keys, exclusion_evidence
+            evidence.metadata_deltas,
+            exclusion_keys,
+            report_identity=report.report_identity,
+            source_identity=report.source_identity,
         )
     )
     classifications.sort(
@@ -385,58 +574,150 @@ def classify_corpus_delta(
 
 def _classify_structural_rows(
     rows: tuple[NonR101DeltaRow, ...],
-    exclusion_keys: set[tuple[str, str, str]],
-    exclusion_evidence: dict[str, tuple[str, ...]],
+    exclusion_keys: dict[tuple[str, str, str, str], ReviewRequiredEffectiveExclusion],
+    *,
+    report_identity: str,
+    source_identity: str,
 ) -> list[ChangedObjectClassification]:
-    return [
-        StructuralChangeClassification(
-            object_kind="structural",
-            category=_structural_category(row, exclusion_keys),
-            row=row,
-            evidence_identities=exclusion_evidence.get(row.concept_code, ()),
+    result: list[ChangedObjectClassification] = []
+    for row in rows:
+        exclusion = _matching_exclusion(row, exclusion_keys)
+        category = _structural_category(row, exclusion)
+        result.append(
+            StructuralChangeClassification(
+                object_kind="structural",
+                category=category,
+                row=row,
+                rule_name=_structural_rule_name(category),
+                evidence_identities=tuple(
+                    sorted(
+                        {
+                            report_identity,
+                            *(exclusion.evidence_identities if exclusion else ()),
+                        }
+                    )
+                ),
+                source_identities=tuple(
+                    sorted(
+                        {
+                            *_row_source_identities(
+                                row, source_identity=source_identity
+                            ),
+                            *(
+                                exclusion.source_assertion_identities
+                                if exclusion
+                                else ()
+                            ),
+                        }
+                    )
+                ),
+            )
         )
-        for row in rows
-    ]
+    return result
+
+
+def _matching_exclusion(
+    row: NonR101DeltaRow,
+    exclusion_keys: dict[tuple[str, str, str, str], ReviewRequiredEffectiveExclusion],
+) -> ReviewRequiredEffectiveExclusion | None:
+    prefix = (row.concept_code, row.axis, row.filler_code)
+    direction = (
+        "added-to-candidate" if row.change == "added" else "missing-from-candidate"
+    )
+    return exclusion_keys.get((*prefix, direction)) or exclusion_keys.get(
+        (*prefix, "grouping-disputed")
+    )
 
 
 def _structural_category(
     row: NonR101DeltaRow,
-    exclusion_keys: set[tuple[str, str, str]],
+    exclusion: ReviewRequiredEffectiveExclusion | None,
 ) -> StructuralCategory:
-    key = (row.concept_code, row.axis, row.filler_code)
-    if key in exclusion_keys:
+    if exclusion is not None:
         return "review-required-effective-exclusion"
     if row.filler_code.startswith("MINT-"):
         return "proposal-minted-projection"
-    if row.needs_review:
-        return "conservative-review-escalation"
     return "unexplained-blocker"
 
 
 def _classify_metadata_rows(
     deltas: tuple[NonR101MetadataDelta, ...],
-    exclusion_keys: set[tuple[str, str, str]],
-    exclusion_evidence: dict[str, tuple[str, ...]],
+    exclusion_keys: dict[tuple[str, str, str, str], ReviewRequiredEffectiveExclusion],
+    *,
+    report_identity: str,
+    source_identity: str,
 ) -> list[ChangedObjectClassification]:
-    return [
-        MetadataChangeClassification(
-            object_kind="metadata",
-            category=_classified_metadata_category(delta, exclusion_keys),
-            delta=delta,
-            evidence_identities=exclusion_evidence.get(delta.new.concept_code, ()),
+    result: list[ChangedObjectClassification] = []
+    for delta in deltas:
+        try:
+            validated_delta = NonR101MetadataDelta.model_validate(delta.model_dump())
+        except ValidationError as exc:
+            raise CorpusAcceptanceValidationError(
+                "metadata changed fields are invalid"
+            ) from exc
+        exclusion = _matching_exclusion(validated_delta.new, exclusion_keys)
+        category = _classified_metadata_category(validated_delta, exclusion)
+        result.append(
+            MetadataChangeClassification(
+                object_kind="metadata",
+                category=category,
+                delta=validated_delta,
+                rule_name=f"metadata-{category}-v1",
+                evidence_identities=tuple(
+                    sorted(
+                        {
+                            report_identity,
+                            *(exclusion.evidence_identities if exclusion else ()),
+                        }
+                    )
+                ),
+                source_identities=tuple(
+                    sorted(
+                        {
+                            *_row_source_identities(
+                                validated_delta.old, source_identity=source_identity
+                            ),
+                            *_row_source_identities(
+                                validated_delta.new, source_identity=source_identity
+                            ),
+                            *(
+                                exclusion.source_assertion_identities
+                                if exclusion
+                                else ()
+                            ),
+                        }
+                    )
+                ),
+            )
         )
-        for delta in deltas
-    ]
+    return result
 
 
 def _classified_metadata_category(
     delta: NonR101MetadataDelta,
-    exclusion_keys: set[tuple[str, str, str]],
+    exclusion: ReviewRequiredEffectiveExclusion | None,
 ) -> MetadataCategory:
-    key = (delta.new.concept_code, delta.new.axis, delta.new.filler_code)
-    if key in exclusion_keys:
+    if exclusion is not None:
         return "review-required-effective-exclusion"
     return _metadata_category(delta)
+
+
+def _row_source_identities(
+    row: NonR101DeltaRow, *, source_identity: str
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                source_identity,
+                *row.source_definition_ids,
+                *row.source_occurrence_ids,
+            }
+        )
+    )
+
+
+def _structural_rule_name(category: StructuralCategory) -> str:
+    return f"structural-{category}-v1"
 
 
 def _jsonable(value: object) -> object:
@@ -463,12 +744,17 @@ class PublicationDryRunEvidence(_StrictModel):
     recovery_identity: str = Field(pattern=_SHA256)
     postgres_read_verified: bool
     qlever_read_verified: bool
+    postgres_before_identity: str = Field(pattern=_SHA256)
+    postgres_after_identity: str = Field(pattern=_SHA256)
+    qlever_before_identity: str = Field(pattern=_SHA256)
+    qlever_after_identity: str = Field(pattern=_SHA256)
+    recoverability_status: Literal["passed", "blocked"]
     publication_writes_performed: Literal[False]
     evidence_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _identity_and_status(self) -> Self:
-        passed = self.postgres_read_verified and self.qlever_read_verified
+        passed = _dry_run_passed(self)
         if self.status != ("passed" if passed else "blocked"):
             raise ValueError("publication dry-run status differs")
         expected = _identity(
@@ -477,6 +763,37 @@ class PublicationDryRunEvidence(_StrictModel):
         if self.evidence_identity != expected:
             raise ValueError("publication dry-run identity differs")
         return self
+
+
+def _dry_run_passed(evidence: PublicationDryRunEvidence) -> bool:
+    checks = (
+        evidence.postgres_read_verified,
+        evidence.qlever_read_verified,
+        evidence.postgres_before_identity == evidence.postgres_after_identity,
+        evidence.qlever_before_identity == evidence.qlever_after_identity,
+        evidence.recoverability_status == "passed",
+    )
+    return all(checks)
+
+
+def _marker_payload(marker: PublicationMarker | None) -> dict[str, object]:
+    if marker is None:
+        return {"marker": None}
+    return marker.model_dump(mode="json")
+
+
+def _recoverability_status(
+    predecessor: PublicationMarker | None, intent: PublicationMarker
+) -> Literal["passed", "blocked"]:
+    decisions = (
+        publication_recovery_decision(
+            current=predecessor, intent=intent, predecessor=predecessor
+        ),
+        publication_recovery_decision(
+            current=intent, intent=intent, predecessor=predecessor
+        ),
+    )
+    return "passed" if decisions == ("apply", "already-committed") else "blocked"
 
 
 class PublicationReadStore(Protocol):
@@ -491,6 +808,7 @@ async def dry_run_corpus_publication(
     run_id: str,
     source_identity: str,
     representation_identity: str,
+    persisted_representation_identity: str | None = None,
     artifact: Path,
     destination_graph_iri: str,
     expected_codes: tuple[str, ...],
@@ -502,10 +820,13 @@ async def dry_run_corpus_publication(
     if destination_graph_iri != vocab.DECOMPOSED_GRAPH_IRI:
         raise CorpusAcceptanceValidationError("publication destination differs")
     run = await provenance.completed_run_for_evidence(run_id)
+    postgres_before_identity = _identity(run.model_dump(mode="json"))
     _require_publication_run_binding(
         run,
         source_identity=source_identity,
-        representation_identity=representation_identity,
+        representation_identity=(
+            persisted_representation_identity or representation_identity
+        ),
         expected_worklist_count=expected_worklist_count,
     )
     try:
@@ -519,11 +840,7 @@ async def dry_run_corpus_publication(
             "artifact representation identity differs"
         )
     predecessor = await read_publication_marker(graph)
-    predecessor_payload = (
-        predecessor.model_dump(mode="json")
-        if predecessor is not None
-        else {"marker": None}
-    )
+    predecessor_payload = _marker_payload(predecessor)
     predecessor_identity = _identity(predecessor_payload)
     marker = PublicationMarkerSnapshot(
         run_id=run_id,
@@ -536,9 +853,25 @@ async def dry_run_corpus_publication(
     update = build_replacement_update(
         PublicationMarker.model_validate(marker.model_dump()), staging_graph_iri(run_id)
     )
+    publication_marker = PublicationMarker.model_validate(marker.model_dump())
+    run_after = await provenance.completed_run_for_evidence(run_id)
+    predecessor_after = await read_publication_marker(graph)
+    postgres_after_identity = _identity(run_after.model_dump(mode="json"))
+    predecessor_after_payload = _marker_payload(predecessor_after)
+    qlever_before_identity = _identity(predecessor_payload)
+    qlever_after_identity = _identity(predecessor_after_payload)
+    recoverability_status = _recoverability_status(predecessor, publication_marker)
+    unchanged = all(
+        (
+            postgres_before_identity == postgres_after_identity,
+            qlever_before_identity == qlever_after_identity,
+        )
+    )
     payload = {
         "schema_version": 1,
-        "status": "passed",
+        "status": "passed"
+        if unchanged and recoverability_status == "passed"
+        else "blocked",
         "candidate_content_identity": candidate_content_identity,
         "predecessor_marker_identity": predecessor_identity,
         "destination_graph_iri": destination_graph_iri,
@@ -556,6 +889,11 @@ async def dry_run_corpus_publication(
         ),
         "postgres_read_verified": True,
         "qlever_read_verified": True,
+        "postgres_before_identity": postgres_before_identity,
+        "postgres_after_identity": postgres_after_identity,
+        "qlever_before_identity": qlever_before_identity,
+        "qlever_after_identity": qlever_after_identity,
+        "recoverability_status": recoverability_status,
         "publication_writes_performed": False,
     }
     return PublicationDryRunEvidence.model_validate(
@@ -601,6 +939,39 @@ HumanAcceptanceDecision = (
 )
 
 
+def write_pending_human_acceptance_decision(
+    path: Path,
+    *,
+    candidate_identity: str,
+    publication_dry_run_identity: str,
+) -> PendingHumanAcceptanceDecision:
+    decision = PendingHumanAcceptanceDecision(
+        status="not-requested",
+        candidate_identity=candidate_identity,
+        publication_dry_run_identity=publication_dry_run_identity,
+    )
+    atomic_write_bytes(
+        path,
+        (
+            json.dumps(decision.model_dump(mode="json"), sort_keys=True, indent=2)
+            + "\n"
+        ).encode(),
+    )
+    return decision
+
+
+def load_human_acceptance_decision(path: Path) -> HumanAcceptanceDecision:
+    try:
+        payload = json.loads(path.read_bytes())
+        return TypeAdapter(HumanAcceptanceDecision).validate_python(
+            payload, strict=True
+        )
+    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+        raise CorpusAcceptanceValidationError(
+            "human acceptance decision is invalid"
+        ) from exc
+
+
 def require_publication_authorization(
     *,
     candidate_identity: str,
@@ -619,14 +990,128 @@ def require_publication_authorization(
         raise CorpusAcceptanceValidationError("human decision binding differs")
 
 
-class PublicationReceipt(_StrictModel):
-    candidate_identity: str = Field(pattern=_SHA256)
-    decision_identity: str = Field(pattern=_SHA256)
-    publication_marker_identity: str = Field(pattern=_SHA256)
-    predecessor_marker_identity: str = Field(pattern=_SHA256)
-    artifact_identity: str = Field(pattern=_SHA256)
-    served_projection_identity: str = Field(pattern=_SHA256)
-    recovery_identity: str = Field(pattern=_SHA256)
+def build_accepted_publication_artifact(
+    *,
+    source_artifact: Path,
+    destination: Path,
+    candidate_identity: str,
+    dry_run: PublicationDryRunEvidence,
+    decision: HumanAcceptanceDecision,
+    source_release: str,
+    source_identity: str,
+    run_id: str,
+    representation_identity: str,
+    publication_identity: str,
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+) -> str:
+    """Emit the accepted API metadata only after exact human authorization."""
+    require_publication_authorization(
+        candidate_identity=candidate_identity,
+        dry_run=dry_run,
+        decision=decision,
+    )
+    if destination.exists():
+        raise CorpusAcceptanceValidationError(
+            "accepted publication artifact destination exists"
+        )
+    graph = _read_effective_graph(source_artifact)
+    represented = set(
+        graph.subjects(
+            URIRef(vocab.REPRESENTATION_STATUS),
+            RdfLiteral(vocab.LEGACY_PRECOORDINATED),
+        )
+    )
+    _add_acceptance_metadata(
+        graph,
+        represented=represented,
+        exclusions=exclusions,
+        source_release=source_release,
+        source_identity=source_identity,
+        run_id=run_id,
+        representation_identity=representation_identity,
+        publication_identity=publication_identity,
+    )
+    payload = graph.serialize(format="turtle", encoding="utf-8")
+    if not isinstance(payload, bytes):
+        raise CorpusAcceptanceValidationError(
+            "accepted publication serializer returned text"
+        )
+    atomic_write_bytes(destination, payload)
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _read_effective_graph(source_artifact: Path) -> Graph:
+    graph = Graph()
+    try:
+        graph.parse(source_artifact, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(
+            "effective artifact is not valid Turtle"
+        ) from exc
+    return graph
+
+
+def _add_acceptance_metadata(
+    graph: Graph,
+    *,
+    represented: Iterable[Node],
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+    source_release: str,
+    source_identity: str,
+    run_id: str,
+    representation_identity: str,
+    publication_identity: str,
+) -> None:
+    excluded = {item.concept_code: item for item in exclusions}
+    for subject in represented:
+        exclusion = excluded.get(str(subject).removeprefix(NCIT_NS))
+        _add_subject_acceptance_values(
+            graph,
+            subject=subject,
+            excluded=exclusion is not None,
+            source_release=source_release,
+            source_identity=source_identity,
+            run_id=run_id,
+            representation_identity=representation_identity,
+            publication_identity=publication_identity,
+        )
+        if exclusion is not None:
+            _add_exclusion_summary(graph, subject)
+
+
+def _add_subject_acceptance_values(
+    graph: Graph,
+    *,
+    subject: Node,
+    excluded: bool,
+    source_release: str,
+    source_identity: str,
+    run_id: str,
+    representation_identity: str,
+    publication_identity: str,
+) -> None:
+    status = "review-required-excluded" if excluded else "accepted-effective"
+    values = (
+        (vocab.ACCEPTANCE_STATUS, status),
+        (vocab.ACCEPTANCE_SOURCE_RELEASE, source_release),
+        (vocab.ACCEPTANCE_SOURCE_IDENTITY, source_identity),
+        (vocab.ACCEPTANCE_RUN, run_id),
+        (vocab.ACCEPTANCE_REPRESENTATION, representation_identity),
+        (vocab.ACCEPTANCE_PUBLICATION, publication_identity),
+    )
+    for predicate, value in values:
+        graph.add((subject, URIRef(predicate), RdfLiteral(value)))
+
+
+def _add_exclusion_summary(graph: Graph, subject: Node) -> None:
+    summary = "Review required — excluded from accepted effective projection"
+    graph.add(
+        (
+            subject,
+            URIRef(vocab.ACCEPTANCE_EXCLUSION_SUMMARY),
+            RdfLiteral(summary),
+        )
+    )
 
 
 class CandidateScope(_StrictModel):
@@ -660,17 +1145,48 @@ class CandidateProjection(_StrictModel):
 
 
 class CandidateMetrics(_StrictModel):
-    values: dict[str, int | float | None]
+    worklist_count: int = Field(gt=0)
+    decomposed_count: int = Field(ge=0)
+    atomic_noop_count: int = Field(ge=0)
+    residual_count: int = Field(ge=0)
+    semantic_excluded_count: int = Field(ge=0)
+    unknown_count: int = Field(ge=0)
+    source_occurrence_count: int = Field(ge=0)
+    selected_occurrence_count: int = Field(ge=0)
+    emitted_constituent_pair_count: int = Field(ge=0)
+    complete_semantic_fact_count: int = Field(ge=0)
+    minted_count: int = Field(ge=0)
+
+
+class GateEvaluation(_StrictModel):
+    status: Literal["passed", "failed", "blocked"]
+    evidence_identity: str = Field(pattern=_SHA256)
+    observation_identity: str = Field(pattern=_SHA256)
 
 
 class CandidateGates(_StrictModel):
-    primary_site_cardinality_violations: Literal[0]
-    proposal_provenance_valid: Literal[True]
-    projection_loss_status: Literal["passed"]
-    residual_status: Literal["passed"]
-    fidelity_status: Literal["passed"]
-    issue_274_detector: Literal["clear"]
-    gate_liveness_identity: str = Field(pattern=_SHA256)
+    primary_site_cardinality: GateEvaluation
+    proposal_provenance: GateEvaluation
+    projection_loss: GateEvaluation
+    residual: GateEvaluation
+    fidelity: GateEvaluation
+    issue_274_detector: GateEvaluation
+    gate_liveness: GateEvaluation
+
+    @property
+    def all_passed(self) -> bool:
+        return all(
+            evaluation.status == "passed"
+            for evaluation in (
+                self.primary_site_cardinality,
+                self.proposal_provenance,
+                self.projection_loss,
+                self.residual,
+                self.fidelity,
+                self.issue_274_detector,
+                self.gate_liveness,
+            )
+        )
 
 
 class R101CandidateSummary(_StrictModel):
@@ -690,6 +1206,23 @@ class R101CandidateSummary(_StrictModel):
         return self
 
 
+class CandidateEvidence(_StrictModel):
+    corpus_baseline_identity: str = Field(pattern=_SHA256)
+    source_artifact_identity: str = Field(pattern=_SHA256)
+    effective_artifact_evidence_identity: str = Field(pattern=_SHA256)
+    policy_identity: str = Field(pattern=_SHA256)
+    detector_identity: str = Field(pattern=_SHA256)
+    r101_report_identity: str = Field(pattern=_SHA256)
+    r101_qualification_identity: str = Field(pattern=_SHA256)
+    primary_site_audit_identity: str = Field(pattern=_SHA256)
+    proposal_registry_identity: str = Field(pattern=_SHA256)
+    review_packet_identity: str = Field(pattern=_SHA256)
+    review_decisions_identity: str = Field(pattern=_SHA256)
+    gate_liveness_evidence_identity: str = Field(pattern=_SHA256)
+    old_comparator_artifact_identity: str = Field(pattern=_SHA256)
+    new_comparator_artifact_identity: str = Field(pattern=_SHA256)
+
+
 class CorpusAcceptanceContent(_StrictModel):
     schema_version: Literal[1]
     scope: CandidateScope
@@ -699,6 +1232,7 @@ class CorpusAcceptanceContent(_StrictModel):
     metrics: CandidateMetrics
     gates: CandidateGates
     r101_summary: R101CandidateSummary
+    evidence: CandidateEvidence
     delta_classification: CorpusDeltaClassification
     review_required_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
     content_identity: str = Field(pattern=_SHA256)
@@ -721,6 +1255,7 @@ class CorpusAcceptanceCandidate(_StrictModel):
     metrics: CandidateMetrics
     gates: CandidateGates
     r101_summary: R101CandidateSummary
+    evidence: CandidateEvidence
     delta_classification: CorpusDeltaClassification
     review_required_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
     publication_dry_run: PublicationDryRunEvidence
@@ -730,7 +1265,9 @@ class CorpusAcceptanceCandidate(_StrictModel):
 
     @model_validator(mode="after")
     def _ready_means_mechanically_complete(self) -> Self:
-        ready = _candidate_is_ready(self.delta_classification, self.publication_dry_run)
+        ready = _candidate_is_ready(
+            self.gates, self.delta_classification, self.publication_dry_run
+        )
         if self.status != (
             "ready-for-human-authorization" if ready else "machine-blocked"
         ):
@@ -752,10 +1289,15 @@ class CorpusAcceptanceCandidate(_StrictModel):
 
 
 def _candidate_is_ready(
+    gates: CandidateGates,
     classification: CorpusDeltaClassification,
     dry_run: PublicationDryRunEvidence,
 ) -> bool:
-    return not classification.unexplained_blockers and dry_run.status == "passed"
+    return (
+        gates.all_passed
+        and not classification.unexplained_blockers
+        and dry_run.status == "passed"
+    )
 
 
 def _candidate_content_payload(
@@ -788,7 +1330,7 @@ def finalize_corpus_acceptance_candidate(
         **content.model_dump(exclude={"content_identity"}),
         "status": (
             "ready-for-human-authorization"
-            if _candidate_is_ready(content.delta_classification, dry_run)
+            if _candidate_is_ready(content.gates, content.delta_classification, dry_run)
             else "machine-blocked"
         ),
         "publication_dry_run": dry_run.model_dump(),
@@ -906,4 +1448,477 @@ async def _rerun_fanout_observations(
             )
             for code in concept_codes
         ]
+    )
+
+
+_CERTIFIED_ACCEPTANCE_INPUTS = (
+    "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+    "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+    "tmp/m1-6-current-full-corpus.ttl",
+    "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz",
+    "tmp/m1-6-r101-v5-comparator-qualification.json",
+    "tmp/m1-6-prechange-v4-full-corpus.ttl",
+    "tmp/m1-6-prechange-v4-corpus-baseline.json",
+    "ontolib/src/ontolib/decomposition/data/normalized-group-policy.json",
+    "tmp/m1-6-current-engine-evidence.json",
+    "tmp/m1-6-machine-readiness.json",
+    "tmp/m1-6-primary-site-audit.json",
+    "ontolib/tests/decomposition/golden/proposal-registry.json",
+    "evidence/group-review-packet-26.07d-schema3.json",
+    "evidence/group-review-rationale-26.07d.md",
+    "tmp/m1-6-group-review-decisions.json",
+    "tmp/m1-6-verify-evidence.json",
+    "ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json",
+)
+
+
+def _load_json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_bytes())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise CorpusAcceptanceValidationError(f"{label} is unreadable") from exc
+    if not isinstance(value, dict):
+        raise CorpusAcceptanceValidationError(f"{label} is not an object")
+    return value
+
+
+def _file_identity(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _gate(
+    *,
+    status: Literal["passed", "failed", "blocked"],
+    evidence: Path,
+    observation: object,
+) -> GateEvaluation:
+    return GateEvaluation(
+        status=status,
+        evidence_identity=_file_identity(evidence),
+        observation_identity=_identity(observation),
+    )
+
+
+def _fidelity_passed(quality: object) -> bool:
+    return isinstance(quality, dict) and quality.get("meets_quality_target") is True
+
+
+def _normalized_group_clear(readiness: dict[str, object]) -> bool:
+    semantic_gate = readiness.get("semantic_gate")
+    if not isinstance(semantic_gate, dict):
+        return False
+    entries = semantic_gate.get("entries", [])
+    return any(_is_normalized_group_clear(item) for item in entries)
+
+
+def _is_normalized_group_clear(item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return all(
+        (
+            item.get("kind") == "normalized-group-violation",
+            item.get("status") == "clear",
+        )
+    )
+
+
+def _verify_evidence_is_current(verify: dict[str, object], git_head: str) -> bool:
+    return all(
+        (
+            verify.get("status") == "passed",
+            verify.get("observed_exit_code") == 0,
+            verify.get("git_head") == git_head,
+        )
+    )
+
+
+def _candidate_gates(paths: dict[str, Path], *, git_head: str) -> CandidateGates:
+    primary = _load_json_object(paths["primary_site_audit"], "primary-site audit")
+    readiness = _load_json_object(paths["machine_readiness"], "machine readiness")
+    verify = _load_json_object(paths["gate_liveness"], "gate-liveness evidence")
+    violations = primary.get("cardinality_violations")
+    primary_status = "passed" if violations == [] else "failed"
+    quality = readiness.get("quality_target")
+    fidelity_passed = _fidelity_passed(quality)
+    normalized_clear = _normalized_group_clear(readiness)
+    verify_current = _verify_evidence_is_current(verify, git_head)
+    return CandidateGates(
+        primary_site_cardinality=_gate(
+            status=primary_status,
+            evidence=paths["primary_site_audit"],
+            observation={"cardinality_violations": violations},
+        ),
+        proposal_provenance=_gate(
+            status="passed",
+            evidence=paths["proposal_registry"],
+            observation=_load_json_object(
+                paths["proposal_registry"], "proposal registry"
+            ),
+        ),
+        projection_loss=_gate(
+            status="blocked",
+            evidence=paths["current_evidence"],
+            observation={
+                "reason": "no candidate-bound projection-loss verdict is present"
+            },
+        ),
+        residual=_gate(
+            status="blocked",
+            evidence=paths["baseline"],
+            observation={
+                "reason": "residual count is observed without an acceptance verdict"
+            },
+        ),
+        fidelity=_gate(
+            status="passed" if fidelity_passed else "failed",
+            evidence=paths["machine_readiness"],
+            observation=quality,
+        ),
+        issue_274_detector=_gate(
+            status="passed" if normalized_clear else "failed",
+            evidence=paths["machine_readiness"],
+            observation={"normalized_group_violation_clear": normalized_clear},
+        ),
+        gate_liveness=_gate(
+            status="passed" if verify_current else "blocked",
+            evidence=paths["gate_liveness"],
+            observation={
+                "evidence_git_head": verify.get("git_head"),
+                "candidate_git_head": git_head,
+                "exit_code": verify.get("observed_exit_code"),
+            },
+        ),
+    )
+
+
+class _ValidatedCandidateInputs(_StrictModel):
+    manifest: NcitSiblingStoreManifest
+    baseline: CorpusBaseline
+    report: R101ConservationReport
+    qualification: dict[str, object]
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
+    classification: CorpusDeltaClassification
+    source_artifact_identity: str
+
+
+def _require_candidate_binding(condition: bool, message: str) -> None:
+    if not condition:
+        raise CorpusAcceptanceValidationError(message)
+
+
+def _validate_candidate_inputs(
+    paths: dict[str, Path],
+) -> _ValidatedCandidateInputs:
+    manifest = validate_ncit_sibling_manifest(paths["source_manifest"])
+    baseline = load_corpus_baseline(paths["baseline"])
+    _require_candidate_binding(
+        all(
+            (
+                baseline.scope_root == "C3262",
+                baseline.worklist_count == _CERTIFIED_WORKLIST_COUNT,
+            )
+        ),
+        "certified C3262 baseline differs",
+    )
+    _require_candidate_binding(
+        baseline.source_identity == manifest.source_identity,
+        "baseline source identity differs",
+    )
+    source_artifact_identity = _file_identity(paths["artifact"])
+    _require_candidate_binding(
+        source_artifact_identity == baseline.artifact_identity,
+        "certified artifact identity differs",
+    )
+    report = load_r101_conservation_report(paths["r101_report"])
+    _require_candidate_binding(
+        report.new_run_id == baseline.run_id,
+        "R101 report run binding differs",
+    )
+    _require_candidate_binding(
+        report.new_representation_identity == baseline.representation_identity,
+        "R101 report representation binding differs",
+    )
+    _require_candidate_binding(
+        report.source_identity == baseline.source_identity,
+        "R101 report source binding differs",
+    )
+    qualification = _load_json_object(paths["r101_qualification"], "R101 qualification")
+    _require_candidate_binding(
+        qualification.get("qualification_identity")
+        == report.comparator_qualification_identity,
+        "R101 qualification binding differs",
+    )
+    exclusions = build_review_required_exclusions(
+        paths["review_packet"], paths["rationale"]
+    )
+    classification = classify_corpus_delta(report, exclusions=exclusions)
+    fanout = load_fanout_baseline(
+        paths["fanout"],
+        expected_source_identity=baseline.source_identity,
+        expected_release=baseline.ontology_release,
+    )
+    _require_candidate_binding(
+        fanout.scanned_concept_count == baseline.worklist_count,
+        "fanout baseline scope differs",
+    )
+    return _ValidatedCandidateInputs(
+        manifest=manifest,
+        baseline=baseline,
+        report=report,
+        qualification=qualification,
+        exclusions=exclusions,
+        classification=classification,
+        source_artifact_identity=source_artifact_identity,
+    )
+
+
+async def generate_c3262_acceptance_candidate(
+    root: Path, *, git_head: str | None = None
+) -> dict[str, object]:
+    """Generate the fixed certified candidate; arbitrary run/count claims are absent."""
+    for relative in _CERTIFIED_ACCEPTANCE_INPUTS:
+        if not (root / relative).is_file():
+            raise CorpusAcceptanceValidationError(
+                f"certified acceptance input is absent: {relative}"
+            )
+    if git_head is None or re.fullmatch(r"[0-9a-f]{40}", git_head) is None:
+        raise CorpusAcceptanceValidationError("candidate generator git head is invalid")
+    paths = {
+        "source_manifest": root / _CERTIFIED_ACCEPTANCE_INPUTS[0],
+        "baseline": root / _CERTIFIED_ACCEPTANCE_INPUTS[1],
+        "artifact": root / _CERTIFIED_ACCEPTANCE_INPUTS[2],
+        "r101_report": root / _CERTIFIED_ACCEPTANCE_INPUTS[3],
+        "r101_qualification": root / _CERTIFIED_ACCEPTANCE_INPUTS[4],
+        "old_artifact": root / _CERTIFIED_ACCEPTANCE_INPUTS[5],
+        "old_baseline": root / _CERTIFIED_ACCEPTANCE_INPUTS[6],
+        "policy": root / _CERTIFIED_ACCEPTANCE_INPUTS[7],
+        "current_evidence": root / _CERTIFIED_ACCEPTANCE_INPUTS[8],
+        "machine_readiness": root / _CERTIFIED_ACCEPTANCE_INPUTS[9],
+        "primary_site_audit": root / _CERTIFIED_ACCEPTANCE_INPUTS[10],
+        "proposal_registry": root / _CERTIFIED_ACCEPTANCE_INPUTS[11],
+        "review_packet": root / _CERTIFIED_ACCEPTANCE_INPUTS[12],
+        "rationale": root / _CERTIFIED_ACCEPTANCE_INPUTS[13],
+        "review_decisions": root / _CERTIFIED_ACCEPTANCE_INPUTS[14],
+        "gate_liveness": root / _CERTIFIED_ACCEPTANCE_INPUTS[15],
+        "fanout": root / _CERTIFIED_ACCEPTANCE_INPUTS[16],
+    }
+    validated = _validate_candidate_inputs(paths)
+    manifest = validated.manifest
+    baseline = validated.baseline
+    report = validated.report
+    qualification = validated.qualification
+    exclusions = validated.exclusions
+    classification = validated.classification
+    source_artifact_identity = validated.source_artifact_identity
+    with tempfile.TemporaryDirectory(
+        prefix="c3262-acceptance-", dir=root / "tmp"
+    ) as temporary:
+        staging = Path(temporary)
+        effective_path = staging / "effective-c3262.ttl"
+        effective = build_effective_artifact(
+            source_artifact=paths["artifact"],
+            destination=effective_path,
+            exclusions=exclusions,
+        )
+        evidence = CandidateEvidence(
+            corpus_baseline_identity=baseline.baseline_identity,
+            source_artifact_identity=source_artifact_identity,
+            effective_artifact_evidence_identity=_identity(
+                effective.model_dump(mode="json")
+            ),
+            policy_identity=_file_identity(paths["policy"]),
+            detector_identity=baseline.detector_identity,
+            r101_report_identity=report.report_identity,
+            r101_qualification_identity=str(qualification["qualification_identity"]),
+            primary_site_audit_identity=_file_identity(paths["primary_site_audit"]),
+            proposal_registry_identity=_file_identity(paths["proposal_registry"]),
+            review_packet_identity=_file_identity(paths["review_packet"]),
+            review_decisions_identity=_file_identity(paths["review_decisions"]),
+            gate_liveness_evidence_identity=_file_identity(paths["gate_liveness"]),
+            old_comparator_artifact_identity=_file_identity(paths["old_artifact"]),
+            new_comparator_artifact_identity=source_artifact_identity,
+        )
+        gates = _candidate_gates(paths, git_head=git_head)
+        settings = __import__(
+            "backend.config", fromlist=["get_settings"]
+        ).get_settings()
+        database = __import__("backend.db", fromlist=["make_engine"])
+        provenance_module = __import__(
+            "ontolib.decomposition.provenance", fromlist=["ProvenanceStore"]
+        )
+        client_module = __import__(
+            "ontolib.terminologies.ncit.client", fromlist=["ncit_sparql_client"]
+        )
+        engine = database.make_engine(settings.database_url)
+        store = provenance_module.ProvenanceStore(database.make_sessionmaker(engine))
+        try:
+            run = await store.completed_run_for_evidence(baseline.run_id)
+            aggregate = await store.corpus_baseline_aggregate(baseline.run_id)
+            content_payload = {
+                "schema_version": 1,
+                "scope": CandidateScope(
+                    root="C3262",
+                    version="stated-genus-subclass-v1",
+                    worklist_count=_CERTIFIED_WORKLIST_COUNT,
+                    worklist_identity=_identity(run.fingerprint.worklist),
+                ),
+                "source": CandidateSource(
+                    release=manifest.ontology_version,
+                    source_identity=manifest.source_identity,
+                    stated_artifact_identity=manifest.stated_artifact.artifact_identity,
+                    inferred_artifact_identity=(
+                        manifest.inferred_artifact.artifact_identity
+                    ),
+                    sibling_manifest_identity=_file_identity(paths["source_manifest"]),
+                    extraction_plane="official-stated",
+                ),
+                "execution": CandidateExecution(
+                    run_id=baseline.run_id,
+                    run_fingerprint_identity=baseline.run_fingerprint_identity,
+                    git_head=git_head,
+                    policy_identity=evidence.policy_identity,
+                ),
+                "projection": CandidateProjection(
+                    artifact_sha256=effective.effective_artifact_identity,
+                    representation_identity=effective.effective_artifact_identity,
+                    served_semantic_projection_identity=_identity(
+                        {
+                            "artifact": effective.effective_artifact_identity,
+                            "removed_pairs": effective.removed_pairs,
+                        }
+                    ),
+                    no_equivalence=True,
+                ),
+                "metrics": CandidateMetrics(
+                    worklist_count=baseline.worklist_count,
+                    decomposed_count=baseline.outcome_counts.decomposed,
+                    atomic_noop_count=baseline.outcome_counts.atomic_noop,
+                    residual_count=baseline.outcome_counts.residual,
+                    semantic_excluded_count=baseline.outcome_counts.semantic_excluded,
+                    unknown_count=baseline.outcome_counts.unknown,
+                    source_occurrence_count=baseline.source_occurrence_count,
+                    selected_occurrence_count=baseline.selected_occurrence_count,
+                    emitted_constituent_pair_count=(
+                        baseline.emitted_constituent_pair_count
+                    ),
+                    complete_semantic_fact_count=baseline.complete_semantic_fact_count,
+                    minted_count=baseline.minted_count,
+                ),
+                "gates": gates,
+                "r101_summary": _r101_candidate_summary(report),
+                "evidence": evidence,
+                "delta_classification": classification,
+                "review_required_exclusions": exclusions,
+            }
+            content_identity = _identity(_jsonable(content_payload))
+            content = CorpusAcceptanceContent.model_validate(
+                {**content_payload, "content_identity": content_identity}
+            )
+            async with client_module.ncit_sparql_client(
+                settings.ncit_sparql_url
+            ) as graph:
+                dry_run = await dry_run_corpus_publication(
+                    candidate_content_identity=content.content_identity,
+                    run_id=baseline.run_id,
+                    source_identity=baseline.source_identity,
+                    representation_identity=effective.effective_artifact_identity,
+                    persisted_representation_identity=baseline.representation_identity,
+                    artifact=effective_path,
+                    destination_graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
+                    expected_codes=aggregate.decomposed_codes,
+                    expected_worklist_count=baseline.worklist_count,
+                    graph=graph,
+                    provenance=store,
+                )
+        finally:
+            await database.dispose_engine(engine)
+        candidate = finalize_corpus_acceptance_candidate(content, dry_run)
+        candidate_path = staging / "candidate.json"
+        dry_run_path = staging / "publication-dry-run.json"
+        decision_path = staging / "human-decision.json"
+        candidate_path.write_text(
+            json.dumps(candidate.model_dump(mode="json"), sort_keys=True, indent=2)
+            + "\n"
+        )
+        dry_run_path.write_text(
+            json.dumps(dry_run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+        )
+        write_pending_human_acceptance_decision(
+            decision_path,
+            candidate_identity=candidate.candidate_identity,
+            publication_dry_run_identity=dry_run.evidence_identity,
+        )
+        generator_identity = hashlib.sha256(
+            Path(__file__).read_bytes()
+            + (root / "scripts/validation/run_agent_replay.py").read_bytes()
+        ).hexdigest()
+        artifact_manifest = publish_generation(
+            artifacts_root=root / "tmp/artifacts/v1/generations",
+            family="c3262-corpus-acceptance-candidate",
+            generation_id=candidate.candidate_identity,
+            run_id=baseline.run_id,
+            artifact_sources={
+                "artifacts/candidate.json": candidate_path,
+                "artifacts/effective-c3262.ttl": effective_path,
+                "artifacts/human-decision.json": decision_path,
+                "artifacts/publication-dry-run.json": dry_run_path,
+            },
+            parents=(),
+            generator=GeneratorBinding(
+                identity=f"sha256:{generator_identity}",
+                command=(
+                    "pdm",
+                    "run",
+                    "agent-replay",
+                    "generate-c3262-acceptance-candidate",
+                ),
+            ),
+            sources=tuple(
+                SourceIdentity(
+                    name=name.replace("_", "-"),
+                    identity=f"sha256:{_file_identity(path)}",
+                )
+                for name, path in sorted(paths.items())
+            ),
+            retention=RetentionBinding(
+                retention_class="human-acceptance-candidate",
+                owner="decomposition",
+                expires_at=None,
+            ),
+        )
+    generation = (
+        root
+        / "tmp/artifacts/v1/generations/c3262-corpus-acceptance-candidate"
+        / candidate.candidate_identity
+    )
+    return {
+        "candidate_manifest_path": str(generation / "manifest.json"),
+        "candidate_manifest_identity": artifact_manifest.manifest_identity,
+        "candidate_identity": candidate.candidate_identity,
+        "candidate_status": candidate.status,
+        "category_counts": candidate.delta_classification.category_counts,
+        "unexplained_blocker_count": len(
+            candidate.delta_classification.unexplained_blockers
+        ),
+        "effective_artifact_identity": effective.effective_artifact_identity,
+        "removed_from_effective_count": effective.removed_pair_count,
+        "dry_run_identity": dry_run.evidence_identity,
+        "dry_run_status": dry_run.status,
+        "postgres_before_identity": dry_run.postgres_before_identity,
+        "postgres_after_identity": dry_run.postgres_after_identity,
+        "qlever_before_identity": dry_run.qlever_before_identity,
+        "qlever_after_identity": dry_run.qlever_after_identity,
+    }
+
+
+def _r101_candidate_summary(report: R101ConservationReport) -> R101CandidateSummary:
+    counts = report.counts
+    payload = {
+        "occurrence_count": counts.total,
+        "routed_or_collapsed_or_suppressed_count": counts.total - counts.unresolved,
+        "unresolved_count": counts.unresolved,
+        "causal_attribution": "prohibited",
+    }
+    return R101CandidateSummary.model_validate(
+        {**payload, "occurrence_partition_identity": _identity(payload)}
     )

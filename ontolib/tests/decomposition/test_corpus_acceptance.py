@@ -6,10 +6,13 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from rdflib import Graph, URIRef
+from rdflib import Literal as RdfLiteral
 from scripts.research.group_review_packet import load_historical_group_review_packet
 
 from ontolib.decomposition import corpus_acceptance as corpus_acceptance_module
@@ -21,14 +24,20 @@ from ontolib.decomposition.corpus_acceptance import (
     CorpusAcceptanceContent,
     CorpusAcceptanceValidationError,
     ExcludedPairChange,
+    GateEvaluation,
     PendingHumanAcceptanceDecision,
     PublicationDryRunEvidence,
     ReviewRequiredEffectiveExclusion,
+    build_accepted_publication_artifact,
+    build_effective_artifact,
     build_review_required_exclusions,
     classify_corpus_delta,
     dry_run_corpus_publication,
     finalize_corpus_acceptance_candidate,
+    generate_c3262_acceptance_candidate,
+    load_human_acceptance_decision,
     require_publication_authorization,
+    write_pending_human_acceptance_decision,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -39,6 +48,10 @@ from ontolib.decomposition.r101_conservation import (
     ClassifiedNonR101Delta,
     NonR101MetadataDelta,
     load_r101_conservation_report,
+)
+from ontolib.terminologies.ncit.sibling_store import (
+    NcitSiblingStoreManifest,
+    SiblingStoreValidationError,
 )
 
 GOLDEN = Path(__file__).with_name("golden")
@@ -60,6 +73,32 @@ def _jsonable(value: object) -> object:
     if isinstance(value, (tuple, list)):
         return [_jsonable(item) for item in value]
     return value
+
+
+def _exclusion(
+    *,
+    filler: str = "C2",
+    direction: str = "grouping-disputed",
+) -> ReviewRequiredEffectiveExclusion:
+    return ReviewRequiredEffectiveExclusion.model_validate(
+        {
+            "concept_code": "C1",
+            "pair_changes": (
+                {
+                    "axis": "op:Morphology",
+                    "filler_code": filler,
+                    "comparison_direction": direction,
+                },
+            ),
+            "source_assertion_identities": ("1" * 64,),
+            "evidence_identities": ("2" * 64,),
+            "reason": "unresolved-semantic-ambiguity",
+            "delta": "removed-from-effective",
+            "official_source_preserved": True,
+            "human_approval": False,
+            "nci_approval": False,
+        }
+    )
 
 
 @pytest.fixture(scope="module")
@@ -161,6 +200,399 @@ def test_review_required_exclusions_refuse_missing_target_concept(
 
 
 @pytest.mark.unit
+def test_effective_artifact_withholds_only_exact_excluded_pairs(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    effective = tmp_path / "effective.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#PrimarySite> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C3> ] .\n"
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> <urn:external-axis> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C4> ] .\n"
+        "<urn:unrelated> <urn:predicate> <urn:object> .\n"
+    )
+    source_before = hashlib.sha256(source.read_bytes()).hexdigest()
+    exclusion = ReviewRequiredEffectiveExclusion(
+        concept_code="C1",
+        pair_changes=(
+            ExcludedPairChange(
+                axis="op:Morphology",
+                filler_code="C2",
+                comparison_direction="grouping-disputed",
+            ),
+        ),
+        source_assertion_identities=("1" * 64,),
+        evidence_identities=("2" * 64,),
+        reason="unresolved-semantic-ambiguity",
+        delta="removed-from-effective",
+        official_source_preserved=True,
+        human_approval=False,
+        nci_approval=False,
+    )
+
+    observed = build_effective_artifact(
+        source_artifact=source,
+        destination=effective,
+        exclusions=(exclusion,),
+    )
+
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == source_before
+    assert observed.removed_pair_count == 1
+    assert observed.removed_pairs == (
+        ("C1", "op:Morphology", "C2", "grouping-disputed"),
+    )
+    rendered = effective.read_text()
+    assert "vocab#Morphology" not in rendered
+    assert "vocab#PrimarySite" in rendered
+    assert (
+        observed.effective_artifact_identity
+        == hashlib.sha256(effective.read_bytes()).hexdigest()
+    )
+
+
+@pytest.mark.unit
+def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    destination = tmp_path / "effective.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
+    )
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="lacks exact"):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=destination,
+            exclusions=(_exclusion(filler="C9"),),
+        )
+    with pytest.raises(CorpusAcceptanceValidationError, match="ambiguous"):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=destination,
+            exclusions=(
+                _exclusion(),
+                _exclusion(direction="added-to-candidate"),
+            ),
+        )
+    destination.write_text("already present")
+    with pytest.raises(CorpusAcceptanceValidationError, match="destination exists"):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=destination,
+            exclusions=(_exclusion(),),
+        )
+    destination.unlink()
+    with pytest.raises(
+        CorpusAcceptanceValidationError, match="nonempty effective delta"
+    ):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=destination,
+            exclusions=(_exclusion(filler="C9", direction="missing-from-candidate"),),
+        )
+
+
+def _gate_paths(tmp_path: Path, *, passing: bool) -> dict[str, Path]:
+    payloads: dict[str, object] = {
+        "primary_site_audit": {"cardinality_violations": [] if passing else ["C1"]},
+        "machine_readiness": {
+            "quality_target": {"meets_quality_target": passing},
+            "semantic_gate": {
+                "entries": (
+                    [
+                        {
+                            "kind": "normalized-group-violation",
+                            "status": "clear",
+                        }
+                    ]
+                    if passing
+                    else [None]
+                )
+            },
+        },
+        "gate_liveness": {
+            "status": "passed" if passing else "failed",
+            "observed_exit_code": 0 if passing else 1,
+            "git_head": "a" * 40 if passing else "b" * 40,
+        },
+        "proposal_registry": {"schema_version": 1},
+        "current_evidence": {"schema_version": 1},
+        "baseline": {"schema_version": 1},
+    }
+    paths: dict[str, Path] = {}
+    for name, payload in payloads.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(payload))
+        paths[name] = path
+    return paths
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("passing", [True, False])
+def test_candidate_gates_derive_each_status_from_named_evidence(
+    tmp_path: Path, *, passing: bool
+) -> None:
+    gates = corpus_acceptance_module._candidate_gates(
+        _gate_paths(tmp_path, passing=passing), git_head="a" * 40
+    )
+
+    expected = "passed" if passing else "failed"
+    assert gates.primary_site_cardinality.status == expected
+    assert gates.proposal_provenance.status == "passed"
+    assert gates.projection_loss.status == "blocked"
+    assert gates.residual.status == "blocked"
+    assert gates.fidelity.status == expected
+    assert gates.issue_274_detector.status == expected
+    assert gates.gate_liveness.status == ("passed" if passing else "blocked")
+
+
+@pytest.mark.unit
+def test_candidate_gates_fail_closed_at_each_short_circuit(tmp_path: Path) -> None:
+    paths = _gate_paths(tmp_path, passing=True)
+    paths["machine_readiness"].write_text(
+        json.dumps(
+            {
+                "quality_target": None,
+                "semantic_gate": {
+                    "entries": [
+                        {"kind": "other", "status": "clear"},
+                        {
+                            "kind": "normalized-group-violation",
+                            "status": "blocked",
+                        },
+                    ]
+                },
+            }
+        )
+    )
+    paths["gate_liveness"].write_text(
+        json.dumps({"status": "passed", "observed_exit_code": 1, "git_head": "a" * 40})
+    )
+
+    first = corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
+    assert first.fidelity.status == "failed"
+    assert first.issue_274_detector.status == "failed"
+    assert first.gate_liveness.status == "blocked"
+
+    paths["gate_liveness"].write_text(
+        json.dumps({"status": "passed", "observed_exit_code": 0, "git_head": "b" * 40})
+    )
+    second = corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
+    assert second.gate_liveness.status == "blocked"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("serialized", "message"),
+    [("not-json", "machine readiness is unreadable"), ("[]", "is not an object")],
+)
+def test_candidate_gates_refuse_malformed_source_evidence(
+    tmp_path: Path, serialized: str, message: str
+) -> None:
+    paths = _gate_paths(tmp_path, passing=True)
+    paths["machine_readiness"].write_text(serialized)
+
+    with pytest.raises(CorpusAcceptanceValidationError, match=message):
+        corpus_acceptance_module._candidate_gates(paths, git_head="a" * 40)
+
+
+@pytest.mark.unit
+async def test_candidate_generator_fails_closed_when_certified_inputs_are_absent(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        CorpusAcceptanceValidationError, match="certified acceptance input is absent"
+    ):
+        await generate_c3262_acceptance_candidate(tmp_path)
+
+
+@pytest.mark.unit
+async def test_candidate_generator_refuses_invalid_git_head_after_all_inputs_exist(
+    tmp_path: Path,
+) -> None:
+    for relative in corpus_acceptance_module._CERTIFIED_ACCEPTANCE_INPUTS:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="git head is invalid"):
+        await generate_c3262_acceptance_candidate(tmp_path, git_head="not-a-git-head")
+    with pytest.raises(SiblingStoreValidationError, match="unreadable NCIt sibling"):
+        await generate_c3262_acceptance_candidate(tmp_path, git_head="a" * 40)
+
+
+def _stub_candidate_input_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    baseline,  # type: ignore[no-untyped-def]
+    report,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+    classification,  # type: ignore[no-untyped-def]
+    mismatch: str | None = None,
+) -> dict[str, Path]:
+    manifest_source = "f" * 64 if mismatch == "source" else baseline.source_identity
+    manifest = NcitSiblingStoreManifest.model_construct(source_identity=manifest_source)
+    selected_baseline = (
+        baseline.model_copy(update={"scope_root": "C1"})
+        if mismatch == "scope"
+        else baseline
+    )
+    report_updates = {
+        "report-run": {"new_run_id": "another-run"},
+        "report-representation": {"new_representation_identity": "f" * 64},
+        "report-source": {"source_identity": "f" * 64},
+    }
+    selected_report = report.model_copy(update=report_updates.get(mismatch or "", {}))
+    qualification_identity = (
+        "f" * 64
+        if mismatch == "qualification"
+        else report.comparator_qualification_identity
+    )
+    fanout_count = (
+        baseline.worklist_count - 1 if mismatch == "fanout" else baseline.worklist_count
+    )
+    artifact_identity = (
+        "f" * 64 if mismatch == "artifact" else baseline.artifact_identity
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "validate_ncit_sibling_manifest",
+        lambda _path: manifest,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "load_corpus_baseline",
+        lambda _path: selected_baseline,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "load_r101_conservation_report",
+        lambda _path: selected_report,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "_load_json_object",
+        lambda _path, _label: {"qualification_identity": qualification_identity},
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "build_review_required_exclusions",
+        lambda _packet, _rationale: exclusions,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "classify_corpus_delta",
+        lambda _report, *, exclusions: classification,
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "load_fanout_baseline",
+        lambda *_args, **_kwargs: SimpleNamespace(scanned_concept_count=fanout_count),
+    )
+    monkeypatch.setattr(
+        corpus_acceptance_module,
+        "_file_identity",
+        lambda _path: artifact_identity,
+    )
+    return {
+        name: Path(name)
+        for name in (
+            "source_manifest",
+            "baseline",
+            "artifact",
+            "r101_report",
+            "r101_qualification",
+            "review_packet",
+            "rationale",
+            "fanout",
+        )
+    }
+
+
+@pytest.mark.unit
+def test_candidate_input_validation_accepts_every_exact_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    report,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+    classification,  # type: ignore[no-untyped-def]
+) -> None:
+    baseline = corpus_acceptance_module.load_corpus_baseline(
+        GOLDEN / "neoplasm-current-corpus-baseline.json"
+    )
+    paths = _stub_candidate_input_boundaries(
+        monkeypatch,
+        baseline=baseline,
+        report=report,
+        exclusions=exclusions,
+        classification=classification,
+    )
+
+    validated = corpus_acceptance_module._validate_candidate_inputs(paths)
+
+    assert validated.baseline == baseline
+    assert validated.report == report
+    assert validated.classification == classification
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mismatch", "message"),
+    [
+        ("scope", "certified C3262 baseline differs"),
+        ("source", "baseline source identity differs"),
+        ("artifact", "certified artifact identity differs"),
+        ("report-run", "R101 report run binding differs"),
+        ("report-representation", "R101 report representation binding differs"),
+        ("report-source", "R101 report source binding differs"),
+        ("qualification", "R101 qualification binding differs"),
+        ("fanout", "fanout baseline scope differs"),
+    ],
+)
+def test_candidate_input_validation_refuses_each_cross_binding_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    report,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+    classification,  # type: ignore[no-untyped-def]
+    mismatch: str,
+    message: str,
+) -> None:
+    baseline = corpus_acceptance_module.load_corpus_baseline(
+        GOLDEN / "neoplasm-current-corpus-baseline.json"
+    )
+    paths = _stub_candidate_input_boundaries(
+        monkeypatch,
+        baseline=baseline,
+        report=report,
+        exclusions=exclusions,
+        classification=classification,
+        mismatch=mismatch,
+    )
+
+    with pytest.raises(CorpusAcceptanceValidationError, match=message):
+        corpus_acceptance_module._validate_candidate_inputs(paths)
+
+
+@pytest.mark.unit
 def test_existing_comparison_is_exhaustively_classified_without_causal_overclaim(
     exclusions,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -174,12 +606,11 @@ def test_existing_comparison_is_exhaustively_classified_without_causal_overclaim
     assert result.raw_row_count == 79_393
     assert len(result.classifications) == 40_745
     assert result.category_counts == {
-        "compound-metadata-change": 2_754,
-        "conservative-review-escalation": 2_097,
         "group-identity-rebinding": 35_017,
         "semantic-routing-change": 877,
+        "unexplained-blocker": 4_851,
     }
-    assert result.unexplained_blockers == ()
+    assert len(result.unexplained_blockers) == 4_851
     assert result.causal_attribution == "prohibited"
 
 
@@ -285,6 +716,7 @@ def test_structural_classifier_preserves_distinct_evidence_shapes(
             True,
             "provenance-evidence-binding-refresh",
         ),
+        (("needs_review",), True, "conservative-review-escalation"),
         (("needs_review",), False, "authority-required-review-clearance"),
     ],
 )
@@ -364,9 +796,88 @@ def test_metadata_classifier_routes_only_the_exact_excluded_pair(
     result = classify_corpus_delta(shaped_report, exclusions=(exclusion,))
 
     assert result.category_counts == {"review-required-effective-exclusion": 1}
-    assert (
-        result.classifications[0].evidence_identities == exclusion.evidence_identities
+    assert set(exclusion.evidence_identities) < set(
+        result.classifications[0].evidence_identities
     )
+
+
+@pytest.mark.unit
+def test_exclusion_evidence_does_not_leak_to_another_pair_for_same_concept(
+    report,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+) -> None:
+    evidence = report.non_r101_delta_evidence
+    delta = evidence.metadata_deltas[0]
+    exclusion = exclusions[0].model_copy(
+        update={
+            "concept_code": delta.new.concept_code,
+            "pair_changes": (
+                ExcludedPairChange(
+                    axis="op:AnotherAxis",
+                    filler_code="C1",
+                    comparison_direction="grouping-disputed",
+                ),
+            ),
+        }
+    )
+    shaped = evidence.model_copy(
+        update={
+            "rows": (),
+            "metadata_deltas": (delta,),
+            "classified_rows": (),
+            "raw_typed_delta_count": 2,
+        }
+    )
+
+    result = classify_corpus_delta(
+        report.model_copy(update={"non_r101_delta_evidence": shaped}),
+        exclusions=(exclusion,),
+    )
+
+    assert result.classifications[0].category != ("review-required-effective-exclusion")
+    assert not set(result.classifications[0].evidence_identities).intersection(
+        exclusion.evidence_identities
+    )
+
+
+@pytest.mark.unit
+def test_every_classification_binds_a_named_rule_evidence_and_source(
+    classification,  # type: ignore[no-untyped-def]
+) -> None:
+    assert all(item.rule_name for item in classification.classifications)
+    assert all(item.evidence_identities for item in classification.classifications)
+    assert all(item.source_identities for item in classification.classifications)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("changed_fields", [(), ("not-a-real-field",)])
+def test_metadata_classifier_fails_closed_for_invalid_changed_fields(
+    report,  # type: ignore[no-untyped-def]
+    changed_fields: tuple[str, ...],
+) -> None:
+    evidence = report.non_r101_delta_evidence
+    valid = evidence.metadata_deltas[0]
+    invalid = NonR101MetadataDelta.model_construct(
+        old=valid.old,
+        new=valid.new,
+        changed_fields=changed_fields,
+    )
+    shaped = evidence.model_copy(
+        update={
+            "rows": (),
+            "metadata_deltas": (invalid,),
+            "classified_rows": (),
+            "raw_typed_delta_count": 2,
+        }
+    )
+
+    with pytest.raises(
+        CorpusAcceptanceValidationError, match="metadata changed fields"
+    ):
+        classify_corpus_delta(
+            report.model_copy(update={"non_r101_delta_evidence": shaped}),
+            exclusions=(),
+        )
 
 
 @pytest.mark.unit
@@ -439,6 +950,11 @@ def _dry_run(candidate_content_identity: str = SHA) -> PublicationDryRunEvidence
         "recovery_identity": "e" * 64,
         "postgres_read_verified": True,
         "qlever_read_verified": True,
+        "postgres_before_identity": "1" * 64,
+        "postgres_after_identity": "1" * 64,
+        "qlever_before_identity": "2" * 64,
+        "qlever_after_identity": "2" * 64,
+        "recoverability_status": "passed",
         "publication_writes_performed": False,
     }
     return PublicationDryRunEvidence.model_validate(
@@ -490,17 +1006,52 @@ def _content_payload(
             "served_semantic_projection_identity": "9" * 64,
             "no_equivalence": True,
         },
-        "metrics": {"values": {"represented_concepts": 14_884}},
+        "metrics": {
+            "worklist_count": 15_633,
+            "decomposed_count": 14_884,
+            "atomic_noop_count": 606,
+            "residual_count": 1,
+            "semantic_excluded_count": 3,
+            "unknown_count": 139,
+            "source_occurrence_count": 370_253,
+            "selected_occurrence_count": 108_217,
+            "emitted_constituent_pair_count": 144_231,
+            "complete_semantic_fact_count": 845_825,
+            "minted_count": 2_649,
+        },
         "gates": {
-            "primary_site_cardinality_violations": 0,
-            "proposal_provenance_valid": True,
-            "projection_loss_status": "passed",
-            "residual_status": "passed",
-            "fidelity_status": "passed",
-            "issue_274_detector": "clear",
-            "gate_liveness_identity": "a" * 64,
+            name: {
+                "status": "passed",
+                "evidence_identity": _identity(name),
+                "observation_identity": _identity({"gate": name, "result": "passed"}),
+            }
+            for name in (
+                "primary_site_cardinality",
+                "proposal_provenance",
+                "projection_loss",
+                "residual",
+                "fidelity",
+                "issue_274_detector",
+                "gate_liveness",
+            )
         },
         "r101_summary": r101,
+        "evidence": {
+            "corpus_baseline_identity": "a" * 64,
+            "source_artifact_identity": "b" * 64,
+            "effective_artifact_evidence_identity": "c" * 64,
+            "policy_identity": "d" * 64,
+            "detector_identity": "e" * 64,
+            "r101_report_identity": "f" * 64,
+            "r101_qualification_identity": "1" * 64,
+            "primary_site_audit_identity": "2" * 64,
+            "proposal_registry_identity": "3" * 64,
+            "review_packet_identity": "4" * 64,
+            "review_decisions_identity": "5" * 64,
+            "gate_liveness_evidence_identity": "6" * 64,
+            "old_comparator_artifact_identity": "7" * 64,
+            "new_comparator_artifact_identity": "8" * 64,
+        },
         "delta_classification": classification,
         "review_required_exclusions": exclusions,
     }
@@ -573,6 +1124,121 @@ def test_publication_authorization_requires_exact_accepted_human_decision() -> N
             candidate_identity=SHA,
             dry_run=dry_run,
             decision=pending,
+        )
+
+
+@pytest.mark.unit
+def test_pending_human_decision_file_roundtrips_without_approval(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "decision.json"
+    dry_run = _dry_run()
+    written = write_pending_human_acceptance_decision(
+        path,
+        candidate_identity=SHA,
+        publication_dry_run_identity=dry_run.evidence_identity,
+    )
+
+    assert written.status == "not-requested"
+    assert load_human_acceptance_decision(path) == written
+    assert json.loads(path.read_text())["status"] == "not-requested"
+
+
+@pytest.mark.unit
+def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
+    tmp_path: Path,
+    classification,  # type: ignore[no-untyped-def]
+    exclusions,  # type: ignore[no-untyped-def]
+) -> None:
+    source = tmp_path / "effective.ttl"
+    output = tmp_path / "accepted.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
+    )
+    content = _content(classification, exclusions)
+    dry_run = _dry_run(content.content_identity)
+    pending = PendingHumanAcceptanceDecision(
+        status="not-requested",
+        candidate_identity=SHA,
+        publication_dry_run_identity=dry_run.evidence_identity,
+    )
+    with pytest.raises(
+        CorpusAcceptanceValidationError, match="accepted human decision"
+    ):
+        build_accepted_publication_artifact(
+            source_artifact=source,
+            destination=output,
+            candidate_identity=SHA,
+            dry_run=dry_run,
+            decision=pending,
+            source_release="26.07d",
+            source_identity="1" * 64,
+            run_id="run-1",
+            representation_identity="2" * 64,
+            publication_identity="3" * 64,
+            exclusions=(),
+        )
+
+    accepted = AcceptedHumanAcceptanceDecision(
+        status="accepted",
+        candidate_identity=SHA,
+        publication_dry_run_identity=dry_run.evidence_identity,
+        accountable_authority="Dr Example",
+        decided_at=datetime(2026, 9, 16, tzinfo=UTC),
+        decision_evidence_identity="4" * 64,
+    )
+    build_accepted_publication_artifact(
+        source_artifact=source,
+        destination=output,
+        candidate_identity=SHA,
+        dry_run=dry_run,
+        decision=accepted,
+        source_release="26.07d",
+        source_identity="1" * 64,
+        run_id="run-1",
+        representation_identity="2" * 64,
+        publication_identity="3" * 64,
+        exclusions=(),
+    )
+    graph = Graph().parse(output, format="turtle")
+    subject = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1")
+    assert set(graph.objects(subject, URIRef(vocab.ACCEPTANCE_STATUS))) == {
+        RdfLiteral("accepted-effective")
+    }
+    assert set(graph.objects(subject, URIRef(vocab.ACCEPTANCE_PUBLICATION))) == {
+        RdfLiteral("3" * 64)
+    }
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="destination exists"):
+        build_accepted_publication_artifact(
+            source_artifact=source,
+            destination=output,
+            candidate_identity=SHA,
+            dry_run=dry_run,
+            decision=accepted,
+            source_release="26.07d",
+            source_identity="1" * 64,
+            run_id="run-1",
+            representation_identity="2" * 64,
+            publication_identity="3" * 64,
+            exclusions=(),
+        )
+    malformed = tmp_path / "malformed.ttl"
+    malformed.write_text("not Turtle")
+    with pytest.raises(CorpusAcceptanceValidationError, match="not valid Turtle"):
+        build_accepted_publication_artifact(
+            source_artifact=malformed,
+            destination=tmp_path / "malformed-output.ttl",
+            candidate_identity=SHA,
+            dry_run=dry_run,
+            decision=accepted,
+            source_release="26.07d",
+            source_identity="1" * 64,
+            run_id="run-1",
+            representation_identity="2" * 64,
+            publication_identity="3" * 64,
+            exclusions=(),
         )
 
     accepted = AcceptedHumanAcceptanceDecision(
@@ -740,24 +1406,29 @@ async def test_publication_dry_run_refuses_invalid_or_unbound_artifact(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "gate",
-    ["projection_loss_status", "residual_status", "fidelity_status"],
-)
-def test_candidate_content_refuses_failed_mechanical_gate(
+@pytest.mark.parametrize("gate", ["projection_loss", "residual", "fidelity"])
+def test_failed_mechanical_gate_is_represented_and_blocks_candidate(
     classification,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
     gate: str,
 ) -> None:
     payload = _content_payload(classification, exclusions)
     gates = cast("dict[str, object]", payload["gates"]).copy()
-    gates[gate] = "failed"
+    gates[gate] = {
+        "status": "failed",
+        "evidence_identity": _identity(gate),
+        "observation_identity": _identity({"gate": gate, "result": "failed"}),
+    }
     payload["gates"] = gates
+    content = CorpusAcceptanceContent.model_validate(
+        {**payload, "content_identity": _identity(payload)}
+    )
 
-    with pytest.raises(ValidationError):
-        CorpusAcceptanceContent.model_validate(
-            {**payload, "content_identity": _identity(payload)}
-        )
+    assert isinstance(getattr(content.gates, gate), GateEvaluation)
+    candidate = finalize_corpus_acceptance_candidate(
+        content, _dry_run(content.content_identity)
+    )
+    assert candidate.status == "machine-blocked"
 
 
 @pytest.mark.unit
@@ -790,7 +1461,7 @@ def test_candidate_content_refuses_changed_content_identity(
 
 
 @pytest.mark.unit
-def test_candidate_finalization_reaches_only_pending_human_authorization(
+def test_candidate_finalization_preserves_machine_blockers_without_requesting_human(
     classification,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -800,7 +1471,7 @@ def test_candidate_finalization_reaches_only_pending_human_authorization(
     )
 
     assert isinstance(candidate, CorpusAcceptanceCandidate)
-    assert candidate.status == "ready-for-human-authorization"
+    assert candidate.status == "machine-blocked"
     assert candidate.human_authorization.status == "not-requested"
     assert candidate.candidate_content_identity == content.content_identity
     assert candidate.publication_dry_run.publication_writes_performed is False
@@ -891,7 +1562,7 @@ def test_candidate_refuses_dry_run_bound_to_other_content(
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("status", "machine-blocked", "candidate status differs"),
+        ("status", "ready-for-human-authorization", "candidate status differs"),
         (
             "candidate_content_identity",
             "f" * 64,

@@ -3525,6 +3525,25 @@ def _generate_pre_sme_readiness(
     return 0
 
 
+def _generate_c3262_acceptance_candidate(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "generate-c3262-acceptance-candidate accepts no arguments"
+        )
+    generate = importlib.import_module(
+        "ontolib.decomposition.corpus_acceptance"
+    ).generate_c3262_acceptance_candidate
+    try:
+        git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+        output = asyncio.run(generate(root, git_head=git_head))
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    print(json.dumps(output, sort_keys=True, indent=2))
+    return 0
+
+
 def _run_showcase_operator(root: Path, runner: CommandRunner, *, activate: bool) -> int:
     settings = importlib.import_module("backend.config").Settings()
     client_factory = importlib.import_module(
@@ -4931,6 +4950,7 @@ _OPERATIONS: dict[str, Operation] = {
     "report-r101-current-reuse": _report_r101_current_reuse,
     "audit-primary-sites": _audit_primary_sites,
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
+    "generate-c3262-acceptance-candidate": (_generate_c3262_acceptance_candidate),
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
     "ensure-podman-stack": _ensure_podman_stack,

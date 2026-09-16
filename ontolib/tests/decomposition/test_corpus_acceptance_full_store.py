@@ -11,10 +11,13 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_acceptance import (
+    build_effective_artifact,
+    build_review_required_exclusions,
     dry_run_corpus_publication,
     observe_full_store_acceptance_inputs,
 )
 from ontolib.decomposition.corpus_baseline import load_corpus_baseline
+from ontolib.decomposition.fanout_baseline import load_fanout_baseline
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
@@ -53,8 +56,47 @@ async def test_c3262_scope_source_exclusions_and_highest_fanout_are_exact() -> N
     )
     assert observed.official_source_assertion_count > 0
     assert observed.highest_fanout_codes == ("C9379", "C9423")
-    assert observed.logical_select_count <= 31
-    assert observed.r82_select_count <= 9
+    budget = load_fanout_baseline(
+        root / "ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json",
+        expected_source_identity=(
+            "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+        ),
+        expected_release="26.07d",
+    )
+    assert observed.logical_select_count <= budget.logical_select_count_budget
+    assert observed.r82_select_count <= budget.select_once_r82_count_budget
+
+
+@pytest.mark.full_store
+def test_effective_artifact_removes_exact_disputed_pairs_without_source_mutation(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).parents[3]
+    source = root / "tmp/m1-6-current-full-corpus.ttl"
+    source_before = source.read_bytes()
+    exclusions = build_review_required_exclusions(
+        root / "evidence/group-review-packet-26.07d-schema3.json",
+        root / "evidence/group-review-rationale-26.07d.md",
+    )
+
+    observed = build_effective_artifact(
+        source_artifact=source,
+        destination=tmp_path / "effective.ttl",
+        exclusions=exclusions,
+    )
+
+    assert source.read_bytes() == source_before
+    assert (
+        0
+        < observed.removed_pair_count
+        <= sum(len(item.pair_changes) for item in exclusions)
+    )
+    assert {item[0] for item in observed.removed_pairs} == {
+        "C102870",
+        "C198031",
+        "C27262",
+        "C35756",
+    }
 
 
 @pytest.mark.full_store

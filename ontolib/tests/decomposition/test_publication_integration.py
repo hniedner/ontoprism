@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import hashlib
+import json
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -13,7 +15,14 @@ import pytest
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
-from ontolib.decomposition.corpus_acceptance import dry_run_corpus_publication
+from ontolib.decomposition.corpus_acceptance import (
+    AcceptedHumanAcceptanceDecision,
+    ExcludedPairChange,
+    PublicationDryRunEvidence,
+    ReviewRequiredEffectiveExclusion,
+    build_accepted_publication_artifact,
+    dry_run_corpus_publication,
+)
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -26,6 +35,12 @@ from ontolib.decomposition.publication import (
     read_publication_marker,
     staging_graph_iri,
 )
+from ontolib.decomposition.read import decomposition_from_rows
+from ontolib.decomposition.read_models import (
+    AcceptedEffectiveProjection,
+    ReviewRequiredExcludedProjection,
+)
+from ontolib.decomposition.read_queries import build_decomposition_query
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
@@ -48,6 +63,36 @@ _CONCURRENT_RUN_IDS = (
 )
 
 
+def _accepted_metadata_dry_run() -> PublicationDryRunEvidence:
+    payload = {
+        "schema_version": 1,
+        "status": "passed",
+        "candidate_content_identity": "9" * 64,
+        "predecessor_marker_identity": "8" * 64,
+        "destination_graph_iri": _PUBLIC,
+        "artifact_identity": "7" * 64,
+        "run_id": _RUN_ID,
+        "expected_concept_count": 2,
+        "represented_concept_count": 2,
+        "marker_protocol_identity": "6" * 64,
+        "recovery_identity": "5" * 64,
+        "postgres_read_verified": True,
+        "qlever_read_verified": True,
+        "postgres_before_identity": "4" * 64,
+        "postgres_after_identity": "4" * 64,
+        "qlever_before_identity": "3" * 64,
+        "qlever_after_identity": "3" * 64,
+        "recoverability_status": "passed",
+        "publication_writes_performed": False,
+    }
+    identity = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return PublicationDryRunEvidence.model_validate(
+        {**payload, "evidence_identity": identity}
+    )
+
+
 async def _put_graph(url: str, graph: str, turtle: str) -> None:
     async with httpx.AsyncClient() as client:
         response = await client.put(
@@ -57,6 +102,76 @@ async def _put_graph(url: str, graph: str, turtle: str) -> None:
             headers={"Content-Type": "text/turtle"},
         )
     response.raise_for_status()
+
+
+@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
+async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
+    isolated_qlever_url: str,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "effective.ttl"
+    accepted = tmp_path / "accepted.ttl"
+    source.write_text(
+        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
+        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> "
+        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
+    )
+    dry_run = _accepted_metadata_dry_run()
+    decision = AcceptedHumanAcceptanceDecision(
+        status="accepted",
+        candidate_identity="9" * 64,
+        publication_dry_run_identity=dry_run.evidence_identity,
+        accountable_authority="Integration test authority",
+        decided_at=datetime.datetime(2026, 9, 16, tzinfo=datetime.UTC),
+        decision_evidence_identity="2" * 64,
+    )
+    exclusion = ReviewRequiredEffectiveExclusion(
+        concept_code="C2",
+        pair_changes=(
+            ExcludedPairChange(
+                axis="op:Morphology",
+                filler_code="C3",
+                comparison_direction="grouping-disputed",
+            ),
+        ),
+        source_assertion_identities=("1" * 64,),
+        evidence_identities=("2" * 64,),
+        reason="unresolved-semantic-ambiguity",
+        delta="removed-from-effective",
+        official_source_preserved=True,
+        human_approval=False,
+        nci_approval=False,
+    )
+    build_accepted_publication_artifact(
+        source_artifact=source,
+        destination=accepted,
+        candidate_identity="9" * 64,
+        dry_run=dry_run,
+        decision=decision,
+        source_release="26.07d",
+        source_identity="1" * 64,
+        run_id=_RUN_ID,
+        representation_identity="7" * 64,
+        publication_identity="6" * 64,
+        exclusions=(exclusion,),
+    )
+    await _put_graph(isolated_qlever_url, _PUBLIC, accepted.read_text())
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        accepted_rows = await client.select_once(
+            build_decomposition_query("C1"), required_variables={"status"}
+        )
+        excluded_rows = await client.select_once(
+            build_decomposition_query("C2"), required_variables={"status"}
+        )
+
+    accepted_model = decomposition_from_rows("C1", accepted_rows)
+    excluded_model = decomposition_from_rows("C2", excluded_rows)
+    assert isinstance(accepted_model.acceptance, AcceptedEffectiveProjection)
+    assert isinstance(excluded_model.acceptance, ReviewRequiredExcludedProjection)
+    assert excluded_model.acceptance.official_source_preserved is True
+    assert excluded_model.acceptance.exclusion_summary
 
 
 async def _update(url: str, statement: str) -> httpx.Response:

@@ -545,13 +545,24 @@ Issue #127's successor authority is the typed immutable `CorpusAcceptanceCandida
 pre-SME report below remains historical machine input and is no longer the final go/no-go authority.
 The candidate is restricted to the certified 15,633-concept C3262 neoplasm scope, never described as
 all NCIt. It exhaustively classifies each 8fb→cd4b structural and metadata change object, records the
-four exact evidence-bound `review-required` effective exclusions, and can reach
-`ready-for-human-authorization` only after a no-write PostgreSQL/QLever publication dry-run. Its
-human authorization state remains `not-requested`; publication refuses any decision that is not an
-exact accepted human decision binding both candidate and dry-run identity (`pdm run agent-test
+four exact evidence-bound `review-required` effective exclusions, and remains `machine-blocked`
+while any classifier or mechanical-gate blocker exists. A future candidate can reach
+`ready-for-human-authorization` only after all blockers clear and a no-write PostgreSQL/QLever
+publication dry-run passes. Human authorization remains `not-requested`; publication refuses any
+decision that is not an exact accepted human decision binding both candidate and dry-run identity (`pdm run agent-test
 ontolib/tests/decomposition/test_corpus_acceptance.py -v` and `pdm run agent-test --full-store
 ontolib/tests/decomposition/test_corpus_acceptance_full_store.py -v`, 2026-09-16). No publication or
 human acceptance is recorded here.
+
+Generate the fixed candidate, source-derived effective artifact, no-write dry-run evidence, and
+pending decision document from the complete certified input set with:
+
+```bash
+pdm run agent-replay generate-c3262-acceptance-candidate
+```
+
+The operation accepts no caller-supplied run, count, or identity claims and emits no accepted or
+published artifact (`pdm run agent-test backend/tests/test_agent_replay.py -v`, 2026-09-16).
 
 Capture the exact verification gate only from a clean worktree with the valid rootless
 `ontoprism-vm` running and the selected Docker context set to `ontoprism-podman` at that

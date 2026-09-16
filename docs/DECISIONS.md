@@ -35,13 +35,15 @@ page cited in D87 corroborates only its stated modelling distinction and does no
 OntoPrism exclusions.
 
 The 8fb→cd4b comparator inventory is mechanically total: 2,097 structural objects and 38,648
-metadata objects account for 79,393 raw rows exactly once. Its evidence-supported categories are
-2,097 conservative review escalations, 35,017 group identity rebindings, 877 semantic routing
-changes, and 2,754 compound metadata changes; causal attribution to R101 remains prohibited
+metadata objects account for 79,393 raw rows exactly once. The classifier identifies 35,017 group
+identity rebindings, 877 semantic routing changes, and 4,851 unexplained blockers; it does not turn
+review flags or compound field differences into causal explanations. Causal attribution to R101
+remains prohibited
 (`pdm run agent-test ontolib/tests/decomposition/test_corpus_acceptance.py::test_existing_comparison_is_exhaustively_classified_without_causal_overclaim
 -v`, 2026-09-16). Mechanical completeness is not scientific acceptance. Final acceptance and
 publication authorization remain an accountable human decision bound to the exact candidate and
-dry-run identities; no request is created by the mechanical candidate.
+dry-run identities; any unexplained blocker keeps the candidate machine-blocked, and no request is
+created by the mechanical candidate.
 
 ## 2026-09-14 — normalized relationship groups remain source-bound and review-scoped
 

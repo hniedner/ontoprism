@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import os
 import tempfile
+import typing
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
@@ -419,7 +420,10 @@ async def _replace_graph(
     predecessor: PublicationMarker | None,
 ) -> None:
     current = await read_publication_marker(client)
-    if current not in (marker, predecessor):
+    decision = publication_recovery_decision(
+        current=current, intent=marker, predecessor=predecessor
+    )
+    if decision == "blocked":
         raise PublicationValidationError(
             "public decomposition marker is neither this publication intent nor "
             "its persisted predecessor: "
@@ -442,6 +446,20 @@ async def _replace_graph(
         if current != marker and await _replacement_committed(client, marker, original):
             return
         raise
+
+
+def publication_recovery_decision(
+    *,
+    current: PublicationMarker | None,
+    intent: PublicationMarker,
+    predecessor: PublicationMarker | None,
+) -> typing.Literal["apply", "already-committed", "blocked"]:
+    """Return the same fail-closed reconciliation decision used by publication."""
+    if current == intent:
+        return "already-committed"
+    if current == predecessor:
+        return "apply"
+    return "blocked"
 
 
 async def _replacement_committed(

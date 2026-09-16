@@ -926,6 +926,18 @@ def test_group_review_registry_keeps_only_immutable_candidate_operation(
 
 
 @pytest.mark.unit
+def test_c3262_acceptance_candidate_has_a_fixed_replay_operation(
+    tmp_path: Path,
+) -> None:
+    assert "generate-c3262-acceptance-candidate" in replay._OPERATIONS
+    with pytest.raises(
+        AgentReplayInputError,
+        match="generate-c3262-acceptance-candidate accepts no arguments",
+    ):
+        run_agent_replay(["generate-c3262-acceptance-candidate", "arbitrary"], tmp_path)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("operation", "activate"),
     [
