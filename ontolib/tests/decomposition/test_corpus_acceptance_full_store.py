@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -85,11 +87,35 @@ def test_effective_artifact_removes_exact_disputed_pairs_without_source_mutation
         source_artifact=source,
         destination=tmp_path / "effective.ttl",
         exclusions=exclusions,
+        expected_minted_count=2_649,
+        proposal_registry=(
+            root / "ontolib/tests/decomposition/golden/proposal-registry.json"
+        ),
+        proposal_registry_migration=(
+            root / "ontolib/tests/decomposition/golden/"
+            "proposal-registry-schema2-migration.json"
+        ),
+        candidate_source_identity=(
+            "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+        ),
     )
 
     assert source.read_bytes() == source_before
     assert observed.removed_pair_count == 27
     assert observed.non_emitted_pair_count == 3
+    assert observed.proposal_delta.original_emitted_count == 2_649
+    assert observed.proposal_delta.removed_unreconciled_count == 2_649
+    assert len(observed.proposal_delta.distinct_proposal_ids) == 219
+    assert hashlib.sha256(
+        json.dumps(
+            observed.proposal_delta.distinct_proposal_ids,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest() == (
+        "7fae9f74ed28639f0d69dc467cef346d2745fbc63b3f09715f3576aee2335f65"
+    )
+    assert observed.proposal_delta.registry_intersection == ()
+    assert observed.proposal_delta.unreconciled_emitted_count == 0
     assert {
         (item.concept_code, item.axis, item.filler_code)
         for item in observed.non_emitted_pairs

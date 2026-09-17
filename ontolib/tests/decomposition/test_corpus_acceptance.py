@@ -127,6 +127,39 @@ def _exclusion(
     )
 
 
+def _proposal_build_kwargs(expected_minted_count: int = 0) -> dict[str, object]:
+    return {
+        "expected_minted_count": expected_minted_count,
+        "proposal_registry": GOLDEN / "proposal-registry.json",
+        "proposal_registry_migration": (
+            GOLDEN / "proposal-registry-schema2-migration.json"
+        ),
+        "candidate_source_identity": (
+            "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+        ),
+    }
+
+
+def _empty_proposal_delta():  # type: ignore[no-untyped-def]
+    binding = corpus_acceptance_module.build_historical_proposal_registry_binding(
+        registry_path=GOLDEN / "proposal-registry.json",
+        migration_path=GOLDEN / "proposal-registry-schema2-migration.json",
+        candidate_source_identity=(
+            "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+        ),
+    )
+    return corpus_acceptance_module.EffectiveProposalDelta(
+        registry=binding,
+        original_emitted_count=0,
+        removed_unreconciled_count=0,
+        unreconciled_emitted_count=0,
+        accepted_without_evidence_count=0,
+        distinct_proposal_ids=(),
+        registry_intersection=(),
+        removed_assertions=(),
+    )
+
+
 @pytest.fixture(scope="module")
 def exclusions():  # type: ignore[no-untyped-def]
     return build_review_required_exclusions(
@@ -303,6 +336,7 @@ def test_effective_artifact_distinguishes_removed_and_non_emitted_liveness(
         source_artifact=source,
         destination=tmp_path / "effective.ttl",
         exclusions=(exclusion,),
+        **_proposal_build_kwargs(),  # type: ignore[arg-type]
     )
 
     assert evidence.removed_pair_count == 1
@@ -311,6 +345,86 @@ def test_effective_artifact_distinguishes_removed_and_non_emitted_liveness(
     assert evidence.removed_pairs[0].output_present is False
     assert evidence.non_emitted_pairs[0].input_present is False
     assert evidence.non_emitted_pairs[0].output_present is False
+
+
+@pytest.mark.unit
+def test_effective_artifact_semantically_quarantines_every_mint_assertion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    effective = tmp_path / "effective.ttl"
+    source.write_text(
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#Morphology> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> ] .\n"
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#StageSystem> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        "<https://w3id.org/ontoprism/vocab#MINT-deadbeef1234> ] .\n"
+    )
+    source_before = source.read_bytes()
+
+    observed = build_effective_artifact(
+        source_artifact=source,
+        destination=effective,
+        exclusions=(_exclusion(),),
+        **_proposal_build_kwargs(1),  # type: ignore[arg-type]
+    )
+
+    assert source.read_bytes() == source_before
+    assert "MINT-" not in effective.read_text()
+    assert observed.proposal_delta.original_emitted_count == 1
+    assert observed.proposal_delta.removed_unreconciled_count == 1
+    assert observed.proposal_delta.unreconciled_emitted_count == 0
+    assert observed.proposal_delta.accepted_without_evidence_count == 0
+    assert observed.proposal_delta.removed_assertions[0].disposition == (
+        "excluded-unreconciled"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["malformed", "duplicate"])
+def test_proposal_inventory_fails_closed_for_malformed_or_duplicate_assertion(
+    tmp_path: Path, failure: str
+) -> None:
+    filler = "MINT-not-valid" if failure == "malformed" else "MINT-deadbeef1234"
+    mint_line = (
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
+        "<https://w3id.org/ontoprism/vocab#hasConstituent> "
+        "[<https://w3id.org/ontoprism/vocab#axis> "
+        "<https://w3id.org/ontoprism/vocab#StageSystem> ; "
+        "<https://w3id.org/ontoprism/vocab#filler> "
+        f"<https://w3id.org/ontoprism/vocab#{filler}> ] .\n"
+    )
+    source = tmp_path / "source.ttl"
+    source.write_text(mint_line + (mint_line if failure == "duplicate" else ""))
+
+    with pytest.raises(CorpusAcceptanceValidationError, match=failure):
+        corpus_acceptance_module.enumerate_mint_assertions(source.read_bytes())
+
+
+@pytest.mark.unit
+def test_historical_registry_source_mismatch_is_bound_observation_not_failure() -> None:
+    binding = corpus_acceptance_module.build_historical_proposal_registry_binding(
+        registry_path=GOLDEN / "proposal-registry.json",
+        migration_path=GOLDEN / "proposal-registry-schema2-migration.json",
+        candidate_source_identity=(
+            "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+        ),
+    )
+
+    assert binding.registry_schema_version == 2
+    assert binding.proposal_count == 7
+    assert binding.status_counts == {"locally-approved": 2, "proposed": 5}
+    assert binding.accepted_in_ncit_count == 0
+    assert binding.no_adoption_evidence is True
+    assert binding.source_mismatch_observed is True
+    assert binding.reconciliation_envelope_available is False
 
 
 @pytest.mark.unit
@@ -373,6 +487,7 @@ def test_effective_artifact_rejects_false_pair_dispositions(
             source_artifact=source,
             destination=tmp_path / "effective.ttl",
             exclusions=(exclusion,),
+            **_proposal_build_kwargs(),  # type: ignore[arg-type]
         )
 
 
@@ -436,6 +551,7 @@ def test_effective_artifact_withholds_only_exact_excluded_pairs(
         source_artifact=source,
         destination=effective,
         exclusions=(exclusion,),
+        **_proposal_build_kwargs(),  # type: ignore[arg-type]
     )
 
     assert hashlib.sha256(source.read_bytes()).hexdigest() == source_before
@@ -478,6 +594,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
             source_artifact=source,
             destination=destination,
             exclusions=(_exclusion(filler="C9"),),
+            **_proposal_build_kwargs(),  # type: ignore[arg-type]
         )
     with pytest.raises(CorpusAcceptanceValidationError, match="ambiguous"):
         build_effective_artifact(
@@ -487,6 +604,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
                 _exclusion(),
                 _exclusion(relation="added-to-candidate"),
             ),
+            **_proposal_build_kwargs(),  # type: ignore[arg-type]
         )
     destination.write_text("already present")
     with pytest.raises(CorpusAcceptanceValidationError, match="destination exists"):
@@ -494,6 +612,7 @@ def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
             source_artifact=source,
             destination=destination,
             exclusions=(_exclusion(),),
+            **_proposal_build_kwargs(),  # type: ignore[arg-type]
         )
 
 
@@ -564,10 +683,8 @@ def test_candidate_gates_derive_each_status_from_named_evidence(
     gates = corpus_acceptance_module._candidate_gates(
         _gate_paths(tmp_path, passing=passing),
         git_head="a" * 40,
-        source_identity=(
-            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
-        ),
         roundtrip_fidelity=None,
+        proposal_delta=_empty_proposal_delta(),
     )
 
     expected = "passed" if passing else "failed"
@@ -610,10 +727,8 @@ def test_candidate_gates_fail_closed_at_each_short_circuit(tmp_path: Path) -> No
     first = corpus_acceptance_module._candidate_gates(
         paths,
         git_head="a" * 40,
-        source_identity=(
-            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
-        ),
         roundtrip_fidelity=None,
+        proposal_delta=_empty_proposal_delta(),
     )
     assert first.fidelity.status == "unavailable"
     assert first.issue_274_detector.status == "failed"
@@ -625,10 +740,8 @@ def test_candidate_gates_fail_closed_at_each_short_circuit(tmp_path: Path) -> No
     second = corpus_acceptance_module._candidate_gates(
         paths,
         git_head="a" * 40,
-        source_identity=(
-            "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
-        ),
         roundtrip_fidelity=None,
+        proposal_delta=_empty_proposal_delta(),
     )
     assert second.verify_currency.status == "blocked"
 
@@ -648,10 +761,8 @@ def test_candidate_gates_refuse_malformed_source_evidence(
         corpus_acceptance_module._candidate_gates(
             paths,
             git_head="a" * 40,
-            source_identity=(
-                "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
-            ),
             roundtrip_fidelity=None,
+            proposal_delta=_empty_proposal_delta(),
         )
 
 
@@ -1351,12 +1462,14 @@ def _content_payload(
             "r101_qualification_identity": "1" * 64,
             "primary_site_audit_identity": "2" * 64,
             "proposal_registry_identity": "3" * 64,
+            "proposal_registry_migration_identity": "0" * 64,
             "review_packet_identity": "4" * 64,
             "review_decisions_identity": "5" * 64,
             "gate_liveness_evidence_identity": "6" * 64,
             "old_comparator_artifact_identity": "7" * 64,
             "new_comparator_artifact_identity": "8" * 64,
         },
+        "proposal_delta": _empty_proposal_delta(),
         "delta_classification": classification,
         "review_required_exclusions": exclusions,
     }

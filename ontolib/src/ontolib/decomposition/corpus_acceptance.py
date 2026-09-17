@@ -7,6 +7,7 @@ publish a corpus, and it never mutates PostgreSQL, QLever, or the official NCIt 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import re
@@ -14,7 +15,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated, Literal, Protocol, Self
+from typing import Annotated, Literal, Protocol, Self, overload
 
 from pydantic import (
     AwareDatetime,
@@ -49,6 +50,11 @@ from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
     load_proposal_registry,
+)
+from ontolib.decomposition.proposal_registry_migration import (
+    ProposalRegistryMigrationError,
+    load_proposal_registry_migration_envelope,
+    validate_migrated_proposal_registry,
 )
 from ontolib.decomposition.provenance_models import (
     CompletedRunForEvidence,
@@ -400,6 +406,82 @@ class EffectivePairDispositionEvidence(_StrictModel):
     output_present: bool
 
 
+class MintProposalAssertion(_StrictModel):
+    subject_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    proposal_id: str = Field(pattern=r"^MINT-[0-9a-f]{12}$")
+    source_line_identity: str = Field(pattern=_SHA256)
+    assertion_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        expected = _identity(
+            self.model_dump(mode="json", exclude={"assertion_identity"})
+        )
+        if self.assertion_identity != expected:
+            raise ValueError("MINT assertion identity differs")
+        return self
+
+
+class HistoricalProposalRegistryBinding(_StrictModel):
+    registry_schema_version: Literal[2]
+    registry_identity: str = Field(pattern=_SHA256)
+    registry_file_identity: str = Field(pattern=_SHA256)
+    registry_source_identity: str = Field(pattern=_SHA256)
+    registry_release: str = Field(min_length=1)
+    migration_envelope_identity: str = Field(pattern=_SHA256)
+    migration_file_identity: str = Field(pattern=_SHA256)
+    proposal_count: Literal[7]
+    status_counts: dict[Literal["locally-approved", "proposed"], int]
+    accepted_in_ncit_count: Literal[0]
+    no_adoption_evidence: Literal[True]
+    registered_proposal_ids: tuple[str, ...] = Field(min_length=1)
+    candidate_source_identity: str = Field(pattern=_SHA256)
+    source_mismatch_observed: bool
+    reconciliation_envelope_available: Literal[False]
+
+    @model_validator(mode="after")
+    def _source_observation_matches(self) -> Self:
+        if self.source_mismatch_observed != (
+            self.registry_source_identity != self.candidate_source_identity
+        ):
+            raise ValueError("proposal registry source mismatch observation differs")
+        if self.status_counts != {"locally-approved": 2, "proposed": 5}:
+            raise ValueError("historical proposal lifecycle counts differ")
+        return self
+
+
+class ExcludedUnreconciledProposal(_StrictModel):
+    assertion: MintProposalAssertion
+    disposition: Literal["excluded-unreconciled"]
+    registry_record_present: bool
+    transfer_or_reconciliation_inferred: Literal[False]
+
+
+class EffectiveProposalDelta(_StrictModel):
+    registry: HistoricalProposalRegistryBinding
+    original_emitted_count: int = Field(ge=0)
+    removed_unreconciled_count: int = Field(ge=0)
+    unreconciled_emitted_count: Literal[0]
+    accepted_without_evidence_count: Literal[0]
+    distinct_proposal_ids: tuple[str, ...]
+    registry_intersection: tuple[str, ...]
+    removed_assertions: tuple[ExcludedUnreconciledProposal, ...]
+
+    @model_validator(mode="after")
+    def _inventory_is_exhaustive(self) -> Self:
+        if self.original_emitted_count != len(self.removed_assertions):
+            raise ValueError("proposal assertion inventory is not exhaustive")
+        if self.removed_unreconciled_count != self.original_emitted_count:
+            raise ValueError("unreconciled proposal removal count differs")
+        observed_ids = tuple(
+            sorted({item.assertion.proposal_id for item in self.removed_assertions})
+        )
+        if self.distinct_proposal_ids != observed_ids:
+            raise ValueError("distinct proposal identifier inventory differs")
+        return self
+
+
 class EffectiveArtifactEvidence(_StrictModel):
     source_artifact_identity: str = Field(pattern=_SHA256)
     effective_artifact_identity: str = Field(pattern=_SHA256)
@@ -407,7 +489,146 @@ class EffectiveArtifactEvidence(_StrictModel):
     non_emitted_pair_count: int = Field(ge=0)
     removed_pairs: tuple[EffectivePairDispositionEvidence, ...] = Field(min_length=1)
     non_emitted_pairs: tuple[EffectivePairDispositionEvidence, ...]
+    proposal_delta: EffectiveProposalDelta
     source_artifact_preserved: Literal[True]
+
+
+def build_historical_proposal_registry_binding(
+    *,
+    registry_path: Path,
+    migration_path: Path,
+    candidate_source_identity: str,
+) -> HistoricalProposalRegistryBinding:
+    """Validate immutable historical governance without rebinding its source."""
+    try:
+        migration = load_proposal_registry_migration_envelope(migration_path)
+        registry = validate_migrated_proposal_registry(migration, registry_path)
+    except (OSError, ValueError, ProposalRegistryMigrationError) as exc:
+        raise CorpusAcceptanceValidationError(
+            "historical proposal registry binding is invalid"
+        ) from exc
+    statuses = Counter(item.status for item in registry.proposals)
+    accepted = statuses.get("accepted-in-ncit", 0)
+    no_adoption = all(item.adoption_evidence is None for item in registry.proposals)
+    try:
+        return HistoricalProposalRegistryBinding.model_validate(
+            {
+                "registry_schema_version": registry.schema_version,
+                "registry_identity": registry.registry_identity,
+                "registry_file_identity": hashlib.sha256(
+                    registry_path.read_bytes()
+                ).hexdigest(),
+                "registry_source_identity": registry.source_identity,
+                "registry_release": registry.ontology_version,
+                "migration_envelope_identity": migration.envelope_identity,
+                "migration_file_identity": hashlib.sha256(
+                    migration_path.read_bytes()
+                ).hexdigest(),
+                "proposal_count": len(registry.proposals),
+                "status_counts": dict(sorted(statuses.items())),
+                "accepted_in_ncit_count": accepted,
+                "no_adoption_evidence": no_adoption,
+                "registered_proposal_ids": tuple(
+                    sorted(
+                        item.id
+                        for item in registry.proposals
+                        if item.id.startswith("MINT-")
+                    )
+                ),
+                "candidate_source_identity": candidate_source_identity,
+                "source_mismatch_observed": (
+                    registry.source_identity != candidate_source_identity
+                ),
+                "reconciliation_envelope_available": False,
+            }
+        )
+    except ValidationError as exc:
+        raise CorpusAcceptanceValidationError(
+            "historical proposal registry lifecycle is invalid"
+        ) from exc
+
+
+def enumerate_mint_assertions(artifact: bytes) -> tuple[MintProposalAssertion, ...]:
+    """Semantically parse every proposal-shaped Turtle statement in the artifact."""
+    assertions: list[MintProposalAssertion] = []
+    keys: set[tuple[str, str, str]] = set()
+    for line in io.BytesIO(artifact):
+        if b"MINT" not in line:
+            continue
+        assertion = _semantic_mint_assertion(line)
+        key = (assertion.subject_code, assertion.axis, assertion.proposal_id)
+        if key in keys:
+            raise CorpusAcceptanceValidationError("duplicate MINT assertion")
+        keys.add(key)
+        assertions.append(assertion)
+    return tuple(sorted(assertions, key=lambda item: item.assertion_identity))
+
+
+def _semantic_mint_assertion(line: bytes) -> MintProposalAssertion:
+    graph = Graph()
+    try:
+        graph.parse(data=line.decode("utf-8"), format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped Turtle statement"
+        ) from exc
+    subject, axis_node, filler_node = _single_mint_candidate(graph)
+    payload = _mint_assertion_payload(subject, axis_node, filler_node, line)
+    return MintProposalAssertion(
+        **payload,
+        assertion_identity=_identity(payload),  # type: ignore[arg-type]
+    )
+
+
+def _single_mint_candidate(graph: Graph) -> tuple[Node, Node, Node]:
+    candidates: list[tuple[Node, Node, Node]] = []
+    has_constituent = URIRef(vocab.HAS_CONSTITUENT)
+    axis_predicate = URIRef(vocab.AXIS)
+    filler_predicate = URIRef(vocab.FILLER)
+    for subject, constituent in graph.subject_objects(has_constituent):
+        for axis in graph.objects(constituent, axis_predicate):
+            for filler in graph.objects(constituent, filler_predicate):
+                if "MINT" in str(filler):
+                    candidates.append((subject, axis, filler))
+    if len(candidates) != 1:
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped constituent assertion"
+        )
+    return candidates[0]
+
+
+def _mint_assertion_payload(
+    subject: Node, axis_node: Node, filler_node: Node, line: bytes
+) -> dict[str, str]:
+    subject_code = str(subject).removeprefix(NCIT_NS)
+    axis_iri = str(axis_node)
+    axis = (
+        f"op:{axis_iri.removeprefix(vocab.ONTOPRISM_NS)}"
+        if axis_iri.startswith(vocab.ONTOPRISM_NS)
+        else axis_iri
+    )
+    filler_iri = str(filler_node)
+    proposal_id = filler_iri.removeprefix(vocab.ONTOPRISM_NS)
+    valid = all(
+        (
+            re.fullmatch(_CODE, subject_code) is not None,
+            axis.startswith("op:"),
+            filler_iri.startswith(vocab.ONTOPRISM_NS),
+            re.fullmatch(r"MINT-[0-9a-f]{12}", proposal_id) is not None,
+        )
+    )
+    if not valid:
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped constituent assertion"
+        )
+    source_line_identity = hashlib.sha256(line).hexdigest()
+    payload = {
+        "subject_code": subject_code,
+        "axis": axis,
+        "proposal_id": proposal_id,
+        "source_line_identity": source_line_identity,
+    }
+    return payload
 
 
 _CONSTITUENT_LINE = re.compile(
@@ -424,12 +645,30 @@ def build_effective_artifact(
     source_artifact: Path,
     destination: Path,
     exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+    expected_minted_count: int,
+    proposal_registry: Path,
+    proposal_registry_migration: Path,
+    candidate_source_identity: str,
 ) -> EffectiveArtifactEvidence:
     """Write a source-derived artifact with only exact disputed pairs withheld."""
     source = source_artifact.read_bytes()
     source_identity = hashlib.sha256(source).hexdigest()
+    registry = build_historical_proposal_registry_binding(
+        registry_path=proposal_registry,
+        migration_path=proposal_registry_migration,
+        candidate_source_identity=candidate_source_identity,
+    )
+    proposal_assertions = _expected_mint_assertions(source, expected_minted_count)
     by_key = _effective_exclusion_map(exclusions)
-    payload, removed_keys = _filter_effective_lines(source, by_key)
+    proposal_line_ids = {item.source_line_identity for item in proposal_assertions}
+    payload, removed_keys = _filter_effective_lines(
+        source, by_key, proposal_line_ids=proposal_line_ids
+    )
+    registered = set(registry.registered_proposal_ids)
+    _require_no_mint_survivors(payload, registered)
+    proposal_delta = _build_effective_proposal_delta(
+        proposal_assertions, registry, registered
+    )
     evidence = _validate_effective_delta(
         source, payload, removed_keys, exclusions, by_key
     )
@@ -447,7 +686,69 @@ def build_effective_artifact(
         non_emitted_pair_count=len(evidence[1]),
         removed_pairs=evidence[0],
         non_emitted_pairs=evidence[1],
+        proposal_delta=proposal_delta,
         source_artifact_preserved=True,
+    )
+
+
+def _expected_mint_assertions(
+    source: bytes, expected_count: int
+) -> tuple[MintProposalAssertion, ...]:
+    assertions = enumerate_mint_assertions(source)
+    if len(assertions) != expected_count:
+        raise CorpusAcceptanceValidationError(
+            "MINT assertion count differs from candidate baseline"
+        )
+    return assertions
+
+
+def _require_no_mint_survivors(payload: bytes, registered: set[str]) -> None:
+    surviving = enumerate_mint_assertions(payload)
+    if not surviving:
+        return
+    rejections = sorted(
+        {
+            _proposal_disposition(
+                item.proposal_id,
+                registered=item.proposal_id in registered,
+                survives=True,
+            )
+            for item in surviving
+        }
+    )
+    raise CorpusAcceptanceValidationError(
+        "unreconciled MINT assertion survived effective filtering: "
+        + ", ".join(rejections)
+    )
+
+
+def _build_effective_proposal_delta(
+    assertions: tuple[MintProposalAssertion, ...],
+    registry: HistoricalProposalRegistryBinding,
+    registered: set[str],
+) -> EffectiveProposalDelta:
+    proposal_ids = tuple(sorted({item.proposal_id for item in assertions}))
+    removed = tuple(
+        ExcludedUnreconciledProposal(
+            assertion=item,
+            disposition=_excluded_proposal_disposition(
+                item.proposal_id,
+                registered=item.proposal_id in registered,
+            ),
+            registry_record_present=item.proposal_id in registered,
+            transfer_or_reconciliation_inferred=False,
+        )
+        for item in assertions
+    )
+    return EffectiveProposalDelta(
+        registry=registry,
+        original_emitted_count=len(assertions),
+        removed_unreconciled_count=len(removed),
+        unreconciled_emitted_count=0,
+        accepted_without_evidence_count=0,
+        distinct_proposal_ids=proposal_ids,
+        registry_intersection=tuple(sorted(set(proposal_ids) & registered)),
+        removed_assertions=removed,
     )
 
 
@@ -465,11 +766,16 @@ def _effective_constituent_key(line: bytes) -> tuple[str, str, str] | None:
 
 
 def _filter_effective_lines(
-    source: bytes, by_key: dict[tuple[str, str, str], ReviewRequiredPairChange]
+    source: bytes,
+    by_key: dict[tuple[str, str, str], ReviewRequiredPairChange],
+    *,
+    proposal_line_ids: set[str],
 ) -> tuple[bytes, tuple[tuple[str, str, str], ...]]:
     removed: set[tuple[str, str, str]] = set()
     retained: list[bytes] = []
-    for line in source.splitlines(keepends=True):
+    for line in io.BytesIO(source):
+        if hashlib.sha256(line).hexdigest() in proposal_line_ids:
+            continue
         key = _effective_constituent_key(line)
         pair = by_key.get(key) if key is not None else None
         if (
@@ -1655,6 +1961,7 @@ class CandidateEvidence(_StrictModel):
     r101_qualification_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     review_packet_identity: str = Field(pattern=_SHA256)
     review_decisions_identity: str = Field(pattern=_SHA256)
     gate_liveness_evidence_identity: str = Field(pattern=_SHA256)
@@ -1672,6 +1979,7 @@ class CorpusAcceptanceContent(_StrictModel):
     gates: CandidateGates
     r101_summary: R101CandidateSummary
     evidence: CandidateEvidence
+    proposal_delta: EffectiveProposalDelta
     delta_classification: CorpusDeltaClassification
     review_required_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
     content_identity: str = Field(pattern=_SHA256)
@@ -1695,6 +2003,7 @@ class CorpusAcceptanceCandidate(_StrictModel):
     gates: CandidateGates
     r101_summary: R101CandidateSummary
     evidence: CandidateEvidence
+    proposal_delta: EffectiveProposalDelta
     delta_classification: CorpusDeltaClassification
     review_required_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
     publication_dry_run: PublicationDryRunEvidence
@@ -1921,6 +2230,7 @@ _CERTIFIED_ACCEPTANCE_INPUTS = (
     "tmp/m1-6-machine-readiness.json",
     "tmp/m1-6-primary-site-audit.json",
     "ontolib/tests/decomposition/golden/proposal-registry.json",
+    "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
     "evidence/group-review-packet-26.07d-schema3.json",
     "evidence/group-review-rationale-26.07d.md",
     "tmp/m1-6-group-review-decisions.json",
@@ -2002,24 +2312,78 @@ def _strict_improvement_status(
     return "passed" if declared and improved else "failed"
 
 
-def _proposal_registry_status(
-    registry: ProposalRegistry, source_identity: str
+def _proposal_gate_status(
+    delta: EffectiveProposalDelta,
 ) -> Literal["passed", "failed"]:
-    return "passed" if registry.source_identity == source_identity else "failed"
-
-
-def _proposal_gate_statuses(
-    path: Path, source_identity: str
-) -> tuple[Literal["passed", "failed"], bool]:
-    try:
-        registry = load_proposal_registry(path)
-    except OSError, ValueError:
-        return "failed", False
-    status = _proposal_registry_status(registry, source_identity)
-    liveness = (
-        _proposal_registry_status(registry, "0" * 64) == "failed" and status == "passed"
+    complete = all(
+        (
+            delta.original_emitted_count == delta.removed_unreconciled_count,
+            delta.unreconciled_emitted_count == 0,
+            delta.accepted_without_evidence_count == 0,
+            len(delta.removed_assertions) == delta.original_emitted_count,
+            delta.registry.accepted_in_ncit_count == 0,
+            delta.registry.no_adoption_evidence,
+        )
     )
-    return status, liveness
+    return "passed" if complete else "failed"
+
+
+@overload
+def _proposal_disposition(
+    proposal_id: str, *, registered: bool, survives: Literal[False]
+) -> Literal["excluded-unreconciled", "malformed-proposal-reference"]: ...
+
+
+@overload
+def _proposal_disposition(
+    proposal_id: str, *, registered: bool, survives: Literal[True]
+) -> Literal[
+    "malformed-proposal-reference",
+    "registered-unreconciled-survivor",
+    "unregistered-unreconciled-survivor",
+]: ...
+
+
+def _proposal_disposition(
+    proposal_id: str, *, registered: bool, survives: bool
+) -> Literal[
+    "excluded-unreconciled",
+    "malformed-proposal-reference",
+    "registered-unreconciled-survivor",
+    "unregistered-unreconciled-survivor",
+]:
+    if re.fullmatch(r"MINT-[0-9a-f]{12}", proposal_id) is None:
+        return "malformed-proposal-reference"
+    if not survives:
+        return "excluded-unreconciled"
+    if registered:
+        return "registered-unreconciled-survivor"
+    return "unregistered-unreconciled-survivor"
+
+
+def _proposal_gate_liveness() -> dict[str, str]:
+    return {
+        "registered_survivor": _proposal_disposition(
+            "MINT-781c8c8c6096", registered=True, survives=True
+        ),
+        "unregistered_survivor": _proposal_disposition(
+            "MINT-deadbeef1234", registered=False, survives=True
+        ),
+        "malformed_reference": _proposal_disposition(
+            "MINT-not-valid", registered=False, survives=True
+        ),
+    }
+
+
+def _excluded_proposal_disposition(
+    proposal_id: str, *, registered: bool
+) -> Literal["excluded-unreconciled"]:
+    disposition = _proposal_disposition(
+        proposal_id, registered=registered, survives=False
+    )
+    if disposition != "excluded-unreconciled":
+        raise CorpusAcceptanceValidationError(disposition)
+    return disposition
 
 
 def _fidelity_gate_status(
@@ -2034,8 +2398,8 @@ def _candidate_gates(
     paths: dict[str, Path],
     *,
     git_head: str,
-    source_identity: str,
     roundtrip_fidelity: float | None,
+    proposal_delta: EffectiveProposalDelta,
 ) -> CandidateGates:
     primary = _load_json_object(paths["primary_site_audit"], "primary-site audit")
     readiness = _load_json_object(paths["machine_readiness"], "machine readiness")
@@ -2046,9 +2410,13 @@ def _candidate_gates(
     fidelity_status = _fidelity_gate_status(roundtrip_fidelity)
     normalized_clear = _normalized_group_clear(readiness)
     verify_current = _verify_evidence_is_current(verify, git_head)
-    proposal_status, liveness = _proposal_gate_statuses(
-        paths["proposal_registry"], source_identity
-    )
+    proposal_status = _proposal_gate_status(proposal_delta)
+    liveness_observation = _proposal_gate_liveness()
+    liveness = set(liveness_observation.values()) == {
+        "malformed-proposal-reference",
+        "registered-unreconciled-survivor",
+        "unregistered-unreconciled-survivor",
+    }
     improvement_status = _strict_improvement_status(readiness)
     return CandidateGates(
         primary_site_cardinality=_gate(
@@ -2059,9 +2427,7 @@ def _candidate_gates(
         proposal_provenance=_gate(
             status=proposal_status,
             evidence=paths["proposal_registry"],
-            observation=_load_json_object(
-                paths["proposal_registry"], "proposal registry"
-            ),
+            observation=proposal_delta.model_dump(mode="json"),
         ),
         projection_loss=_gate(
             status="blocked",
@@ -2099,10 +2465,7 @@ def _candidate_gates(
         gate_liveness=_gate(
             status="passed" if liveness else "failed",
             evidence=paths["proposal_registry"],
-            observation={
-                "proposal_registry_accept_branch": proposal_status,
-                "wrong_source_reject_branch": "rejected" if liveness else "unproven",
-            },
+            observation=liveness_observation,
         ),
         verify_currency=_gate(
             status="passed" if verify_current else "blocked",
@@ -2140,6 +2503,7 @@ def _candidate_input_paths(root: Path) -> dict[str, Path]:
         "machine_readiness",
         "primary_site_audit",
         "proposal_registry",
+        "proposal_registry_migration",
         "review_packet",
         "rationale",
         "review_decisions",
@@ -2360,6 +2724,10 @@ async def generate_c3262_acceptance_candidate(
             source_artifact=paths["artifact"],
             destination=effective_path,
             exclusions=exclusions,
+            expected_minted_count=baseline.minted_count,
+            proposal_registry=paths["proposal_registry"],
+            proposal_registry_migration=paths["proposal_registry_migration"],
+            candidate_source_identity=baseline.source_identity,
         )
         evidence = CandidateEvidence(
             corpus_baseline_identity=baseline.baseline_identity,
@@ -2373,6 +2741,9 @@ async def generate_c3262_acceptance_candidate(
             r101_qualification_identity=str(qualification["qualification_identity"]),
             primary_site_audit_identity=_file_identity(paths["primary_site_audit"]),
             proposal_registry_identity=_file_identity(paths["proposal_registry"]),
+            proposal_registry_migration_identity=_file_identity(
+                paths["proposal_registry_migration"]
+            ),
             review_packet_identity=_file_identity(paths["review_packet"]),
             review_decisions_identity=_file_identity(paths["review_decisions"]),
             gate_liveness_evidence_identity=_file_identity(paths["gate_liveness"]),
@@ -2409,8 +2780,8 @@ async def generate_c3262_acceptance_candidate(
             gates = _candidate_gates(
                 paths,
                 git_head=git_head,
-                source_identity=baseline.source_identity,
                 roundtrip_fidelity=run_summary.roundtrip_fidelity,
+                proposal_delta=effective.proposal_delta,
             )
             content_payload = {
                 "schema_version": 1,
@@ -2450,6 +2821,7 @@ async def generate_c3262_acceptance_candidate(
                 "gates": gates,
                 "r101_summary": _r101_candidate_summary(report),
                 "evidence": evidence,
+                "proposal_delta": effective.proposal_delta,
                 "delta_classification": classification,
                 "review_required_exclusions": exclusions,
             }
@@ -2579,6 +2951,7 @@ def _served_projection_identity(effective: EffectiveArtifactEvidence) -> str:
             "non_emitted_pairs": [
                 item.model_dump(mode="json") for item in effective.non_emitted_pairs
             ],
+            "proposal_delta": effective.proposal_delta.model_dump(mode="json"),
         }
     )
 
