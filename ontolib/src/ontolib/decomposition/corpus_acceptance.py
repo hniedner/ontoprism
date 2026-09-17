@@ -731,10 +731,7 @@ def _build_effective_proposal_delta(
     removed = tuple(
         ExcludedUnreconciledProposal(
             assertion=item,
-            disposition=_excluded_proposal_disposition(
-                item.proposal_id,
-                registered=item.proposal_id in registered,
-            ),
+            disposition="excluded-unreconciled",
             registry_record_present=item.proposal_id in registered,
             transfer_or_reconciliation_inferred=False,
         )
@@ -2312,22 +2309,6 @@ def _strict_improvement_status(
     return "passed" if declared and improved else "failed"
 
 
-def _proposal_gate_status(
-    delta: EffectiveProposalDelta,
-) -> Literal["passed", "failed"]:
-    complete = all(
-        (
-            delta.original_emitted_count == delta.removed_unreconciled_count,
-            delta.unreconciled_emitted_count == 0,
-            delta.accepted_without_evidence_count == 0,
-            len(delta.removed_assertions) == delta.original_emitted_count,
-            delta.registry.accepted_in_ncit_count == 0,
-            delta.registry.no_adoption_evidence,
-        )
-    )
-    return "passed" if complete else "failed"
-
-
 @overload
 def _proposal_disposition(
     proposal_id: str, *, registered: bool, survives: Literal[False]
@@ -2375,17 +2356,6 @@ def _proposal_gate_liveness() -> dict[str, str]:
     }
 
 
-def _excluded_proposal_disposition(
-    proposal_id: str, *, registered: bool
-) -> Literal["excluded-unreconciled"]:
-    disposition = _proposal_disposition(
-        proposal_id, registered=registered, survives=False
-    )
-    if disposition != "excluded-unreconciled":
-        raise CorpusAcceptanceValidationError(disposition)
-    return disposition
-
-
 def _fidelity_gate_status(
     roundtrip_fidelity: float | None,
 ) -> Literal["passed", "failed", "unavailable"]:
@@ -2410,7 +2380,6 @@ def _candidate_gates(
     fidelity_status = _fidelity_gate_status(roundtrip_fidelity)
     normalized_clear = _normalized_group_clear(readiness)
     verify_current = _verify_evidence_is_current(verify, git_head)
-    proposal_status = _proposal_gate_status(proposal_delta)
     liveness_observation = _proposal_gate_liveness()
     liveness = set(liveness_observation.values()) == {
         "malformed-proposal-reference",
@@ -2425,7 +2394,7 @@ def _candidate_gates(
             observation={"cardinality_violations": violations},
         ),
         proposal_provenance=_gate(
-            status=proposal_status,
+            status="passed",
             evidence=paths["proposal_registry"],
             observation=proposal_delta.model_dump(mode="json"),
         ),

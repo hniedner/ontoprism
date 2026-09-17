@@ -160,6 +160,17 @@ def _empty_proposal_delta():  # type: ignore[no-untyped-def]
     )
 
 
+def _mint_line(
+    *, subject: str = f"{corpus_acceptance_module.NCIT_NS}C1", axis: str | None = None
+) -> str:
+    axis = axis or f"{vocab.ONTOPRISM_NS}StageSystem"
+    return (
+        f"<{subject}> <{vocab.HAS_CONSTITUENT}> "
+        f"[<{vocab.AXIS}> <{axis}> ; <{vocab.FILLER}> "
+        f"<{vocab.ONTOPRISM_NS}MINT-deadbeef1234> ] .\n"
+    )
+
+
 @pytest.fixture(scope="module")
 def exclusions():  # type: ignore[no-untyped-def]
     return build_review_required_exclusions(
@@ -425,6 +436,139 @@ def test_historical_registry_source_mismatch_is_bound_observation_not_failure() 
     assert binding.no_adoption_evidence is True
     assert binding.source_mismatch_observed is True
     assert binding.reconciliation_envelope_available is False
+
+
+@pytest.mark.unit
+def test_mint_assertion_identity_rejects_tampering() -> None:
+    assertion = corpus_acceptance_module.enumerate_mint_assertions(
+        _mint_line().encode()
+    )[0]
+
+    with pytest.raises(ValidationError, match="MINT assertion identity differs"):
+        corpus_acceptance_module.MintProposalAssertion.model_validate(
+            assertion.model_dump() | {"assertion_identity": "0" * 64}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"source_mismatch_observed": False}, "source mismatch observation differs"),
+        (
+            {"status_counts": {"locally-approved": 1, "proposed": 6}},
+            "historical proposal lifecycle counts differ",
+        ),
+    ],
+)
+def test_historical_registry_binding_rejects_observation_tampering(
+    mutation: dict[str, object], message: str
+) -> None:
+    payload = _empty_proposal_delta().registry.model_dump()
+
+    with pytest.raises(ValidationError, match=message):
+        corpus_acceptance_module.HistoricalProposalRegistryBinding.model_validate(
+            payload | mutation
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"original_emitted_count": 1}, "inventory is not exhaustive"),
+        ({"removed_unreconciled_count": 1}, "removal count differs"),
+        (
+            {"distinct_proposal_ids": ("MINT-deadbeef1234",)},
+            "identifier inventory differs",
+        ),
+    ],
+)
+def test_effective_proposal_delta_rejects_nonexhaustive_inventory(
+    mutation: dict[str, object], message: str
+) -> None:
+    payload = _empty_proposal_delta().model_dump()
+
+    with pytest.raises(ValidationError, match=message):
+        corpus_acceptance_module.EffectiveProposalDelta.model_validate(
+            payload | mutation
+        )
+
+
+@pytest.mark.unit
+def test_historical_registry_binding_refuses_missing_migration(tmp_path: Path) -> None:
+    with pytest.raises(
+        CorpusAcceptanceValidationError,
+        match="historical proposal registry binding is invalid",
+    ):
+        corpus_acceptance_module.build_historical_proposal_registry_binding(
+            registry_path=GOLDEN / "proposal-registry.json",
+            migration_path=tmp_path / "missing.json",
+            candidate_source_identity="b" * 64,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "statement",
+    [
+        f"<urn:s> <urn:p> <{vocab.ONTOPRISM_NS}MINT-deadbeef1234> .\n",
+        _mint_line(subject="urn:not-an-ncit-concept"),
+        _mint_line(axis="urn:not-an-ontoprism-axis"),
+    ],
+)
+def test_proposal_inventory_refuses_nonconstituent_or_malformed_semantics(
+    statement: str,
+) -> None:
+    with pytest.raises(
+        CorpusAcceptanceValidationError,
+        match="malformed proposal-shaped constituent assertion",
+    ):
+        corpus_acceptance_module.enumerate_mint_assertions(statement.encode())
+
+
+@pytest.mark.unit
+def test_proposal_inventory_refuses_undecodable_turtle() -> None:
+    with pytest.raises(
+        CorpusAcceptanceValidationError,
+        match="malformed proposal-shaped Turtle statement",
+    ):
+        corpus_acceptance_module.enumerate_mint_assertions(b"MINT-\xff")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("registered", "message"),
+    [
+        (True, "registered-unreconciled-survivor"),
+        (False, "unregistered-unreconciled-survivor"),
+    ],
+)
+def test_effective_proposal_filter_rejects_any_survivor(
+    registered: bool, message: str
+) -> None:
+    registered_ids = {"MINT-deadbeef1234"} if registered else set()
+
+    with pytest.raises(CorpusAcceptanceValidationError, match=message):
+        corpus_acceptance_module._require_no_mint_survivors(
+            _mint_line().encode(), registered_ids
+        )
+
+
+@pytest.mark.unit
+def test_effective_artifact_rejects_baseline_mint_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_bytes(b"")
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="count differs"):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=tmp_path / "effective.ttl",
+            exclusions=(_exclusion(),),
+            **_proposal_build_kwargs(1),  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.unit
