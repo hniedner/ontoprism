@@ -1402,3 +1402,61 @@ async def test_lock_lifecycle_errors_preserve_publication_phase(
         )
     assert finalization.value.__cause__ is release
     assert release_store.finished_identity is not None
+
+
+class _FinishFailsOnceStore(_PublicationStore):
+    finish_attempts = 0
+
+    async def finish_run(
+        self,
+        run_id: str,
+        *,
+        source_identity: str,
+        metrics: dict[str, object],
+        representation_identity: str | None = None,
+    ) -> bool:
+        self.finish_attempts += 1
+        if self.finish_attempts == 1:
+            raise ConnectionError("database unavailable at completion")
+        return await super().finish_run(
+            run_id,
+            source_identity=source_identity,
+            metrics=metrics,
+            representation_identity=representation_identity,
+        )
+
+
+@pytest.mark.unit
+async def test_completion_failure_after_publication_remains_retryable(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    graph = _GraphClient()
+    store = _FinishFailsOnceStore(destination=destination)
+
+    async def publish() -> PublicationMarker:
+        return await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    with pytest.raises(ConnectionError):
+        await publish()
+    assert store.finished_identity is None
+
+    marker = await publish()
+
+    assert store.finished_identity == marker.representation_identity
+    assert hashlib.sha256(destination.read_bytes()).hexdigest() == (
+        marker.representation_identity
+    )
+    assert not staging.exists()

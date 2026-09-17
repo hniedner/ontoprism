@@ -502,7 +502,6 @@ async def _publish_started_artifact(
         if load_to_store:
             await _replace_graph(client, payload, marker, predecessor=predecessor)
         _durable_write(payload, destination)
-        artifact.unlink()
         finished = await provenance.finish_run(
             marker.run_id,
             source_identity=marker.source_identity,
@@ -513,6 +512,9 @@ async def _publish_started_artifact(
             raise RunStateError(
                 f"finish_run found no decomp_run row for run_id={marker.run_id!r}"
             )
+        # The staging file is what a retry republishes from, so it outlives every
+        # step that can still fail.
+        artifact.unlink()
     except BaseException as original:
         try:
             await _record_failure_without_masking(

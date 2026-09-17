@@ -2772,7 +2772,7 @@ async def test_final_status_failure_surfaces_marker_ahead_for_reconciliation(
         )
 
     assert out.exists()
-    assert not list(tmp_path.glob("*.staging-*"))
+    assert list(tmp_path.glob("*.staging-*")), "a retry republishes from staging"
     assert isinstance(exc_info.value.__cause__, RunStateError)
     provenance.record_publication_failure.assert_awaited_once()
     provenance.fail_run.assert_not_awaited()
