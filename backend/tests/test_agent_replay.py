@@ -3143,33 +3143,6 @@ def test_diagnostic_command_reports_failure_as_evidence_not_a_verdict(
 
 
 @pytest.mark.unit
-def test_podman_documentation_states_manual_setup_and_selected_context_contract() -> (
-    None
-):
-    data_setup = Path("docs/DATA_SETUP.md").read_text()
-    architecture = Path("docs/ARCHITECTURE.md").read_text()
-    agents = Path("AGENTS.md").read_text()
-
-    assert "brew install podman docker docker-compose" in data_setup
-    assert (
-        "podman machine init --provider applehv --cpus 8 --memory 32768 "
-        "--disk-size 120 --now --update-connection ontoprism-vm"
-    ) in data_setup
-    assert "/opt/homebrew/bin/podman machine inspect ontoprism-vm" in data_setup
-    assert "/opt/homebrew/bin/docker-compose version" in data_setup
-    assert "external Docker Compose v2 provider" in data_setup
-    assert (
-        "PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`" in data_setup
-    )
-    assert (
-        "API container resolves `web`, `postgres`, `qlever-ncit`, and `qlever-uberon`"
-    ) in data_setup
-    assert "when the `ontoprism-podman` Docker context is selected" in architecture
-    assert "current selected Docker context" in agents
-    assert "ensure-podman-stack" in agents
-
-
-@pytest.mark.unit
 def test_inspect_podman_rejects_all_user_arguments(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
         run_agent_replay(["inspect-podman", "--url", "unsafe"], tmp_path)

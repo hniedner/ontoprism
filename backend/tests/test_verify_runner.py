@@ -35,12 +35,6 @@ def _expected_verify_commands(
     pdm_executable: str, *, stack_ensured: bool
 ) -> list[list[str]]:
     gates = [
-        [
-            sys.executable,
-            "scripts/validation/validate_opencode_config.py",
-            "--root",
-            ".",
-        ],
         [sys.executable, "-m", "pre_commit", "run", "--all-files"],
         [pdm_executable, "run", "test-ci"],
         ["npm", "--prefix", "frontend", "run", "test:coverage"],
@@ -131,7 +125,7 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
     )
 
     assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
-    assert len(runner.calls) == 6
+    assert len(runner.calls) == 5
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
@@ -171,7 +165,7 @@ def test_verify_runner_keeps_ci_docker_behavior_unchanged(
     assert ["/test/bin/pdm", "run", "agent-replay", "ensure-podman-stack"] not in [
         command for command, _options in runner.calls
     ]
-    assert len(runner.calls) == 5
+    assert len(runner.calls) == 4
 
 
 @pytest.mark.unit

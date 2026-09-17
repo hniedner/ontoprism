@@ -73,8 +73,6 @@ jobs:
               - 'scripts/validation/frontend_coverage_hierarchy.py'
               - 'scripts/validation/run_agent_test.py'
               - 'scripts/validation/strict_coverage_gate.py'
-              - 'scripts/validation/validate_opencode_config.py'
-              - 'scripts/validation/validate_opencode_runtime.py'
               - '.github/workflows/ci.yml'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
