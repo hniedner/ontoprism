@@ -300,7 +300,6 @@ def test_manifest_rejects_broad_and_unowned_exemptions(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/**"
-line = 1
 kind = "pragma-no-cover"
 owner = ""
 rationale = ""
@@ -329,7 +328,6 @@ def test_manifest_accepts_owned_pragma_with_behavioral_test(tmp_path: Path) -> N
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma-no-cover"
 owner = "test-owner"
 rationale = "The excluded guard is structurally unreachable in normal execution."
@@ -340,6 +338,53 @@ review_after = "2099-01-01"
     manifest = load_manifest(_write_manifest(tmp_path, exemption=exemption), tmp_path)
 
     assert validate_manifest(manifest, tmp_path) == []
+
+
+_PATH_OWNED_PRAGMA = """
+[[exemption]]
+path = "src/module.py"
+kind = "pragma-no-cover"
+owner = "test-owner"
+rationale = "The excluded guard is structurally unreachable in normal execution."
+behavioral_test = "tests/test_module.py"
+review_issue = 170
+review_after = "2099-01-01"
+"""
+
+
+def _pragma_repo(tmp_path: Path, source_text: str) -> Path:
+    source = tmp_path / "src" / "module.py"
+    test_file = tmp_path / "tests" / "test_module.py"
+    source.parent.mkdir()
+    test_file.parent.mkdir()
+    source.write_text(source_text)
+    test_file.write_text("def test_value() -> None:\n    assert value() == 1\n")
+    return _write_manifest(tmp_path, exemption=_PATH_OWNED_PRAGMA)
+
+
+def test_pragma_exemption_survives_edits_that_move_the_pragma(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "import os\n\n\ndef value() -> int:  # pragma: no cover\n    return 1\n",
+    )
+
+    manifest = load_manifest(manifest_path, tmp_path)
+
+    assert validate_manifest(manifest, tmp_path) == []
+
+
+def test_a_second_pragma_in_an_exempted_file_is_still_unowned(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n\n\n"
+        "def other() -> int:  # pragma: no cover\n    return 2\n",
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == [
+        "unowned pragma/ignore marker: src/module.py (2 markers, 1 owned)"
+    ]
 
 
 def test_repository_coverage_config_exclusions_are_owned() -> None:
@@ -871,7 +916,6 @@ def test_load_manifest_rejects_unknown_exemption_kind(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma_no_cover"
 owner = "o"
 rationale = "r"
@@ -894,7 +938,6 @@ def test_manifest_rejects_expired_exemption(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma-no-cover"
 owner = "o"
 rationale = "structurally unreachable"
@@ -922,7 +965,6 @@ def test_manifest_rejects_misreferenced_measurement_exclusion(tmp_path: Path) ->
     exemption = """
 [[exemption]]
 path = "src/shell.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "o"
 rationale = "cannot mount in jsdom"
@@ -943,7 +985,6 @@ def test_manifest_rejects_config_regex_not_in_pyproject(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "raise NotImplementedError"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "o"
 rationale = "abstract sentinel"

@@ -24,7 +24,6 @@ BACKEND_ALGORITHM_VERSION = "sha256-mod-v1"
 INTEGRATION_ALGORITHM_VERSION = "greedy-weighted-lpt-v1"
 RECEIPT_SCHEMA_VERSION = 1
 SHARD_COUNT = 2
-MAX_UNWEIGHTED_INTEGRATION_FILES = 1
 FIXED_TEST_ROOTS = ("ontolib/tests", "backend/tests")
 _ENV_PREFIX = "ONTOPRISM_TEST_PARTITION_"
 _TIMINGS_OUTPUT_ENV = "ONTOPRISM_TEST_TIMINGS_OUTPUT"
@@ -384,14 +383,9 @@ def assign_integration_modules(
     default = manifest.default_weight_seconds
     raw_weights = manifest.weights
     inventory = {record.path for record in records}
-    stale = set(raw_weights) - inventory
-    if stale:
-        raise ValueError(f"stale integration weight paths: {sorted(stale)}")
+    # Weights only balance the shards: a new file takes the default weight and a weight
+    # for a deleted file is ignored, so adding or removing tests needs no re-measure.
     unweighted = tuple(sorted(inventory - set(raw_weights)))
-    if len(unweighted) > MAX_UNWEIGHTED_INTEGRATION_FILES:
-        raise ValueError(
-            "more than one unweighted integration file; regenerate measured weights"
-        )
     effective = {path: float(raw_weights.get(path, default)) for path in inventory}
     bins: list[list[str]] = [[] for _ in range(SHARD_COUNT)]
     totals = [0.0] * SHARD_COUNT

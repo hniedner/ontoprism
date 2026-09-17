@@ -194,7 +194,7 @@ default_weight_seconds = 5.0
     }
 
 
-def test_integration_weights_reject_stale_paths_and_multiple_unweighted_files(
+def test_integration_weights_are_a_balancing_hint_not_a_gate(
     tmp_path: Path,
 ) -> None:
     weights = tmp_path / "weights.toml"
@@ -214,22 +214,20 @@ default_weight_seconds = 5.0
 """.lstrip()
     )
 
-    with pytest.raises(ValueError, match="stale integration weight"):
-        partitions.assign_integration_modules(
-            _records("backend/tests/test_current.py"), weights, shard_index=0
-        )
+    records = _records(
+        "backend/tests/test_current.py",
+        "backend/tests/test_new_a.py",
+        "backend/tests/test_new_b.py",
+    )
 
-    weights.write_text(weights.read_text().replace("test_stale", "test_current"))
-    with pytest.raises(ValueError, match="more than one unweighted"):
-        partitions.assign_integration_modules(
-            _records(
-                "backend/tests/test_current.py",
-                "backend/tests/test_new_a.py",
-                "backend/tests/test_new_b.py",
-            ),
-            weights,
-            shard_index=0,
-        )
+    shards = [
+        partitions.assign_integration_modules(records, weights, shard_index=index)
+        for index in range(partitions.SHARD_COUNT)
+    ]
+
+    assigned = [path for shard in shards for path in shard.selected_files]
+    assert sorted(assigned) == sorted(record.path for record in records)
+    assert shards[0].unweighted_files == tuple(sorted(assigned))
 
 
 def test_duration_capture_requires_clean_complete_calls_and_writes_metadata(

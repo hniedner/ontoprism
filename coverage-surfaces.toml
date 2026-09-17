@@ -329,7 +329,6 @@ group = "release-yaml"
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 48
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "max_attempts is validated as positive and every loop path returns or raises, so this defensive assertion is structurally unreachable."
@@ -339,7 +338,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "if TYPE_CHECKING:"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "TYPE_CHECKING blocks are static typing imports and do not execute in production."
@@ -350,7 +348,6 @@ configured_in = "pyproject.toml"
 
 [[exemption]]
 path = "raise NotImplementedError"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "Abstract-interface sentinel branches are not executable implementation behavior; the manifest validator detects drift in this exclusion."
@@ -361,7 +358,6 @@ configured_in = "pyproject.toml"
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 65
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
@@ -371,7 +367,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/dev/update_readme_code_stats.py"
-line = 156
 kind = "pragma-no-cover"
 owner = "release automation maintainers"
 rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
@@ -381,7 +376,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/adjudication.py"
-line = 1272
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "The PDM script calls the module guard; CLI import and evaluation behavior are tested through main()."
@@ -391,7 +385,6 @@ review_after = "2027-07-31"
 
 [[exemption]]
 path = "scripts/research/differentia_extractor.py"
-line = 130
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to the tested async main function."
@@ -401,7 +394,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "frontend/src/lib/components/GraphExplorer.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "frontend maintainers"
 rationale = "The imperative Sigma/WebGL shell cannot mount faithfully in jsdom; pure graph logic is unit tested and its toolbar controls are asserted to render in Chromium."
@@ -412,7 +404,6 @@ configured_in = "frontend/vite.config.ts"
 
 [[exemption]]
 path = "frontend/src/lib/components/GraphMinimap.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "frontend maintainers"
 rationale = "The imperative canvas shell cannot mount faithfully in jsdom; projection logic is unit tested and its toggle control is asserted to render in Chromium."

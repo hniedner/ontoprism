@@ -17,6 +17,7 @@ import sys
 import tempfile
 import tokenize
 import tomllib
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,7 +154,6 @@ class Assignment(_Document):
 
 class Exemption(_Document):
     path: str
-    line: int
     kind: str
     owner: str
     rationale: str
@@ -363,7 +363,6 @@ def load_manifest(path: Path, root: Path = REPO_ROOT) -> Manifest:
     exemptions = tuple(
         Exemption(
             path=_string(item, "path"),
-            line=_integer(item, "line"),
             kind=_string(item, "kind"),
             owner=_string(item, "owner"),
             rationale=_string(item, "rationale"),
@@ -453,7 +452,7 @@ def _validate_groups(manifest: Manifest) -> list[str]:
 
 def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     errors: list[str] = []
-    label = f"exemption {exemption.path}:{exemption.line}"
+    label = f"exemption {exemption.path}"
     is_config_regex = exemption.kind in {
         "coverage-exclude-regex",
         "coverage-partial-regex",
@@ -463,8 +462,6 @@ def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     source = root / exemption.path
     if not is_config_regex and not source.is_file():
         errors.append(f"{label} source does not exist")
-    if exemption.line < 1:
-        errors.append(f"{label} line must be positive")
     required_text = {
         "owner": exemption.owner,
         "rationale": exemption.rationale,
@@ -496,20 +493,15 @@ def _validate_pragma_exemption(exemption: Exemption, root: Path) -> list[str]:
     source = root / exemption.path
     if not source.is_file():
         return []
-    lines = source.read_text(encoding="utf-8").splitlines()
-    line_exists = exemption.line <= len(lines)
-    if line_exists and "pragma: no cover" in lines[exemption.line - 1]:
+    if "pragma: no cover" in source.read_text(encoding="utf-8"):
         return []
-    return [
-        f"exemption {exemption.path}:{exemption.line} "
-        "does not point at a pragma: no cover"
-    ]
+    return [f"exemption {exemption.path} names a file without a pragma: no cover"]
 
 
 def _validate_measurement_exemption(exemption: Exemption, root: Path) -> list[str]:
     if exemption.kind != "measurement-exclusion":
         return []
-    label = f"exemption {exemption.path}:{exemption.line}"
+    label = f"exemption {exemption.path}"
     configured = root / exemption.configured_in
     if not configured.is_file():
         return [f"{label} configured_in must name an existing file"]
@@ -558,7 +550,7 @@ def _validate_exemption(
 def _unowned_ignore_markers(
     manifest: Manifest, surfaces: Sequence[Surface], root: Path
 ) -> list[str]:
-    owned = {(item.path, item.line) for item in manifest.exemptions}
+    owned = Counter(item.path for item in manifest.exemptions)
     errors: list[str] = []
     for surface in surfaces:
         path = root / surface.path
@@ -585,11 +577,11 @@ def _unowned_ignore_markers(
                 if any(marker in line.lower() for marker in _IGNORE_MARKERS)
                 and any(prefix in line for prefix in ("//", "/*", "<!--"))
             )
-        for line_number in markers:
-            if (surface.path, line_number) not in owned:
-                errors.append(
-                    f"unowned pragma/ignore marker: {surface.path}:{line_number}"
-                )
+        if len(markers) > owned[surface.path]:
+            errors.append(
+                f"unowned pragma/ignore marker: {surface.path} "
+                f"({len(markers)} markers, {owned[surface.path]} owned)"
+            )
     return errors
 
 
@@ -649,7 +641,9 @@ def validate_manifest(manifest: Manifest, root: Path = REPO_ROOT) -> list[str]:
         errors.append(str(exc))
         surfaces = ()
     errors.extend(_validate_required_surfaces(manifest, surfaces))
-    exemption_keys = [(item.path, item.line, item.kind) for item in manifest.exemptions]
+    exemption_keys = [
+        (item.path, item.kind, item.rationale) for item in manifest.exemptions
+    ]
     if len(exemption_keys) != len(set(exemption_keys)):
         errors.append("exemptions must be unique")
     coverage_config = load_coverage_config(root / "pyproject.toml")

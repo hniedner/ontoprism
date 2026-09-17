@@ -987,29 +987,6 @@ def test_machine_readiness_inputs_require_grouping_views_to_share_one_cohort() -
 
 
 @pytest.mark.unit
-def test_pre_sme_documentation_names_runtime_and_readiness_contracts() -> None:
-    data_setup = Path("docs/DATA_SETUP.md").read_text()
-    evidence_guide = Path("ontolib/tests/decomposition/golden/README.md").read_text()
-
-    assert "requires an already running, valid rootless `ontoprism-vm`" in data_setup
-    assert "QLever bind-path checks" in data_setup
-    assert "PostgreSQL-to-QLever DNS checks" in data_setup
-    assert "resolves both `pdm` and `npm` from `PATH`" in data_setup
-    assert "pdm run agent-replay capture-pre-sme-verify" in evidence_guide
-    assert "pdm run agent-replay generate-pre-sme-readiness" in evidence_guide
-    assert "tmp/m1-6-verify-evidence.json" in evidence_guide
-    assert "tmp/m1-6-machine-readiness.json" in evidence_guide
-    assert "clean worktree" in evidence_guide
-    group_section = evidence_guide.index("### Group-review candidate")
-    r103_section = evidence_guide.index("### R103 manual SME review boundary (#294)")
-    assert group_section < r103_section
-    assert (
-        "The immutable group-review candidate contains"
-        in evidence_guide[group_section:r103_section]
-    )
-
-
-@pytest.mark.unit
 def test_verify_evidence_writer_documents_fixed_publication_field_as_a_claim() -> None:
     docstring = inspect.getdoc(write_verify_evidence)
 

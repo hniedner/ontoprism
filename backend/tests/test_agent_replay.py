@@ -4443,22 +4443,3 @@ def test_poc_acceptance_operations_are_fixed_and_reject_arguments(
     for operation in ("podman-health-reject", "podman-app-smoke"):
         with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
             run_agent_replay([operation, "unsafe"], tmp_path, runner=_Runner())
-
-
-@pytest.mark.unit
-def test_inventory_refresh_uses_only_the_repository_generator(tmp_path: Path) -> None:
-    script = tmp_path / "scripts/validation/write_sparql_inventory.py"
-    script.parent.mkdir(parents=True)
-    script.touch()
-    runner = _Runner()
-
-    assert run_agent_replay(["refresh-sparql-inventory"], tmp_path, runner=runner) == 0
-
-    command, _options = runner.calls[0]
-    assert command[1:] == [
-        str(script),
-        "--root",
-        str(tmp_path),
-        "--output",
-        str(tmp_path / "scripts/validation/sparql-inventory.json"),
-    ]

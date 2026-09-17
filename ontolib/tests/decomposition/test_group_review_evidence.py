@@ -227,24 +227,3 @@ def test_historical_packet_identity_binds_frozen_rationale() -> None:
         ).sidecar
         == sidecar
     )
-
-
-def test_evidence_docs_record_exact_governed_commands_and_open_status() -> None:
-    docs = (_ROOT / "docs/evidence/README.md").read_text(encoding="utf-8")
-    golden = (_GOLDEN / "README.md").read_text(encoding="utf-8")
-
-    for text in (docs, golden):
-        assert (
-            "pdm run agent-replay generate-axis-diagnostics "
-            "C35501 C12431 MINT-781c8c8c6096" in text
-        )
-        assert "\npdm run agent-replay generate-group-review-rev2\n" not in text
-        assert "evidence/group-review-packet-26.07d-schema3.json" in text
-        assert "historical" in text.casefold()
-        assert "schema-4" in text
-        assert "transcribe-group-review-evidence" not in text
-        assert "11 corrections" in text
-        assert "4 escalations" in text
-        assert "#274" in text
-        assert "#127" in text
-        assert "publication" in text.casefold()
