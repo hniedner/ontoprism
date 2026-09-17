@@ -691,13 +691,13 @@ def build_effective_artifact(
     evidence = _validate_effective_delta(
         source, payload, removed_keys, exclusions, by_key
     )
-    if destination.exists():
-        raise CorpusAcceptanceValidationError("effective artifact destination exists")
-    atomic_write_bytes(destination, payload)
     if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
         raise CorpusAcceptanceValidationError(
             "source artifact changed during projection"
         )
+    if destination.exists():
+        raise CorpusAcceptanceValidationError("effective artifact destination exists")
+    atomic_write_bytes(destination, payload)
     return EffectiveArtifactEvidence(
         source_artifact_identity=source_identity,
         effective_artifact_identity=hashlib.sha256(payload).hexdigest(),

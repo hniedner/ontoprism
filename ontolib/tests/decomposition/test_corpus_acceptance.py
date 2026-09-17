@@ -29,6 +29,7 @@ from ontolib.decomposition.corpus_acceptance import (
     PublicationDryRunEvidence,
     PublicationPlaneBinding,
     ReviewRequiredEffectiveExclusion,
+    _expected_mint_assertions,
     build_accepted_publication_artifact,
     build_effective_artifact,
     build_review_required_exclusions,
@@ -833,6 +834,39 @@ def test_effective_artifact_withholds_only_exact_excluded_pairs(
 
 
 @pytest.mark.unit
+def test_effective_artifact_refuses_source_mutation_during_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.ttl"
+    destination = tmp_path / "effective.ttl"
+    source.write_bytes(b"<urn:source> <urn:predicate> <urn:object> .\n")
+    original = _expected_mint_assertions
+
+    def mutate_after_parse(payload: bytes, expected_count: int):  # type: ignore[no-untyped-def]
+        assertions = original(payload, expected_count)
+        source.write_bytes(payload + b"# concurrent source mutation\n")
+        return assertions
+
+    monkeypatch.setattr(
+        corpus_acceptance_module, "_expected_mint_assertions", mutate_after_parse
+    )
+
+    with pytest.raises(
+        CorpusAcceptanceValidationError,
+        match="source artifact changed during projection",
+    ):
+        build_effective_artifact(
+            source_artifact=source,
+            destination=destination,
+            exclusions=(),
+            **_proposal_build_kwargs(),  # type: ignore[arg-type]
+        )
+
+    assert not destination.exists()
+
+
+@pytest.mark.unit
 def test_effective_artifact_refuses_absent_ambiguous_or_existing_output(
     tmp_path: Path,
 ) -> None:
@@ -1269,6 +1303,9 @@ def test_total_classifier_refuses_duplicate_or_omitted_objects(
         ("excluded", "source-role-routed-projection"),
         ("minted", "unexplained-blocker"),
         ("unexplained", "unexplained-blocker"),
+        ("missing-definition", "unexplained-blocker"),
+        ("missing-occurrence", "unexplained-blocker"),
+        ("no-routing-policy", "unexplained-blocker"),
         ("r101-linked", "r101-occurrence-linked-output-delta"),
     ],
 )
@@ -1285,6 +1322,14 @@ def test_structural_classifier_preserves_distinct_evidence_shapes(
         rows = (row.model_copy(update={"filler_code": "MINT-781c8c8c6096"}),)
     elif shape == "unexplained":
         rows = (row.model_copy(update={"source_roles": ()}),)
+    elif shape == "missing-definition":
+        rows = (row.model_copy(update={"source_definition_ids": ()}),)
+    elif shape == "missing-occurrence":
+        rows = (
+            row.model_copy(update={"axis_source": "role", "source_occurrence_ids": ()}),
+        )
+    elif shape == "no-routing-policy":
+        rows = (row.model_copy(update={"source_roles": ("R999",)}),)
     elif shape == "r101-linked":
         rows = ()
         classified = (
@@ -1309,6 +1354,37 @@ def test_structural_classifier_preserves_distinct_evidence_shapes(
     result = _classify(shaped_report)
 
     assert result.category_counts == {expected: 1}
+
+
+@pytest.mark.unit
+def test_structural_classifier_accepts_only_source_bound_eligible_mint(
+    report,  # type: ignore[no-untyped-def]
+) -> None:
+    row = report.non_r101_delta_evidence.rows[0].model_copy(
+        update={"filler_code": "MINT-781c8c8c6096"}
+    )
+    registry = load_proposal_registry(GOLDEN / "proposal-registry.json").model_copy(
+        update={"source_identity": report.source_identity}
+    )
+
+    assert (
+        corpus_acceptance_module._structural_category(
+            row, registry, source_identity=report.source_identity
+        )
+        == "proposal-minted-projection"
+    )
+
+
+@pytest.mark.unit
+def test_classifier_refuses_invalid_policy_identity(
+    report,  # type: ignore[no-untyped-def]
+) -> None:
+    with pytest.raises(CorpusAcceptanceValidationError, match="policy identity"):
+        classify_corpus_delta(
+            report,
+            routing_policy_identity="invalid",
+            proposal_registry=load_proposal_registry(GOLDEN / "proposal-registry.json"),
+        )
 
 
 @pytest.mark.unit
@@ -1394,6 +1470,45 @@ def test_metadata_classifier_emits_ordered_evidence_bound_composite_rule(
         "metadata-composite:group-identity-rebinding+semantic-routing-change-v1"
     )
     assert item.evidence_identities
+
+
+@pytest.mark.unit
+def test_metadata_classifier_blocks_combined_source_evidence_changes(
+    report,  # type: ignore[no-untyped-def]
+) -> None:
+    evidence = report.non_r101_delta_evidence
+    old = evidence.metadata_deltas[0].old.model_copy(update={"change": "removed"})
+    new = old.model_copy(
+        update={
+            "change": "added",
+            "source_definition_ids": tuple(
+                sorted({*old.source_definition_ids, "e" * 64})
+            ),
+            "source_occurrence_ids": tuple(
+                sorted({*old.source_occurrence_ids, "f" * 64})
+            ),
+        }
+    )
+    delta = NonR101MetadataDelta(
+        old=old,
+        new=new,
+        changed_fields=("source_definition_ids", "source_occurrence_ids"),
+    )
+    shaped = evidence.model_copy(
+        update={
+            "rows": (),
+            "metadata_deltas": (delta,),
+            "classified_rows": (),
+            "raw_typed_delta_count": 2,
+        }
+    )
+
+    result = _classify(report.model_copy(update={"non_r101_delta_evidence": shaped}))
+
+    assert result.category_counts == {"unexplained-blocker": 1}
+    assert result.unexplained_blockers[0].category == (
+        "incompatible-metadata-combination"
+    )
 
 
 @pytest.mark.unit
@@ -2163,9 +2278,42 @@ def test_candidate_metrics_validate_projection_and_unknown_arithmetic() -> None:
         ("projection_loss_count", 2),
         ("projection_loss_rate", 0.2),
         ("unknown_outcome_count", 2),
+        ("residual_concept_codes", ()),
+        ("projected_fact_count", 11),
+        ("residual_precoordinated_count", 7),
+        ("residual_unknown_count", 7),
     ):
         with pytest.raises(ValidationError):
             CandidateMetrics.model_validate(metrics.model_dump() | {field: value})
+
+    with pytest.raises(ValidationError):
+        CandidateMetrics.model_validate(
+            metrics.model_dump()
+            | {"residual_unknown_count": 1, "residual_unknown_rate": 0.0}
+        )
+
+    no_complete_facts = CandidateMetrics.model_validate(
+        metrics.model_dump()
+        | {
+            "complete_fact_count": 0,
+            "projected_fact_count": 0,
+            "projection_loss_count": 0,
+            "projection_loss_rate": 0.0,
+        }
+    )
+    assert no_complete_facts.projection_loss_rate == 0.0
+
+    no_decomposed_concepts = CandidateMetrics.model_validate(
+        metrics.model_dump()
+        | {
+            "decomposed_count": 0,
+            "atomic_noop_count": 7,
+            "residual_precoordinated_count": 0,
+            "residual_unknown_count": 0,
+            "residual_unknown_rate": 0.0,
+        }
+    )
+    assert no_decomposed_concepts.residual_unknown_rate == 0.0
 
 
 @pytest.mark.unit
