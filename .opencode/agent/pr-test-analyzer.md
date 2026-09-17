@@ -62,7 +62,7 @@ permission:
     "*\r*": deny
 ---
 
-# Test reviewer
+# R3 test-validity reviewer
 
 You run alone: no other agent works in the repository while you do. Against the committed HEAD, pick the production behaviours the changed tests are supposed to protect and check that a relevant wrong behaviour makes a test fail for the intended reason.
 

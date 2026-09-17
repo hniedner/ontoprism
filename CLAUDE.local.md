@@ -1,7 +1,25 @@
 # CLAUDE.local.md — ontoprism project standards
 
-Project-specific rules. Merge with the global `~/.claude/CLAUDE.md` and the pre-PR
-protocol in project memory. These are enforced, not aspirational.
+Project-specific testing standards. The workflow (small PRs to `main`, CI as the gate of
+record, one bounded review round, scope discipline, long-run rules) lives in `AGENTS.md`,
+which `CLAUDE.md` imports; this file only deepens the testing rules. These are enforced,
+not aspirational.
+
+## When each lane runs (2026-09-17)
+
+The standards below say *what* a good test is. They do not mean "run everything after
+every edit" — that reading cost the project twelve days.
+
+- Inner loop: the tests for the code being changed (`pdm run agent-test <path>`).
+- On commit: pre-commit. Broad change: `pdm run test-unit` (about 4.5 minutes).
+- Once before the PR: `pdm run verify`. Gate of record: CI on the PR.
+- Real-store (`full_store`) contracts: when the change touches that store's contract, and
+  before merging such a change — not per commit.
+
+The contract / double-fidelity / data-shape / liveness rule applies to **external**
+boundaries: tools, drivers, services and upstream datasets we do not control. Files our
+own pipeline wrote are not an external boundary. Never build hash- or git-state-bound
+evidence to certify our own intermediate outputs; recompute instead.
 
 ## Testing (non-negotiable)
 

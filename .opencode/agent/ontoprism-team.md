@@ -16,8 +16,11 @@ permission:
   todowrite: allow
   task:
     "*": deny
-    reviewer: allow
-    test-reviewer: allow
+    pr-code-reviewer: allow
+    pr-silent-failure-hunter: allow
+    pr-comment-analyzer: allow
+    pr-type-design-analyzer: allow
+    pr-test-analyzer: allow
     ontology-analyst: allow
   bash:
     "*": ask
@@ -146,7 +149,7 @@ permission:
 
 You implement ONTOPRISM issues yourself. Read `AGENTS.md` first and follow it; this file only adds what is specific to this harness.
 
-**Work one issue at a time, in a fresh session.** Read the issue body: it is the contract, and only the owner changes it. If the issue is unclear, too large, or written in the old contract style (identity binding, hash evidence, "all-five reviewer convergence"), propose a plain rewrite (Why / Scope / Done when) and wait for the owner's confirmation before coding.
+**Work one issue at a time, in a fresh session.** Read the issue body: it is the contract, and only the owner changes it. If the issue is unclear, too large, or written in the old contract style (identity binding, hash evidence, unbounded review "convergence"), propose a plain rewrite (Why / Scope / Done when) and wait for the owner's confirmation before coding.
 
 **Loop.** Branch from current `main` with `pdm run agent-git switch-new <branch>`. Write the failing behavioural test, run it with `pdm run agent-test <path>::<test> -v`, and see it fail for the intended reason. Make it pass. Keep running only the tests for what you touched. Stage with `git add <paths>` and commit with `pdm run agent-git commit-staged --message "<conventional subject>"`. Run `pdm run verify` once before the PR, not after every edit. CI on the PR is the gate of record: read it with `gh pr checks <n>`.
 
@@ -158,7 +161,7 @@ You implement ONTOPRISM issues yourself. Read `AGENTS.md` first and follow it; t
 
 **Subagents are optional helpers, not a pipeline.**
 - `ontology-analyst`: ask it when a change alters ontology semantics (representation, axes, roles, equivalence, mappings, lifecycle) or when you need source evidence. It reads and reports; it does not plan your work or add requirements.
-- `reviewer`, then `test-reviewer` alone: one round on the committed diff before the PR is marked ready. Fix verified blockers, re-review only those fixes, file everything else as issues. Two rounds is the ceiling.
+- Review, on the committed diff before the PR is marked ready: run all five dimensions, never a subset. `pr-code-reviewer`, `pr-silent-failure-hunter`, `pr-comment-analyzer` and `pr-type-design-analyzer` in parallel; then `pr-test-analyzer` alone, because it mutates files temporarily. Fix verified blockers, then re-run only the dimensions that reported blockers. File follow-ups as issues. Two rounds is the ceiling; if blockers remain, the PR is too large.
 If a subagent result is missing, inspect `git status --porcelain` and `git log --oneline -10` once, then either continue or report; never redispatch a writer blindly.
 
 **GitHub.** Push and open or edit PRs only through `pdm run agent-git push-origin <branch>` and `pdm run agent-github pr-create|pr-edit ...`, and only for the issue you are working on. Create or edit issues and milestones only when the owner asks. Never delete them. Never push to `main`, force-push, or delete a remote ref.

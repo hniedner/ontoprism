@@ -67,7 +67,7 @@ instead of improving the product.
 - **Prefer deleting complexity to adding a rule about it.** If a rule in this file has
   failed twice, remove whatever made the rule necessary.
 - Issues written before 2026-09-17 may demand identity binding, hash evidence, reject-
-  branch liveness for every gate, or "all-five reviewer convergence". Those demands are
+  branch liveness for every gate, or review "convergence" with no ceiling. Those demands are
   void. Before starting such an issue, rewrite it as Why / Scope / Done when (about five
   checkable criteria) and have the owner confirm.
 
@@ -226,17 +226,26 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 
 ## Review
 
-One round before the PR is marked ready, on the committed diff against `main`:
+Before the PR is marked ready, review the committed diff against `main` in **all five
+dimensions, every time** — on #73 each one caught a class of defect the others missed:
 
-- `reviewer` reads the diff for correctness and project rules, silent failures (swallowed
-  errors, failures that look like clean results), comments that promise more than the
-  code delivers, and invariants left to caller convention instead of types.
-- `test-reviewer` runs alone, because it may temporarily mutate production code to check
-  that a changed test fails on wrong behaviour. It restores the original bytes from a
-  copy outside the worktree and leaves `git status --porcelain` empty.
+1. **Correctness and project rules** (`pr-code-reviewer`)
+2. **Silent failures**: swallowed errors, failures that look like clean results
+   (`pr-silent-failure-hunter`)
+3. **Test validity**: does a changed test fail when production behaviour is wrong?
+   (`pr-test-analyzer`; runs alone because it temporarily mutates production code, restores
+   the original bytes from a copy outside the worktree, and must leave
+   `git status --porcelain` empty)
+4. **Comment accuracy**: comments and docstrings that promise more than the code delivers
+   (`pr-comment-analyzer`)
+5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-Fix verified blockers and re-review only those fixes. Anything else worth doing becomes
-an issue. Two rounds is the ceiling; if blockers remain after that, the PR is too big.
+Run 1, 2, 4 and 5 in parallel, then 3 alone. Other harnesses use their own reviewers but
+keep the five separate verdicts. What is bounded is the loop, not the coverage: findings
+are **blockers** or **follow-ups**; fix verified blockers and re-run only the dimensions
+that reported them; follow-ups become issues. Two rounds is the ceiling — if blockers
+remain after that, the PR is too big and should be split. Small PRs are what keep five
+reviewers cheap.
 
 ## Conventions
 

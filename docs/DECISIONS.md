@@ -27,8 +27,10 @@ from four plain criteria into a corpus-wide acceptance contract.
   the PR is the gate of record. Locally: targeted tests in the inner loop, pre-commit on
   commit, `pdm run verify` once before the PR.
 - `AGENTS.md` is rewritten around that workflow and loaded by Claude Code through
-  `CLAUDE.md`. The OpenCode roster is one primary agent that can edit, plus `reviewer`,
-  `test-reviewer` and `ontology-analyst`. Review is one bounded round.
+  `CLAUDE.md`. The OpenCode roster is one primary agent that can edit, the five review
+  dimensions (D49) and `ontology-analyst`; the planning chain (architect, plan-adversary,
+  ontology-engineer, ontology-validator, implementer) is retired. All five review
+  dimensions still run on every PR; the loop is bounded to two rounds.
 - The OpenCode config validators and their tests, and the tests that assert documentation
   wording, are deleted. `backend/tests/test_agent_permission_safety.py` keeps the part
   that matters: destructive and bypassing commands resolve to deny for every agent.
