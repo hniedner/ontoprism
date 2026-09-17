@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from rdflib import Graph
 from scripts.research.group_review_packet import load_historical_group_review_packet
 
 from ontolib.decomposition import corpus_acceptance as corpus_acceptance_module
@@ -813,6 +814,47 @@ def test_effective_artifact_withholds_only_exact_excluded_pairs(
         observed.effective_artifact_identity
         == hashlib.sha256(effective.read_bytes()).hexdigest()
     )
+
+
+@pytest.mark.unit
+def test_effective_artifact_does_not_materialize_the_full_rdf_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.ttl"
+    effective = tmp_path / "effective.ttl"
+    unrelated = "".join(
+        f"<urn:subject:{index}> <urn:predicate> <urn:object> .\n"
+        for index in range(200)
+    )
+    source.write_text(
+        unrelated
+        + f"<{corpus_acceptance_module.NCIT_NS}C1> <{vocab.HAS_CONSTITUENT}> "
+        f"[<{vocab.AXIS}> <{vocab.ONTOPRISM_NS}Morphology> ; "
+        f"<{vocab.FILLER}> <{corpus_acceptance_module.NCIT_NS}C2> ] .\n"
+    )
+    original_parse = Graph.parse
+
+    def reject_unbounded_store(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = kwargs.get("data")
+        if (
+            isinstance(payload, bytes)
+            and len(payload) > 4_096
+            and type(self.store).__name__ == "Memory"
+        ):
+            raise AssertionError("full artifact entered an unbounded RDF store")
+        return original_parse(self, *args, **kwargs)
+
+    monkeypatch.setattr(Graph, "parse", reject_unbounded_store)
+
+    observed = build_effective_artifact(
+        source_artifact=source,
+        destination=effective,
+        exclusions=(_exclusion(),),
+        **_proposal_build_kwargs(),  # type: ignore[arg-type]
+    )
+
+    assert observed.removed_pair_count == 1
+    assert b"<urn:subject:199>" in effective.read_bytes()
 
 
 @pytest.mark.unit

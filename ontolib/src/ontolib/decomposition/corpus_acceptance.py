@@ -26,6 +26,7 @@ from pydantic import (
 from rdflib import Graph, URIRef
 from rdflib import Literal as RdfLiteral
 from rdflib.compare import to_canonical_graph
+from rdflib.plugins.stores.memory import Memory
 from rdflib.term import BNode, Node
 from scripts.research.group_review_packet import (
     ActualGenusFactEvidence,
@@ -921,10 +922,15 @@ def build_r101_occurrence_closure(
 
 
 _FAST_ASSERTION = re.compile(
-    rf"<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)>\s+"
-    rf"<{re.escape(vocab.HAS_CONSTITUENT)}>\s+"
-    rf"\[\s*<{re.escape(vocab.AXIS)}>\s+<(?P<axis>[^>]+)>\s*;\s*"
-    rf"<{re.escape(vocab.FILLER)}>\s+<(?P<filler>[^>]+)>"
+    rb"<"
+    + re.escape(NCIT_NS.encode())
+    + rb"(?P<concept>C[0-9]+)>\s+<"
+    + re.escape(vocab.HAS_CONSTITUENT.encode())
+    + rb">\s+\[\s*<"
+    + re.escape(vocab.AXIS.encode())
+    + rb">\s+<(?P<axis>[^>]+)>\s*;\s*<"
+    + re.escape(vocab.FILLER.encode())
+    + rb">\s+<(?P<filler>[^>]+)>"
 )
 
 
@@ -947,26 +953,96 @@ def _filler_name(iri: str) -> str:
 def _fast_assertion_coordinates(
     payload: bytes,
 ) -> tuple[tuple[str, str, str], ...]:
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise CorpusAcceptanceValidationError(
-            "effective source artifact is not UTF-8"
-        ) from exc
-    coordinates = [
-        (
-            match.group("concept"),
-            _axis_name(match.group("axis")),
-            _filler_name(match.group("filler")),
-        )
-        for match in _FAST_ASSERTION.finditer(text)
-    ]
+    coordinates = [item[2] for item in _assertion_statement_spans(payload)]
     canonical = tuple(sorted(coordinates))
     if len(canonical) != len(set(canonical)):
         raise CorpusAcceptanceValidationError(
             "duplicate semantic constituent assertion"
         )
     return canonical
+
+
+def _assertion_statement_spans(
+    payload: bytes,
+) -> tuple[tuple[int, int, tuple[str, str, str]], ...]:
+    spans: list[tuple[int, int, tuple[str, str, str]]] = []
+    previous_end = 0
+    try:
+        for match in _FAST_ASSERTION.finditer(payload):
+            if match.start() < previous_end:
+                raise CorpusAcceptanceValidationError(
+                    "constituent statements overlap"
+                )
+            end = _turtle_blank_node_statement_end(payload, match.start())
+            coordinate = (
+                match.group("concept").decode("ascii"),
+                _axis_name(match.group("axis").decode("utf-8")),
+                _filler_name(match.group("filler").decode("utf-8")),
+            )
+            spans.append((match.start(), end, coordinate))
+            previous_end = end
+    except UnicodeDecodeError as exc:
+        raise CorpusAcceptanceValidationError(
+            "effective source artifact is not UTF-8"
+        ) from exc
+    return tuple(spans)
+
+
+def _turtle_blank_node_statement_end(payload: bytes, start: int) -> int:  # noqa: C901
+    depth = 0
+    saw_blank_node = False
+    iri = False
+    quote: int | None = None
+    triple_quote = False
+    escaped = False
+    comment = False
+    index = start
+    while index < len(payload):
+        value = payload[index]
+        if comment:
+            if value in (10, 13):
+                comment = False
+            index += 1
+            continue
+        if iri:
+            if value == 62:  # >
+                iri = False
+            index += 1
+            continue
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif value == 92:  # backslash
+                escaped = True
+            elif triple_quote and payload[index : index + 3] == bytes([quote]) * 3:
+                quote = None
+                triple_quote = False
+                index += 3
+                continue
+            elif not triple_quote and value == quote:
+                quote = None
+            index += 1
+            continue
+        if value == 35:  # #
+            comment = True
+        elif value == 60:  # <
+            iri = True
+        elif value in (34, 39):  # " or '
+            quote = value
+            triple_quote = payload[index : index + 3] == bytes([value]) * 3
+            if triple_quote:
+                index += 2
+        elif value == 91:  # [
+            depth += 1
+            saw_blank_node = True
+        elif value == 93:  # ]
+            depth -= 1
+            if depth < 0:
+                break
+        elif value == 46 and saw_blank_node and depth == 0:  # .
+            return index + 1
+        index += 1
+    raise CorpusAcceptanceValidationError("constituent statement is incomplete")
 
 
 def _single_object(graph: Graph, node: Node, predicate: str, label: str) -> Node:
@@ -1224,22 +1300,35 @@ def _canonical_graph_bytes(graph: Graph) -> bytes:
 
 def _filter_assertion_graph(
     graph: Graph,
+    source: bytes,
     excluded_coordinates: set[tuple[str, str, str]],
 ) -> bytes:
-    has_constituent = URIRef(vocab.HAS_CONSTITUENT)
-    removed_nodes: set[BNode] = set()
-    for subject, node in tuple(graph.subject_objects(has_constituent)):
-        coordinate = _rdf_coordinate(graph, subject, node)
+    input_coordinates = _rdf_coordinates(graph)
+    spans = _assertion_statement_spans(source)
+    fast_coordinates = tuple(sorted(item[2] for item in spans))
+    if len(fast_coordinates) != len(set(fast_coordinates)):
+        raise CorpusAcceptanceValidationError(
+            "duplicate semantic constituent assertion"
+        )
+    if set(fast_coordinates) != input_coordinates:
+        raise CorpusAcceptanceValidationError("parser inventories differ")
+    output = bytearray()
+    cursor = 0
+    for start, end, coordinate in spans:
+        output.extend(source[cursor:start])
         if coordinate not in excluded_coordinates:
-            continue
-        graph.remove((subject, has_constituent, node))
-        removed_nodes.update(_bounded_blank_nodes(graph, cast("BNode", node)))
-    for node in removed_nodes:
-        graph.remove((node, None, None))
-        graph.remove((None, None, node))
-    if any(node in graph.all_nodes() for node in removed_nodes):
-        raise CorpusAcceptanceValidationError("withheld constituent reference remains")
-    return _canonical_graph_bytes(graph)
+            output.extend(source[start:end])
+        cursor = end
+    output.extend(source[cursor:])
+    payload = bytes(output)
+    output_coordinates = _rdf_coordinates(
+        _parse_turtle_graph(payload, "effective artifact")
+    )
+    if output_coordinates != input_coordinates - excluded_coordinates:
+        raise CorpusAcceptanceValidationError(
+            "effective coordinate set differs from filtered source"
+        )
+    return payload
 
 
 def _closure_indexes(
@@ -1352,8 +1441,21 @@ def _partition_evaluated_assertion(
     evidence.append(_evidence_for_assertion(assertion, assessment.evidence, source))
 
 
+class _ConstituentMemory(Memory):
+    """Retain emitted constituent subgraphs while streaming past the source plane."""
+
+    def add(self, triple, context, quoted: bool = False) -> None:  # type: ignore[no-untyped-def]
+        subject, predicate, _ = triple
+        is_constituent_link = predicate == URIRef(vocab.HAS_CONSTITUENT)
+        is_constituent_detail = isinstance(subject, BNode) and str(
+            predicate
+        ).startswith(vocab.ONTOPRISM_NS)
+        if is_constituent_link or is_constituent_detail:
+            super().add(triple, context, quoted)
+
+
 def _parse_turtle_graph(payload: bytes, label: str) -> Graph:
-    graph = Graph()
+    graph = Graph(store=_ConstituentMemory())
     try:
         graph.parse(data=payload, format="turtle")
     except Exception as exc:
@@ -1363,10 +1465,11 @@ def _parse_turtle_graph(payload: bytes, label: str) -> Graph:
 
 def _validated_effective_closure_payload(
     graph: Graph,
+    source: bytes,
     excluded_coordinates: set[tuple[str, str, str]],
     included: list[CanonicalSemanticAssertion],
 ) -> bytes:
-    payload = _filter_assertion_graph(graph, excluded_coordinates)
+    payload = _filter_assertion_graph(graph, source, excluded_coordinates)
     output_coordinates = tuple(
         (
             str(row["concept_code"]),
@@ -1458,7 +1561,7 @@ def build_assertion_evidence_closure(
         )
     )
     effective_payload = _validated_effective_closure_payload(
-        graph, excluded_coordinates, included
+        graph, payload, excluded_coordinates, included
     )
     _write_immutable_effective_artifact(
         source_artifact=source_artifact,
@@ -2340,10 +2443,9 @@ def _filter_effective_graph(
     *,
     proposal_coordinates: set[tuple[str, str, str]],
 ) -> tuple[bytes, tuple[tuple[str, str, str], ...]]:
-    graph = Graph()
     try:
-        graph.parse(data=source, format="turtle")
-    except Exception as exc:
+        graph = _parse_turtle_graph(source, "source artifact")
+    except CorpusAcceptanceValidationError as exc:
         raise CorpusAcceptanceValidationError(
             "source artifact is not valid Turtle"
         ) from exc
@@ -2353,7 +2455,9 @@ def _filter_effective_graph(
         for key, pair in by_key.items()
         if pair.effective_disposition == "removed-from-effective" and key in input_keys
     }
-    payload = _filter_assertion_graph(graph, removed | proposal_coordinates)
+    payload = _filter_assertion_graph(
+        graph, source, removed | proposal_coordinates
+    )
     return payload, tuple(sorted(removed))
 
 
@@ -2420,10 +2524,9 @@ def _require_effective_pair_presence(
 
 
 def _constituent_keys(artifact: bytes) -> set[tuple[str, str, str]]:
-    graph = Graph()
     try:
-        graph.parse(data=artifact, format="turtle")
-    except Exception as exc:
+        graph = _parse_turtle_graph(artifact, "artifact")
+    except CorpusAcceptanceValidationError as exc:
         raise CorpusAcceptanceValidationError("artifact is not valid Turtle") from exc
     return _rdf_coordinates(graph)
 

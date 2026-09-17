@@ -460,6 +460,47 @@ def test_graph_filter_removes_complete_multiline_constituent_only(
 
 
 @pytest.mark.unit
+def test_assertion_closure_does_not_materialize_the_full_rdf_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Large unrelated source planes must not enter a general-purpose RDF store."""
+    source = tmp_path / "source.ttl"
+    unrelated = "".join(
+        f"<urn:subject:{index}> <urn:predicate> <urn:object> .\n"
+        for index in range(200)
+    )
+    source.write_text(
+        unrelated + _constituent("C1", "PrimarySite", "C2", "1" * 64)
+    )
+    original_parse = Graph.parse
+
+    def reject_unbounded_store(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = kwargs.get("data")
+        if (
+            isinstance(payload, bytes)
+            and len(payload) > 4_096
+            and type(self.store).__name__ == "Memory"
+        ):
+            raise AssertionError("full artifact entered an unbounded RDF store")
+        return original_parse(self, *args, **kwargs)
+
+    monkeypatch.setattr(Graph, "parse", reject_unbounded_store)
+
+    closure = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "effective.ttl",
+        source=_source(),
+        persisted_evidence=_evaluation(
+            _persisted("C1", "PrimarySite", "C2", "1" * 64, "2" * 64)
+        ),
+        concept_exclusions=(),
+    )
+
+    assert len(closure.included_assertion_closure) == 1
+    assert b"<urn:subject:199>" in (tmp_path / "effective.ttl").read_bytes()
+
+
+@pytest.mark.unit
 def test_assertion_closure_refuses_parser_disagreement_and_missing_role_occurrence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
