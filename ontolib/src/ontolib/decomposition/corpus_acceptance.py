@@ -14,8 +14,9 @@ import re
 import tempfile
 from collections import Counter
 from collections.abc import Iterable
+from operator import attrgetter
 from pathlib import Path
-from typing import Annotated, Literal, Protocol, Self, overload
+from typing import Annotated, Literal, Protocol, Self, cast
 
 from pydantic import (
     AwareDatetime,
@@ -48,6 +49,7 @@ from ontolib.decomposition.fanout_baseline import (
 )
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
+    Proposal,
     ProposalRegistry,
     load_proposal_registry,
 )
@@ -507,9 +509,9 @@ def build_historical_proposal_registry_binding(
         raise CorpusAcceptanceValidationError(
             "historical proposal registry binding is invalid"
         ) from exc
-    statuses = Counter(item.status for item in registry.proposals)
+    statuses = Counter(map(attrgetter("status"), registry.proposals))
     accepted = statuses.get("accepted-in-ncit", 0)
-    no_adoption = all(item.adoption_evidence is None for item in registry.proposals)
+    no_adoption = not any(map(_has_adoption_evidence, registry.proposals))
     try:
         return HistoricalProposalRegistryBinding.model_validate(
             {
@@ -530,9 +532,10 @@ def build_historical_proposal_registry_binding(
                 "no_adoption_evidence": no_adoption,
                 "registered_proposal_ids": tuple(
                     sorted(
-                        item.id
-                        for item in registry.proposals
-                        if item.id.startswith("MINT-")
+                        map(
+                            attrgetter("id"),
+                            filter(_is_mint_registry_record, registry.proposals),
+                        )
                     )
                 ),
                 "candidate_source_identity": candidate_source_identity,
@@ -548,20 +551,30 @@ def build_historical_proposal_registry_binding(
         ) from exc
 
 
+def _has_adoption_evidence(proposal: Proposal) -> bool:
+    return proposal.adoption_evidence is not None
+
+
+def _is_mint_registry_record(proposal: Proposal) -> bool:
+    return proposal.id.startswith("MINT-")
+
+
 def enumerate_mint_assertions(artifact: bytes) -> tuple[MintProposalAssertion, ...]:
     """Semantically parse every proposal-shaped Turtle statement in the artifact."""
-    assertions: list[MintProposalAssertion] = []
-    keys: set[tuple[str, str, str]] = set()
-    for line in io.BytesIO(artifact):
-        if b"MINT" not in line:
-            continue
-        assertion = _semantic_mint_assertion(line)
-        key = (assertion.subject_code, assertion.axis, assertion.proposal_id)
-        if key in keys:
-            raise CorpusAcceptanceValidationError("duplicate MINT assertion")
-        keys.add(key)
-        assertions.append(assertion)
+    lines = filter(_contains_mint, io.BytesIO(artifact))
+    assertions = tuple(map(_semantic_mint_assertion, lines))
+    keys = tuple(map(_mint_assertion_key, assertions))
+    if len(keys) != len(set(keys)):
+        raise CorpusAcceptanceValidationError("duplicate MINT assertion")
     return tuple(sorted(assertions, key=lambda item: item.assertion_identity))
+
+
+def _contains_mint(line: bytes) -> bool:
+    return b"MINT" in line
+
+
+def _mint_assertion_key(assertion: MintProposalAssertion) -> tuple[str, str, str]:
+    return assertion.subject_code, assertion.axis, assertion.proposal_id
 
 
 def _semantic_mint_assertion(line: bytes) -> MintProposalAssertion:
@@ -581,20 +594,24 @@ def _semantic_mint_assertion(line: bytes) -> MintProposalAssertion:
 
 
 def _single_mint_candidate(graph: Graph) -> tuple[Node, Node, Node]:
-    candidates: list[tuple[Node, Node, Node]] = []
     has_constituent = URIRef(vocab.HAS_CONSTITUENT)
     axis_predicate = URIRef(vocab.AXIS)
     filler_predicate = URIRef(vocab.FILLER)
-    for subject, constituent in graph.subject_objects(has_constituent):
-        for axis in graph.objects(constituent, axis_predicate):
-            for filler in graph.objects(constituent, filler_predicate):
-                if "MINT" in str(filler):
-                    candidates.append((subject, axis, filler))
+    candidates = tuple(graph.subject_objects(has_constituent))
     if len(candidates) != 1:
         raise CorpusAcceptanceValidationError(
             "malformed proposal-shaped constituent assertion"
         )
-    return candidates[0]
+    subject, constituent = candidates[0]
+    axes = tuple(graph.objects(constituent, axis_predicate))
+    fillers = tuple(graph.objects(constituent, filler_predicate))
+    if not all(
+        (len(axes) == 1, len(fillers) == 1, "MINT" in "".join(map(str, fillers)))
+    ):
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped constituent assertion"
+        )
+    return subject, cast("Node", axes[0]), cast("Node", fillers[0])
 
 
 def _mint_assertion_payload(
@@ -660,7 +677,9 @@ def build_effective_artifact(
     )
     proposal_assertions = _expected_mint_assertions(source, expected_minted_count)
     by_key = _effective_exclusion_map(exclusions)
-    proposal_line_ids = {item.source_line_identity for item in proposal_assertions}
+    proposal_line_ids = set(
+        map(attrgetter("source_line_identity"), proposal_assertions)
+    )
     payload, removed_keys = _filter_effective_lines(
         source, by_key, proposal_line_ids=proposal_line_ids
     )
@@ -708,10 +727,9 @@ def _require_no_mint_survivors(payload: bytes, registered: set[str]) -> None:
         return
     rejections = sorted(
         {
-            _proposal_disposition(
+            _proposal_survivor_disposition(
                 item.proposal_id,
                 registered=item.proposal_id in registered,
-                survives=True,
             )
             for item in surviving
         }
@@ -727,7 +745,7 @@ def _build_effective_proposal_delta(
     registry: HistoricalProposalRegistryBinding,
     registered: set[str],
 ) -> EffectiveProposalDelta:
-    proposal_ids = tuple(sorted({item.proposal_id for item in assertions}))
+    proposal_ids = tuple(sorted(set(map(attrgetter("proposal_id"), assertions))))
     removed = tuple(
         ExcludedUnreconciledProposal(
             assertion=item,
@@ -2309,34 +2327,15 @@ def _strict_improvement_status(
     return "passed" if declared and improved else "failed"
 
 
-@overload
-def _proposal_disposition(
-    proposal_id: str, *, registered: bool, survives: Literal[False]
-) -> Literal["excluded-unreconciled", "malformed-proposal-reference"]: ...
-
-
-@overload
-def _proposal_disposition(
-    proposal_id: str, *, registered: bool, survives: Literal[True]
+def _proposal_survivor_disposition(
+    proposal_id: str, *, registered: bool
 ) -> Literal[
-    "malformed-proposal-reference",
-    "registered-unreconciled-survivor",
-    "unregistered-unreconciled-survivor",
-]: ...
-
-
-def _proposal_disposition(
-    proposal_id: str, *, registered: bool, survives: bool
-) -> Literal[
-    "excluded-unreconciled",
     "malformed-proposal-reference",
     "registered-unreconciled-survivor",
     "unregistered-unreconciled-survivor",
 ]:
     if re.fullmatch(r"MINT-[0-9a-f]{12}", proposal_id) is None:
         return "malformed-proposal-reference"
-    if not survives:
-        return "excluded-unreconciled"
     if registered:
         return "registered-unreconciled-survivor"
     return "unregistered-unreconciled-survivor"
@@ -2344,14 +2343,14 @@ def _proposal_disposition(
 
 def _proposal_gate_liveness() -> dict[str, str]:
     return {
-        "registered_survivor": _proposal_disposition(
-            "MINT-781c8c8c6096", registered=True, survives=True
+        "registered_survivor": _proposal_survivor_disposition(
+            "MINT-781c8c8c6096", registered=True
         ),
-        "unregistered_survivor": _proposal_disposition(
-            "MINT-deadbeef1234", registered=False, survives=True
+        "unregistered_survivor": _proposal_survivor_disposition(
+            "MINT-deadbeef1234", registered=False
         ),
-        "malformed_reference": _proposal_disposition(
-            "MINT-not-valid", registered=False, survives=True
+        "malformed_reference": _proposal_survivor_disposition(
+            "MINT-not-valid", registered=False
         ),
     }
 

@@ -45,6 +45,7 @@ from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletedRunForEvidence,
     RunFingerprint,
+    RunSummary,
 )
 from ontolib.decomposition.r101_conservation import (
     ClassifiedNonR101Delta,
@@ -513,6 +514,12 @@ def test_historical_registry_binding_refuses_missing_migration(tmp_path: Path) -
     "statement",
     [
         f"<urn:s> <urn:p> <{vocab.ONTOPRISM_NS}MINT-deadbeef1234> .\n",
+        (
+            f"<{vocab.ONTOPRISM_NS}MINT-deadbeef1234> "
+            f"<{vocab.HAS_CONSTITUENT}> [<{vocab.AXIS}> "
+            f"<{vocab.ONTOPRISM_NS}StageSystem> ; <{vocab.FILLER}> "
+            f"<{corpus_acceptance_module.NCIT_NS}C2> ] .\n"
+        ),
         _mint_line(subject="urn:not-an-ncit-concept"),
         _mint_line(axis="urn:not-an-ontoprism-axis"),
     ],
@@ -569,6 +576,111 @@ def test_effective_artifact_rejects_baseline_mint_count_mismatch(
             exclusions=(_exclusion(),),
             **_proposal_build_kwargs(1),  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.unit
+def test_review_pair_types_reject_noncanonical_or_inapplicable_relations() -> None:
+    removed = _exclusion().pair_changes[0]
+    removed_payload = removed.model_dump()
+    with pytest.raises(ValidationError, match="review relations must be canonical"):
+        type(removed).model_validate(
+            removed_payload
+            | {"review_relations": ("grouping-disputed", "added-to-candidate")}
+        )
+
+    non_emitted = _exclusion(
+        relation="missing-from-candidate",
+        disposition="review-required-non-emitted",
+    ).pair_changes[0]
+    with pytest.raises(ValidationError, match="requires historical missing relation"):
+        type(non_emitted).model_validate(
+            non_emitted.model_dump() | {"review_relations": ("grouping-disputed",)}
+        )
+
+
+@pytest.mark.unit
+def test_effective_delta_requires_every_excluded_concept_to_change() -> None:
+    key = ("C1", "op:Morphology", "C2")
+    removed = _exclusion()
+    non_emitted = _exclusion(
+        filler="C9",
+        relation="missing-from-candidate",
+        disposition="review-required-non-emitted",
+    ).model_copy(update={"concept_code": "C9"})
+    source = (
+        f"<{corpus_acceptance_module.NCIT_NS}C1> <{vocab.HAS_CONSTITUENT}> "
+        f"[<{vocab.AXIS}> <{vocab.ONTOPRISM_NS}Morphology> ; "
+        f"<{vocab.FILLER}> <{corpus_acceptance_module.NCIT_NS}C2> ] .\n"
+    ).encode()
+    by_key = {
+        (item.concept_code, pair.axis, pair.filler_code): pair
+        for item in (removed, non_emitted)
+        for pair in item.pair_changes
+    }
+
+    with pytest.raises(
+        CorpusAcceptanceValidationError, match="nonempty effective delta"
+    ):
+        corpus_acceptance_module._validate_effective_delta(
+            source,
+            b"",
+            (key,),
+            (removed, non_emitted),
+            by_key,
+        )
+
+
+@pytest.mark.unit
+def test_effective_delta_rejects_a_removed_pair_in_output() -> None:
+    key = ("C1", "op:Morphology", "C2")
+
+    with pytest.raises(CorpusAcceptanceValidationError, match="remains in effective"):
+        corpus_acceptance_module._require_effective_pair_presence(
+            observed_removed={key},
+            required_removed={key},
+            non_emitted_keys=set(),
+            input_keys={key},
+            output_keys={key},
+        )
+
+
+@pytest.mark.unit
+def test_candidate_gate_helpers_fail_closed_for_missing_evidence() -> None:
+    assert corpus_acceptance_module._normalized_group_clear({}) is False
+    assert corpus_acceptance_module._is_normalized_group_clear("invalid") is False
+    assert corpus_acceptance_module._fidelity_gate_status(0.96) == "passed"
+    assert corpus_acceptance_module._fidelity_gate_status(0.89) == "failed"
+    with pytest.raises(CorpusAcceptanceValidationError, match="run metric"):
+        corpus_acceptance_module._required_run_metric(
+            cast("RunSummary", SimpleNamespace(roundtrip_fidelity=None)),
+            "roundtrip_fidelity",
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "readiness",
+    [
+        {},
+        {"metrics": {}},
+        {"metrics": {"score": {}}},
+        {
+            "metrics": {
+                "score": {"fraction": {"numerator": 1, "denominator": 0, "value": 0.0}}
+            }
+        },
+        {
+            "metrics": {
+                "score": {"fraction": {"numerator": 1, "denominator": 2, "value": 0.7}}
+            }
+        },
+    ],
+)
+def test_candidate_readiness_metric_refuses_malformed_arithmetic(
+    readiness: dict[str, object],
+) -> None:
+    with pytest.raises(CorpusAcceptanceValidationError, match="machine readiness"):
+        corpus_acceptance_module._required_readiness_metric(readiness, "score")
 
 
 @pytest.mark.unit
