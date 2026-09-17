@@ -55,6 +55,9 @@ ACCEPTANCE_RUN = f"{ONTOPRISM_NS}acceptanceRun"
 ACCEPTANCE_REPRESENTATION = f"{ONTOPRISM_NS}acceptanceRepresentationIdentity"
 ACCEPTANCE_PUBLICATION = f"{ONTOPRISM_NS}acceptancePublicationIdentity"
 ACCEPTANCE_EXCLUSION_SUMMARY = f"{ONTOPRISM_NS}acceptanceExclusionSummary"
+ACCEPTANCE_INCLUDED_COUNT = f"{ONTOPRISM_NS}acceptanceIncludedAssertionCount"
+ACCEPTANCE_WITHHELD_COUNT = f"{ONTOPRISM_NS}acceptanceWithheldAssertionCount"
+ACCEPTANCE_WITHHOLDING_REASON = f"{ONTOPRISM_NS}acceptanceWithholdingReason"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"

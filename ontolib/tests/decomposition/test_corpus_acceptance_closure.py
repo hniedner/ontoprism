@@ -54,6 +54,7 @@ from ontolib.decomposition.r101_conservation import (
     R101ConservationReport,
     load_r101_conservation_report,
 )
+from ontolib.terminologies.namespaces import NCIT_NS
 
 SHA = "a" * 64
 SOURCE_IDENTITY = "b" * 64
@@ -75,15 +76,22 @@ def _constituent(
     fact: str,
     *,
     needs_review: bool = False,
+    axis_source: str = "role",
 ) -> str:
     review = f" ; <{vocab.NEEDS_REVIEW}> true" if needs_review else ""
+    role = (
+        f"<{vocab.SOURCE_ROLE}> "
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101> ; "
+        if axis_source == "role"
+        else ""
+    )
     return (
         f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{concept}> "
         f"<{vocab.HAS_CONSTITUENT}> [<{vocab.AXIS}> "
         f"<{vocab.ONTOPRISM_NS}{axis}> ; <{vocab.FILLER}> "
         f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{filler}> ; "
-        f'<{vocab.AXIS_SOURCE}> "role" ; <{vocab.SOURCE_ROLE}> '
-        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101> ; "
+        f'<{vocab.AXIS_SOURCE}> "{axis_source}" ; '
+        f"{role}"
         f"<{vocab.SOURCE_DEFINITION_FACT}> <{vocab.DEFINITION_FACT_NS}{fact}>"
         f"{review} ] .\n"
     )
@@ -106,8 +114,11 @@ def _persisted(
         concept_code=concept,
         axis=f"op:{axis}",
         filler_code=filler,
+        axis_source="role",
         source_fact_ids=(fact,),
         source_occurrence_ids=(occurrence,),
+        occurrence_availability="available",
+        complete_definition_identity=None,
         transformation_rule="axis-contract-routing-v1",
         transformation_policy_identity=POLICY_IDENTITY,
         applicability_identity="e" * 64,
@@ -124,8 +135,11 @@ def _evaluation(
                 concept_code=item.concept_code,
                 axis=item.axis,
                 filler_code=item.filler_code,
+                axis_source=item.axis_source,
                 source_fact_ids=item.source_fact_ids,
                 source_occurrence_ids=item.source_occurrence_ids,
+                occurrence_availability=item.occurrence_availability,
+                complete_definition_identity=item.complete_definition_identity,
                 source_roles=("R101",),
                 transformation_rule=item.transformation_rule,
                 transformation_policy_identity=(item.transformation_policy_identity),
@@ -139,7 +153,7 @@ def _evaluation(
 
 
 @pytest.mark.unit
-def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_review(
+def test_assertion_closure_cross_checks_parsers_and_keeps_diagnostic_review(
     tmp_path: Path,
 ) -> None:
     """Bind canonical included, excluded, evidence, and source identities."""
@@ -161,9 +175,9 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
         concept_exclusions=(),
     )
 
-    assert len(closure.included_assertion_closure) == 1
-    assert len(closure.excluded_assertion_closure) == 1
-    assert len(closure.evidence_ledger) == 1
+    assert len(closure.included_assertion_closure) == 2
+    assert closure.excluded_assertion_closure == ()
+    assert len(closure.evidence_ledger) == 2
     included = closure.included_assertion_closure[0]
     assert (included.concept_code, included.axis, included.filler_code) == (
         "C1",
@@ -174,10 +188,13 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
     assert closure.evidence_ledger[0].source == _source()
     assert closure.evidence_ledger[0].source_fact_ids == ("1" * 64,)
     assert closure.evidence_ledger[0].source_occurrence_ids == ("3" * 64,)
-    assert closure.excluded_assertion_closure[0].reason == "withheld-evidence-gap"
-    assert closure.evidence_gap_inventory.gaps[0].reason == "review-required"
+    reviewed = next(
+        item for item in closure.included_assertion_closure if item.needs_review
+    )
+    assert reviewed.review_cause == "engine-diagnostic"
+    assert closure.evidence_gap_inventory.gaps == ()
     assert closure.unresolved_included_assertion_ids == ()
-    assert "C3" not in effective.read_text()
+    assert "C3" in effective.read_text()
     assert hashlib.sha256(effective.read_bytes()).hexdigest() == (
         closure.effective_artifact_identity
     )
@@ -187,10 +204,10 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
 
 
 @pytest.mark.unit
-def test_all_independent_evidence_gaps_are_inventoryed_and_withheld_in_one_pass(
+def test_all_independent_evidence_gaps_are_pair_scoped_in_one_pass(
     tmp_path: Path,
 ) -> None:
-    """Collect every gap and withhold whole affected concepts deterministically."""
+    """Collect every gap while retaining evidenced sibling assertions."""
     source = tmp_path / "source.ttl"
     source.write_text(
         _constituent("C1", "PrimarySite", "C10", "1" * 64)
@@ -291,13 +308,11 @@ def test_all_independent_evidence_gaps_are_inventoryed_and_withheld_in_one_pass(
     ]
     assert inventory.withheld_concept_codes == ("C2", "C3")
     assert inventory == second.evidence_gap_inventory
-    assert len(first.included_assertion_closure) == len(first.evidence_ledger) == 1
+    assert len(first.included_assertion_closure) == len(first.evidence_ledger) == 2
     assert {
-        item.assertion.concept_code for item in first.excluded_assertion_closure
-    } == {
-        "C2",
-        "C3",
-    }
+        (item.assertion.concept_code, item.assertion.filler_code)
+        for item in first.excluded_assertion_closure
+    } == {("C2", "C20"), ("C3", "C30")}
     assert all(
         item.reason == "withheld-evidence-gap"
         for item in first.excluded_assertion_closure
@@ -306,8 +321,142 @@ def test_all_independent_evidence_gaps_are_inventoryed_and_withheld_in_one_pass(
         item.assertion_identity for item in first.included_assertion_closure
     }
     assert not included_ids & {item.assertion_identity for item in inventory.gaps}
-    assert "C2" not in (tmp_path / "first.ttl").read_text()
-    assert "C3" not in (tmp_path / "first.ttl").read_text()
+    output_graph = Graph().parse(tmp_path / "first.ttl", format="turtle")
+    output_rows = {
+        (
+            str(subject).rsplit("#", 1)[-1],
+            str(output_graph.value(node, URIRef(vocab.FILLER))).rsplit("#", 1)[-1],
+        )
+        for subject, node in output_graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT))
+    }
+    assert output_rows == {("C1", "C10"), ("C2", "C21")}
+    assert [
+        (item.included_count, item.withheld_count, item.reasons)
+        for item in first.completeness_summaries
+    ] == [
+        (1, 0, ()),
+        (1, 1, ("missing-source-occurrence",)),
+        (0, 1, ("evidence-contradiction", "policy-non-applicable")),
+    ]
+
+
+@pytest.mark.unit
+def test_genus_fact_uses_named_policy_without_role_occurrence() -> None:
+    decomposition = cast(
+        "Decomposition",
+        SimpleNamespace(
+            code="C1",
+            constituents=(
+                Constituent(
+                    axis="op:Morphology",
+                    filler_code="C2",
+                    axis_source="parent",
+                    source_definition_ids=("1" * 64,),
+                ),
+            ),
+        ),
+    )
+
+    assessment = evaluate_persisted_assertion_evidence(
+        (decomposition,), policy_identity=POLICY_IDENTITY
+    ).assessments[0]
+
+    assert assessment.gap_reasons == ()
+    assert assessment.occurrence_availability == "not-applicable-genus-fact"
+    assert assessment.complete_definition_identity is not None
+    assert assessment.transformation_rule == "certified-genus-to-morphology-v1"
+    assert assessment.applicability_identity != assessment.complete_definition_identity
+    assert assessment.evidence is not None
+
+
+@pytest.mark.unit
+def test_missing_persisted_join_is_not_reported_as_missing_occurrence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_text(
+        _constituent("C1", "Morphology", "C2", "1" * 64, axis_source="parent")
+    )
+
+    closure = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "effective.ttl",
+        source=_source(),
+        persisted_evidence=PersistedEvidenceEvaluation.build(
+            policy_identity=POLICY_IDENTITY, assessments=()
+        ),
+        concept_exclusions=(),
+    )
+
+    assert [item.reason for item in closure.evidence_gap_inventory.gaps] == [
+        "missing-persisted-assessment"
+    ]
+
+
+@pytest.mark.unit
+def test_graph_filter_removes_complete_multiline_constituent_only(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_text(
+        f'<{NCIT_NS}C1> <{vocab.ONTOPRISM_NS}label> "preserved metadata" .\n'
+        + _constituent("C1", "PrimarySite", "C2", "1" * 64)
+        + f"<{NCIT_NS}C1> <{vocab.HAS_CONSTITUENT}> [\n"
+        f"  <{vocab.AXIS}> <{vocab.ONTOPRISM_NS}PrimarySite> ;\n"
+        f'  <{vocab.FILLER}> <{NCIT_NS}C3> ; <{vocab.AXIS_SOURCE}> "role" ;\n'
+        f"  <{vocab.SOURCE_ROLE}> <{NCIT_NS}R101> ;\n"
+        f"  <{vocab.SOURCE_DEFINITION_FACT}> <{vocab.DEFINITION_FACT_NS}{'2' * 64}> ;\n"
+        f"  <{vocab.ONTOPRISM_NS}detail> "
+        f'[ <{vocab.ONTOPRISM_NS}label> "bounded" ] ] .\n'
+    )
+    evaluation = PersistedEvidenceEvaluation.build(
+        policy_identity=POLICY_IDENTITY,
+        assessments=(
+            _evaluation(
+                _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64)
+            ).assessments[0],
+            PersistedAssertionAssessment(
+                concept_code="C1",
+                axis="op:PrimarySite",
+                filler_code="C3",
+                axis_source="role",
+                source_fact_ids=("2" * 64,),
+                source_occurrence_ids=(),
+                occurrence_availability=None,
+                complete_definition_identity=None,
+                source_roles=("R101",),
+                transformation_rule="axis-contract-routing-v1",
+                transformation_policy_identity=POLICY_IDENTITY,
+                applicability_identity="7" * 64,
+                gap_reasons=("missing-source-occurrence",),
+                evidence=None,
+            ),
+        ),
+    )
+
+    closure = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "effective.ttl",
+        source=_source(),
+        persisted_evidence=evaluation,
+        concept_exclusions=(),
+    )
+    graph = Graph().parse(tmp_path / "effective.ttl", format="turtle")
+    assert (
+        URIRef(f"{NCIT_NS}C1"),
+        URIRef(f"{vocab.ONTOPRISM_NS}label"),
+        Literal("preserved metadata"),
+    ) in graph
+    assert (
+        len(tuple(graph.objects(URIRef(f"{NCIT_NS}C1"), URIRef(vocab.HAS_CONSTITUENT))))
+        == 1
+    )
+    assert all(
+        str(value) != "bounded"
+        for value in graph.objects(None, URIRef(f"{vocab.ONTOPRISM_NS}label"))
+    )
+    assert closure.inclusion_coverage == 0.5
+    assert closure.qualifying_evidence_coverage == 1.0
 
 
 @pytest.mark.unit
@@ -541,6 +690,8 @@ def _empty_closure() -> AssertionEvidenceClosure:
         "concept_exclusions": (),
         "evidence_ledger": (),
         "evidence_gap_inventory": EvidenceGapInventory.build(()),
+        "completeness_summaries": (),
+        "original_candidate_assertion_count": 0,
         "unresolved_included_assertion_ids": (),
         "contradictory_included_assertion_ids": (),
         "ambiguous_included_assertion_ids": (),
@@ -591,6 +742,41 @@ def test_machine_acceptance_refuses_absence_contradiction_or_ambiguity() -> None
             policy_identity=POLICY_IDENTITY,
             dry_run_identity="7" * 64,
             ambiguity=ambiguity,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"original_candidate_assertion_count": 100}, "inclusion coverage"),
+        ({"evidence_ledger": ()}, "qualifying evidence coverage"),
+    ],
+)
+def test_machine_acceptance_rejects_low_inclusion_or_evidence_coverage(
+    tmp_path: Path, update: dict[str, object], message: str
+) -> None:
+    source = tmp_path / "source.ttl"
+    source.write_text(_constituent("C1", "PrimarySite", "C2", "1" * 64))
+    closure = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "effective.ttl",
+        source=_source(),
+        persisted_evidence=_evaluation(
+            _persisted("C1", "PrimarySite", "C2", "1" * 64, "2" * 64)
+        ),
+        concept_exclusions=(),
+    ).model_copy(update=update)
+
+    with pytest.raises(CorpusAcceptanceValidationError, match=message):
+        build_machine_evidence_acceptance(
+            candidate_identity="4" * 64,
+            closure=closure,
+            exclusions_identity="5" * 64,
+            evidence_ledger_identity=closure.evidence_ledger_identity,
+            policy_identity=POLICY_IDENTITY,
+            dry_run_identity="7" * 64,
+            ambiguity=EvidenceAmbiguityReport.from_closure(closure),
         )
 
 
@@ -661,8 +847,11 @@ def test_acceptance_metadata_is_derived_from_closure_not_caller_statuses(
                     concept_code="C5",
                     axis="op:PrimarySite",
                     filler_code="C6",
+                    axis_source="role",
                     source_fact_ids=("6" * 64,),
                     source_occurrence_ids=(),
+                    occurrence_availability=None,
+                    complete_definition_identity=None,
                     source_roles=("R101",),
                     transformation_rule="axis-contract-routing-v1",
                     transformation_policy_identity=POLICY_IDENTITY,
@@ -698,9 +887,10 @@ def test_acceptance_metadata_is_derived_from_closure_not_caller_statuses(
     ncit = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
     assert hashlib.sha256(publication.read_bytes()).hexdigest() == identity
     assert set(graph.objects(URIRef(f"{ncit}C1"), acceptance)) == {Literal("projected")}
-    assert set(graph.objects(URIRef(f"{ncit}C3"), acceptance)) == {
-        Literal("review-required-excluded")
-    }
+    assert set(graph.objects(URIRef(f"{ncit}C3"), acceptance)) == {Literal("projected")}
+    assert set(
+        graph.objects(URIRef(f"{ncit}C3"), URIRef(vocab.ACCEPTANCE_WITHHELD_COUNT))
+    ) == {Literal(0)}
     assert set(graph.objects(URIRef(f"{ncit}C5"), acceptance)) == {
         Literal("withheld-evidence-gap")
     }

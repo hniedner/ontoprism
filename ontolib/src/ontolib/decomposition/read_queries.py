@@ -27,6 +27,7 @@ def build_decomposition_query(concept_code: str) -> str:
         SELECT ?status ?decomposedOn ?acceptanceStatus ?sourceRelease ?sourceIdentity
                ?acceptedRun ?acceptedRepresentation ?publicationIdentity
                ?exclusionSummary
+               ?includedAssertionCount ?withheldAssertionCount ?withholdingReason
                ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
                ?axisAmbiguityGroup ?sourceStructuralGroup
                ?normalizedProjectionGroup ?normalizedProjectionGroupLabel
@@ -36,6 +37,18 @@ def build_decomposition_query(concept_code: str) -> str:
                 OPTIONAL {{ <{concept_uri}> <{vocab.DECOMPOSED_ON}> ?decomposedOn }}
                 OPTIONAL {{
                     <{concept_uri}> <{vocab.ACCEPTANCE_STATUS}> ?acceptanceStatus
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_INCLUDED_COUNT}>
+                        ?includedAssertionCount
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_WITHHELD_COUNT}>
+                        ?withheldAssertionCount
+                }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.ACCEPTANCE_WITHHOLDING_REASON}>
+                        ?withholdingReason
                 }}
                 OPTIONAL {{
                     <{concept_uri}> <{vocab.ACCEPTANCE_SOURCE_RELEASE}> ?sourceRelease

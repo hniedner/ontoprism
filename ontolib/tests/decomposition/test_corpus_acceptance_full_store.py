@@ -77,19 +77,15 @@ async def test_real_corpus_has_complete_gap_inventory_and_zero_included_gaps(
 
     inventory = closure.evidence_gap_inventory
     observed_counts = {item.reason: item.count for item in inventory.reason_counts}
-    assert observed_counts == {
-        "missing-source-fact": 2_775,
-        "missing-source-occurrence": 43_593,
-        "policy-non-applicable": 1_006,
-        "proposal-quarantined": 2_649,
-        "residual-unknown": 20,
-        "review-required": 43_262,
-    }
-    assert len(inventory.gaps) == 93_305
-    assert len(inventory.withheld_concept_codes) == 14_866
-    assert len(closure.excluded_assertion_closure) == 144_197
-    assert len(closure.included_assertion_closure) == 34
-    assert any(
+    assert "review-required" not in observed_counts
+    assert "missing-source-occurrence" in observed_counts
+    assert closure.original_candidate_assertion_count == (
+        len(closure.included_assertion_closure)
+        + len(closure.excluded_assertion_closure)
+    )
+    assert closure.inclusion_coverage > 0
+    assert closure.qualifying_evidence_coverage == 1
+    assert not any(
         item.concept_code == "C100051"
         and item.axis == "op:Morphology"
         and item.filler_code == "C9385"

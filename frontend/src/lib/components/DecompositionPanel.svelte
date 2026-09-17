@@ -63,7 +63,10 @@
 		<LoadingState active label="Loading decomposition" minHeight="4rem" />
 	{:else}
 		{#if data && data.acceptance.status !== 'not-accepted'}
-			<AcceptanceSummary acceptance={data.acceptance} />
+			<AcceptanceSummary
+				acceptance={data.acceptance}
+				diagnosticReview={data.constituents.some((item) => item.needs_review)}
+			/>
 		{/if}
 		{#if !data?.is_legacy_precoordinated}
 			{#if data?.acceptance.status !== 'review-required-excluded'}

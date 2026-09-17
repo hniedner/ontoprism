@@ -7,7 +7,6 @@ source-preserving effective projection that may receive machine authorization.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import math
 import re
@@ -26,6 +25,7 @@ from pydantic import (
 )
 from rdflib import Graph, URIRef
 from rdflib import Literal as RdfLiteral
+from rdflib.compare import to_canonical_graph
 from rdflib.term import BNode, Node
 from scripts.research.group_review_packet import (
     ActualGenusFactEvidence,
@@ -101,6 +101,7 @@ _CODE = r"^C[0-9]+$"
 _TARGET_EXCLUSIONS = ("C102870", "C198031", "C27262", "C35756")
 _CERTIFIED_WORKLIST_COUNT = 15_633
 _REPORT_ONLY_FIDELITY_TARGET = 0.9
+_MINIMUM_INCLUSION_COVERAGE = 0.9
 
 
 class CorpusAcceptanceValidationError(ValueError):
@@ -236,14 +237,54 @@ class CertifiedSourceBinding(_StrictModel):
     certification: Literal["expert-curated-ncit-release"]
 
 
+OccurrenceAvailability = Literal[
+    "available", "available-source-fact", "not-applicable-genus-fact"
+]
+ReviewCause = Literal["engine-diagnostic", "governed-semantic-ambiguity"]
+
+
+class NamedProjectionPolicy(_StrictModel):
+    name: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    axis_source: Literal["parent"]
+    axis: Literal["op:Morphology"]
+    source_fact_kind: Literal["certified-complete-definition"]
+    policy_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        expected = _identity(self.model_dump(mode="json", exclude={"policy_identity"}))
+        if self.policy_identity != expected:
+            raise ValueError("named projection policy identity differs")
+        return self
+
+
+_GENUS_MORPHOLOGY_POLICY_PAYLOAD = {
+    "name": "certified-genus-to-morphology",
+    "version": 1,
+    "axis_source": "parent",
+    "axis": "op:Morphology",
+    "source_fact_kind": "certified-complete-definition",
+}
+_GENUS_MORPHOLOGY_POLICY = NamedProjectionPolicy.model_validate(
+    {
+        **_GENUS_MORPHOLOGY_POLICY_PAYLOAD,
+        "policy_identity": _identity(_GENUS_MORPHOLOGY_POLICY_PAYLOAD),
+    }
+)
+
+
 class PersistedAssertionEvidence(_StrictModel):
     """Persisted source occurrence and named transformation for one projection."""
 
     concept_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=_CODE)
+    axis_source: Literal["role", "parent", "nlp"]
     source_fact_ids: tuple[str, ...] = Field(min_length=1)
     source_occurrence_ids: tuple[str, ...]
+    occurrence_availability: OccurrenceAvailability
+    complete_definition_identity: str | None = Field(default=None, pattern=_SHA256)
     transformation_rule: str = Field(min_length=1)
     transformation_policy_identity: str = Field(pattern=_SHA256)
     applicability_identity: str = Field(pattern=_SHA256)
@@ -252,12 +293,15 @@ class PersistedAssertionEvidence(_StrictModel):
     def _canonical_evidence(self) -> Self:
         _require_canonical_identities("source fact", self.source_fact_ids)
         _require_canonical_identities("source occurrence", self.source_occurrence_ids)
-        if self.axis.startswith("op:") and not self.source_occurrence_ids:
-            raise ValueError("routed assertion requires exact source occurrences")
+        if self.axis_source == "role" and not self.source_occurrence_ids:
+            raise ValueError("role-routed assertion requires exact source occurrences")
+        if self.axis_source == "parent" and self.complete_definition_identity is None:
+            raise ValueError("parent assertion requires complete-definition identity")
         return self
 
 
 EvidenceGapReason = Literal[
+    "missing-persisted-assessment",
     "missing-source-fact",
     "missing-source-occurrence",
     "missing-source-role",
@@ -278,8 +322,11 @@ class PersistedAssertionAssessment(_StrictModel):
     concept_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
     filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    axis_source: Literal["role", "parent", "nlp"]
     source_fact_ids: tuple[str, ...]
     source_occurrence_ids: tuple[str, ...]
+    occurrence_availability: OccurrenceAvailability | None
+    complete_definition_identity: str | None = Field(default=None, pattern=_SHA256)
     source_roles: tuple[str, ...]
     transformation_rule: str | None
     transformation_policy_identity: str = Field(pattern=_SHA256)
@@ -347,6 +394,7 @@ class CanonicalSemanticAssertion(_StrictModel):
     source_occurrence_ids: tuple[str, ...]
     most_specific: bool
     needs_review: bool
+    review_cause: Literal["engine-diagnostic"] | None
     assertion_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -378,6 +426,8 @@ class QualifyingAssertionEvidence(_StrictModel):
     source: CertifiedSourceBinding
     source_fact_ids: tuple[str, ...] = Field(min_length=1)
     source_occurrence_ids: tuple[str, ...]
+    occurrence_availability: OccurrenceAvailability
+    complete_definition_identity: str | None = Field(default=None, pattern=_SHA256)
     evidence_kind: Literal["certified-source-and-deterministic-transformation"]
     transformation_rule: str = Field(min_length=1)
     transformation_policy_identity: str = Field(pattern=_SHA256)
@@ -399,6 +449,8 @@ class EvidenceGap(_StrictModel):
     source_occurrence_ids: tuple[str, ...]
     transformation_policy_identity: str = Field(pattern=_SHA256)
     applicability_identity: str | None = Field(default=None, pattern=_SHA256)
+    occurrence_availability: OccurrenceAvailability | None
+    review_cause: ReviewCause | None
     official_source_preserved: Literal[True]
     gap_identity: str = Field(pattern=_SHA256)
 
@@ -482,6 +534,21 @@ class EvidenceGapInventory(_StrictModel):
         )
 
 
+class ConceptCompletenessSummary(_StrictModel):
+    concept_code: str = Field(pattern=_CODE)
+    included_count: int = Field(ge=0)
+    withheld_count: int = Field(ge=0)
+    reasons: tuple[EvidenceGapReason, ...]
+
+    @model_validator(mode="after")
+    def _canonical_nonempty_partition(self) -> Self:
+        if self.reasons != tuple(sorted(set(self.reasons))):
+            raise ValueError("concept completeness reasons must be canonical")
+        if self.withheld_count and not self.reasons:
+            raise ValueError("concept completeness reasons disagree with withholding")
+        return self
+
+
 def _require_canonical_partition_ids(label: str, values: tuple[str, ...]) -> None:
     if values != tuple(sorted(set(values))):
         raise ValueError(f"{label} closure must be canonical and unique")
@@ -507,9 +574,38 @@ def _require_gap_partition_relationships(
     gap_assertions = {item.assertion_identity for item in inventory.gaps}
     if set(included) & gap_assertions:
         raise ValueError("included assertion retains an evidence gap")
-    excluded_by_concept = {item.assertion.concept_code for item in excluded_assertions}
-    if not set(inventory.withheld_concept_codes) <= excluded_by_concept:
-        raise ValueError("evidence-gap concept is not withheld")
+    excluded_ids = {item.assertion.assertion_identity for item in excluded_assertions}
+    if gap_assertions != excluded_ids:
+        raise ValueError("evidence-gap assertion partition differs")
+
+
+def _concept_completeness_summaries(
+    included: tuple[CanonicalSemanticAssertion, ...],
+    excluded: tuple[ExcludedSemanticAssertion, ...],
+    inventory: EvidenceGapInventory,
+    concept_exclusions: tuple[ConceptExclusionDisposition, ...],
+) -> tuple[ConceptCompletenessSummary, ...]:
+    included_counts = Counter(item.concept_code for item in included)
+    withheld_counts = Counter(item.assertion.concept_code for item in excluded)
+    reasons: dict[str, set[EvidenceGapReason]] = {}
+    for gap in inventory.gaps:
+        reasons.setdefault(gap.concept_code, set()).add(gap.reason)
+    for exclusion in concept_exclusions:
+        reasons.setdefault(exclusion.concept_code, set()).add(exclusion.reason)
+    codes = sorted(
+        set(included_counts)
+        | set(withheld_counts)
+        | {item.concept_code for item in concept_exclusions}
+    )
+    return tuple(
+        ConceptCompletenessSummary(
+            concept_code=code,
+            included_count=included_counts[code],
+            withheld_count=withheld_counts[code],
+            reasons=tuple(sorted(reasons.get(code, set()))),
+        )
+        for code in codes
+    )
 
 
 class AssertionEvidenceClosure(_StrictModel):
@@ -523,6 +619,8 @@ class AssertionEvidenceClosure(_StrictModel):
     concept_exclusions: tuple[ConceptExclusionDisposition, ...]
     evidence_ledger: tuple[QualifyingAssertionEvidence, ...]
     evidence_gap_inventory: EvidenceGapInventory
+    completeness_summaries: tuple[ConceptCompletenessSummary, ...]
+    original_candidate_assertion_count: int = Field(ge=0)
     unresolved_included_assertion_ids: tuple[str, ...]
     contradictory_included_assertion_ids: tuple[str, ...]
     ambiguous_included_assertion_ids: tuple[str, ...]
@@ -552,6 +650,7 @@ class AssertionEvidenceClosure(_StrictModel):
             excluded_assertions=self.excluded_assertion_closure,
             inventory=self.evidence_gap_inventory,
         )
+        _validate_closure_completeness(self, len(included) + len(excluded))
         return self
 
     @property
@@ -565,11 +664,35 @@ class AssertionEvidenceClosure(_StrictModel):
         )
 
     @property
-    def included_evidence_coverage(self) -> float:
+    def inclusion_coverage(self) -> float:
+        if self.original_candidate_assertion_count == 0:
+            return 1.0
+        return (
+            len(self.included_assertion_closure)
+            / self.original_candidate_assertion_count
+        )
+
+    @property
+    def qualifying_evidence_coverage(self) -> float:
         included_count = len(self.included_assertion_closure)
         if included_count == 0:
             return 1.0
         return len(self.evidence_ledger) / included_count
+
+
+def _validate_closure_completeness(
+    closure: AssertionEvidenceClosure, partition_count: int
+) -> None:
+    if closure.original_candidate_assertion_count != partition_count:
+        raise ValueError("original candidate assertion count differs from partition")
+    expected_summaries = _concept_completeness_summaries(
+        closure.included_assertion_closure,
+        closure.excluded_assertion_closure,
+        closure.evidence_gap_inventory,
+        closure.concept_exclusions,
+    )
+    if closure.completeness_summaries != expected_summaries:
+        raise ValueError("concept completeness summaries differ")
 
 
 class EvidenceAmbiguityReport(_StrictModel):
@@ -676,6 +799,14 @@ def build_machine_evidence_acceptance(
     if unresolved or contradictions or ambiguous:
         raise CorpusAcceptanceValidationError(
             "included closure contains unresolved, contradictory, or ambiguous evidence"
+        )
+    if closure.inclusion_coverage < _MINIMUM_INCLUSION_COVERAGE:
+        raise CorpusAcceptanceValidationError(
+            "included assertion closure has insufficient inclusion coverage"
+        )
+    if not math.isclose(closure.qualifying_evidence_coverage, 1.0):
+        raise CorpusAcceptanceValidationError(
+            "included assertion closure lacks complete qualifying evidence coverage"
         )
     if evidence_ledger_identity != closure.evidence_ledger_identity:
         raise CorpusAcceptanceValidationError("evidence ledger identity differs")
@@ -789,11 +920,11 @@ def build_r101_occurrence_closure(
     )
 
 
-_FAST_ASSERTION_LINE = re.compile(
-    rf"^<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)> "
+_FAST_ASSERTION = re.compile(
+    rf"<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)>\s+"
     rf"<{re.escape(vocab.HAS_CONSTITUENT)}>\s+"
-    rf"\[<{re.escape(vocab.AXIS)}> <(?P<axis>[^>]+)> ; "
-    rf"<{re.escape(vocab.FILLER)}> <(?P<filler>[^>]+)>"
+    rf"\[\s*<{re.escape(vocab.AXIS)}>\s+<(?P<axis>[^>]+)>\s*;\s*"
+    rf"<{re.escape(vocab.FILLER)}>\s+<(?P<filler>[^>]+)>"
 )
 
 
@@ -816,23 +947,20 @@ def _filler_name(iri: str) -> str:
 def _fast_assertion_coordinates(
     payload: bytes,
 ) -> tuple[tuple[str, str, str], ...]:
-    coordinates: list[tuple[str, str, str]] = []
-    for line in payload.splitlines():
-        try:
-            match = _FAST_ASSERTION_LINE.match(line.decode("utf-8"))
-        except UnicodeDecodeError as exc:
-            raise CorpusAcceptanceValidationError(
-                "effective source artifact is not UTF-8"
-            ) from exc
-        if match is None:
-            continue
-        coordinates.append(
-            (
-                match.group("concept"),
-                _axis_name(match.group("axis")),
-                _filler_name(match.group("filler")),
-            )
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CorpusAcceptanceValidationError(
+            "effective source artifact is not UTF-8"
+        ) from exc
+    coordinates = [
+        (
+            match.group("concept"),
+            _axis_name(match.group("axis")),
+            _filler_name(match.group("filler")),
         )
+        for match in _FAST_ASSERTION.finditer(text)
+    ]
     canonical = tuple(sorted(coordinates))
     if len(canonical) != len(set(canonical)):
         raise CorpusAcceptanceValidationError(
@@ -853,15 +981,7 @@ def _single_object(graph: Graph, node: Node, predicate: str, label: str) -> Node
 def _rdf_assertion_row(
     graph: Graph, subject: Node, constituent: Node
 ) -> dict[str, object]:
-    subject_iri = str(subject)
-    if not isinstance(subject, URIRef) or not subject_iri.startswith(NCIT_NS):
-        raise CorpusAcceptanceValidationError(
-            "constituent subject is not an NCIt concept"
-        )
-    if not isinstance(constituent, BNode):
-        raise CorpusAcceptanceValidationError("constituent node is not anonymous")
-    axis = str(_single_object(graph, constituent, vocab.AXIS, "axis"))
-    filler = str(_single_object(graph, constituent, vocab.FILLER, "filler"))
+    concept_code, axis_name, filler_code = _rdf_coordinate(graph, subject, constituent)
     axis_sources = tuple(graph.objects(constituent, URIRef(vocab.AXIS_SOURCE)))
     if len(axis_sources) != 1:
         raise CorpusAcceptanceValidationError(
@@ -882,9 +1002,9 @@ def _rdf_assertion_row(
         )
     )
     return {
-        "concept_code": subject_iri.removeprefix(NCIT_NS),
-        "axis": _axis_name(axis),
-        "filler_code": _filler_name(filler),
+        "concept_code": concept_code,
+        "axis": axis_name,
+        "filler_code": filler_code,
         "axis_source": str(axis_sources[0]),
         "source_roles": source_roles,
         "source_fact_ids": source_facts,
@@ -895,16 +1015,24 @@ def _rdf_assertion_row(
     }
 
 
-def _rdf_assertion_rows(
-    payload: bytes,
-) -> tuple[dict[str, object], ...]:
-    graph = Graph()
-    try:
-        graph.parse(data=payload, format="turtle")
-    except Exception as exc:
+def _rdf_coordinate(
+    graph: Graph, subject: Node, constituent: Node
+) -> tuple[str, str, str]:
+    subject_iri = str(subject)
+    if not isinstance(subject, URIRef) or not subject_iri.startswith(NCIT_NS):
         raise CorpusAcceptanceValidationError(
-            "effective source artifact is not valid Turtle"
-        ) from exc
+            "constituent subject is not an NCIt concept"
+        )
+    if not isinstance(constituent, BNode):
+        raise CorpusAcceptanceValidationError("constituent node is not anonymous")
+    axis = str(_single_object(graph, constituent, vocab.AXIS, "axis"))
+    filler = str(_single_object(graph, constituent, vocab.FILLER, "filler"))
+    return subject_iri.removeprefix(NCIT_NS), _axis_name(axis), _filler_name(filler)
+
+
+def _rdf_assertion_rows(
+    graph: Graph,
+) -> tuple[dict[str, object], ...]:
     rows = [
         _rdf_assertion_row(graph, subject, constituent)
         for subject, constituent in graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT))
@@ -936,6 +1064,7 @@ def _assertion_from_row(
         "source_occurrence_ids": (
             assessment.source_occurrence_ids if assessment is not None else ()
         ),
+        "review_cause": "engine-diagnostic" if row["needs_review"] else None,
     }
     return CanonicalSemanticAssertion.model_validate(
         {**payload, "assertion_identity": _identity(payload)}
@@ -952,6 +1081,8 @@ def _evidence_for_assertion(
         source=source,
         source_fact_ids=persisted.source_fact_ids,
         source_occurrence_ids=persisted.source_occurrence_ids,
+        occurrence_availability=persisted.occurrence_availability,
+        complete_definition_identity=persisted.complete_definition_identity,
         evidence_kind="certified-source-and-deterministic-transformation",
         transformation_rule=persisted.transformation_rule,
         transformation_policy_identity=persisted.transformation_policy_identity,
@@ -965,12 +1096,16 @@ def _row_gap_reasons(
     assertion: CanonicalSemanticAssertion,
     assessment: PersistedAssertionAssessment | None,
     concept_exclusions: dict[str, ConceptExclusionDisposition],
+    governed_review_coordinates: set[tuple[str, str, str]],
 ) -> tuple[EvidenceGapReason, ...]:
     reasons = _assessment_row_gap_reasons(row=row, assessment=assessment)
     reasons.update(_intrinsic_row_gap_reasons(row=row, assertion=assertion))
     concept_exclusion = concept_exclusions.get(assertion.concept_code)
     if concept_exclusion is not None:
         reasons.add(cast("EvidenceGapReason", concept_exclusion.reason))
+    coordinate = (assertion.concept_code, assertion.axis, assertion.filler_code)
+    if coordinate in governed_review_coordinates:
+        reasons.add("review-required")
     return tuple(sorted(reasons))
 
 
@@ -980,12 +1115,15 @@ def _assessment_row_gap_reasons(
     assessment: PersistedAssertionAssessment | None,
 ) -> set[EvidenceGapReason]:
     if assessment is None:
-        return {"missing-source-occurrence"}
+        return {"missing-persisted-assessment"}
     reasons = set(assessment.gap_reasons)
     row_facts = cast("tuple[str, ...]", row["source_fact_ids"])
     row_roles = cast("tuple[str, ...]", row["source_roles"])
     if _assessment_contradicts_row(
-        assessment, row_facts=row_facts, row_roles=row_roles
+        assessment,
+        row_facts=row_facts,
+        row_roles=row_roles,
+        row_axis_source=str(row["axis_source"]),
     ):
         reasons.add("evidence-contradiction")
     return reasons
@@ -1003,8 +1141,6 @@ def _intrinsic_row_gap_reasons(
         reasons.add("missing-source-role")
     if assertion.filler_code.startswith("MINT-"):
         reasons.add("proposal-quarantined")
-    if assertion.needs_review:
-        reasons.add("review-required")
     return reasons
 
 
@@ -1013,6 +1149,7 @@ def _assessment_contradicts_row(
     *,
     row_facts: tuple[str, ...],
     row_roles: tuple[str, ...],
+    row_axis_source: str,
 ) -> bool:
     facts_contradict = bool(assessment.source_fact_ids) and (
         assessment.source_fact_ids != row_facts
@@ -1020,7 +1157,8 @@ def _assessment_contradicts_row(
     roles_contradict = bool(assessment.source_roles) and (
         assessment.source_roles != row_roles
     )
-    return facts_contradict or roles_contradict
+    source_contradicts = assessment.axis_source != row_axis_source
+    return facts_contradict or roles_contradict or source_contradicts
 
 
 def _evidence_gap(
@@ -1048,6 +1186,12 @@ def _evidence_gap(
         "applicability_identity": (
             assessment.applicability_identity if assessment is not None else None
         ),
+        "occurrence_availability": (
+            assessment.occurrence_availability if assessment is not None else None
+        ),
+        "review_cause": (
+            "governed-semantic-ambiguity" if reason == "review-required" else None
+        ),
         "official_source_preserved": True,
     }
     return EvidenceGap.model_validate(
@@ -1055,30 +1199,47 @@ def _evidence_gap(
     )
 
 
-def _filter_assertion_lines(
-    payload: bytes,
-    excluded_coordinates: set[tuple[str, str, str]],
-    excluded_concepts: set[str],
-) -> bytes:
-    retained: list[bytes] = []
-    excluded_subject_prefixes = tuple(
-        f"<{NCIT_NS}{code}> ".encode() for code in sorted(excluded_concepts)
-    )
-    for line in payload.splitlines(keepends=True):
-        if excluded_subject_prefixes and line.startswith(excluded_subject_prefixes):
+def _bounded_blank_nodes(graph: Graph, root: BNode) -> set[BNode]:
+    pending = [root]
+    observed: set[BNode] = set()
+    while pending:
+        node = pending.pop()
+        if node in observed:
             continue
-        match = _FAST_ASSERTION_LINE.match(line.decode("utf-8"))
-        if match is None:
-            retained.append(line)
-            continue
-        coordinate = (
-            match.group("concept"),
-            _axis_name(match.group("axis")),
-            _filler_name(match.group("filler")),
+        observed.add(node)
+        pending.extend(
+            value
+            for value in graph.objects(node)
+            if isinstance(value, BNode) and value not in observed
         )
+    return observed
+
+
+def _canonical_graph_bytes(graph: Graph) -> bytes:
+    serialized = to_canonical_graph(graph).serialize(format="nt", encoding="utf-8")
+    if not isinstance(serialized, bytes):
+        raise CorpusAcceptanceValidationError("RDF serializer returned text")
+    return b"".join(sorted(serialized.splitlines(keepends=True)))
+
+
+def _filter_assertion_graph(
+    graph: Graph,
+    excluded_coordinates: set[tuple[str, str, str]],
+) -> bytes:
+    has_constituent = URIRef(vocab.HAS_CONSTITUENT)
+    removed_nodes: set[BNode] = set()
+    for subject, node in tuple(graph.subject_objects(has_constituent)):
+        coordinate = _rdf_coordinate(graph, subject, node)
         if coordinate not in excluded_coordinates:
-            retained.append(line)
-    return b"".join(retained)
+            continue
+        graph.remove((subject, has_constituent, node))
+        removed_nodes.update(_bounded_blank_nodes(graph, cast("BNode", node)))
+    for node in removed_nodes:
+        graph.remove((node, None, None))
+        graph.remove((None, None, node))
+    if any(node in graph.all_nodes() for node in removed_nodes):
+        raise CorpusAcceptanceValidationError("withheld constituent reference remains")
+    return _canonical_graph_bytes(graph)
 
 
 def _closure_indexes(
@@ -1105,6 +1266,7 @@ def _partition_assertion_rows(
     concepts_by_code: dict[str, ConceptExclusionDisposition],
     source: CertifiedSourceBinding,
     policy_identity: str,
+    governed_review_coordinates: set[tuple[str, str, str]],
 ) -> tuple[
     list[CanonicalSemanticAssertion],
     list[ExcludedSemanticAssertion],
@@ -1132,6 +1294,7 @@ def _partition_assertion_rows(
             assertion=assertion,
             assessment=assessment,
             concept_exclusions=concepts_by_code,
+            governed_review_coordinates=governed_review_coordinates,
         )
         gaps.extend(
             _evidence_gap(
@@ -1145,27 +1308,109 @@ def _partition_assertion_rows(
         )
         evaluated.append((coordinate, assertion, assessment))
     inventory = EvidenceGapInventory.build(tuple(gaps))
-    withheld_concepts = set(inventory.withheld_concept_codes)
+    gapped_assertion_ids = {item.assertion_identity for item in inventory.gaps}
     for coordinate, assertion, assessment in evaluated:
-        if assertion.concept_code in withheld_concepts:
-            excluded.append(
-                ExcludedSemanticAssertion(
-                    assertion=assertion,
-                    reason="withheld-evidence-gap",
-                    official_source_preserved=True,
-                )
-            )
-            excluded_coordinates.add(coordinate)
-        else:
-            if assessment is None or assessment.evidence is None:
-                raise CorpusAcceptanceValidationError(
-                    "included assertion lacks evidence"
-                )
-            included.append(assertion)
-            evidence.append(
-                _evidence_for_assertion(assertion, assessment.evidence, source)
-            )
+        _partition_evaluated_assertion(
+            coordinate=coordinate,
+            assertion=assertion,
+            assessment=assessment,
+            gapped_assertion_ids=gapped_assertion_ids,
+            source=source,
+            included=included,
+            excluded=excluded,
+            evidence=evidence,
+            excluded_coordinates=excluded_coordinates,
+        )
     return included, excluded, evidence, excluded_coordinates, inventory
+
+
+def _partition_evaluated_assertion(
+    *,
+    coordinate: tuple[str, str, str],
+    assertion: CanonicalSemanticAssertion,
+    assessment: PersistedAssertionAssessment | None,
+    gapped_assertion_ids: set[str],
+    source: CertifiedSourceBinding,
+    included: list[CanonicalSemanticAssertion],
+    excluded: list[ExcludedSemanticAssertion],
+    evidence: list[QualifyingAssertionEvidence],
+    excluded_coordinates: set[tuple[str, str, str]],
+) -> None:
+    if assertion.assertion_identity in gapped_assertion_ids:
+        excluded.append(
+            ExcludedSemanticAssertion(
+                assertion=assertion,
+                reason="withheld-evidence-gap",
+                official_source_preserved=True,
+            )
+        )
+        excluded_coordinates.add(coordinate)
+        return
+    if assessment is None or assessment.evidence is None:
+        raise CorpusAcceptanceValidationError("included assertion lacks evidence")
+    included.append(assertion)
+    evidence.append(_evidence_for_assertion(assertion, assessment.evidence, source))
+
+
+def _parse_turtle_graph(payload: bytes, label: str) -> Graph:
+    graph = Graph()
+    try:
+        graph.parse(data=payload, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(f"{label} is not valid Turtle") from exc
+    return graph
+
+
+def _validated_effective_closure_payload(
+    graph: Graph,
+    excluded_coordinates: set[tuple[str, str, str]],
+    included: list[CanonicalSemanticAssertion],
+) -> bytes:
+    payload = _filter_assertion_graph(graph, excluded_coordinates)
+    output_coordinates = tuple(
+        (
+            str(row["concept_code"]),
+            str(row["axis"]),
+            str(row["filler_code"]),
+        )
+        for row in _rdf_assertion_rows(
+            _parse_turtle_graph(payload, "effective artifact")
+        )
+    )
+    included_coordinates = tuple(
+        sorted((item.concept_code, item.axis, item.filler_code) for item in included)
+    )
+    if output_coordinates != included_coordinates:
+        raise CorpusAcceptanceValidationError(
+            "effective coordinate set differs from included closure"
+        )
+    return payload
+
+
+def _cross_checked_inventory_identities(
+    payload: bytes, rdf_coordinates: tuple[tuple[str, str, str], ...]
+) -> tuple[str, str]:
+    rdf_identity = _identity(rdf_coordinates)
+    fast_identity = _identity(_fast_assertion_coordinates(payload))
+    if rdf_identity != fast_identity:
+        raise CorpusAcceptanceValidationError("parser inventories differ")
+    return rdf_identity, fast_identity
+
+
+def _write_immutable_effective_artifact(
+    *,
+    source_artifact: Path,
+    source_identity: str,
+    destination: Path,
+    payload: bytes,
+) -> None:
+    if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
+        raise CorpusAcceptanceValidationError(
+            "source artifact changed during projection"
+        )
+    if destination.exists():
+        raise CorpusAcceptanceValidationError("effective artifact destination exists")
+    atomic_write_bytes(destination, payload)
 
 
 def build_assertion_evidence_closure(
@@ -1175,11 +1420,13 @@ def build_assertion_evidence_closure(
     source: CertifiedSourceBinding,
     persisted_evidence: PersistedEvidenceEvaluation,
     concept_exclusions: tuple[ConceptExclusionDisposition, ...],
+    governed_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...] = (),
 ) -> AssertionEvidenceClosure:
     """Build a parser-cross-checked effective projection and exact evidence closure."""
     payload = source_artifact.read_bytes()
     source_identity = hashlib.sha256(payload).hexdigest()
-    rdf_rows = _rdf_assertion_rows(payload)
+    graph = _parse_turtle_graph(payload, "effective source artifact")
+    rdf_rows = _rdf_assertion_rows(graph)
     rdf_coordinates = tuple(
         (
             str(row["concept_code"]),
@@ -1188,11 +1435,9 @@ def build_assertion_evidence_closure(
         )
         for row in rdf_rows
     )
-    fast_coordinates = _fast_assertion_coordinates(payload)
-    rdf_inventory_identity = _identity(rdf_coordinates)
-    fast_inventory_identity = _identity(fast_coordinates)
-    if rdf_inventory_identity != fast_inventory_identity:
-        raise CorpusAcceptanceValidationError("parser inventories differ")
+    rdf_inventory_identity, fast_inventory_identity = (
+        _cross_checked_inventory_identities(payload, rdf_coordinates)
+    )
     persisted_by_key, concepts_by_code = _closure_indexes(
         persisted_evidence, concept_exclusions
     )
@@ -1204,20 +1449,23 @@ def build_assertion_evidence_closure(
             concepts_by_code=concepts_by_code,
             source=source,
             policy_identity=persisted_evidence.policy_identity,
+            governed_review_coordinates={
+                (exclusion.concept_code, pair.axis, pair.filler_code)
+                for exclusion in governed_exclusions
+                for pair in exclusion.pair_changes
+                if pair.effective_disposition == "removed-from-effective"
+            },
         )
     )
-    effective_payload = _filter_assertion_lines(
-        payload,
-        excluded_coordinates,
-        set(concepts_by_code) | set(inventory.withheld_concept_codes),
+    effective_payload = _validated_effective_closure_payload(
+        graph, excluded_coordinates, included
     )
-    if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
-        raise CorpusAcceptanceValidationError(
-            "source artifact changed during projection"
-        )
-    if effective_destination.exists():
-        raise CorpusAcceptanceValidationError("effective artifact destination exists")
-    atomic_write_bytes(effective_destination, effective_payload)
+    _write_immutable_effective_artifact(
+        source_artifact=source_artifact,
+        source_identity=source_identity,
+        destination=effective_destination,
+        payload=effective_payload,
+    )
     included.sort(key=attrgetter("assertion_identity"))
     excluded.sort(key=lambda item: item.assertion.assertion_identity)
     evidence.sort(key=attrgetter("assertion_identity"))
@@ -1234,6 +1482,13 @@ def build_assertion_evidence_closure(
         ),
         evidence_ledger=tuple(evidence),
         evidence_gap_inventory=inventory,
+        completeness_summaries=_concept_completeness_summaries(
+            tuple(included),
+            tuple(excluded),
+            inventory,
+            tuple(concept_exclusions),
+        ),
+        original_candidate_assertion_count=len(rdf_rows),
         unresolved_included_assertion_ids=(),
         contradictory_included_assertion_ids=(),
         ambiguous_included_assertion_ids=(),
@@ -1248,7 +1503,7 @@ def _constituent_gap_reasons(
         reasons.add("proposal-quarantined")
     if not constituent.source_definition_ids:
         reasons.add("missing-source-fact")
-    if not constituent.source_occurrence_ids:
+    if constituent.axis_source == "role" and not constituent.source_occurrence_ids:
         reasons.add("missing-source-occurrence")
     return reasons
 
@@ -1265,13 +1520,38 @@ def _constituent_transformation_binding(
         ):
             return None, None, "policy-non-applicable"
         return "axis-contract-routing-v1", contract.model_dump(mode="json"), None
-    return (
-        f"source-{constituent.axis_source}-projection-v1",
+    if (
+        constituent.axis_source == _GENUS_MORPHOLOGY_POLICY.axis_source
+        and constituent.axis == _GENUS_MORPHOLOGY_POLICY.axis
+    ):
+        return (
+            "certified-genus-to-morphology-v1",
+            _GENUS_MORPHOLOGY_POLICY.model_dump(mode="json"),
+            None,
+        )
+    return None, None, "policy-non-applicable"
+
+
+def _occurrence_availability(
+    constituent: Constituent,
+) -> OccurrenceAvailability | None:
+    if constituent.axis_source == "role":
+        return "available" if constituent.source_occurrence_ids else None
+    if constituent.axis_source == "parent":
+        return "not-applicable-genus-fact"
+    if constituent.source_definition_ids:
+        return "available-source-fact"
+    return None
+
+
+def _complete_definition_identity(constituent: Constituent) -> str | None:
+    if constituent.axis_source != "parent" or not constituent.source_definition_ids:
+        return None
+    return _identity(
         {
-            "axis": constituent.axis,
-            "axis_source": constituent.axis_source,
-        },
-        None,
+            "fact_kind": "certified-complete-definition",
+            "source_fact_ids": constituent.source_definition_ids,
+        }
     )
 
 
@@ -1317,8 +1597,13 @@ def _qualifying_persisted_evidence(
         concept_code=concept_code,
         axis=constituent.axis,
         filler_code=constituent.filler_code,
+        axis_source=constituent.axis_source,
         source_fact_ids=constituent.source_definition_ids,
         source_occurrence_ids=constituent.source_occurrence_ids,
+        occurrence_availability=cast(
+            "OccurrenceAvailability", _occurrence_availability(constituent)
+        ),
+        complete_definition_identity=_complete_definition_identity(constituent),
         transformation_rule=rule,
         transformation_policy_identity=policy_identity,
         applicability_identity=applicability,
@@ -1334,11 +1619,16 @@ def _assess_persisted_assertion(
     )
     if binding_gap is not None:
         reasons.add(binding_gap)
+    transformation_policy_identity = (
+        _GENUS_MORPHOLOGY_POLICY.policy_identity
+        if rule == "certified-genus-to-morphology-v1"
+        else policy_identity
+    )
     applicability = (
         _transformation_applicability_identity(
             rule=rule,
             contract_payload=contract_payload,
-            policy_identity=policy_identity,
+            policy_identity=transformation_policy_identity,
             concept_code=concept_code,
             constituent=constituent,
         )
@@ -1349,7 +1639,7 @@ def _assess_persisted_assertion(
         reasons=reasons,
         rule=rule,
         applicability=applicability,
-        policy_identity=policy_identity,
+        policy_identity=transformation_policy_identity,
         concept_code=concept_code,
         constituent=constituent,
     )
@@ -1357,11 +1647,14 @@ def _assess_persisted_assertion(
         concept_code=concept_code,
         axis=constituent.axis,
         filler_code=constituent.filler_code,
+        axis_source=constituent.axis_source,
         source_fact_ids=constituent.source_definition_ids,
         source_occurrence_ids=constituent.source_occurrence_ids,
+        occurrence_availability=_occurrence_availability(constituent),
+        complete_definition_identity=_complete_definition_identity(constituent),
         source_roles=constituent.source_roles,
         transformation_rule=rule,
-        transformation_policy_identity=policy_identity,
+        transformation_policy_identity=transformation_policy_identity,
         applicability_identity=applicability,
         gap_reasons=tuple(sorted(reasons)),
         evidence=evidence,
@@ -1601,11 +1894,29 @@ def _documented_source_assertion_identities(documented) -> tuple[str, ...]:  # t
 def _source_projection_assertion_identities(
     artifact: bytes,
 ) -> dict[tuple[str, str, str], tuple[str, ...]]:
+    graph = Graph()
+    try:
+        graph.parse(data=artifact, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(
+            "source artifact is not valid Turtle"
+        ) from exc
     identities: dict[tuple[str, str, str], set[str]] = {}
-    for line in artifact.splitlines(keepends=True):
-        key = _effective_constituent_key(line)
-        if key is not None:
-            identities.setdefault(key, set()).add(hashlib.sha256(line).hexdigest())
+    for subject, constituent in graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT)):
+        row = _rdf_assertion_row(graph, subject, constituent)
+        key = (
+            str(row["concept_code"]),
+            str(row["axis"]),
+            str(row["filler_code"]),
+        )
+        bounded = Graph()
+        bounded.add((subject, URIRef(vocab.HAS_CONSTITUENT), constituent))
+        for node in _bounded_blank_nodes(graph, cast("BNode", constituent)):
+            for triple in graph.triples((node, None, None)):
+                bounded.add(triple)
+        identities.setdefault(key, set()).add(
+            hashlib.sha256(_canonical_graph_bytes(bounded)).hexdigest()
+        )
     return {key: tuple(sorted(values)) for key, values in identities.items()}
 
 
@@ -1673,7 +1984,7 @@ class MintProposalAssertion(_StrictModel):
     subject_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
     proposal_id: str = Field(pattern=r"^MINT-[0-9a-f]{12}$")
-    source_line_identity: str = Field(pattern=_SHA256)
+    source_statement_identity: str = Field(pattern=_SHA256)
     assertion_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -1822,61 +2133,68 @@ def _is_mint_registry_record(proposal: Proposal) -> bool:
 
 def enumerate_mint_assertions(artifact: bytes) -> tuple[MintProposalAssertion, ...]:
     """Semantically parse every proposal-shaped Turtle statement in the artifact."""
-    lines = filter(_contains_mint, io.BytesIO(artifact))
-    assertions = tuple(map(_semantic_mint_assertion, lines))
-    keys = tuple(map(_mint_assertion_key, assertions))
-    if len(keys) != len(set(keys)):
-        raise CorpusAcceptanceValidationError("duplicate MINT assertion")
+    try:
+        graph = _parse_turtle_graph(artifact, "proposal-shaped artifact")
+    except CorpusAcceptanceValidationError as exc:
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped Turtle statement"
+        ) from exc
+    assertions = tuple(
+        _semantic_mint_assertion(graph, subject, constituent)
+        for subject, constituent in graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT))
+        if any(
+            "MINT" in str(filler)
+            for filler in graph.objects(constituent, URIRef(vocab.FILLER))
+        )
+    )
+    _validate_mint_inventory(artifact, assertions)
     return tuple(sorted(assertions, key=lambda item: item.assertion_identity))
 
 
-def _contains_mint(line: bytes) -> bool:
-    return b"MINT" in line
+def _validate_mint_inventory(
+    artifact: bytes, assertions: tuple[MintProposalAssertion, ...]
+) -> None:
+    if b"MINT" in artifact and not assertions:
+        raise CorpusAcceptanceValidationError(
+            "malformed proposal-shaped constituent assertion"
+        )
+    keys = tuple(map(_mint_assertion_key, assertions))
+    if len(keys) != len(set(keys)):
+        raise CorpusAcceptanceValidationError("duplicate MINT assertion")
 
 
 def _mint_assertion_key(assertion: MintProposalAssertion) -> tuple[str, str, str]:
     return assertion.subject_code, assertion.axis, assertion.proposal_id
 
 
-def _semantic_mint_assertion(line: bytes) -> MintProposalAssertion:
-    graph = Graph()
-    try:
-        graph.parse(data=line.decode("utf-8"), format="turtle")
-    except Exception as exc:
+def _semantic_mint_assertion(
+    graph: Graph, subject: Node, constituent: Node
+) -> MintProposalAssertion:
+    axes = tuple(graph.objects(constituent, URIRef(vocab.AXIS)))
+    fillers = tuple(graph.objects(constituent, URIRef(vocab.FILLER)))
+    if not all((len(axes) == 1, len(fillers) == 1, isinstance(constituent, BNode))):
         raise CorpusAcceptanceValidationError(
-            "malformed proposal-shaped Turtle statement"
-        ) from exc
-    subject, axis_node, filler_node = _single_mint_candidate(graph)
-    payload = _mint_assertion_payload(subject, axis_node, filler_node, line)
+            "malformed proposal-shaped constituent assertion"
+        )
+    bounded = Graph()
+    bounded.add((subject, URIRef(vocab.HAS_CONSTITUENT), constituent))
+    for node in _bounded_blank_nodes(graph, cast("BNode", constituent)):
+        for triple in graph.triples((node, None, None)):
+            bounded.add(triple)
+    payload = _mint_assertion_payload(
+        subject,
+        cast("Node", axes[0]),
+        cast("Node", fillers[0]),
+        hashlib.sha256(_canonical_graph_bytes(bounded)).hexdigest(),
+    )
     return MintProposalAssertion(
         **payload,
         assertion_identity=_identity(payload),  # type: ignore[arg-type]
     )
 
 
-def _single_mint_candidate(graph: Graph) -> tuple[Node, Node, Node]:
-    has_constituent = URIRef(vocab.HAS_CONSTITUENT)
-    axis_predicate = URIRef(vocab.AXIS)
-    filler_predicate = URIRef(vocab.FILLER)
-    candidates = tuple(graph.subject_objects(has_constituent))
-    if len(candidates) != 1:
-        raise CorpusAcceptanceValidationError(
-            "malformed proposal-shaped constituent assertion"
-        )
-    subject, constituent = candidates[0]
-    axes = tuple(graph.objects(constituent, axis_predicate))
-    fillers = tuple(graph.objects(constituent, filler_predicate))
-    if not all(
-        (len(axes) == 1, len(fillers) == 1, "MINT" in "".join(map(str, fillers)))
-    ):
-        raise CorpusAcceptanceValidationError(
-            "malformed proposal-shaped constituent assertion"
-        )
-    return subject, cast("Node", axes[0]), cast("Node", fillers[0])
-
-
 def _mint_assertion_payload(
-    subject: Node, axis_node: Node, filler_node: Node, line: bytes
+    subject: Node, axis_node: Node, filler_node: Node, statement_identity: str
 ) -> dict[str, str]:
     subject_code = str(subject).removeprefix(NCIT_NS)
     axis_iri = str(axis_node)
@@ -1899,23 +2217,13 @@ def _mint_assertion_payload(
         raise CorpusAcceptanceValidationError(
             "malformed proposal-shaped constituent assertion"
         )
-    source_line_identity = hashlib.sha256(line).hexdigest()
     payload = {
         "subject_code": subject_code,
         "axis": axis,
         "proposal_id": proposal_id,
-        "source_line_identity": source_line_identity,
+        "source_statement_identity": statement_identity,
     }
     return payload
-
-
-_CONSTITUENT_LINE = re.compile(
-    rf"^<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)> "
-    rf"<{re.escape(vocab.HAS_CONSTITUENT)}>\s+"
-    rf"\[<{re.escape(vocab.AXIS)}> <(?P<axis>[^>]+)> ; "
-    rf"<{re.escape(vocab.FILLER)}> <{re.escape(NCIT_NS)}(?P<filler>C[0-9]+)>"
-    rf"(?: ;| \])"
-)
 
 
 def build_effective_artifact(
@@ -1937,12 +2245,10 @@ def build_effective_artifact(
         candidate_source_identity=candidate_source_identity,
     )
     proposal_assertions = _expected_mint_assertions(source, expected_minted_count)
-    by_key = _effective_exclusion_map(exclusions)
-    proposal_line_ids = set(
-        map(attrgetter("source_line_identity"), proposal_assertions)
-    )
-    payload, removed_keys = _filter_effective_lines(
-        source, by_key, proposal_line_ids=proposal_line_ids
+    exclusion_map = _effective_exclusion_map(exclusions)
+    proposal_keys = {_mint_assertion_key(item) for item in proposal_assertions}
+    payload, removed_keys = _filter_effective_graph(
+        source, exclusion_map, proposal_coordinates=proposal_keys
     )
     registered = set(registry.registered_proposal_ids)
     _require_no_mint_survivors(payload, registered)
@@ -1950,7 +2256,7 @@ def build_effective_artifact(
         proposal_assertions, registry, registered
     )
     evidence = _validate_effective_delta(
-        source, payload, removed_keys, exclusions, by_key
+        source, payload, removed_keys, exclusions, exclusion_map
     )
     if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
         raise CorpusAcceptanceValidationError(
@@ -2028,41 +2334,27 @@ def _build_effective_proposal_delta(
     )
 
 
-def _effective_constituent_key(line: bytes) -> tuple[str, str, str] | None:
-    match = _CONSTITUENT_LINE.match(line.decode("utf-8"))
-    if match is None:
-        return None
-    axis_iri = match.group("axis")
-    axis = (
-        f"op:{axis_iri.removeprefix(vocab.ONTOPRISM_NS)}"
-        if axis_iri.startswith(vocab.ONTOPRISM_NS)
-        else axis_iri
-    )
-    return match.group("concept"), axis, match.group("filler")
-
-
-def _filter_effective_lines(
+def _filter_effective_graph(
     source: bytes,
     by_key: dict[tuple[str, str, str], ReviewRequiredPairChange],
     *,
-    proposal_line_ids: set[str],
+    proposal_coordinates: set[tuple[str, str, str]],
 ) -> tuple[bytes, tuple[tuple[str, str, str], ...]]:
-    removed: set[tuple[str, str, str]] = set()
-    retained: list[bytes] = []
-    for line in io.BytesIO(source):
-        if hashlib.sha256(line).hexdigest() in proposal_line_ids:
-            continue
-        key = _effective_constituent_key(line)
-        pair = by_key.get(key) if key is not None else None
-        if (
-            key is not None
-            and pair is not None
-            and pair.effective_disposition == "removed-from-effective"
-        ):
-            removed.add(key)
-        else:
-            retained.append(line)
-    return b"".join(retained), tuple(sorted(removed))
+    graph = Graph()
+    try:
+        graph.parse(data=source, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(
+            "source artifact is not valid Turtle"
+        ) from exc
+    input_keys = _rdf_coordinates(graph)
+    removed = {
+        key
+        for key, pair in by_key.items()
+        if pair.effective_disposition == "removed-from-effective" and key in input_keys
+    }
+    payload = _filter_assertion_graph(graph, removed | proposal_coordinates)
+    return payload, tuple(sorted(removed))
 
 
 def _validate_effective_delta(
@@ -2128,10 +2420,18 @@ def _require_effective_pair_presence(
 
 
 def _constituent_keys(artifact: bytes) -> set[tuple[str, str, str]]:
+    graph = Graph()
+    try:
+        graph.parse(data=artifact, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError("artifact is not valid Turtle") from exc
+    return _rdf_coordinates(graph)
+
+
+def _rdf_coordinates(graph: Graph) -> set[tuple[str, str, str]]:
     return {
-        key
-        for line in artifact.splitlines(keepends=True)
-        if (key := _effective_constituent_key(line)) is not None
+        _rdf_coordinate(graph, subject, constituent)
+        for subject, constituent in graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT))
     }
 
 
@@ -2863,14 +3163,12 @@ def _acceptance_statuses(
         )
         for item in closure.concept_exclusions
     }
-    statuses = dict.fromkeys(projected, "projected")
-    statuses.update(
-        dict.fromkeys(
-            closure.evidence_gap_inventory.withheld_concept_codes,
-            "withheld-evidence-gap",
-        )
+    statuses = dict.fromkeys(
+        closure.evidence_gap_inventory.withheld_concept_codes,
+        "withheld-evidence-gap",
     )
     statuses.update(dict.fromkeys(review_required, "review-required-excluded"))
+    statuses.update(dict.fromkeys(projected, "projected"))
     statuses.update(concept_statuses)
     return statuses
 
@@ -2884,6 +3182,7 @@ def _add_acceptance_metadata(
     represented_identity: str,
     publication_identity: str,
 ) -> None:
+    completeness = {item.concept_code: item for item in closure.completeness_summaries}
     for code, status in sorted(statuses.items()):
         subject = URIRef(f"{NCIT_NS}{code}")
         values = (
@@ -2896,6 +3195,33 @@ def _add_acceptance_metadata(
         )
         for predicate, value in values:
             graph.add((subject, URIRef(predicate), RdfLiteral(value)))
+        summary = completeness.get(code)
+        if summary is None:
+            raise CorpusAcceptanceValidationError(
+                "acceptance status lacks concept completeness summary"
+            )
+        graph.add(
+            (
+                subject,
+                URIRef(vocab.ACCEPTANCE_INCLUDED_COUNT),
+                RdfLiteral(summary.included_count),
+            )
+        )
+        graph.add(
+            (
+                subject,
+                URIRef(vocab.ACCEPTANCE_WITHHELD_COUNT),
+                RdfLiteral(summary.withheld_count),
+            )
+        )
+        for reason in summary.reasons:
+            graph.add(
+                (
+                    subject,
+                    URIRef(vocab.ACCEPTANCE_WITHHOLDING_REASON),
+                    RdfLiteral(reason),
+                )
+            )
         if status == "review-required-excluded":
             _add_exclusion_summary(graph, subject)
 
@@ -3914,7 +4240,11 @@ def _candidate_result(
         "machine_acceptance_identity": acceptance_identity,
         "included_assertion_count": len(closure.included_assertion_closure),
         "included_evidence_count": len(closure.evidence_ledger),
-        "included_evidence_coverage": closure.included_evidence_coverage,
+        "original_candidate_assertion_count": (
+            closure.original_candidate_assertion_count
+        ),
+        "inclusion_coverage": closure.inclusion_coverage,
+        "qualifying_evidence_coverage": closure.qualifying_evidence_coverage,
         "excluded_assertion_count": len(closure.excluded_assertion_closure),
         "evidence_gap_inventory_identity": gap_inventory.inventory_identity,
         "evidence_gap_count": len(gap_inventory.gaps),
@@ -4041,6 +4371,7 @@ async def generate_c3262_acceptance_candidate(  # noqa: PLR0915
                     decompositions, policy_identity=evidence.policy_identity
                 ),
                 concept_exclusions=concept_exclusions,
+                governed_exclusions=exclusions,
             )
             semantic_projection_identity = _identity(
                 closure.model_dump(mode="json", exclude={"effective_artifact_identity"})

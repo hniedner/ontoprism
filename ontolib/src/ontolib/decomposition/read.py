@@ -173,6 +173,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     decomposed_on: str | None = None
     constituents: dict[tuple[str, str], DecompositionConstituent] = {}
     acceptance_rows: set[tuple[str | None, ...]] = set()
+    withholding_reasons: set[str] = set()
 
     for row in rows:
         status = status or row.get("status")
@@ -188,9 +189,12 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
                     "acceptedRepresentation",
                     "publicationIdentity",
                     "exclusionSummary",
+                    "includedAssertionCount",
+                    "withheldAssertionCount",
                 )
             )
         )
+        withholding_reasons.update(filter(None, (row.get("withholdingReason"),)))
         axis_iri = row.get("axis")
         filler_iri = row.get("filler")
         if not axis_iri or not filler_iri:
@@ -202,7 +206,9 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
             candidate,
         )
 
-    acceptance = _acceptance_from_rows(code, acceptance_rows)
+    acceptance = _acceptance_from_rows(
+        code, acceptance_rows, tuple(sorted(withholding_reasons))
+    )
     return ConceptDecomposition(
         code=code,
         is_legacy_precoordinated=status == vocab.LEGACY_PRECOORDINATED,
@@ -215,6 +221,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
 def _acceptance_from_rows(
     code: str,
     acceptance_rows: set[tuple[str | None, ...]],
+    withholding_reasons: tuple[str, ...],
 ) -> (
     NotAcceptedProjection
     | ProjectedEffectiveProjection
@@ -239,6 +246,11 @@ def _acceptance_from_rows(
         "official_source_preserved": True,
         "acceptance_basis": "machine-evidence",
         "official_source_url": f"/repositories/ncit/{code}",
+        "completeness": {
+            "included_count": _acceptance_count(acceptance_values[7], "included"),
+            "withheld_count": _acceptance_count(acceptance_values[8], "withheld"),
+            "reasons": withholding_reasons,
+        },
     }
     if acceptance_status == "projected":
         return ProjectedEffectiveProjection(
@@ -256,6 +268,12 @@ def _acceptance_from_rows(
     if withheld is not None:
         return withheld
     raise ValueError("persisted acceptance status is invalid")
+
+
+def _acceptance_count(value: str | None, label: str) -> int:
+    if value is None or not value.isdigit():
+        raise ValueError(f"persisted acceptance {label} count is invalid")
+    return int(value)
 
 
 def _withheld_projection(

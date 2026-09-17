@@ -369,6 +369,7 @@ export interface DecompositionConstituent {
 	filler_label: string | null;
 	axis_source: string;
 	most_specific: boolean;
+	needs_review: boolean;
 	axis_ambiguity_group_id: string | null;
 	source_group_ids: string[];
 	normalized_group_id: string | null;
@@ -376,6 +377,26 @@ export interface DecompositionConstituent {
 }
 
 type OfficialNcitSourceUrl = `/repositories/ncit/${string}`;
+
+export type AcceptanceWithholdingReason =
+	| 'missing-persisted-assessment'
+	| 'missing-source-fact'
+	| 'missing-source-occurrence'
+	| 'missing-source-role'
+	| 'policy-non-applicable'
+	| 'evidence-contradiction'
+	| 'evidence-ambiguity'
+	| 'review-required'
+	| 'unknown-outcome'
+	| 'residual'
+	| 'residual-unknown'
+	| 'proposal-quarantined';
+
+export interface AcceptanceCompleteness {
+	included_count: number;
+	withheld_count: number;
+	reasons: AcceptanceWithholdingReason[];
+}
 
 export type AcceptanceProjection =
 	| { status: 'not-accepted' }
@@ -390,6 +411,7 @@ export type AcceptanceProjection =
 			acceptance_basis: 'machine-evidence' | 'human-adjudication';
 			official_source_preserved: true;
 			official_source_url: OfficialNcitSourceUrl;
+			completeness: AcceptanceCompleteness;
 	  }
 	| {
 			status: 'review-required-excluded';
@@ -403,6 +425,7 @@ export type AcceptanceProjection =
 			acceptance_basis: 'machine-evidence' | 'human-adjudication';
 			official_source_preserved: true;
 			official_source_url: OfficialNcitSourceUrl;
+			completeness: AcceptanceCompleteness;
 	  }
 	| {
 			status: 'unknown-withheld' | 'residual-withheld' | 'withheld-evidence-gap';
@@ -415,6 +438,7 @@ export type AcceptanceProjection =
 			acceptance_basis: 'machine-evidence' | 'human-adjudication';
 			official_source_preserved: true;
 			official_source_url: OfficialNcitSourceUrl;
+			completeness: AcceptanceCompleteness;
 	  };
 
 export interface ConceptDecomposition {

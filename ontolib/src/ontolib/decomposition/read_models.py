@@ -104,6 +104,36 @@ class NotAcceptedProjection(StrictBoundaryModel):
     status: Literal["not-accepted"] = "not-accepted"
 
 
+AcceptanceWithholdingReason = Literal[
+    "missing-persisted-assessment",
+    "missing-source-fact",
+    "missing-source-occurrence",
+    "missing-source-role",
+    "policy-non-applicable",
+    "evidence-contradiction",
+    "evidence-ambiguity",
+    "review-required",
+    "unknown-outcome",
+    "residual",
+    "residual-unknown",
+    "proposal-quarantined",
+]
+
+
+class AcceptanceCompleteness(StrictBoundaryModel):
+    included_count: int = Field(ge=0)
+    withheld_count: int = Field(ge=0)
+    reasons: tuple[AcceptanceWithholdingReason, ...]
+
+    @model_validator(mode="after")
+    def _canonical_reasons_match_counts(self) -> Self:
+        if self.reasons != tuple(sorted(set(self.reasons))):
+            raise ValueError("acceptance completeness reasons must be canonical")
+        if self.withheld_count and not self.reasons:
+            raise ValueError("acceptance completeness reasons disagree with count")
+        return self
+
+
 class ProjectedEffectiveProjection(StrictBoundaryModel):
     status: Literal["projected"]
     source_release: str
@@ -115,6 +145,7 @@ class ProjectedEffectiveProjection(StrictBoundaryModel):
     acceptance_basis: Literal["machine-evidence", "human-adjudication"]
     official_source_url: str
     official_source_preserved: Literal[True]
+    completeness: AcceptanceCompleteness
 
 
 class ReviewRequiredExcludedProjection(StrictBoundaryModel):
@@ -131,6 +162,7 @@ class ReviewRequiredExcludedProjection(StrictBoundaryModel):
     official_source_preserved: Literal[True]
     acceptance_basis: Literal["machine-evidence", "human-adjudication"]
     official_source_url: str
+    completeness: AcceptanceCompleteness
 
 
 class UnknownWithheldProjection(StrictBoundaryModel):
@@ -144,6 +176,7 @@ class UnknownWithheldProjection(StrictBoundaryModel):
     acceptance_basis: Literal["machine-evidence", "human-adjudication"]
     official_source_preserved: Literal[True]
     official_source_url: str
+    completeness: AcceptanceCompleteness
 
 
 class ResidualWithheldProjection(StrictBoundaryModel):
@@ -157,6 +190,7 @@ class ResidualWithheldProjection(StrictBoundaryModel):
     acceptance_basis: Literal["machine-evidence", "human-adjudication"]
     official_source_preserved: Literal[True]
     official_source_url: str
+    completeness: AcceptanceCompleteness
 
 
 class EvidenceGapWithheldProjection(StrictBoundaryModel):
@@ -170,6 +204,7 @@ class EvidenceGapWithheldProjection(StrictBoundaryModel):
     acceptance_basis: Literal["machine-evidence", "human-adjudication"]
     official_source_preserved: Literal[True]
     official_source_url: str
+    completeness: AcceptanceCompleteness
 
 
 AcceptanceProjection = Annotated[

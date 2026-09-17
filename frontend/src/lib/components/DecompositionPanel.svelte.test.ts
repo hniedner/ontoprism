@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
-import type { AcceptanceProjection, ConceptDecomposition } from '$lib/types';
+import type {
+	AcceptanceProjection,
+	AcceptanceWithholdingReason,
+	ConceptDecomposition
+} from '$lib/types';
 
 vi.mock('$lib/api', () => ({ getDecomposition: vi.fn() }));
 import { getDecomposition } from '$lib/api';
@@ -21,7 +25,12 @@ function acceptedProjection(
 		publication_identity: 'c'.repeat(64),
 		acceptance_basis: 'machine-evidence' as const,
 		official_source_preserved: true as const,
-		official_source_url: '/repositories/ncit/C9305' as const
+		official_source_url: '/repositories/ncit/C9305' as const,
+		completeness: {
+			included_count: 2,
+			withheld_count: 1,
+			reasons: ['missing-source-occurrence'] as AcceptanceWithholdingReason[]
+		}
 	};
 	if (status === 'projected') {
 		return { ...common, status, effective_status: 'projected-effective' };
@@ -50,6 +59,7 @@ const decomposed: ConceptDecomposition = {
 			filler_label: 'Stage III',
 			axis_source: 'role',
 			most_specific: false,
+			needs_review: false,
 			axis_ambiguity_group_id: null,
 			source_group_ids: ['source-stage'],
 			normalized_group_id: 'normalized-stage',
@@ -62,6 +72,7 @@ const decomposed: ConceptDecomposition = {
 			filler_label: 'Thyroid Gland',
 			axis_source: 'role',
 			most_specific: true,
+			needs_review: false,
 			axis_ambiguity_group_id: 'ambiguous-site',
 			source_group_ids: ['source-site'],
 			normalized_group_id: 'normalized-site',
@@ -185,7 +196,12 @@ describe('DecompositionPanel', () => {
 				exclusion_summary: 'Review required — excluded from accepted effective projection',
 				acceptance_basis: 'machine-evidence',
 				official_source_preserved: true,
-				official_source_url: '/repositories/ncit/C198031'
+				official_source_url: '/repositories/ncit/C198031',
+				completeness: {
+					included_count: 1,
+					withheld_count: 1,
+					reasons: ['review-required']
+				}
 			}
 		} as ConceptDecomposition);
 
@@ -243,8 +259,8 @@ describe('DecompositionPanel', () => {
 			decomposed_on: '2026-07-06',
 			acceptance: notAccepted,
 			constituents: [
-				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
-				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
+				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, needs_review: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
+				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, needs_review: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
 			]
 		} satisfies ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
@@ -338,6 +354,7 @@ describe('DecompositionPanel', () => {
 					filler_label: null,
 					axis_source: 'parent',
 					most_specific: false,
+					needs_review: false,
 					axis_ambiguity_group_id: null,
 					source_group_ids: [],
 					normalized_group_id: null,
@@ -352,5 +369,18 @@ describe('DecompositionPanel', () => {
 			'href',
 			'/repositories/ncit/C40384'
 		);
+	});
+
+	it('shows partial completeness and diagnostic review without implying full decomposition', async () => {
+		mock.mockResolvedValue({
+			...decomposed,
+			acceptance: acceptedProjection('projected'),
+			constituents: [{ ...decomposed.constituents[0], needs_review: true }]
+		});
+
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(await screen.findByText(/2 included;\s*1 withheld/)).toBeInTheDocument();
+		expect(screen.getByText(/missing source occurrence/i)).toBeInTheDocument();
+		expect(screen.getByText(/diagnostic review/i)).toBeInTheDocument();
 	});
 });

@@ -50,6 +50,9 @@ def _row(**kw: str) -> dict[str, str | None]:
         and row["sourceRole"] is None
     ):
         row["sourceRole"] = axis
+    if row.get("acceptanceStatus") is not None:
+        row.setdefault("includedAssertionCount", "0")
+        row.setdefault("withheldAssertionCount", "0")
     return row
 
 
@@ -240,6 +243,9 @@ def test_projected_effective_projection_retains_exact_publication_binding() -> N
                 acceptedRun="run-1",
                 acceptedRepresentation="b" * 64,
                 publicationIdentity="c" * 64,
+                includedAssertionCount="3",
+                withheldAssertionCount="1",
+                withholdingReason="missing-source-occurrence",
             )
         ],
     )
@@ -251,6 +257,37 @@ def test_projected_effective_projection_retains_exact_publication_binding() -> N
     assert d.acceptance.run_id == "run-1"
     assert d.acceptance.representation_identity == "b" * 64
     assert d.acceptance.publication_identity == "c" * 64
+    assert d.acceptance.completeness.included_count == 3
+    assert d.acceptance.completeness.withheld_count == 1
+    assert d.acceptance.completeness.reasons == ("missing-source-occurrence",)
+
+
+@pytest.mark.unit
+def test_diagnostic_review_is_served_without_changing_projected_status() -> None:
+    d = decomposition_from_rows(
+        "C6135",
+        [
+            _row(
+                acceptanceStatus="projected",
+                sourceRelease="26.07d",
+                sourceIdentity="a" * 64,
+                acceptedRun="run-1",
+                acceptedRepresentation="b" * 64,
+                publicationIdentity="c" * 64,
+                includedAssertionCount="1",
+                withheldAssertionCount="0",
+                axis=f"{vocab.ONTOPRISM_NS}Morphology",
+                filler=_ncit("C2"),
+                axisSource="parent",
+                needsReview="true",
+                sourceDefinitionFact=f"{vocab.DEFINITION_FACT_NS}C6135/{'1' * 64}",
+            )
+        ],
+    )
+
+    assert d.acceptance.status == "projected"
+    assert d.acceptance.completeness.withheld_count == 0
+    assert d.constituents[0].needs_review is True
 
 
 @pytest.mark.unit

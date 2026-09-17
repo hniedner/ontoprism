@@ -4,7 +4,10 @@
 
 	type AcceptedProjection = Exclude<AcceptanceProjection, { status: 'not-accepted' }>;
 
-	let { acceptance }: { acceptance: AcceptedProjection } = $props();
+	let {
+		acceptance,
+		diagnosticReview = false
+	}: { acceptance: AcceptedProjection; diagnosticReview?: boolean } = $props();
 
 	const label = $derived.by(() => {
 		switch (acceptance.status) {
@@ -20,6 +23,9 @@
 				return 'Evidence gap — withheld';
 		}
 	});
+	const reasonLabel = $derived(
+		acceptance.completeness.reasons.map((reason) => reason.replaceAll('-', ' ')).join(', ')
+	);
 </script>
 
 <div class="mb-3 space-y-1 text-sm">
@@ -29,10 +35,20 @@
 		{acceptance.representation_identity.slice(0, 8)}; publication
 		{acceptance.publication_identity.slice(0, 8)}.
 	</p>
+	<p class="text-subtle">
+		{acceptance.completeness.included_count} included;
+		{acceptance.completeness.withheld_count} withheld{reasonLabel ? ` — ${reasonLabel}` : ''}
+	</p>
 	<a class="underline" href={resolve(acceptance.official_source_url)}>
 		Official NCIt source {acceptance.source_release}
 	</a>
 </div>
+
+{#if diagnosticReview}
+	<p class="mb-3 text-sm text-subtle">
+		Diagnostic review flag present; evidenced assertions remain projected.
+	</p>
+{/if}
 
 {#if acceptance.status === 'review-required-excluded'}
 	<div class="mb-3 space-y-1 text-sm">
