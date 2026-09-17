@@ -7,9 +7,9 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
-## 2026-09-17 — recovery: tiered gates, small PRs, no self-certifying machinery
+## 2026-09-17 — recovery: tiered gates, reviewed issue PRs, no self-certifying machinery
 
-### D89. CI is the gate of record; the agent roster and rules are cut back to what earns its keep
+### D89. CI is the gate of record on issue PRs into milestone branches; rules and roster cut back
 
 **Context.** Between 2026-09-06 and 2026-09-17 about seventy commits on the M1.6 branches
 produced no user-visible change and nothing reached `main`. A review found the causes in
@@ -18,14 +18,19 @@ files were bound to git HEAD, a clean worktree and a hash of their generator's s
 every commit invalidated them; committed derived files and tests of documentation wording
 failed unrelated commits; fifteen-hour corpus runs validated late and ran under short
 timeouts; the orchestrating agent could not edit and the implementer could not run a
-diagnostic, so diagnostics became tested production tooling; and milestone integration
-branches deferred CI and review until the end. Issue #127 had been rewritten eight times
+diagnostic, so diagnostics became tested production tooling; and the milestone branch
+received local merges, so it never ran in CI and review was deferred to the end. Issue #127 had been rewritten eight times
 from four plain criteria into a corpus-wide acceptance contract.
 
 **Decision.**
-- Work lands as small PRs to `main`; milestone integration branches are retired. CI on
-  the PR is the gate of record. Locally: targeted tests in the inner loop, pre-commit on
-  commit, `pdm run verify` once before the PR.
+- Milestone branches stay: issue branches fork from the milestone branch and merge back,
+  and the finished milestone branch gets one PR to `main`. Three changes fix what stalled
+  M1.6: CI runs on milestone branches, so every issue branch merges through a PR with a
+  CI run and never locally; the five-dimension review runs on each issue PR, leaving an
+  integration pass for the milestone PR; a milestone whose remaining issues are blocked
+  is split rather than extended (M1.6 was split into M1.6 and M1.6.1). CI on the PR is
+  the gate of record. Locally: targeted tests in the inner loop, pre-commit on commit,
+  `pdm run verify` once before the PR.
 - `AGENTS.md` is rewritten around that workflow and loaded by Claude Code through
   `CLAUDE.md`. The OpenCode roster is one primary agent that can edit, the five review
   dimensions (D49) and `ontology-analyst`; the planning chain (architect, plan-adversary,

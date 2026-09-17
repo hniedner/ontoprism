@@ -9,19 +9,49 @@ These rules apply to every agent and harness (OpenCode, Claude Code, others).
 
 ## How work flows
 
-One issue, one branch off `main`, one small PR, merged the same day where possible.
+Work is organised in **milestones**. A milestone has a milestone branch off `main`
+(`feat/m<number>-<slug>`). Each issue gets an issue branch forked from the milestone
+branch and merges back into it through a PR. When every issue of the milestone is merged,
+the milestone branch gets its own PR to `main`. A change that belongs to no milestone
+(a hotfix, a dependency bump) uses the same steps with `main` as its base.
+
+For each issue:
 
 1. Read the issue. Its body is the contract. If it is unclear or too large, say so and
    propose a smaller one before writing code.
-2. Branch from current `main`: `feat/<slug>-<issue#>`, `fix/...`, `docs/...`, `chore/...`.
+2. Branch from the current milestone branch: `feat/<slug>-<issue#>`, `fix/...`,
+   `docs/...`, `chore/...`.
 3. Write a failing behavioural test, run it, and see it fail for the intended reason.
 4. Make it pass with the least code. Refactor with tests green.
 5. Inner loop: run only the tests for the code you touched (seconds to two minutes).
 6. Commit. Pre-commit runs on the commit.
 7. Before opening the PR, run `pdm run verify` once.
-8. Open the PR. **CI on the PR is the gate of record.**
-9. One review round (see Review). Fix blockers, file the rest as issues.
-10. The owner authorizes the merge. After merge, watch post-merge workflows to completion.
+8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
+   of record.**
+9. Review the PR in all five dimensions (see Review). Fix blockers, file the rest as
+   issues.
+10. When every check passes and no blocker is open, squash-merge the issue PR into the
+    milestone branch and delete the issue branch. This merge does not need the owner.
+
+For the milestone:
+
+11. When all its issues are merged, merge current `main` into the milestone branch, run
+    `pdm run verify` once, and open the milestone PR to `main`. Its review is an
+    integration pass: what the issue reviews could not see (interactions between issues,
+    migrations in sequence, the combined diff against `main`).
+12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
+    completion before starting the next milestone.
+
+Three rules keep this model from stalling, as it did in September when a milestone branch
+grew to 94k unreviewed lines with no CI run:
+
+- **CI must run on the milestone branch.** Never merge an issue branch into it locally.
+  If an issue PR shows no CI checks, stop and fix the workflow triggers first.
+- **Review happens per issue PR, while the diff is small.** Never defer review to the
+  milestone PR.
+- **A stalled milestone is split, not extended.** If the remaining issues are blocked or
+  have grown, move them to a follow-on milestone and land what is finished. Ask the owner
+  to confirm the split.
 
 Start a new agent session for each issue. Do not carry one context across days of work.
 
@@ -29,11 +59,10 @@ Start a new agent session for each issue. Do not carry one context across days o
 
 - **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
   force-push, no deletion.
-- **No milestone integration branches.** Do not accumulate issues on a long-lived branch.
-  If a change cannot land on `main` by itself, split it until it can.
-- **Never merge without the owner's explicit authorization of that exact PR number in the
-  current conversation, and never unless every check in `gh pr checks <n>` is passing (or
-  skipped by a documented path filter).** Squash-merge with the PR's Conventional Commit
+- **Never merge into `main` without the owner's explicit authorization of that exact PR
+  number in the current conversation. Never merge any PR, into `main` or a milestone
+  branch, unless every check in `gh pr checks <n>` is passing (or skipped by a documented
+  path filter).** Squash-merge with the PR's Conventional Commit
   title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
   title or base changed since authorization, ask again. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
@@ -244,8 +273,8 @@ Run 1, 2, 4 and 5 in parallel, then 3 alone. Other harnesses use their own revie
 keep the five separate verdicts. What is bounded is the loop, not the coverage: findings
 are **blockers** or **follow-ups**; fix verified blockers and re-run only the dimensions
 that reported them; follow-ups become issues. Two rounds is the ceiling — if blockers
-remain after that, the PR is too big and should be split. Small PRs are what keep five
-reviewers cheap.
+remain after that, the PR is too big and should be split. Reviewing each issue PR, rather than the
+whole milestone at the end, is what keeps five reviewers cheap and useful.
 
 ## Conventions
 

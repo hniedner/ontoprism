@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/m[0-9]*']
   pull_request:
-    branches: [main]
+    # Milestone branches (feat/m<number>-<slug>) receive issue PRs; CI must see them.
+    branches: [main, 'feat/m[0-9]*']
   # On-demand CI for a feature branch that has no pull request yet: workflow_dispatch
   # runs every ordinary job; only Docker and the pinned embedding-model contract remain
   # path-gated.
