@@ -3536,6 +3536,13 @@ def _generate_c3262_acceptance_candidate(
         "ontolib.decomposition.corpus_acceptance"
     ).generate_c3262_acceptance_candidate
     try:
+        dirty = _capture_required(
+            ["git", "status", "--porcelain"], root, runner
+        ).strip()
+        if dirty:
+            raise AgentReplayInputError(
+                "generate-c3262-acceptance-candidate requires a clean worktree"
+            )
         git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
         output = asyncio.run(generate(root, git_head=git_head))
     except ValueError as exc:

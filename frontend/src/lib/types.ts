@@ -375,17 +375,21 @@ export interface DecompositionConstituent {
 	normalized_group_label: string | null;
 }
 
+type OfficialNcitSourceUrl = `/repositories/ncit/${string}`;
+
 export type AcceptanceProjection =
 	| { status: 'not-accepted' }
 	| {
-			status: 'accepted-effective';
+			status: 'projected';
 			source_release: string;
 			source_identity: string;
 			run_id: string;
 			representation_identity: string;
 			publication_identity: string;
-			effective_status: 'accepted-effective';
+			effective_status: 'projected-effective';
+			acceptance_basis: 'machine-evidence' | 'human-adjudication';
 			official_source_preserved: true;
+			official_source_url: OfficialNcitSourceUrl;
 	  }
 	| {
 			status: 'review-required-excluded';
@@ -396,7 +400,21 @@ export type AcceptanceProjection =
 			publication_identity: string;
 			effective_status: 'excluded-from-accepted-effective-projection';
 			exclusion_summary: 'Review required — excluded from accepted effective projection';
+			acceptance_basis: 'machine-evidence' | 'human-adjudication';
 			official_source_preserved: true;
+			official_source_url: OfficialNcitSourceUrl;
+	  }
+	| {
+			status: 'unknown-withheld' | 'residual-withheld';
+			source_release: string;
+			source_identity: string;
+			run_id: string;
+			representation_identity: string;
+			publication_identity: string;
+			effective_status: 'withheld-from-effective';
+			acceptance_basis: 'machine-evidence' | 'human-adjudication';
+			official_source_preserved: true;
+			official_source_url: OfficialNcitSourceUrl;
 	  };
 
 export interface ConceptDecomposition {

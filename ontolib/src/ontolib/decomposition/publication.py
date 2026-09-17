@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import tempfile
 import typing
@@ -11,11 +12,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 import rdflib
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from rdflib import Literal, URIRef
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.provenance import RunStateError
+from ontolib.decomposition.provenance_errors import RunStateError
 from ontolib.decomposition.provenance_models import (
     PersistedRunMetrics,
     PublicationMarkerSnapshot,
@@ -30,6 +31,10 @@ if TYPE_CHECKING:
 
     from rdflib.term import Node
 
+    from ontolib.decomposition.corpus_acceptance import (
+        AssertionEvidenceClosure,
+        MachineEvidenceAcceptance,
+    )
     from ontolib.decomposition.provenance_models import RunSummary
 
 
@@ -107,6 +112,133 @@ class PublicationMarker(PublicationMarkerSnapshot):
     def built_at_lexical(self) -> str:
         """Canonical UTC lexical form used in the graph marker."""
         return self.built_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+_MACHINE_AUTHORIZATION_ISSUER = object()
+
+
+class MachinePublicationAuthorization:
+    """Opaque capability binding one machine acceptance and exclusion closure."""
+
+    __slots__ = ("acceptance_identity", "exclusions_identity")
+
+    def __init__(
+        self,
+        *,
+        acceptance_identity: str,
+        exclusions_identity: str,
+        _issuer: object,
+    ) -> None:
+        if _issuer is not _MACHINE_AUTHORIZATION_ISSUER:
+            raise TypeError("publication authorization tokens are factory-issued")
+        self.acceptance_identity = acceptance_identity
+        self.exclusions_identity = exclusions_identity
+
+
+def _issue_machine_publication_authorization(
+    *, acceptance_identity: str, exclusions_identity: str
+) -> MachinePublicationAuthorization:
+    return MachinePublicationAuthorization(
+        acceptance_identity=acceptance_identity,
+        exclusions_identity=exclusions_identity,
+        _issuer=_MACHINE_AUTHORIZATION_ISSUER,
+    )
+
+
+class _StrictPublicationModel(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class AcceptancePublicationIntent(_StrictPublicationModel):
+    """Durable intent used to reconcile an accepted projection publication."""
+
+    acceptance_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candidate_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    exclusions_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    destination: str = Field(min_length=1)
+    marker: PublicationMarker
+    predecessor: PublicationMarker | None
+
+
+class AcceptancePublicationReceipt(_StrictPublicationModel):
+    """Identity-bound proof that the accepted bytes and graph marker agree."""
+
+    status: typing.Literal["published"]
+    acceptance_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candidate_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    exclusions_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    destination: str = Field(min_length=1)
+    marker: PublicationMarker
+    readback_marker: PublicationMarker
+    cross_system_atomicity_claimed: typing.Literal[False]
+    receipt_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        intent: AcceptancePublicationIntent,
+        readback_marker: PublicationMarker,
+    ) -> AcceptancePublicationReceipt:
+        payload = {
+            "status": "published",
+            "acceptance_identity": intent.acceptance_identity,
+            "candidate_identity": intent.candidate_identity,
+            "exclusions_identity": intent.exclusions_identity,
+            "artifact_identity": intent.artifact_identity,
+            "destination": intent.destination,
+            "marker": intent.marker,
+            "readback_marker": readback_marker,
+            "cross_system_atomicity_claimed": False,
+        }
+        identity = hashlib.sha256(
+            json.dumps(
+                _jsonable_publication(payload),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        return cls.model_validate({**payload, "receipt_identity": identity})
+
+    @model_validator(mode="after")
+    def _matches_readback_and_identity(self) -> AcceptancePublicationReceipt:
+        if self.marker != self.readback_marker:
+            raise ValueError("acceptance publication marker readback differs")
+        payload = self.model_dump(mode="json", exclude={"receipt_identity"})
+        expected = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if self.receipt_identity != expected:
+            raise ValueError("acceptance publication receipt identity differs")
+        return self
+
+
+def _jsonable_publication(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _jsonable_publication(item) for key, item in value.items()}
+    return value
+
+
+class AcceptancePublicationProvenance(Protocol):
+    """Journal operations for recoverable accepted-view publication."""
+
+    def publication_lock(self) -> AbstractAsyncContextManager[None]: ...
+
+    async def begin_acceptance_publication(
+        self, intent: AcceptancePublicationIntent
+    ) -> AcceptancePublicationIntent: ...
+
+    async def finish_acceptance_publication(
+        self, receipt: AcceptancePublicationReceipt
+    ) -> None: ...
+
+    async def record_acceptance_publication_failure(
+        self, acceptance_identity: str, error: BaseException
+    ) -> None: ...
 
 
 _EXPECTED_MARKER_PREDICATES = {
@@ -745,3 +877,196 @@ async def publish_artifact(
             raise PublicationPreflightError(str(exc)) from exc
         raise
     return marker
+
+
+def _validated_machine_accepted_payload(
+    *,
+    token: MachinePublicationAuthorization | None,
+    acceptance: MachineEvidenceAcceptance,
+    closure: AssertionEvidenceClosure,
+    artifact: Path,
+    expected_codes: Collection[str],
+    run_id: str,
+) -> tuple[str, bytes]:
+    try:
+        _require_machine_authorization(token, acceptance, closure)
+        artifact_identity, payload = _validated_artifact_payload(
+            artifact,
+            expected_codes=expected_codes,
+            run_id=run_id,
+        )
+        if artifact_identity != acceptance.effective_artifact_identity:
+            raise PublicationValidationError(
+                "accepted artifact identity differs from publication bytes"
+            )
+    except (PublicationValidationError, ValueError) as exc:
+        raise PublicationPreflightError(str(exc)) from exc
+    return artifact_identity, payload
+
+
+async def _begin_acceptance_publication(
+    *,
+    acceptance: MachineEvidenceAcceptance,
+    artifact_identity: str,
+    destination: Path,
+    run_id: str,
+    source_identity: str,
+    built_at: datetime | None,
+    client: PublicationGraphClient,
+    provenance: AcceptancePublicationProvenance,
+) -> AcceptancePublicationIntent:
+    predecessor = await read_publication_marker(client)
+    requested = AcceptancePublicationIntent(
+        acceptance_identity=acceptance.acceptance_identity,
+        candidate_identity=acceptance.candidate_identity,
+        exclusions_identity=acceptance.exclusions_identity,
+        artifact_identity=artifact_identity,
+        destination=str(destination),
+        marker=PublicationMarker(
+            run_id=run_id,
+            source_identity=source_identity,
+            representation_identity=artifact_identity,
+            built_at=built_at or datetime.now(UTC),
+        ),
+        predecessor=predecessor,
+    )
+    intent = await provenance.begin_acceptance_publication(requested)
+    try:
+        _require_matching_acceptance_intent(requested, intent)
+    except BaseException as original:
+        await _record_acceptance_failure(
+            provenance, acceptance.acceptance_identity, original
+        )
+        raise
+    return intent
+
+
+async def _complete_acceptance_publication(
+    *,
+    intent: AcceptancePublicationIntent,
+    payload: bytes,
+    destination: Path,
+    client: PublicationGraphClient,
+    provenance: AcceptancePublicationProvenance,
+) -> AcceptancePublicationReceipt:
+    await _replace_graph(
+        client,
+        payload,
+        intent.marker,
+        predecessor=intent.predecessor,
+    )
+    readback = await read_publication_marker(client)
+    if readback is None or readback != intent.marker:
+        raise PublicationValidationError("accepted publication marker readback differs")
+    _durable_write(payload, destination)
+    receipt = AcceptancePublicationReceipt.build(
+        intent=intent,
+        readback_marker=readback,
+    )
+    await provenance.finish_acceptance_publication(receipt)
+    return receipt
+
+
+async def _record_acceptance_failure(
+    provenance: AcceptancePublicationProvenance,
+    acceptance_identity: str,
+    original: BaseException,
+) -> None:
+    try:
+        await provenance.record_acceptance_publication_failure(
+            acceptance_identity,
+            original,
+        )
+    except BaseException as journal_error:
+        original.add_note(
+            "Recording accepted publication failure also failed: "
+            f"{type(journal_error).__name__}: {journal_error}"
+        )
+
+
+async def publish_machine_accepted_artifact(
+    *,
+    token: MachinePublicationAuthorization | None,
+    acceptance: MachineEvidenceAcceptance,
+    closure: AssertionEvidenceClosure,
+    artifact: Path,
+    destination: Path,
+    expected_codes: Collection[str],
+    run_id: str,
+    source_identity: str,
+    client: PublicationGraphClient,
+    provenance: AcceptancePublicationProvenance,
+    built_at: datetime | None = None,
+) -> AcceptancePublicationReceipt:
+    """Publish exact machine-accepted bytes with durable intent and readback proof."""
+    artifact_identity, payload = _validated_machine_accepted_payload(
+        token=token,
+        acceptance=acceptance,
+        closure=closure,
+        artifact=artifact,
+        expected_codes=expected_codes,
+        run_id=run_id,
+    )
+    async with provenance.publication_lock():
+        intent = await _begin_acceptance_publication(
+            acceptance=acceptance,
+            artifact_identity=artifact_identity,
+            destination=destination,
+            run_id=run_id,
+            source_identity=source_identity,
+            built_at=built_at,
+            client=client,
+            provenance=provenance,
+        )
+        try:
+            return await _complete_acceptance_publication(
+                intent=intent,
+                payload=payload,
+                destination=destination,
+                client=client,
+                provenance=provenance,
+            )
+        except BaseException as original:
+            await _record_acceptance_failure(
+                provenance, acceptance.acceptance_identity, original
+            )
+            raise
+
+
+def _require_machine_authorization(
+    token: MachinePublicationAuthorization | None,
+    acceptance: MachineEvidenceAcceptance,
+    closure: AssertionEvidenceClosure,
+) -> None:
+    if not isinstance(token, MachinePublicationAuthorization):
+        raise PublicationValidationError("publication requires typed authorization")
+    if (
+        token.acceptance_identity != acceptance.acceptance_identity
+        or token.exclusions_identity != acceptance.exclusions_identity
+    ):
+        raise PublicationValidationError("publication token binding differs")
+    if (
+        acceptance.effective_artifact_identity != closure.effective_artifact_identity
+        or acceptance.included_closure_identity != closure.closure_identity
+        or acceptance.evidence_ledger_identity != closure.evidence_ledger_identity
+    ):
+        raise PublicationValidationError(
+            "publication acceptance closure binding differs"
+        )
+
+
+def _require_matching_acceptance_intent(
+    requested: AcceptancePublicationIntent,
+    persisted: AcceptancePublicationIntent,
+) -> None:
+    """Allow timestamp/predecessor reuse only for the exact immutable publication."""
+    requested_binding = requested.model_dump(
+        mode="json", exclude={"marker": {"built_at"}, "predecessor": True}
+    )
+    persisted_binding = persisted.model_dump(
+        mode="json", exclude={"marker": {"built_at"}, "predecessor": True}
+    )
+    if requested_binding != persisted_binding:
+        raise PublicationValidationError(
+            "persisted acceptance publication intent binding differs"
+        )

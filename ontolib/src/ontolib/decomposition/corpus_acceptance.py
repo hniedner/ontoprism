@@ -13,23 +13,20 @@ import math
 import re
 import tempfile
 from collections import Counter
-from collections.abc import Iterable
 from operator import attrgetter
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, Self, cast
 
 from pydantic import (
-    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
-    TypeAdapter,
     ValidationError,
     model_validator,
 )
 from rdflib import Graph, URIRef
 from rdflib import Literal as RdfLiteral
-from rdflib.term import Node
+from rdflib.term import BNode, Node
 from scripts.research.group_review_packet import (
     ActualGenusFactEvidence,
     ActualPairEvidence,
@@ -47,6 +44,7 @@ from ontolib.decomposition.fanout_baseline import (
     load_fanout_baseline,
     rerun_fanout_concept,
 )
+from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     Proposal,
@@ -60,13 +58,18 @@ from ontolib.decomposition.proposal_registry_migration import (
 )
 from ontolib.decomposition.provenance_models import (
     CompletedRunForEvidence,
+    CorpusBaselineAggregate,
     PublicationMarkerSnapshot,
+    ResidualFillerClassification,
     RunSummary,
+    WorkItemOutcome,
 )
 from ontolib.decomposition.publication import (
+    MachinePublicationAuthorization,
     PublicationGraphClient,
     PublicationMarker,
     PublicationValidationError,
+    _issue_machine_publication_authorization,
     build_replacement_update,
     publication_recovery_decision,
     read_publication_marker,
@@ -221,6 +224,869 @@ def _require_canonical_identities(label: str, values: tuple[str, ...]) -> None:
     )
     if not canonical or not valid_digests:
         raise ValueError(f"{label} identities must be canonical SHA-256 values")
+
+
+class CertifiedSourceBinding(_StrictModel):
+    """Exact certified NCIt release and bytes supporting acceptance evidence."""
+
+    release: str = Field(min_length=1)
+    source_manifest_identity: str = Field(pattern=_SHA256)
+    source_identity: str = Field(pattern=_SHA256)
+    stated_artifact_identity: str = Field(pattern=_SHA256)
+    certification: Literal["expert-curated-ncit-release"]
+
+
+class PersistedAssertionEvidence(_StrictModel):
+    """Persisted source occurrence and named transformation for one projection."""
+
+    concept_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=_CODE)
+    source_fact_ids: tuple[str, ...] = Field(min_length=1)
+    source_occurrence_ids: tuple[str, ...]
+    transformation_rule: str = Field(min_length=1)
+    transformation_policy_identity: str = Field(pattern=_SHA256)
+    applicability_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _canonical_evidence(self) -> Self:
+        _require_canonical_identities("source fact", self.source_fact_ids)
+        _require_canonical_identities("source occurrence", self.source_occurrence_ids)
+        if self.axis.startswith("op:") and not self.source_occurrence_ids:
+            raise ValueError("routed assertion requires exact source occurrences")
+        return self
+
+
+class CanonicalSemanticAssertion(_StrictModel):
+    concept_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    axis_source: str = Field(min_length=1)
+    source_roles: tuple[str, ...]
+    source_fact_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
+    most_specific: bool
+    needs_review: bool
+    assertion_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        _require_canonical_identities("source fact", self.source_fact_ids)
+        _require_canonical_identities("source occurrence", self.source_occurrence_ids)
+        expected = _identity(
+            self.model_dump(mode="json", exclude={"assertion_identity"})
+        )
+        if self.assertion_identity != expected:
+            raise ValueError("canonical assertion identity differs")
+        return self
+
+
+AssertionExclusionReason = Literal[
+    "review-required",
+    "evidence-absent",
+    "evidence-contradictory",
+    "unresolved-ambiguity",
+    "proposal-quarantined",
+    "historical-dispute",
+]
+
+
+class ExcludedSemanticAssertion(_StrictModel):
+    assertion: CanonicalSemanticAssertion
+    reason: AssertionExclusionReason
+    official_source_preserved: Literal[True]
+
+
+class ConceptExclusionDisposition(_StrictModel):
+    concept_code: str = Field(pattern=_CODE)
+    reason: Literal["unknown-outcome", "residual", "residual-unknown"]
+    official_source_preserved: Literal[True]
+
+
+class QualifyingAssertionEvidence(_StrictModel):
+    assertion_identity: str = Field(pattern=_SHA256)
+    source: CertifiedSourceBinding
+    source_fact_ids: tuple[str, ...] = Field(min_length=1)
+    source_occurrence_ids: tuple[str, ...]
+    evidence_kind: Literal["certified-source-and-deterministic-transformation"]
+    transformation_rule: str = Field(min_length=1)
+    transformation_policy_identity: str = Field(pattern=_SHA256)
+    applicability_identity: str = Field(pattern=_SHA256)
+
+
+def _require_canonical_partition_ids(label: str, values: tuple[str, ...]) -> None:
+    if values != tuple(sorted(set(values))):
+        raise ValueError(f"{label} closure must be canonical and unique")
+
+
+def _require_exact_partition_relationships(
+    included: tuple[str, ...],
+    excluded: tuple[str, ...],
+    evidence: tuple[str, ...],
+) -> None:
+    if set(included) & set(excluded):
+        raise ValueError("included and excluded assertion closures overlap")
+    if evidence != included:
+        raise ValueError("included assertion evidence ledger is not exact")
+
+
+class AssertionEvidenceClosure(_StrictModel):
+    source: CertifiedSourceBinding
+    source_artifact_identity: str = Field(pattern=_SHA256)
+    effective_artifact_identity: str = Field(pattern=_SHA256)
+    rdf_parser_inventory_identity: str = Field(pattern=_SHA256)
+    fast_parser_inventory_identity: str = Field(pattern=_SHA256)
+    included_assertion_closure: tuple[CanonicalSemanticAssertion, ...]
+    excluded_assertion_closure: tuple[ExcludedSemanticAssertion, ...]
+    concept_exclusions: tuple[ConceptExclusionDisposition, ...]
+    evidence_ledger: tuple[QualifyingAssertionEvidence, ...]
+    unresolved_included_assertion_ids: tuple[str, ...]
+    contradictory_included_assertion_ids: tuple[str, ...]
+    ambiguous_included_assertion_ids: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _is_an_exact_partition(self) -> Self:
+        if self.rdf_parser_inventory_identity != self.fast_parser_inventory_identity:
+            raise ValueError("parser inventories differ")
+        included = tuple(
+            item.assertion_identity for item in self.included_assertion_closure
+        )
+        excluded = tuple(
+            item.assertion.assertion_identity
+            for item in self.excluded_assertion_closure
+        )
+        evidence = tuple(item.assertion_identity for item in self.evidence_ledger)
+        partitions = (
+            ("included assertion", included),
+            ("excluded assertion", excluded),
+            ("evidence assertion", evidence),
+        )
+        for label, values in partitions:
+            _require_canonical_partition_ids(label, values)
+        _require_exact_partition_relationships(included, excluded, evidence)
+        return self
+
+    @property
+    def closure_identity(self) -> str:
+        return _identity(self.model_dump(mode="json"))
+
+    @property
+    def evidence_ledger_identity(self) -> str:
+        return _identity(
+            [item.model_dump(mode="json") for item in self.evidence_ledger]
+        )
+
+
+class EvidenceAmbiguityReport(_StrictModel):
+    unresolved_assertion_ids: tuple[str, ...]
+    contradictory_assertion_ids: tuple[str, ...]
+    ambiguous_assertion_ids: tuple[str, ...]
+    report_identity: str = Field(pattern=_SHA256)
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        unresolved_assertion_ids: tuple[str, ...],
+        contradictory_assertion_ids: tuple[str, ...],
+        ambiguous_assertion_ids: tuple[str, ...],
+    ) -> EvidenceAmbiguityReport:
+        payload = {
+            "unresolved_assertion_ids": tuple(sorted(set(unresolved_assertion_ids))),
+            "contradictory_assertion_ids": tuple(
+                sorted(set(contradictory_assertion_ids))
+            ),
+            "ambiguous_assertion_ids": tuple(sorted(set(ambiguous_assertion_ids))),
+        }
+        return cls(**payload, report_identity=_identity(payload))
+
+    @classmethod
+    def from_closure(cls, closure: AssertionEvidenceClosure) -> EvidenceAmbiguityReport:
+        return cls.build(
+            unresolved_assertion_ids=closure.unresolved_included_assertion_ids,
+            contradictory_assertion_ids=closure.contradictory_included_assertion_ids,
+            ambiguous_assertion_ids=closure.ambiguous_included_assertion_ids,
+        )
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        for label, values in (
+            ("unresolved", self.unresolved_assertion_ids),
+            ("contradictory", self.contradictory_assertion_ids),
+            ("ambiguous", self.ambiguous_assertion_ids),
+        ):
+            _require_canonical_identities(label, values)
+        expected = _identity(self.model_dump(mode="json", exclude={"report_identity"}))
+        if self.report_identity != expected:
+            raise ValueError("ambiguity report identity differs")
+        return self
+
+
+class MachineEvidenceAcceptance(_StrictModel):
+    status: Literal["machine-evidence-accepted"]
+    candidate_identity: str = Field(pattern=_SHA256)
+    effective_artifact_identity: str = Field(pattern=_SHA256)
+    included_closure_identity: str = Field(pattern=_SHA256)
+    exclusions_identity: str = Field(pattern=_SHA256)
+    evidence_ledger_identity: str = Field(pattern=_SHA256)
+    policy_identity: str = Field(pattern=_SHA256)
+    dry_run_identity: str = Field(pattern=_SHA256)
+    ambiguity_report_identity: str = Field(pattern=_SHA256)
+    unresolved_included_count: Literal[0]
+    contradiction_included_count: Literal[0]
+    ambiguity_included_count: Literal[0]
+    nci_adoption_claimed: Literal[False]
+    acceptance_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        expected = _identity(
+            self.model_dump(mode="json", exclude={"acceptance_identity"})
+        )
+        if self.acceptance_identity != expected:
+            raise ValueError("machine acceptance identity differs")
+        return self
+
+
+class HumanEvidenceAcceptance(_StrictModel):
+    status: Literal["accepted"]
+    escalated_assertion_ids: tuple[str, ...] = Field(min_length=1)
+    attestation_artifact_identity: str = Field(pattern=_SHA256)
+    acceptance_identity: str = Field(pattern=_SHA256)
+    nci_adoption_claimed: Literal[False]
+
+
+class RejectedHumanEvidenceAcceptance(_StrictModel):
+    status: Literal["rejected"]
+    escalated_assertion_ids: tuple[str, ...] = Field(min_length=1)
+    attestation_artifact_identity: str = Field(pattern=_SHA256)
+    rejection_identity: str = Field(pattern=_SHA256)
+    nci_adoption_claimed: Literal[False]
+
+
+def build_machine_evidence_acceptance(
+    *,
+    candidate_identity: str,
+    closure: AssertionEvidenceClosure,
+    exclusions_identity: str,
+    evidence_ledger_identity: str,
+    policy_identity: str,
+    dry_run_identity: str,
+    ambiguity: EvidenceAmbiguityReport,
+) -> MachineEvidenceAcceptance:
+    """Accept only a fully evidenced included closure; exclusions may remain."""
+    unresolved = ambiguity.unresolved_assertion_ids
+    contradictions = ambiguity.contradictory_assertion_ids
+    ambiguous = ambiguity.ambiguous_assertion_ids
+    if unresolved or contradictions or ambiguous:
+        raise CorpusAcceptanceValidationError(
+            "included closure contains unresolved, contradictory, or ambiguous evidence"
+        )
+    if evidence_ledger_identity != closure.evidence_ledger_identity:
+        raise CorpusAcceptanceValidationError("evidence ledger identity differs")
+    payload = {
+        "status": "machine-evidence-accepted",
+        "candidate_identity": candidate_identity,
+        "effective_artifact_identity": closure.effective_artifact_identity,
+        "included_closure_identity": closure.closure_identity,
+        "exclusions_identity": exclusions_identity,
+        "evidence_ledger_identity": evidence_ledger_identity,
+        "policy_identity": policy_identity,
+        "dry_run_identity": dry_run_identity,
+        "ambiguity_report_identity": ambiguity.report_identity,
+        "unresolved_included_count": 0,
+        "contradiction_included_count": 0,
+        "ambiguity_included_count": 0,
+        "nci_adoption_claimed": False,
+    }
+    return MachineEvidenceAcceptance.model_validate(
+        {**payload, "acceptance_identity": _identity(payload)}
+    )
+
+
+def issue_machine_publication_token(
+    acceptance: MachineEvidenceAcceptance,
+) -> MachinePublicationAuthorization:
+    return _issue_machine_publication_authorization(
+        acceptance_identity=acceptance.acceptance_identity,
+        exclusions_identity=acceptance.exclusions_identity,
+    )
+
+
+def require_machine_publication_authorization(
+    *,
+    token: MachinePublicationAuthorization | None,
+    acceptance: MachineEvidenceAcceptance,
+    closure: AssertionEvidenceClosure,
+) -> None:
+    """Fail before any write unless the opaque capability binds exact accepted bytes."""
+    if not isinstance(token, MachinePublicationAuthorization):
+        raise CorpusAcceptanceValidationError(
+            "publication requires typed authorization"
+        )
+    if (
+        token.acceptance_identity != acceptance.acceptance_identity
+        or token.exclusions_identity != acceptance.exclusions_identity
+    ):
+        raise CorpusAcceptanceValidationError("publication token binding differs")
+    if (
+        acceptance.effective_artifact_identity != closure.effective_artifact_identity
+        or acceptance.included_closure_identity != closure.closure_identity
+        or acceptance.evidence_ledger_identity != closure.evidence_ledger_identity
+    ):
+        raise CorpusAcceptanceValidationError(
+            "publication acceptance closure binding differs"
+        )
+
+
+class R101OccurrenceDispositionBinding(_StrictModel):
+    source_occurrence_id: str = Field(pattern=_SHA256)
+    source_fact_id: str = Field(pattern=_SHA256)
+    disposition: str = Field(min_length=1)
+    disposition_reason: str = Field(min_length=1)
+    proof_identity: str = Field(pattern=_SHA256)
+    r82_path: tuple[object, ...]
+    path_identity: str | None = Field(default=None, pattern=_SHA256)
+
+
+class R101OccurrenceClosure(_StrictModel):
+    occurrences: tuple[R101OccurrenceDispositionBinding, ...]
+    unresolved_occurrence_ids: tuple[str, ...]
+    closure_identity: str = Field(pattern=_SHA256)
+
+
+def _r101_occurrence_binding(item) -> R101OccurrenceDispositionBinding:  # type: ignore[no-untyped-def]
+    path = tuple(edge.model_dump(mode="json") for edge in item.r82_path)
+    return R101OccurrenceDispositionBinding(
+        source_occurrence_id=item.occurrence_id,
+        source_fact_id=item.source_fact_id,
+        disposition=item.disposition,
+        disposition_reason=item.disposition_reason,
+        proof_identity=item.proof_id,
+        r82_path=path,
+        path_identity=_identity(path) if path else None,
+    )
+
+
+def build_r101_occurrence_closure(
+    report: R101ConservationReport,
+) -> R101OccurrenceClosure:
+    """Bind every existing ledger occurrence instead of restating summary counts."""
+    occurrences = tuple(
+        sorted(
+            (_r101_occurrence_binding(item) for item in report.occurrences),
+            key=attrgetter("source_occurrence_id"),
+        )
+    )
+    unresolved = tuple(
+        item.source_occurrence_id
+        for item in occurrences
+        if item.disposition == "unresolved"
+    )
+    payload = {
+        "occurrences": tuple(item.model_dump(mode="json") for item in occurrences),
+        "unresolved_occurrence_ids": unresolved,
+    }
+    return R101OccurrenceClosure(
+        occurrences=occurrences,
+        unresolved_occurrence_ids=unresolved,
+        closure_identity=_identity(payload),
+    )
+
+
+_FAST_ASSERTION_LINE = re.compile(
+    rf"^<{re.escape(NCIT_NS)}(?P<concept>C[0-9]+)> "
+    rf"<{re.escape(vocab.HAS_CONSTITUENT)}>\s+"
+    rf"\[<{re.escape(vocab.AXIS)}> <(?P<axis>[^>]+)> ; "
+    rf"<{re.escape(vocab.FILLER)}> <(?P<filler>[^>]+)>"
+)
+
+
+def _axis_name(iri: str) -> str:
+    return (
+        f"op:{iri.removeprefix(vocab.ONTOPRISM_NS)}"
+        if iri.startswith(vocab.ONTOPRISM_NS)
+        else iri.removeprefix(NCIT_NS)
+    )
+
+
+def _filler_name(iri: str) -> str:
+    if iri.startswith(NCIT_NS):
+        return iri.removeprefix(NCIT_NS)
+    if iri.startswith(vocab.ONTOPRISM_NS):
+        return iri.removeprefix(vocab.ONTOPRISM_NS)
+    raise CorpusAcceptanceValidationError("constituent filler is outside NCIt output")
+
+
+def _fast_assertion_coordinates(
+    payload: bytes,
+) -> tuple[tuple[str, str, str], ...]:
+    coordinates: list[tuple[str, str, str]] = []
+    for line in payload.splitlines():
+        try:
+            match = _FAST_ASSERTION_LINE.match(line.decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise CorpusAcceptanceValidationError(
+                "effective source artifact is not UTF-8"
+            ) from exc
+        if match is None:
+            continue
+        coordinates.append(
+            (
+                match.group("concept"),
+                _axis_name(match.group("axis")),
+                _filler_name(match.group("filler")),
+            )
+        )
+    canonical = tuple(sorted(coordinates))
+    if len(canonical) != len(set(canonical)):
+        raise CorpusAcceptanceValidationError(
+            "duplicate semantic constituent assertion"
+        )
+    return canonical
+
+
+def _single_object(graph: Graph, node: Node, predicate: str, label: str) -> Node:
+    values = tuple(graph.objects(node, URIRef(predicate)))
+    if len(values) != 1:
+        raise CorpusAcceptanceValidationError(
+            f"constituent has invalid {label} cardinality"
+        )
+    return cast("Node", values[0])
+
+
+def _rdf_assertion_row(
+    graph: Graph, subject: Node, constituent: Node
+) -> dict[str, object]:
+    subject_iri = str(subject)
+    if not isinstance(subject, URIRef) or not subject_iri.startswith(NCIT_NS):
+        raise CorpusAcceptanceValidationError(
+            "constituent subject is not an NCIt concept"
+        )
+    if not isinstance(constituent, BNode):
+        raise CorpusAcceptanceValidationError("constituent node is not anonymous")
+    axis = str(_single_object(graph, constituent, vocab.AXIS, "axis"))
+    filler = str(_single_object(graph, constituent, vocab.FILLER, "filler"))
+    axis_sources = tuple(graph.objects(constituent, URIRef(vocab.AXIS_SOURCE)))
+    if len(axis_sources) != 1:
+        raise CorpusAcceptanceValidationError(
+            "constituent has invalid axis source cardinality"
+        )
+    source_roles = tuple(
+        sorted(
+            str(value).removeprefix(NCIT_NS)
+            for value in graph.objects(constituent, URIRef(vocab.SOURCE_ROLE))
+        )
+    )
+    source_facts = tuple(
+        sorted(
+            str(value).removeprefix(vocab.DEFINITION_FACT_NS).rsplit("/", 1)[-1]
+            for value in graph.objects(
+                constituent, URIRef(vocab.SOURCE_DEFINITION_FACT)
+            )
+        )
+    )
+    return {
+        "concept_code": subject_iri.removeprefix(NCIT_NS),
+        "axis": _axis_name(axis),
+        "filler_code": _filler_name(filler),
+        "axis_source": str(axis_sources[0]),
+        "source_roles": source_roles,
+        "source_fact_ids": source_facts,
+        "most_specific": RdfLiteral(True)
+        in graph.objects(constituent, URIRef(vocab.MOST_SPECIFIC)),
+        "needs_review": RdfLiteral(True)
+        in graph.objects(constituent, URIRef(vocab.NEEDS_REVIEW)),
+    }
+
+
+def _rdf_assertion_rows(
+    payload: bytes,
+) -> tuple[dict[str, object], ...]:
+    graph = Graph()
+    try:
+        graph.parse(data=payload, format="turtle")
+    except Exception as exc:
+        raise CorpusAcceptanceValidationError(
+            "effective source artifact is not valid Turtle"
+        ) from exc
+    rows = [
+        _rdf_assertion_row(graph, subject, constituent)
+        for subject, constituent in graph.subject_objects(URIRef(vocab.HAS_CONSTITUENT))
+    ]
+    rows.sort(
+        key=lambda item: (
+            str(item["concept_code"]),
+            str(item["axis"]),
+            str(item["filler_code"]),
+        )
+    )
+    coordinates = [
+        (str(row["concept_code"]), str(row["axis"]), str(row["filler_code"]))
+        for row in rows
+    ]
+    if len(coordinates) != len(set(coordinates)):
+        raise CorpusAcceptanceValidationError(
+            "duplicate semantic constituent assertion"
+        )
+    return tuple(rows)
+
+
+def _assertion_from_row(
+    row: dict[str, object],
+    persisted: PersistedAssertionEvidence | None,
+) -> CanonicalSemanticAssertion:
+    source_facts = cast("tuple[str, ...]", row["source_fact_ids"])
+    if persisted is not None and persisted.source_fact_ids != source_facts:
+        raise CorpusAcceptanceValidationError(
+            "persisted and RDF source fact inventories differ"
+        )
+    payload = {
+        **row,
+        "source_occurrence_ids": (
+            persisted.source_occurrence_ids if persisted is not None else ()
+        ),
+    }
+    return CanonicalSemanticAssertion.model_validate(
+        {**payload, "assertion_identity": _identity(payload)}
+    )
+
+
+def _evidence_for_assertion(
+    assertion: CanonicalSemanticAssertion,
+    persisted: PersistedAssertionEvidence,
+    source: CertifiedSourceBinding,
+) -> QualifyingAssertionEvidence:
+    return QualifyingAssertionEvidence(
+        assertion_identity=assertion.assertion_identity,
+        source=source,
+        source_fact_ids=persisted.source_fact_ids,
+        source_occurrence_ids=persisted.source_occurrence_ids,
+        evidence_kind="certified-source-and-deterministic-transformation",
+        transformation_rule=persisted.transformation_rule,
+        transformation_policy_identity=persisted.transformation_policy_identity,
+        applicability_identity=persisted.applicability_identity,
+    )
+
+
+def _closure_exclusion_reason(
+    assertion: CanonicalSemanticAssertion,
+    persisted: PersistedAssertionEvidence | None,
+    concept_exclusions: dict[str, ConceptExclusionDisposition],
+) -> AssertionExclusionReason | None:
+    if assertion.filler_code.startswith("MINT-"):
+        return "proposal-quarantined"
+    if assertion.concept_code in concept_exclusions:
+        return "unresolved-ambiguity"
+    if assertion.needs_review:
+        return "review-required"
+    if persisted is None or not assertion.source_fact_ids:
+        return "evidence-absent"
+    return None
+
+
+def _filter_assertion_lines(
+    payload: bytes,
+    excluded_coordinates: set[tuple[str, str, str]],
+    excluded_concepts: set[str],
+) -> bytes:
+    retained: list[bytes] = []
+    excluded_subject_prefixes = tuple(
+        f"<{NCIT_NS}{code}> ".encode() for code in sorted(excluded_concepts)
+    )
+    for line in payload.splitlines(keepends=True):
+        if excluded_subject_prefixes and line.startswith(excluded_subject_prefixes):
+            continue
+        match = _FAST_ASSERTION_LINE.match(line.decode("utf-8"))
+        if match is None:
+            retained.append(line)
+            continue
+        coordinate = (
+            match.group("concept"),
+            _axis_name(match.group("axis")),
+            _filler_name(match.group("filler")),
+        )
+        if coordinate not in excluded_coordinates:
+            retained.append(line)
+    return b"".join(retained)
+
+
+def _closure_indexes(
+    persisted_assertions: tuple[PersistedAssertionEvidence, ...],
+    concept_exclusions: tuple[ConceptExclusionDisposition, ...],
+) -> tuple[
+    dict[tuple[str, str, str], PersistedAssertionEvidence],
+    dict[str, ConceptExclusionDisposition],
+]:
+    persisted_by_key = {
+        (item.concept_code, item.axis, item.filler_code): item
+        for item in persisted_assertions
+    }
+    if len(persisted_by_key) != len(persisted_assertions):
+        raise CorpusAcceptanceValidationError(
+            "persisted assertion evidence is ambiguous"
+        )
+    concepts_by_code = {item.concept_code: item for item in concept_exclusions}
+    if len(concepts_by_code) != len(concept_exclusions):
+        raise CorpusAcceptanceValidationError("concept exclusion is ambiguous")
+    return persisted_by_key, concepts_by_code
+
+
+def _partition_assertion_rows(
+    *,
+    rdf_rows: tuple[dict[str, object], ...],
+    rdf_coordinates: tuple[tuple[str, str, str], ...],
+    persisted_by_key: dict[tuple[str, str, str], PersistedAssertionEvidence],
+    concepts_by_code: dict[str, ConceptExclusionDisposition],
+    source: CertifiedSourceBinding,
+) -> tuple[
+    list[CanonicalSemanticAssertion],
+    list[ExcludedSemanticAssertion],
+    list[QualifyingAssertionEvidence],
+    set[tuple[str, str, str]],
+]:
+    included: list[CanonicalSemanticAssertion] = []
+    excluded: list[ExcludedSemanticAssertion] = []
+    evidence: list[QualifyingAssertionEvidence] = []
+    excluded_coordinates: set[tuple[str, str, str]] = set()
+    for row, coordinate in zip(rdf_rows, rdf_coordinates, strict=True):
+        persisted = persisted_by_key.get(coordinate)
+        assertion = _assertion_from_row(row, persisted)
+        reason = _closure_exclusion_reason(assertion, persisted, concepts_by_code)
+        if reason is not None:
+            excluded.append(
+                ExcludedSemanticAssertion(
+                    assertion=assertion,
+                    reason=reason,
+                    official_source_preserved=True,
+                )
+            )
+            excluded_coordinates.add(coordinate)
+        else:
+            if persisted is None:
+                raise CorpusAcceptanceValidationError(
+                    "included assertion lacks evidence"
+                )
+            included.append(assertion)
+            evidence.append(_evidence_for_assertion(assertion, persisted, source))
+    return included, excluded, evidence, excluded_coordinates
+
+
+def build_assertion_evidence_closure(
+    *,
+    source_artifact: Path,
+    effective_destination: Path,
+    source: CertifiedSourceBinding,
+    persisted_assertions: tuple[PersistedAssertionEvidence, ...],
+    concept_exclusions: tuple[ConceptExclusionDisposition, ...],
+) -> AssertionEvidenceClosure:
+    """Build a parser-cross-checked effective projection and exact evidence closure."""
+    payload = source_artifact.read_bytes()
+    source_identity = hashlib.sha256(payload).hexdigest()
+    rdf_rows = _rdf_assertion_rows(payload)
+    rdf_coordinates = tuple(
+        (
+            str(row["concept_code"]),
+            str(row["axis"]),
+            str(row["filler_code"]),
+        )
+        for row in rdf_rows
+    )
+    fast_coordinates = _fast_assertion_coordinates(payload)
+    rdf_inventory_identity = _identity(rdf_coordinates)
+    fast_inventory_identity = _identity(fast_coordinates)
+    if rdf_inventory_identity != fast_inventory_identity:
+        raise CorpusAcceptanceValidationError("parser inventories differ")
+    persisted_by_key, concepts_by_code = _closure_indexes(
+        persisted_assertions, concept_exclusions
+    )
+    included, excluded, evidence, excluded_coordinates = _partition_assertion_rows(
+        rdf_rows=rdf_rows,
+        rdf_coordinates=rdf_coordinates,
+        persisted_by_key=persisted_by_key,
+        concepts_by_code=concepts_by_code,
+        source=source,
+    )
+    effective_payload = _filter_assertion_lines(
+        payload, excluded_coordinates, set(concepts_by_code)
+    )
+    if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
+        raise CorpusAcceptanceValidationError(
+            "source artifact changed during projection"
+        )
+    if effective_destination.exists():
+        raise CorpusAcceptanceValidationError("effective artifact destination exists")
+    atomic_write_bytes(effective_destination, effective_payload)
+    included.sort(key=attrgetter("assertion_identity"))
+    excluded.sort(key=lambda item: item.assertion.assertion_identity)
+    evidence.sort(key=attrgetter("assertion_identity"))
+    return AssertionEvidenceClosure(
+        source=source,
+        source_artifact_identity=source_identity,
+        effective_artifact_identity=hashlib.sha256(effective_payload).hexdigest(),
+        rdf_parser_inventory_identity=rdf_inventory_identity,
+        fast_parser_inventory_identity=fast_inventory_identity,
+        included_assertion_closure=tuple(included),
+        excluded_assertion_closure=tuple(excluded),
+        concept_exclusions=tuple(
+            sorted(concept_exclusions, key=attrgetter("concept_code"))
+        ),
+        evidence_ledger=tuple(evidence),
+        unresolved_included_assertion_ids=(),
+        contradictory_included_assertion_ids=(),
+        ambiguous_included_assertion_ids=(),
+    )
+
+
+def _transformation_binding(constituent: Constituent) -> tuple[str, object]:
+    if constituent.axis_source != "role":
+        return (
+            f"source-{constituent.axis_source}-projection-v1",
+            {"axis": constituent.axis, "axis_source": constituent.axis_source},
+        )
+    contract = AXIS_CONTRACTS.get(constituent.axis)
+    if contract is None or not constituent.source_roles:
+        raise CorpusAcceptanceValidationError(
+            "persisted routed assertion lacks an applicable axis contract"
+        )
+    if not set(constituent.source_roles) <= set(contract.source_roles):
+        raise CorpusAcceptanceValidationError(
+            "persisted routed assertion lacks an applicable axis contract"
+        )
+    return "axis-contract-routing-v1", contract.model_dump(mode="json")
+
+
+def _persisted_assertion_evidence(
+    *, concept_code: str, constituent: Constituent, policy_identity: str
+) -> PersistedAssertionEvidence:
+    rule, contract_payload = _transformation_binding(constituent)
+    applicability = _identity(
+        {
+            "rule": rule,
+            "policy_identity": policy_identity,
+            "contract": contract_payload,
+            "concept_code": concept_code,
+            "axis": constituent.axis,
+            "filler_code": constituent.filler_code,
+            "source_roles": constituent.source_roles,
+            "source_fact_ids": constituent.source_definition_ids,
+            "source_occurrence_ids": constituent.source_occurrence_ids,
+        }
+    )
+    try:
+        return PersistedAssertionEvidence(
+            concept_code=concept_code,
+            axis=constituent.axis,
+            filler_code=constituent.filler_code,
+            source_fact_ids=constituent.source_definition_ids,
+            source_occurrence_ids=constituent.source_occurrence_ids,
+            transformation_rule=rule,
+            transformation_policy_identity=policy_identity,
+            applicability_identity=applicability,
+        )
+    except ValidationError as exc:
+        raise CorpusAcceptanceValidationError(
+            "persisted assertion lacks exact qualifying evidence"
+        ) from exc
+
+
+def persisted_assertion_evidence(
+    decompositions: tuple[Decomposition, ...],
+    *,
+    policy_identity: str,
+) -> tuple[PersistedAssertionEvidence, ...]:
+    """Derive exact row-level transformation applicability from persisted output."""
+    if re.fullmatch(_SHA256, policy_identity) is None:
+        raise CorpusAcceptanceValidationError("policy identity is invalid")
+    result: list[PersistedAssertionEvidence] = []
+    for decomposition in decompositions:
+        for constituent in decomposition.constituents:
+            if constituent.filler_code.startswith("MINT-"):
+                continue
+            if not constituent.source_definition_ids:
+                continue
+            result.append(
+                _persisted_assertion_evidence(
+                    concept_code=decomposition.code,
+                    constituent=constituent,
+                    policy_identity=policy_identity,
+                )
+            )
+    return tuple(
+        sorted(
+            result,
+            key=lambda item: (item.concept_code, item.axis, item.filler_code),
+        )
+    )
+
+
+def _outcome_exclusion(
+    outcome: WorkItemOutcome,
+) -> ConceptExclusionDisposition | None:
+    if outcome.outcome == "unknown":
+        reason: Literal["unknown-outcome", "residual"] = "unknown-outcome"
+    elif outcome.outcome == "residual":
+        reason = "residual"
+    else:
+        return None
+    return ConceptExclusionDisposition(
+        concept_code=outcome.concept_code,
+        reason=reason,
+        official_source_preserved=True,
+    )
+
+
+def _contains_unknown_filler(
+    decomposition: Decomposition, unknown_fillers: set[str]
+) -> bool:
+    return any(
+        constituent.filler_code in unknown_fillers
+        for constituent in decomposition.constituents
+    )
+
+
+def _outcome_dispositions(
+    outcomes: tuple[WorkItemOutcome, ...],
+) -> dict[str, ConceptExclusionDisposition]:
+    return {
+        outcome.concept_code: disposition
+        for outcome in outcomes
+        if (disposition := _outcome_exclusion(outcome)) is not None
+    }
+
+
+def _residual_unknown_dispositions(
+    decompositions: tuple[Decomposition, ...],
+    residual_classifications: tuple[ResidualFillerClassification, ...],
+) -> dict[str, ConceptExclusionDisposition]:
+    unknown_fillers = {
+        item.filler_code
+        for item in residual_classifications
+        if item.classification == "unknown"
+    }
+    return {
+        decomposition.code: ConceptExclusionDisposition(
+            concept_code=decomposition.code,
+            reason="residual-unknown",
+            official_source_preserved=True,
+        )
+        for decomposition in decompositions
+        if _contains_unknown_filler(decomposition, unknown_fillers)
+    }
+
+
+def build_concept_exclusion_dispositions(
+    *,
+    outcomes: tuple[WorkItemOutcome, ...],
+    decompositions: tuple[Decomposition, ...],
+    residual_classifications: tuple[ResidualFillerClassification, ...],
+) -> tuple[ConceptExclusionDisposition, ...]:
+    """Derive exact concept-level withholding from persisted typed observations."""
+    dispositions = _outcome_dispositions(outcomes)
+    dispositions.update(
+        _residual_unknown_dispositions(decompositions, residual_classifications)
+    )
+    return tuple(dispositions[code] for code in sorted(dispositions))
 
 
 def build_review_required_exclusions(
@@ -1583,147 +2449,90 @@ def _require_publication_run_binding(
         raise CorpusAcceptanceValidationError("persisted run binding differs")
 
 
-class PendingHumanAcceptanceDecision(_StrictModel):
-    status: Literal["not-requested"]
-    candidate_identity: str = Field(pattern=_SHA256)
-    publication_dry_run_identity: str = Field(pattern=_SHA256)
-
-
-class NotRequestedHumanAuthorization(_StrictModel):
-    status: Literal["not-requested"]
-
-
-class AcceptedHumanAcceptanceDecision(_StrictModel):
-    status: Literal["accepted"]
-    candidate_identity: str = Field(pattern=_SHA256)
-    publication_dry_run_identity: str = Field(pattern=_SHA256)
-    accountable_authority: str = Field(min_length=1)
-    decided_at: AwareDatetime
-    attestation_artifact_identity: str = Field(pattern=_SHA256)
-    decision_evidence_identity: str = Field(pattern=_SHA256)
-
-
-HumanAcceptanceDecision = (
-    PendingHumanAcceptanceDecision | AcceptedHumanAcceptanceDecision
-)
-
-
-def write_pending_human_acceptance_decision(
-    path: Path,
-    *,
-    candidate_identity: str,
-    publication_dry_run_identity: str,
-) -> PendingHumanAcceptanceDecision:
-    decision = PendingHumanAcceptanceDecision(
-        status="not-requested",
-        candidate_identity=candidate_identity,
-        publication_dry_run_identity=publication_dry_run_identity,
-    )
-    atomic_write_bytes(
-        path,
-        (
-            json.dumps(decision.model_dump(mode="json"), sort_keys=True, indent=2)
-            + "\n"
-        ).encode(),
-    )
-    return decision
-
-
-def load_human_acceptance_decision(
-    path: Path, *, attestation_artifact: Path | None = None
-) -> HumanAcceptanceDecision:
-    try:
-        payload = json.loads(path.read_bytes())
-        decision = TypeAdapter(HumanAcceptanceDecision).validate_python(
-            payload, strict=True
+def _acceptance_statuses(
+    closure: AssertionEvidenceClosure,
+) -> dict[str, str]:
+    projected = {
+        assertion.concept_code for assertion in closure.included_assertion_closure
+    }
+    review_required = {
+        item.assertion.concept_code
+        for item in closure.excluded_assertion_closure
+        if item.reason == "review-required"
+    }
+    concept_statuses = {
+        item.concept_code: (
+            "unknown-withheld"
+            if item.reason == "unknown-outcome"
+            else "residual-withheld"
         )
-    except (OSError, json.JSONDecodeError, ValidationError) as exc:
-        raise CorpusAcceptanceValidationError(
-            "human acceptance decision is invalid"
-        ) from exc
-    if isinstance(decision, AcceptedHumanAcceptanceDecision):
-        if attestation_artifact is None:
-            raise CorpusAcceptanceValidationError(
-                "accepted decision requires an independent attestation artifact"
-            )
-        if (
-            _file_identity(attestation_artifact)
-            != decision.attestation_artifact_identity
-        ):
-            raise CorpusAcceptanceValidationError(
-                "attestation artifact identity differs"
-            )
-    return decision
+        for item in closure.concept_exclusions
+    }
+    statuses = dict.fromkeys(projected, "projected")
+    statuses.update(dict.fromkeys(review_required, "review-required-excluded"))
+    statuses.update(concept_statuses)
+    return statuses
 
 
-def require_publication_authorization(
+def _add_acceptance_metadata(
+    graph: Graph,
     *,
-    candidate_identity: str,
-    dry_run: PublicationDryRunEvidence,
-    decision: HumanAcceptanceDecision,
-    attestation_artifact: Path,
+    closure: AssertionEvidenceClosure,
+    statuses: dict[str, str],
+    run_id: str,
+    represented_identity: str,
+    publication_identity: str,
 ) -> None:
-    if not isinstance(decision, AcceptedHumanAcceptanceDecision):
-        raise CorpusAcceptanceValidationError(
-            "publication requires an accepted human decision"
+    for code, status in sorted(statuses.items()):
+        subject = URIRef(f"{NCIT_NS}{code}")
+        values = (
+            (vocab.ACCEPTANCE_STATUS, status),
+            (vocab.ACCEPTANCE_SOURCE_RELEASE, closure.source.release),
+            (vocab.ACCEPTANCE_SOURCE_IDENTITY, closure.source.source_identity),
+            (vocab.ACCEPTANCE_RUN, run_id),
+            (vocab.ACCEPTANCE_REPRESENTATION, represented_identity),
+            (vocab.ACCEPTANCE_PUBLICATION, publication_identity),
         )
-    if (
-        decision.candidate_identity != candidate_identity
-        or decision.publication_dry_run_identity != dry_run.evidence_identity
-        or dry_run.status != "passed"
-    ):
-        raise CorpusAcceptanceValidationError("human decision binding differs")
-    if _file_identity(attestation_artifact) != decision.attestation_artifact_identity:
-        raise CorpusAcceptanceValidationError("attestation artifact identity differs")
+        for predicate, value in values:
+            graph.add((subject, URIRef(predicate), RdfLiteral(value)))
+        if status == "review-required-excluded":
+            _add_exclusion_summary(graph, subject)
 
 
-def build_accepted_publication_artifact(
+def build_machine_acceptance_metadata_artifact(
     *,
+    closure: AssertionEvidenceClosure,
     source_artifact: Path,
     destination: Path,
-    candidate_identity: str,
-    dry_run: PublicationDryRunEvidence,
-    decision: HumanAcceptanceDecision,
-    attestation_artifact: Path,
-    source_release: str,
-    source_identity: str,
     run_id: str,
-    representation_identity: str,
+    representation_identity: str | None = None,
     publication_identity: str,
-    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
 ) -> str:
-    """Emit the accepted API metadata only after exact human authorization."""
-    require_publication_authorization(
-        candidate_identity=candidate_identity,
-        dry_run=dry_run,
-        decision=decision,
-        attestation_artifact=attestation_artifact,
-    )
+    """Render machine-acceptance metadata from the exact closure dispositions."""
     if destination.exists():
         raise CorpusAcceptanceValidationError(
-            "accepted publication artifact destination exists"
+            "machine acceptance publication artifact destination exists"
+        )
+    represented_identity = representation_identity or closure.closure_identity
+    if not re.fullmatch(_SHA256, publication_identity) or not re.fullmatch(
+        _SHA256, represented_identity
+    ):
+        raise CorpusAcceptanceValidationError(
+            "publication or representation identity is invalid"
         )
     graph = _read_effective_graph(source_artifact)
-    represented = set(
-        graph.subjects(
-            URIRef(vocab.REPRESENTATION_STATUS),
-            RdfLiteral(vocab.LEGACY_PRECOORDINATED),
-        )
-    )
     _add_acceptance_metadata(
         graph,
-        represented=represented,
-        exclusions=exclusions,
-        source_release=source_release,
-        source_identity=source_identity,
+        closure=closure,
+        statuses=_acceptance_statuses(closure),
         run_id=run_id,
-        representation_identity=representation_identity,
+        represented_identity=represented_identity,
         publication_identity=publication_identity,
     )
     payload = graph.serialize(format="turtle", encoding="utf-8")
     if not isinstance(payload, bytes):
         raise CorpusAcceptanceValidationError(
-            "accepted publication serializer returned text"
+            "machine acceptance serializer returned text"
         )
     atomic_write_bytes(destination, payload)
     return hashlib.sha256(payload).hexdigest()
@@ -1738,58 +2547,6 @@ def _read_effective_graph(source_artifact: Path) -> Graph:
             "effective artifact is not valid Turtle"
         ) from exc
     return graph
-
-
-def _add_acceptance_metadata(
-    graph: Graph,
-    *,
-    represented: Iterable[Node],
-    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
-    source_release: str,
-    source_identity: str,
-    run_id: str,
-    representation_identity: str,
-    publication_identity: str,
-) -> None:
-    excluded = {item.concept_code: item for item in exclusions}
-    for subject in represented:
-        exclusion = excluded.get(str(subject).removeprefix(NCIT_NS))
-        _add_subject_acceptance_values(
-            graph,
-            subject=subject,
-            excluded=exclusion is not None,
-            source_release=source_release,
-            source_identity=source_identity,
-            run_id=run_id,
-            representation_identity=representation_identity,
-            publication_identity=publication_identity,
-        )
-        if exclusion is not None:
-            _add_exclusion_summary(graph, subject)
-
-
-def _add_subject_acceptance_values(
-    graph: Graph,
-    *,
-    subject: Node,
-    excluded: bool,
-    source_release: str,
-    source_identity: str,
-    run_id: str,
-    representation_identity: str,
-    publication_identity: str,
-) -> None:
-    status = "review-required-excluded" if excluded else "accepted-effective"
-    values = (
-        (vocab.ACCEPTANCE_STATUS, status),
-        (vocab.ACCEPTANCE_SOURCE_RELEASE, source_release),
-        (vocab.ACCEPTANCE_SOURCE_IDENTITY, source_identity),
-        (vocab.ACCEPTANCE_RUN, run_id),
-        (vocab.ACCEPTANCE_REPRESENTATION, representation_identity),
-        (vocab.ACCEPTANCE_PUBLICATION, publication_identity),
-    )
-    for predicate, value in values:
-        graph.add((subject, URIRef(predicate), RdfLiteral(value)))
 
 
 def _add_exclusion_summary(graph: Graph, subject: Node) -> None:
@@ -1945,6 +2702,7 @@ class CandidateGates(_StrictModel):
                 self.issue_274_detector,
                 self.m1_6_improvement,
                 self.gate_liveness,
+                self.verify_currency,
             )
         )
 
@@ -2007,47 +2765,40 @@ class CorpusAcceptanceContent(_StrictModel):
         return self
 
 
-class CorpusAcceptanceCandidate(_StrictModel):
-    schema_version: Literal[1]
-    status: Literal["machine-blocked", "ready-for-human-authorization"]
-    scope: CandidateScope
-    source: CandidateSource
-    execution: CandidateExecution
-    projection: CandidateProjection
-    metrics: CandidateMetrics
-    gates: CandidateGates
-    r101_summary: R101CandidateSummary
-    evidence: CandidateEvidence
-    proposal_delta: EffectiveProposalDelta
-    delta_classification: CorpusDeltaClassification
-    review_required_exclusions: tuple[ReviewRequiredEffectiveExclusion, ...]
+class EvidenceClosedCorpusAcceptanceCandidate(_StrictModel):
+    """Final candidate whose accepted plane is exactly the evidenced projection."""
+
+    schema_version: Literal[2]
+    status: Literal["machine-blocked", "machine-evidence-accepted"]
+    content: CorpusAcceptanceContent
     publication_dry_run: PublicationDryRunEvidence
-    human_authorization: NotRequestedHumanAuthorization
-    candidate_content_identity: str = Field(pattern=_SHA256)
+    assertion_closure: AssertionEvidenceClosure
+    ambiguity_report: EvidenceAmbiguityReport
+    r101_occurrence_closure: R101OccurrenceClosure
+    machine_acceptance: MachineEvidenceAcceptance | None
+    nci_adoption_claimed: Literal[False]
     candidate_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
-    def _ready_means_mechanically_complete(self) -> Self:
-        ready = _candidate_is_ready(
-            self.gates, self.delta_classification, self.publication_dry_run
-        )
-        if self.status != (
-            "ready-for-human-authorization" if ready else "machine-blocked"
+    def _identity_and_status_match(self) -> Self:
+        accepted = self.machine_acceptance is not None
+        expected_status = "machine-evidence-accepted" if accepted else "machine-blocked"
+        if self.status != expected_status:
+            raise ValueError("evidence-closed candidate status differs")
+        if self.content.projection.artifact_sha256 != (
+            self.assertion_closure.effective_artifact_identity
         ):
-            raise ValueError("candidate status differs from mechanical gates")
-        content = _candidate_content_payload(self)
-        if self.candidate_content_identity != _identity(content):
-            raise ValueError("candidate content identity differs")
+            raise ValueError("candidate projection and assertion closure differ")
         if (
-            self.publication_dry_run.candidate_content_identity
-            != self.candidate_content_identity
+            self.publication_dry_run.artifact_identity
+            != self.assertion_closure.effective_artifact_identity
         ):
-            raise ValueError("publication dry-run candidate binding differs")
-        expected_identity = _identity(
+            raise ValueError("candidate dry-run and assertion closure differ")
+        expected = _identity(
             self.model_dump(mode="json", exclude={"candidate_identity"})
         )
-        if self.candidate_identity != expected_identity:
-            raise ValueError("candidate identity differs")
+        if self.candidate_identity != expected:
+            raise ValueError("evidence-closed candidate identity differs")
         return self
 
 
@@ -2060,49 +2811,6 @@ def _candidate_is_ready(
         gates.all_passed
         and not classification.unexplained_blockers
         and dry_run.status == "passed"
-    )
-
-
-def _candidate_content_payload(
-    candidate: CorpusAcceptanceCandidate,
-) -> dict[str, object]:
-    excluded = {
-        "status",
-        "publication_dry_run",
-        "human_authorization",
-        "candidate_content_identity",
-        "candidate_identity",
-    }
-    return {
-        key: value
-        for key, value in candidate.model_dump(mode="json").items()
-        if key not in excluded
-    }
-
-
-def finalize_corpus_acceptance_candidate(
-    content: CorpusAcceptanceContent,
-    dry_run: PublicationDryRunEvidence,
-) -> CorpusAcceptanceCandidate:
-    """Bind a passed no-write dry-run while leaving human authorization unrequested."""
-    if dry_run.candidate_content_identity != content.content_identity:
-        raise CorpusAcceptanceValidationError(
-            "publication dry-run candidate binding differs"
-        )
-    payload = {
-        **content.model_dump(exclude={"content_identity"}),
-        "status": (
-            "ready-for-human-authorization"
-            if _candidate_is_ready(content.gates, content.delta_classification, dry_run)
-            else "machine-blocked"
-        ),
-        "publication_dry_run": dry_run.model_dump(),
-        "human_authorization": {"status": "not-requested"},
-        "candidate_content_identity": content.content_identity,
-    }
-    candidate_identity = _identity(payload)
-    return CorpusAcceptanceCandidate.model_validate(
-        {**payload, "candidate_identity": candidate_identity}
     )
 
 
@@ -2657,13 +3365,170 @@ def _validate_candidate_inputs(
     )
 
 
-async def generate_c3262_acceptance_candidate(
+def _validated_git_head(git_head: str | None) -> str:
+    if git_head is None or re.fullmatch(r"[0-9a-f]{40}", git_head) is None:
+        raise CorpusAcceptanceValidationError("candidate generator git head is invalid")
+    return git_head
+
+
+def _present_run_summary(run_summary: RunSummary | None) -> RunSummary:
+    if run_summary is None:
+        raise CorpusAcceptanceValidationError("persisted run summary is absent")
+    return run_summary
+
+
+def _residual_concept_codes(
+    outcomes: tuple[WorkItemOutcome, ...],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(item.concept_code for item in outcomes if item.outcome == "residual")
+    )
+
+
+def _expected_effective_codes(
+    aggregate: CorpusBaselineAggregate,
+    concept_exclusions: tuple[ConceptExclusionDisposition, ...],
+) -> tuple[str, ...]:
+    excluded = {item.concept_code for item in concept_exclusions}
+    return tuple(code for code in aggregate.decomposed_codes if code not in excluded)
+
+
+def _candidate_exclusions_identity(
+    *,
+    closure: AssertionEvidenceClosure,
+    exclusions: tuple[ReviewRequiredEffectiveExclusion, ...],
+    effective: EffectiveArtifactEvidence,
+) -> str:
+    return _identity(
+        {
+            "assertions": [
+                item.model_dump(mode="json")
+                for item in closure.excluded_assertion_closure
+            ],
+            "concepts": [
+                item.model_dump(mode="json") for item in closure.concept_exclusions
+            ],
+            "historical_review": [item.model_dump(mode="json") for item in exclusions],
+            "proposals": effective.proposal_delta.model_dump(mode="json"),
+        }
+    )
+
+
+def _machine_acceptance_if_ready(
+    *,
+    gates: CandidateGates,
+    classification: CorpusDeltaClassification,
+    dry_run: PublicationDryRunEvidence,
+    content: CorpusAcceptanceContent,
+    closure: AssertionEvidenceClosure,
+    exclusions_identity: str,
+    evidence: CandidateEvidence,
+    ambiguity: EvidenceAmbiguityReport,
+) -> MachineEvidenceAcceptance | None:
+    if not _candidate_is_ready(gates, classification, dry_run):
+        return None
+    return build_machine_evidence_acceptance(
+        candidate_identity=content.content_identity,
+        closure=closure,
+        exclusions_identity=exclusions_identity,
+        evidence_ledger_identity=closure.evidence_ledger_identity,
+        policy_identity=evidence.policy_identity,
+        dry_run_identity=dry_run.evidence_identity,
+        ambiguity=ambiguity,
+    )
+
+
+def _candidate_status(
+    machine_acceptance: MachineEvidenceAcceptance | None,
+) -> Literal["machine-evidence-accepted", "machine-blocked"]:
+    if machine_acceptance is not None:
+        return "machine-evidence-accepted"
+    return "machine-blocked"
+
+
+def _candidate_artifact_sources(
+    *,
+    root: Path,
+    paths: dict[str, Path],
+    candidate_path: Path,
+    effective_path: Path,
+    closure_path: Path,
+    dry_run_path: Path,
+) -> dict[str, Path]:
+    temporary_inputs = {
+        f"inputs/{name}{path.suffix}": path
+        for name, path in paths.items()
+        if path.is_relative_to(root / "tmp")
+    }
+    return {
+        "artifacts/candidate.json": candidate_path,
+        "artifacts/effective-c3262.ttl": effective_path,
+        "artifacts/assertion-evidence-closure.json": closure_path,
+        "artifacts/publication-dry-run.json": dry_run_path,
+        **temporary_inputs,
+    }
+
+
+def _candidate_sources(paths: dict[str, Path]) -> tuple[SourceIdentity, ...]:
+    return tuple(
+        SourceIdentity(
+            name=name.replace("_", "-"),
+            identity=f"sha256:{_file_identity(path)}",
+        )
+        for name, path in sorted(paths.items())
+    )
+
+
+def _candidate_result(
+    *,
+    generation: Path,
+    artifact_manifest,
+    candidate: EvidenceClosedCorpusAcceptanceCandidate,
+    closure: AssertionEvidenceClosure,
+    effective: EffectiveArtifactEvidence,
+    dry_run: PublicationDryRunEvidence,
+) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    acceptance_identity = (
+        candidate.machine_acceptance.acceptance_identity
+        if candidate.machine_acceptance is not None
+        else None
+    )
+    exclusion_counts = dict(
+        sorted(Counter(item.reason for item in closure.concept_exclusions).items())
+    )
+    return {
+        "candidate_manifest_path": str(generation / "manifest.json"),
+        "candidate_manifest_identity": artifact_manifest.manifest_identity,
+        "candidate_identity": candidate.candidate_identity,
+        "candidate_status": candidate.status,
+        "category_counts": candidate.content.delta_classification.category_counts,
+        "unexplained_blocker_count": len(
+            candidate.content.delta_classification.unexplained_blockers
+        ),
+        "effective_artifact_identity": closure.effective_artifact_identity,
+        "assertion_closure_identity": closure.closure_identity,
+        "evidence_ledger_identity": closure.evidence_ledger_identity,
+        "machine_acceptance_identity": acceptance_identity,
+        "included_assertion_count": len(closure.included_assertion_closure),
+        "excluded_assertion_count": len(closure.excluded_assertion_closure),
+        "concept_exclusion_counts": exclusion_counts,
+        "removed_from_effective_count": len(closure.excluded_assertion_closure),
+        "review_required_non_emitted_count": effective.non_emitted_pair_count,
+        "dry_run_identity": dry_run.evidence_identity,
+        "dry_run_status": dry_run.status,
+        "postgres_before_identity": dry_run.postgres_before_identity,
+        "postgres_after_identity": dry_run.postgres_after_identity,
+        "qlever_before_identity": dry_run.qlever_before_identity,
+        "qlever_after_identity": dry_run.qlever_after_identity,
+    }
+
+
+async def generate_c3262_acceptance_candidate(  # noqa: PLR0915
     root: Path, *, git_head: str | None = None
 ) -> dict[str, object]:
     """Generate the fixed certified candidate; arbitrary run/count claims are absent."""
     _require_certified_acceptance_inputs(root)
-    if git_head is None or re.fullmatch(r"[0-9a-f]{40}", git_head) is None:
-        raise CorpusAcceptanceValidationError("candidate generator git head is invalid")
+    git_head = _validated_git_head(git_head)
     paths = _candidate_input_paths(root)
     validated = _validate_candidate_inputs(paths)
     (
@@ -2688,9 +3553,11 @@ async def generate_c3262_acceptance_candidate(
     ) as temporary:
         staging = Path(temporary)
         effective_path = staging / "effective-c3262.ttl"
+        closure_effective_path = staging / "closure-effective-c3262.ttl"
+        preliminary_effective_path = staging / "preliminary-effective-c3262.ttl"
         effective = build_effective_artifact(
             source_artifact=paths["artifact"],
-            destination=effective_path,
+            destination=preliminary_effective_path,
             exclusions=exclusions,
             expected_minted_count=baseline.minted_count,
             proposal_registry=paths["proposal_registry"],
@@ -2732,16 +3599,50 @@ async def generate_c3262_acceptance_candidate(
         store = provenance_module.ProvenanceStore(database.make_sessionmaker(engine))
         try:
             run = await store.completed_run_for_evidence(baseline.run_id)
-            run_summary = await store.get_run(baseline.run_id)
-            if run_summary is None:
-                raise CorpusAcceptanceValidationError("persisted run summary is absent")
+            run_summary = _present_run_summary(await store.get_run(baseline.run_id))
             aggregate = await store.corpus_baseline_aggregate(baseline.run_id)
-            outcomes = await store.work_item_outcomes(baseline.run_id)
-            residual_concept_codes = tuple(
-                sorted(
-                    item.concept_code for item in outcomes if item.outcome == "residual"
-                )
+            outcomes = tuple(await store.work_item_outcomes(baseline.run_id))
+            decompositions = tuple(await store.decompositions_for_run(baseline.run_id))
+            residual_classifications = tuple(
+                await store.residual_filler_classifications(baseline.run_id)
             )
+            concept_exclusions = build_concept_exclusion_dispositions(
+                outcomes=outcomes,
+                decompositions=decompositions,
+                residual_classifications=residual_classifications,
+            )
+            closure = build_assertion_evidence_closure(
+                source_artifact=paths["artifact"],
+                effective_destination=closure_effective_path,
+                source=CertifiedSourceBinding(
+                    release=manifest.ontology_version,
+                    source_manifest_identity=_file_identity(paths["source_manifest"]),
+                    source_identity=manifest.source_identity,
+                    stated_artifact_identity=(
+                        manifest.stated_artifact.artifact_identity
+                    ),
+                    certification="expert-curated-ncit-release",
+                ),
+                persisted_assertions=persisted_assertion_evidence(
+                    decompositions, policy_identity=evidence.policy_identity
+                ),
+                concept_exclusions=concept_exclusions,
+            )
+            semantic_projection_identity = _identity(
+                closure.model_dump(mode="json", exclude={"effective_artifact_identity"})
+            )
+            published_artifact_identity = build_machine_acceptance_metadata_artifact(
+                closure=closure,
+                source_artifact=closure_effective_path,
+                destination=effective_path,
+                run_id=baseline.run_id,
+                representation_identity=semantic_projection_identity,
+                publication_identity=semantic_projection_identity,
+            )
+            closure = closure.model_copy(
+                update={"effective_artifact_identity": published_artifact_identity}
+            )
+            residual_concept_codes = _residual_concept_codes(outcomes)
             readiness = _load_json_object(
                 paths["machine_readiness"], "machine readiness"
             )
@@ -2776,11 +3677,9 @@ async def generate_c3262_acceptance_candidate(
                     policy_identity=evidence.policy_identity,
                 ),
                 "projection": CandidateProjection(
-                    artifact_sha256=effective.effective_artifact_identity,
-                    representation_identity=effective.effective_artifact_identity,
-                    served_semantic_projection_identity=_served_projection_identity(
-                        effective
-                    ),
+                    artifact_sha256=closure.effective_artifact_identity,
+                    representation_identity=semantic_projection_identity,
+                    served_semantic_projection_identity=semantic_projection_identity,
                     no_equivalence=True,
                 ),
                 "metrics": _candidate_metrics(
@@ -2809,22 +3708,57 @@ async def generate_c3262_acceptance_candidate(
                             baseline.representation_identity
                         ),
                         effective_representation_identity=(
-                            effective.effective_artifact_identity
+                            semantic_projection_identity
                         ),
                     ),
                     artifact=effective_path,
                     destination_graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
-                    expected_codes=aggregate.decomposed_codes,
+                    expected_codes=_expected_effective_codes(
+                        aggregate, concept_exclusions
+                    ),
                     expected_worklist_count=baseline.worklist_count,
                     graph=graph,
                     provenance=store,
                 )
         finally:
             await database.dispose_engine(engine)
-        candidate = finalize_corpus_acceptance_candidate(content, dry_run)
+        ambiguity = EvidenceAmbiguityReport.from_closure(closure)
+        exclusions_identity = _candidate_exclusions_identity(
+            closure=closure,
+            exclusions=exclusions,
+            effective=effective,
+        )
+        machine_acceptance = _machine_acceptance_if_ready(
+            gates=gates,
+            classification=classification,
+            dry_run=dry_run,
+            content=content,
+            closure=closure,
+            exclusions_identity=exclusions_identity,
+            evidence=evidence,
+            ambiguity=ambiguity,
+        )
+        r101_closure = build_r101_occurrence_closure(report)
+        candidate_payload = {
+            "schema_version": 2,
+            "status": _candidate_status(machine_acceptance),
+            "content": content,
+            "publication_dry_run": dry_run,
+            "assertion_closure": closure,
+            "ambiguity_report": ambiguity,
+            "r101_occurrence_closure": r101_closure,
+            "machine_acceptance": machine_acceptance,
+            "nci_adoption_claimed": False,
+        }
+        candidate = EvidenceClosedCorpusAcceptanceCandidate.model_validate(
+            {
+                **candidate_payload,
+                "candidate_identity": _identity(_jsonable(candidate_payload)),
+            }
+        )
         candidate_path = staging / "candidate.json"
         dry_run_path = staging / "publication-dry-run.json"
-        decision_path = staging / "human-decision.json"
+        closure_path = staging / "assertion-evidence-closure.json"
         candidate_path.write_text(
             json.dumps(candidate.model_dump(mode="json"), sort_keys=True, indent=2)
             + "\n"
@@ -2832,10 +3766,8 @@ async def generate_c3262_acceptance_candidate(
         dry_run_path.write_text(
             json.dumps(dry_run.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
         )
-        write_pending_human_acceptance_decision(
-            decision_path,
-            candidate_identity=candidate.candidate_identity,
-            publication_dry_run_identity=dry_run.evidence_identity,
+        closure_path.write_text(
+            json.dumps(closure.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
         )
         generator_identity = hashlib.sha256(
             Path(__file__).read_bytes()
@@ -2846,12 +3778,14 @@ async def generate_c3262_acceptance_candidate(
             family="c3262-corpus-acceptance-candidate",
             generation_id=candidate.candidate_identity,
             run_id=baseline.run_id,
-            artifact_sources={
-                "artifacts/candidate.json": candidate_path,
-                "artifacts/effective-c3262.ttl": effective_path,
-                "artifacts/human-decision.json": decision_path,
-                "artifacts/publication-dry-run.json": dry_run_path,
-            },
+            artifact_sources=_candidate_artifact_sources(
+                root=root,
+                paths=paths,
+                candidate_path=candidate_path,
+                effective_path=effective_path,
+                closure_path=closure_path,
+                dry_run_path=dry_run_path,
+            ),
             parents=(),
             generator=GeneratorBinding(
                 identity=f"sha256:{generator_identity}",
@@ -2862,15 +3796,9 @@ async def generate_c3262_acceptance_candidate(
                     "generate-c3262-acceptance-candidate",
                 ),
             ),
-            sources=tuple(
-                SourceIdentity(
-                    name=name.replace("_", "-"),
-                    identity=f"sha256:{_file_identity(path)}",
-                )
-                for name, path in sorted(paths.items())
-            ),
+            sources=_candidate_sources(paths),
             retention=RetentionBinding(
-                retention_class="human-acceptance-candidate",
+                retention_class="scientific-evidence",
                 owner="decomposition",
                 expires_at=None,
             ),
@@ -2880,25 +3808,14 @@ async def generate_c3262_acceptance_candidate(
         / "tmp/artifacts/v1/generations/c3262-corpus-acceptance-candidate"
         / candidate.candidate_identity
     )
-    return {
-        "candidate_manifest_path": str(generation / "manifest.json"),
-        "candidate_manifest_identity": artifact_manifest.manifest_identity,
-        "candidate_identity": candidate.candidate_identity,
-        "candidate_status": candidate.status,
-        "category_counts": candidate.delta_classification.category_counts,
-        "unexplained_blocker_count": len(
-            candidate.delta_classification.unexplained_blockers
-        ),
-        "effective_artifact_identity": effective.effective_artifact_identity,
-        "removed_from_effective_count": effective.removed_pair_count,
-        "review_required_non_emitted_count": effective.non_emitted_pair_count,
-        "dry_run_identity": dry_run.evidence_identity,
-        "dry_run_status": dry_run.status,
-        "postgres_before_identity": dry_run.postgres_before_identity,
-        "postgres_after_identity": dry_run.postgres_after_identity,
-        "qlever_before_identity": dry_run.qlever_before_identity,
-        "qlever_after_identity": dry_run.qlever_after_identity,
-    }
+    return _candidate_result(
+        generation=generation,
+        artifact_manifest=artifact_manifest,
+        candidate=candidate,
+        closure=closure,
+        effective=effective,
+        dry_run=dry_run,
+    )
 
 
 def _require_certified_acceptance_inputs(root: Path) -> None:

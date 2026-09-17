@@ -938,6 +938,23 @@ def test_c3262_acceptance_candidate_has_a_fixed_replay_operation(
 
 
 @pytest.mark.unit
+def test_c3262_acceptance_candidate_refuses_dirty_worktree_before_generation(
+    tmp_path: Path,
+) -> None:
+    class DirtyRunner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            self.calls.append((arguments, kwargs))
+            return subprocess.CompletedProcess(
+                arguments, 0, stdout=" M tracked.py\n", stderr=""
+            )
+
+    with pytest.raises(AgentReplayInputError, match="clean worktree"):
+        replay._generate_c3262_acceptance_candidate([], tmp_path, DirtyRunner())
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("operation", "activate"),
     [

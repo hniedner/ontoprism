@@ -11,35 +11,25 @@ from typing import cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from rdflib import Graph, URIRef
-from rdflib import Literal as RdfLiteral
 from scripts.research.group_review_packet import load_historical_group_review_packet
 
 from ontolib.decomposition import corpus_acceptance as corpus_acceptance_module
 from ontolib.decomposition import vocab
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.corpus_acceptance import (
-    AcceptedHumanAcceptanceDecision,
     CandidateMetrics,
-    CorpusAcceptanceCandidate,
     CorpusAcceptanceContent,
     CorpusAcceptanceValidationError,
     GateEvaluation,
-    PendingHumanAcceptanceDecision,
     PublicationDryRunEvidence,
     PublicationPlaneBinding,
     ReviewRequiredEffectiveExclusion,
     _expected_mint_assertions,
-    build_accepted_publication_artifact,
     build_effective_artifact,
     build_review_required_exclusions,
     classify_corpus_delta,
     dry_run_corpus_publication,
-    finalize_corpus_acceptance_candidate,
     generate_c3262_acceptance_candidate,
-    load_human_acceptance_decision,
-    require_publication_authorization,
-    write_pending_human_acceptance_decision,
 )
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.provenance_models import (
@@ -192,14 +182,6 @@ def report():  # type: ignore[no-untyped-def]
 @pytest.fixture(scope="module")
 def classification(report, exclusions):  # type: ignore[no-untyped-def]
     return _classify(report)
-
-
-@pytest.fixture(scope="module")
-def candidate(classification, exclusions):  # type: ignore[no-untyped-def]
-    content = _content(classification, exclusions)
-    return finalize_corpus_acceptance_candidate(
-        content, _dry_run(content.content_identity)
-    )
 
 
 @pytest.mark.unit
@@ -1908,200 +1890,6 @@ class _PublicationStore:
 
 
 @pytest.mark.unit
-def test_publication_authorization_requires_exact_accepted_human_decision() -> None:
-    dry_run = _dry_run()
-    pending = PendingHumanAcceptanceDecision(
-        status="not-requested",
-        candidate_identity=SHA,
-        publication_dry_run_identity=dry_run.evidence_identity,
-    )
-    with pytest.raises(
-        CorpusAcceptanceValidationError, match="accepted human decision"
-    ):
-        require_publication_authorization(
-            candidate_identity=SHA,
-            dry_run=dry_run,
-            decision=pending,
-            attestation_artifact=Path("not-read-for-pending-decision"),
-        )
-
-
-@pytest.mark.unit
-def test_pending_human_decision_file_roundtrips_without_approval(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "decision.json"
-    dry_run = _dry_run()
-    written = write_pending_human_acceptance_decision(
-        path,
-        candidate_identity=SHA,
-        publication_dry_run_identity=dry_run.evidence_identity,
-    )
-
-    assert written.status == "not-requested"
-    assert load_human_acceptance_decision(path) == written
-    assert json.loads(path.read_text())["status"] == "not-requested"
-
-
-@pytest.mark.unit
-def test_accepted_metadata_writer_requires_authorization_and_emits_api_contract(
-    tmp_path: Path,
-    classification,  # type: ignore[no-untyped-def]
-    exclusions,  # type: ignore[no-untyped-def]
-) -> None:
-    source = tmp_path / "effective.ttl"
-    output = tmp_path / "accepted.ttl"
-    attestation = tmp_path / "independent-attestation.json"
-    attestation.write_text('{"authority":"Dr Example","decision":"accepted"}\n')
-    attestation_identity = hashlib.sha256(attestation.read_bytes()).hexdigest()
-    source.write_text(
-        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
-        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
-    )
-    content = _content(classification, exclusions)
-    dry_run = _dry_run(content.content_identity)
-    pending = PendingHumanAcceptanceDecision(
-        status="not-requested",
-        candidate_identity=SHA,
-        publication_dry_run_identity=dry_run.evidence_identity,
-    )
-    with pytest.raises(
-        CorpusAcceptanceValidationError, match="accepted human decision"
-    ):
-        build_accepted_publication_artifact(
-            source_artifact=source,
-            destination=output,
-            candidate_identity=SHA,
-            dry_run=dry_run,
-            decision=pending,
-            attestation_artifact=attestation,
-            source_release="26.07d",
-            source_identity="1" * 64,
-            run_id="run-1",
-            representation_identity="2" * 64,
-            publication_identity="3" * 64,
-            exclusions=(),
-        )
-
-    accepted = AcceptedHumanAcceptanceDecision(
-        status="accepted",
-        candidate_identity=SHA,
-        publication_dry_run_identity=dry_run.evidence_identity,
-        accountable_authority="Dr Example",
-        decided_at=datetime(2026, 9, 16, tzinfo=UTC),
-        attestation_artifact_identity=attestation_identity,
-        decision_evidence_identity="4" * 64,
-    )
-    build_accepted_publication_artifact(
-        source_artifact=source,
-        destination=output,
-        candidate_identity=SHA,
-        dry_run=dry_run,
-        decision=accepted,
-        attestation_artifact=attestation,
-        source_release="26.07d",
-        source_identity="1" * 64,
-        run_id="run-1",
-        representation_identity="2" * 64,
-        publication_identity="3" * 64,
-        exclusions=(),
-    )
-    graph = Graph().parse(output, format="turtle")
-    subject = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1")
-    assert set(graph.objects(subject, URIRef(vocab.ACCEPTANCE_STATUS))) == {
-        RdfLiteral("accepted-effective")
-    }
-    assert set(graph.objects(subject, URIRef(vocab.ACCEPTANCE_PUBLICATION))) == {
-        RdfLiteral("3" * 64)
-    }
-
-    with pytest.raises(CorpusAcceptanceValidationError, match="destination exists"):
-        build_accepted_publication_artifact(
-            source_artifact=source,
-            destination=output,
-            candidate_identity=SHA,
-            dry_run=dry_run,
-            decision=accepted,
-            attestation_artifact=attestation,
-            source_release="26.07d",
-            source_identity="1" * 64,
-            run_id="run-1",
-            representation_identity="2" * 64,
-            publication_identity="3" * 64,
-            exclusions=(),
-        )
-    malformed = tmp_path / "malformed.ttl"
-    malformed.write_text("not Turtle")
-    with pytest.raises(CorpusAcceptanceValidationError, match="not valid Turtle"):
-        build_accepted_publication_artifact(
-            source_artifact=malformed,
-            destination=tmp_path / "malformed-output.ttl",
-            candidate_identity=SHA,
-            dry_run=dry_run,
-            decision=accepted,
-            attestation_artifact=attestation,
-            source_release="26.07d",
-            source_identity="1" * 64,
-            run_id="run-1",
-            representation_identity="2" * 64,
-            publication_identity="3" * 64,
-            exclusions=(),
-        )
-
-    accepted = AcceptedHumanAcceptanceDecision(
-        status="accepted",
-        candidate_identity=SHA,
-        publication_dry_run_identity=dry_run.evidence_identity,
-        accountable_authority="Dr Example",
-        decided_at=datetime(2026, 9, 16, tzinfo=UTC),
-        attestation_artifact_identity=attestation_identity,
-        decision_evidence_identity="1" * 64,
-    )
-    require_publication_authorization(
-        candidate_identity=SHA,
-        dry_run=dry_run,
-        decision=accepted,
-        attestation_artifact=attestation,
-    )
-
-    with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
-        require_publication_authorization(
-            candidate_identity="2" * 64,
-            dry_run=dry_run,
-            decision=accepted,
-            attestation_artifact=attestation,
-        )
-    with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
-        require_publication_authorization(
-            candidate_identity=SHA,
-            dry_run=dry_run,
-            decision=accepted.model_copy(
-                update={"publication_dry_run_identity": "2" * 64}
-            ),
-            attestation_artifact=attestation,
-        )
-    blocked_payload = dry_run.model_dump()
-    blocked_payload.update(status="blocked", postgres_read_verified=False)
-    blocked_payload["evidence_identity"] = _identity(
-        {
-            key: value
-            for key, value in blocked_payload.items()
-            if key != "evidence_identity"
-        }
-    )
-    blocked = PublicationDryRunEvidence.model_validate(blocked_payload)
-    with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
-        require_publication_authorization(
-            candidate_identity=SHA,
-            dry_run=blocked,
-            decision=accepted.model_copy(
-                update={"publication_dry_run_identity": blocked.evidence_identity}
-            ),
-            attestation_artifact=attestation,
-        )
-
-
-@pytest.mark.unit
 def test_publication_dry_run_evidence_refuses_false_status_or_identity() -> None:
     passed = _dry_run()
     payload = passed.model_dump()
@@ -2237,10 +2025,11 @@ def test_report_only_metric_gate_failure_is_represented_without_blocking_candida
     )
 
     assert isinstance(getattr(content.gates, gate), GateEvaluation)
-    candidate = finalize_corpus_acceptance_candidate(
-        content, _dry_run(content.content_identity)
+    assert corpus_acceptance_module._candidate_is_ready(
+        content.gates,
+        content.delta_classification,
+        _dry_run(content.content_identity),
     )
-    assert candidate.status == "ready-for-human-authorization"
 
 
 @pytest.mark.unit
@@ -2331,12 +2120,12 @@ def test_unavailable_roundtrip_is_report_only_and_does_not_block_candidate(
         {**payload, "content_identity": _identity(payload)}
     )
 
-    candidate = finalize_corpus_acceptance_candidate(
-        content, _dry_run(content.content_identity)
+    assert content.gates.fidelity.status == "unavailable"
+    assert corpus_acceptance_module._candidate_is_ready(
+        content.gates,
+        content.delta_classification,
+        _dry_run(content.content_identity),
     )
-
-    assert candidate.gates.fidelity.status == "unavailable"
-    assert candidate.status == "ready-for-human-authorization"
 
 
 @pytest.mark.unit
@@ -2369,34 +2158,6 @@ def test_candidate_content_refuses_changed_content_identity(
 
 
 @pytest.mark.unit
-def test_candidate_finalization_is_ready_without_requesting_human(
-    classification,  # type: ignore[no-untyped-def]
-    exclusions,  # type: ignore[no-untyped-def]
-) -> None:
-    content = _content(classification, exclusions)
-    candidate = finalize_corpus_acceptance_candidate(
-        content, _dry_run(content.content_identity)
-    )
-
-    assert isinstance(candidate, CorpusAcceptanceCandidate)
-    assert candidate.status == "ready-for-human-authorization"
-    assert candidate.human_authorization.status == "not-requested"
-    assert candidate.candidate_content_identity == content.content_identity
-    assert candidate.publication_dry_run.publication_writes_performed is False
-
-
-@pytest.mark.unit
-def test_candidate_finalization_refuses_dry_run_for_other_content(
-    classification,  # type: ignore[no-untyped-def]
-    exclusions,  # type: ignore[no-untyped-def]
-) -> None:
-    content = _content(classification, exclusions)
-
-    with pytest.raises(CorpusAcceptanceValidationError, match="binding differs"):
-        finalize_corpus_acceptance_candidate(content, _dry_run())
-
-
-@pytest.mark.unit
 def test_failed_dry_run_keeps_candidate_machine_blocked(
     classification,  # type: ignore[no-untyped-def]
     exclusions,  # type: ignore[no-untyped-def]
@@ -2415,11 +2176,11 @@ def test_failed_dry_run_keeps_candidate_machine_blocked(
         }
     )
 
-    candidate = finalize_corpus_acceptance_candidate(
-        content, PublicationDryRunEvidence.model_validate(dry_run_payload)
+    assert not corpus_acceptance_module._candidate_is_ready(
+        content.gates,
+        content.delta_classification,
+        PublicationDryRunEvidence.model_validate(dry_run_payload),
     )
-
-    assert candidate.status == "machine-blocked"
 
 
 @pytest.mark.unit
@@ -2441,51 +2202,9 @@ def test_unexplained_delta_keeps_candidate_machine_blocked(
     )
     content = _content(classification, ())
 
-    candidate = finalize_corpus_acceptance_candidate(
-        content, _dry_run(content.content_identity)
-    )
-
     assert classification.unexplained_blockers
-    assert candidate.status == "machine-blocked"
-
-
-@pytest.mark.unit
-def test_candidate_refuses_dry_run_bound_to_other_content(
-    candidate,  # type: ignore[no-untyped-def]
-) -> None:
-    payload = candidate.model_dump()
-    dry_run = candidate.publication_dry_run.model_dump()
-    dry_run["candidate_content_identity"] = "f" * 64
-    dry_run["evidence_identity"] = _identity(
-        {key: value for key, value in dry_run.items() if key != "evidence_identity"}
+    assert not corpus_acceptance_module._candidate_is_ready(
+        content.gates,
+        content.delta_classification,
+        _dry_run(content.content_identity),
     )
-    payload["publication_dry_run"] = dry_run
-
-    with pytest.raises(ValidationError, match="dry-run candidate binding differs"):
-        CorpusAcceptanceCandidate.model_validate(payload)
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("status", "machine-blocked", "candidate status differs"),
-        (
-            "candidate_content_identity",
-            "f" * 64,
-            "candidate content identity differs",
-        ),
-        ("candidate_identity", "f" * 64, "candidate identity differs"),
-    ],
-)
-def test_candidate_refuses_inconsistent_bound_identity(
-    candidate,  # type: ignore[no-untyped-def]
-    field: str,
-    value: object,
-    message: str,
-) -> None:
-    payload = candidate.model_dump()
-    payload[field] = value
-
-    with pytest.raises(ValidationError, match=message):
-        CorpusAcceptanceCandidate.model_validate(payload)

@@ -4,25 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import hashlib
-import json
 from typing import TYPE_CHECKING
 
 import asyncpg
 import httpx
 import pytest
+from rdflib import Graph, Literal, URIRef
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_acceptance import (
-    AcceptedHumanAcceptanceDecision,
-    PublicationDryRunEvidence,
+    CertifiedSourceBinding,
+    EvidenceAmbiguityReport,
+    PersistedAssertionEvidence,
     PublicationPlaneBinding,
-    RemovedFromEffectivePair,
-    ReviewRequiredEffectiveExclusion,
-    build_accepted_publication_artifact,
+    build_assertion_evidence_closure,
+    build_machine_acceptance_metadata_artifact,
+    build_machine_evidence_acceptance,
     dry_run_corpus_publication,
+    issue_machine_publication_token,
 )
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
@@ -32,16 +33,20 @@ from ontolib.decomposition.provenance_models import (
     RunFingerprint,
 )
 from ontolib.decomposition.publication import (
+    AcceptancePublicationIntent,
+    AcceptancePublicationReceipt,
+    PublicationMarker,
     publish_artifact,
+    publish_machine_accepted_artifact,
     read_publication_marker,
     staging_graph_iri,
 )
 from ontolib.decomposition.read import decomposition_from_rows
 from ontolib.decomposition.read_models import (
-    AcceptedEffectiveProjection,
-    ReviewRequiredExcludedProjection,
+    ProjectedEffectiveProjection,
 )
 from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
@@ -64,34 +69,185 @@ _CONCURRENT_RUN_IDS = (
 )
 
 
-def _accepted_metadata_dry_run() -> PublicationDryRunEvidence:
-    payload = {
-        "schema_version": 1,
-        "status": "passed",
-        "candidate_content_identity": "9" * 64,
-        "predecessor_marker_identity": "8" * 64,
-        "destination_graph_iri": _PUBLIC,
-        "artifact_identity": "7" * 64,
-        "run_id": _RUN_ID,
-        "expected_concept_count": 2,
-        "represented_concept_count": 2,
-        "marker_protocol_identity": "6" * 64,
-        "recovery_identity": "5" * 64,
-        "postgres_read_verified": True,
-        "qlever_read_verified": True,
-        "postgres_before_identity": "4" * 64,
-        "postgres_after_identity": "4" * 64,
-        "qlever_before_identity": "3" * 64,
-        "qlever_after_identity": "3" * 64,
-        "recoverability_status": "passed",
-        "publication_writes_performed": False,
-    }
-    identity = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    return PublicationDryRunEvidence.model_validate(
-        {**payload, "evidence_identity": identity}
+@pytest.mark.usefixtures("isolated_postgres_settings")
+async def test_acceptance_publication_intent_and_receipt_roundtrip_postgres(
+    tmp_path: Path,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    marker = PublicationMarker(
+        run_id=_RUN_ID,
+        source_identity="a" * 64,
+        representation_identity="b" * 64,
+        built_at=datetime.datetime(2026, 9, 17, tzinfo=datetime.UTC),
     )
+    intent = AcceptancePublicationIntent(
+        acceptance_identity="c" * 64,
+        candidate_identity="d" * 64,
+        exclusions_identity="e" * 64,
+        artifact_identity="b" * 64,
+        destination=str(tmp_path / "accepted-c3262.ttl"),
+        marker=marker,
+        predecessor=None,
+    )
+    receipt = AcceptancePublicationReceipt.build(
+        intent=intent,
+        readback_marker=marker,
+    )
+    dsn = get_settings().database_url.replace("+asyncpg", "")
+    connection = await asyncpg.connect(dsn)
+    try:
+        first = await store.begin_acceptance_publication(intent)
+        retry = await store.begin_acceptance_publication(intent)
+        assert first == retry == intent
+        await store.finish_acceptance_publication(receipt)
+        assert (
+            await store.acceptance_publication_receipt(intent.acceptance_identity)
+            == receipt
+        )
+    finally:
+        await connection.execute(
+            "DELETE FROM decomp_acceptance_publication WHERE acceptance_identity = $1",
+            intent.acceptance_identity,
+        )
+        await connection.close()
+        await dispose_engine(engine)
+
+
+@pytest.mark.usefixtures(
+    "isolated_postgres_settings",
+    "isolated_qlever_settings",
+    "preserved_decomposed_graph",
+)
+async def test_machine_accepted_publication_recovers_marker_ahead_of_receipt(
+    isolated_qlever_url: str,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.ttl"
+    raw_artifact = tmp_path / "closure.ttl"
+    artifact = tmp_path / "accepted.ttl"
+    destination = tmp_path / "published.ttl"
+    fact_id = "1" * 64
+    source.write_text(
+        f"<{NCIT_NS}C1> "
+        f"<{vocab.HAS_CONSTITUENT}> [<{vocab.AXIS}> "
+        f"<{vocab.ONTOPRISM_NS}PrimarySite> ; "
+        f'<{vocab.FILLER}> <{NCIT_NS}C2> ; <{vocab.AXIS_SOURCE}> "role" ; '
+        f"<{vocab.SOURCE_ROLE}> <{NCIT_NS}R101> ; "
+        f"<{vocab.SOURCE_DEFINITION_FACT}> "
+        f"<{vocab.DEFINITION_FACT_NS}C1/{fact_id}> ; "
+        f"<{vocab.MOST_SPECIFIC}> true] .\n"
+        f"<{NCIT_NS}C1> "
+        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" ; '
+        f'<{vocab.DECOMPOSED_BY}> "{_RUN_ID}" .\n'
+    )
+    source_binding = CertifiedSourceBinding(
+        release="26.07d",
+        source_manifest_identity="2" * 64,
+        source_identity="a" * 64,
+        stated_artifact_identity="3" * 64,
+        certification="expert-curated-ncit-release",
+    )
+    closure = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=raw_artifact,
+        source=source_binding,
+        persisted_assertions=(
+            PersistedAssertionEvidence(
+                concept_code="C1",
+                axis="op:PrimarySite",
+                filler_code="C2",
+                source_fact_ids=(fact_id,),
+                source_occurrence_ids=("4" * 64,),
+                transformation_rule="axis-contract:PrimarySite",
+                transformation_policy_identity="5" * 64,
+                applicability_identity="6" * 64,
+            ),
+        ),
+        concept_exclusions=(),
+    )
+    semantic_identity = closure.closure_identity
+    artifact_identity = build_machine_acceptance_metadata_artifact(
+        closure=closure,
+        source_artifact=raw_artifact,
+        destination=artifact,
+        run_id=_RUN_ID,
+        representation_identity=semantic_identity,
+        publication_identity=semantic_identity,
+    )
+    accepted_graph = Graph().parse(artifact, format="turtle")
+    assert set(
+        accepted_graph.objects(URIRef(f"{NCIT_NS}C1"), URIRef(vocab.ACCEPTANCE_STATUS))
+    ) == {Literal("projected")}
+    closure = closure.model_copy(
+        update={"effective_artifact_identity": artifact_identity}
+    )
+    ambiguity = EvidenceAmbiguityReport.from_closure(closure)
+    acceptance = build_machine_evidence_acceptance(
+        candidate_identity="7" * 64,
+        closure=closure,
+        exclusions_identity="8" * 64,
+        evidence_ledger_identity=closure.evidence_ledger_identity,
+        policy_identity="5" * 64,
+        dry_run_identity="9" * 64,
+        ambiguity=ambiguity,
+    )
+    token = issue_machine_publication_token(acceptance)
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    dsn = get_settings().database_url.replace("+asyncpg", "")
+    connection = await asyncpg.connect(dsn)
+    destination.mkdir()
+    try:
+        async with ncit_sparql_client(isolated_qlever_url) as client:
+            with pytest.raises(OSError, match=r"[Dd]irectory"):
+                await publish_machine_accepted_artifact(
+                    token=token,
+                    acceptance=acceptance,
+                    closure=closure,
+                    artifact=artifact,
+                    destination=destination,
+                    expected_codes=("C1",),
+                    run_id=_RUN_ID,
+                    source_identity="a" * 64,
+                    client=client,
+                    provenance=store,
+                )
+            marker_ahead = await read_publication_marker(client)
+            assert marker_ahead is not None
+            destination.rmdir()
+            receipt = await publish_machine_accepted_artifact(
+                token=token,
+                acceptance=acceptance,
+                closure=closure,
+                artifact=artifact,
+                destination=destination,
+                expected_codes=("C1",),
+                run_id=_RUN_ID,
+                source_identity="a" * 64,
+                client=client,
+                provenance=store,
+            )
+            assert receipt.marker == marker_ahead
+            assert await read_publication_marker(client) == marker_ahead
+            rows = await client.select_once(
+                build_decomposition_query("C1"), required_variables={"status"}
+            )
+            model = decomposition_from_rows("C1", rows)
+            assert isinstance(model.acceptance, ProjectedEffectiveProjection)
+            assert model.acceptance.publication_identity == semantic_identity
+        assert (
+            await store.acceptance_publication_receipt(acceptance.acceptance_identity)
+            == receipt
+        )
+        assert destination.read_bytes() == artifact.read_bytes()
+    finally:
+        await connection.execute(
+            "DELETE FROM decomp_acceptance_publication WHERE acceptance_identity = $1",
+            acceptance.acceptance_identity,
+        )
+        await connection.close()
+        await dispose_engine(engine)
 
 
 async def _put_graph(url: str, graph: str, turtle: str) -> None:
@@ -103,83 +259,6 @@ async def _put_graph(url: str, graph: str, turtle: str) -> None:
             headers={"Content-Type": "text/turtle"},
         )
     response.raise_for_status()
-
-
-@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
-async def test_accepted_metadata_roundtrips_through_qlever_and_read_model(
-    isolated_qlever_url: str,
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "effective.ttl"
-    accepted = tmp_path / "accepted.ttl"
-    attestation = tmp_path / "independent-attestation.json"
-    attestation.write_text('{"authority":"Integration test authority"}\n')
-    source.write_text(
-        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1> "
-        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
-        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2> "
-        f'<{vocab.REPRESENTATION_STATUS}> "{vocab.LEGACY_PRECOORDINATED}" .\n'
-    )
-    dry_run = _accepted_metadata_dry_run()
-    decision = AcceptedHumanAcceptanceDecision(
-        status="accepted",
-        candidate_identity="9" * 64,
-        publication_dry_run_identity=dry_run.evidence_identity,
-        accountable_authority="Integration test authority",
-        decided_at=datetime.datetime(2026, 9, 16, tzinfo=datetime.UTC),
-        attestation_artifact_identity=hashlib.sha256(
-            attestation.read_bytes()
-        ).hexdigest(),
-        decision_evidence_identity="2" * 64,
-    )
-    exclusion = ReviewRequiredEffectiveExclusion(
-        concept_code="C2",
-        pair_changes=(
-            RemovedFromEffectivePair(
-                axis="op:Morphology",
-                filler_code="C3",
-                review_relations=("grouping-disputed",),
-                historical_evidence_identities=("2" * 64,),
-                effective_disposition="removed-from-effective",
-                source_assertion_identities=("1" * 64,),
-                next_step="specialist-decision-required-before-inclusion",
-            ),
-        ),
-        reason="unresolved-semantic-ambiguity",
-        official_source_preserved=True,
-        human_approval=False,
-        nci_approval=False,
-    )
-    build_accepted_publication_artifact(
-        source_artifact=source,
-        destination=accepted,
-        candidate_identity="9" * 64,
-        dry_run=dry_run,
-        decision=decision,
-        attestation_artifact=attestation,
-        source_release="26.07d",
-        source_identity="1" * 64,
-        run_id=_RUN_ID,
-        representation_identity="7" * 64,
-        publication_identity="6" * 64,
-        exclusions=(exclusion,),
-    )
-    await _put_graph(isolated_qlever_url, _PUBLIC, accepted.read_text())
-
-    async with ncit_sparql_client(isolated_qlever_url) as client:
-        accepted_rows = await client.select_once(
-            build_decomposition_query("C1"), required_variables={"status"}
-        )
-        excluded_rows = await client.select_once(
-            build_decomposition_query("C2"), required_variables={"status"}
-        )
-
-    accepted_model = decomposition_from_rows("C1", accepted_rows)
-    excluded_model = decomposition_from_rows("C2", excluded_rows)
-    assert isinstance(accepted_model.acceptance, AcceptedEffectiveProjection)
-    assert isinstance(excluded_model.acceptance, ReviewRequiredExcludedProjection)
-    assert excluded_model.acceptance.official_source_preserved is True
-    assert excluded_model.acceptance.exclusion_summary
 
 
 async def _update(url: str, statement: str) -> httpx.Response:

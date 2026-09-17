@@ -104,14 +104,16 @@ class NotAcceptedProjection(StrictBoundaryModel):
     status: Literal["not-accepted"] = "not-accepted"
 
 
-class AcceptedEffectiveProjection(StrictBoundaryModel):
-    status: Literal["accepted-effective"]
+class ProjectedEffectiveProjection(StrictBoundaryModel):
+    status: Literal["projected"]
     source_release: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str
     representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    effective_status: Literal["accepted-effective"]
+    effective_status: Literal["projected-effective"]
+    acceptance_basis: Literal["machine-evidence", "human-adjudication"]
+    official_source_url: str
     official_source_preserved: Literal[True]
 
 
@@ -127,12 +129,42 @@ class ReviewRequiredExcludedProjection(StrictBoundaryModel):
         "Review required — excluded from accepted effective projection"
     ]
     official_source_preserved: Literal[True]
+    acceptance_basis: Literal["machine-evidence", "human-adjudication"]
+    official_source_url: str
+
+
+class UnknownWithheldProjection(StrictBoundaryModel):
+    status: Literal["unknown-withheld"]
+    source_release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_status: Literal["withheld-from-effective"]
+    acceptance_basis: Literal["machine-evidence", "human-adjudication"]
+    official_source_preserved: Literal[True]
+    official_source_url: str
+
+
+class ResidualWithheldProjection(StrictBoundaryModel):
+    status: Literal["residual-withheld"]
+    source_release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_status: Literal["withheld-from-effective"]
+    acceptance_basis: Literal["machine-evidence", "human-adjudication"]
+    official_source_preserved: Literal[True]
+    official_source_url: str
 
 
 AcceptanceProjection = Annotated[
     NotAcceptedProjection
-    | AcceptedEffectiveProjection
-    | ReviewRequiredExcludedProjection,
+    | ProjectedEffectiveProjection
+    | ReviewRequiredExcludedProjection
+    | UnknownWithheldProjection
+    | ResidualWithheldProjection,
     Field(discriminator="status"),
 ]
 

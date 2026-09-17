@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getDecomposition } from '$lib/api';
 	import type { ConceptDecomposition, DecompositionConstituent } from '$lib/types';
+	import AcceptanceSummary from '$lib/components/AcceptanceSummary.svelte';
 	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
@@ -45,6 +46,7 @@
 			items: byAxis[axis]
 		}));
 	});
+
 </script>
 
 <section class="rounded-xl border border-default bg-card p-4 shadow-sm">
@@ -60,16 +62,8 @@
 	{:else if !loaded}
 		<LoadingState active label="Loading decomposition" minHeight="4rem" />
 	{:else}
-		{#if data?.acceptance.status === 'review-required-excluded'}
-			<div class="mb-3 space-y-1 text-sm">
-				<p class="font-semibold text-amber-700 dark:text-amber-300">
-					{data.acceptance.exclusion_summary}
-				</p>
-				<p class="text-subtle">
-					Official NCIt source {data.acceptance.source_release} remains accessible. No human approval,
-					NCI adoption, or equivalence is implied.
-				</p>
-			</div>
+		{#if data && data.acceptance.status !== 'not-accepted'}
+			<AcceptanceSummary acceptance={data.acceptance} />
 		{/if}
 		{#if !data?.is_legacy_precoordinated}
 			{#if data?.acceptance.status !== 'review-required-excluded'}

@@ -1,11 +1,17 @@
 """Unit tests for pure decomposition row assembly (read layer)."""
 
+from typing import cast
+
 import pytest
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read import decomposition_from_rows
-from ontolib.decomposition.read_models import DecompositionConstituent
+from ontolib.decomposition.read_models import (
+    DecompositionConstituent,
+    ResidualWithheldProjection,
+    UnknownWithheldProjection,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 
@@ -199,12 +205,12 @@ def test_review_required_exclusion_remains_visible_with_official_source_identity
 
 
 @pytest.mark.unit
-def test_accepted_effective_projection_retains_exact_publication_binding() -> None:
+def test_projected_effective_projection_retains_exact_publication_binding() -> None:
     d = decomposition_from_rows(
         "C6135",
         [
             _row(
-                acceptanceStatus="accepted-effective",
+                acceptanceStatus="projected",
                 sourceRelease="26.07d",
                 sourceIdentity="a" * 64,
                 acceptedRun="run-1",
@@ -214,17 +220,45 @@ def test_accepted_effective_projection_retains_exact_publication_binding() -> No
         ],
     )
 
-    assert d.acceptance.status == "accepted-effective"
-    assert d.acceptance.effective_status == "accepted-effective"
+    assert d.acceptance.status == "projected"
+    assert d.acceptance.effective_status == "projected-effective"
+    assert d.acceptance.acceptance_basis == "machine-evidence"
+    assert d.acceptance.official_source_url == "/repositories/ncit/C6135"
     assert d.acceptance.run_id == "run-1"
     assert d.acceptance.representation_identity == "b" * 64
     assert d.acceptance.publication_identity == "c" * 64
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("status", ["unknown-withheld", "residual-withheld"])
+def test_typed_concept_withholding_retains_source_and_publication_binding(
+    status: str,
+) -> None:
+    d = decomposition_from_rows(
+        "C9305",
+        [
+            _row(
+                acceptanceStatus=status,
+                sourceRelease="26.07d",
+                sourceIdentity="a" * 64,
+                acceptedRun="run-1",
+                acceptedRepresentation="b" * 64,
+                publicationIdentity="c" * 64,
+            )
+        ],
+    )
+    acceptance = cast(
+        "UnknownWithheldProjection | ResidualWithheldProjection", d.acceptance
+    )
+    assert acceptance.status == status
+    assert acceptance.effective_status == "withheld-from-effective"
+    assert acceptance.official_source_preserved is True
+
+
+@pytest.mark.unit
 def test_conflicting_acceptance_metadata_fails_closed() -> None:
     common = {
-        "acceptanceStatus": "accepted-effective",
+        "acceptanceStatus": "projected",
         "sourceRelease": "26.07d",
         "sourceIdentity": "a" * 64,
         "acceptedRun": "run-1",

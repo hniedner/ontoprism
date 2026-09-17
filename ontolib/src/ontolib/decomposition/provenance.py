@@ -38,7 +38,6 @@ if TYPE_CHECKING:
         OccurrenceInput,
         R101LedgerSource,
     )
-
 from ontolib.decomposition.models import (
     CompleteDefinition,
     ConceptOutcome,
@@ -51,6 +50,7 @@ from ontolib.decomposition.models import (
     SourceDefinitionOccurrence,
     SpecificityPathEdge,
 )
+from ontolib.decomposition.provenance_errors import RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE,
     CompletedRunForEvidence,
@@ -75,6 +75,10 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     WorkItemOutcome,
     stage_output_identity,
+)
+from ontolib.decomposition.publication import (
+    AcceptancePublicationIntent,
+    AcceptancePublicationReceipt,
 )
 
 _logger = logging.getLogger(__name__)
@@ -101,10 +105,6 @@ def _existing_run_refusal(kind: str) -> RefusalReason:
     if kind == "publication":
         return RefusalReason.PUBLICATION_RETRY_REQUIRED
     return RefusalReason.ACTIVE_RUN_EXISTS
-
-
-class RunStateError(RuntimeError):
-    """A requested run/work-item transition is not currently valid."""
 
 
 class RunIdentityMismatchError(RuntimeError):
@@ -1434,6 +1434,110 @@ class ProvenanceStore:
                 except BaseException as unlock_error:
                     await _invalidate_without_masking(connection, unlock_error)
                     raise
+
+    async def begin_acceptance_publication(
+        self, intent: AcceptancePublicationIntent
+    ) -> AcceptancePublicationIntent:
+        """Persist or resume one immutable accepted-projection publication intent."""
+        payload = intent.model_dump(mode="json")
+        async with self._sf() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO decomp_acceptance_publication "
+                    "(acceptance_identity, intent, state) "
+                    "VALUES (:identity, CAST(:intent AS jsonb), 'publishing') "
+                    "ON CONFLICT (acceptance_identity) DO NOTHING"
+                ),
+                {
+                    "identity": intent.acceptance_identity,
+                    "intent": _json.dumps(payload, sort_keys=True),
+                },
+            )
+            result = await session.execute(
+                text(
+                    "SELECT intent FROM decomp_acceptance_publication "
+                    "WHERE acceptance_identity = :identity FOR UPDATE"
+                ),
+                {"identity": intent.acceptance_identity},
+            )
+            row = result.mappings().one()
+            persisted = AcceptancePublicationIntent.model_validate_json(
+                _json.dumps(row["intent"])
+            )
+            await session.execute(
+                text(
+                    "UPDATE decomp_acceptance_publication "
+                    "SET state = 'publishing', receipt = NULL, error_type = NULL, "
+                    "error_message = NULL, updated_at = now() "
+                    "WHERE acceptance_identity = :identity"
+                ),
+                {"identity": intent.acceptance_identity},
+            )
+            return persisted
+
+    async def finish_acceptance_publication(
+        self, receipt: AcceptancePublicationReceipt
+    ) -> None:
+        """Commit exact graph readback evidence after accepted publication."""
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_acceptance_publication "
+                    "SET state = 'published', receipt = CAST(:receipt AS jsonb), "
+                    "error_type = NULL, error_message = NULL, updated_at = now() "
+                    "WHERE acceptance_identity = :identity AND state = 'publishing'"
+                ),
+                {
+                    "identity": receipt.acceptance_identity,
+                    "receipt": _json.dumps(
+                        receipt.model_dump(mode="json"), sort_keys=True
+                    ),
+                },
+            )
+            if cast("int", result.rowcount) != 1:  # type: ignore[attr-defined]
+                raise RunStateError(
+                    "accepted publication intent is absent or not publishing"
+                )
+
+    async def acceptance_publication_receipt(
+        self, acceptance_identity: str
+    ) -> AcceptancePublicationReceipt | None:
+        """Read a completed accepted-publication receipt without fallback."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT receipt FROM decomp_acceptance_publication "
+                    "WHERE acceptance_identity = :identity AND state = 'published'"
+                ),
+                {"identity": acceptance_identity},
+            )
+            receipt = result.scalar_one_or_none()
+        return (
+            AcceptancePublicationReceipt.model_validate_json(_json.dumps(receipt))
+            if receipt is not None
+            else None
+        )
+
+    async def record_acceptance_publication_failure(
+        self, acceptance_identity: str, error: BaseException
+    ) -> None:
+        """Persist a retryable accepted-publication failure."""
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_acceptance_publication "
+                    "SET state = 'failed', receipt = NULL, error_type = :error_type, "
+                    "error_message = :error_message, updated_at = now() "
+                    "WHERE acceptance_identity = :identity"
+                ),
+                {
+                    "identity": acceptance_identity,
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                },
+            )
+            if cast("int", result.rowcount) != 1:  # type: ignore[attr-defined]
+                raise RunStateError("accepted publication intent is absent")
 
     async def create_run(
         self,

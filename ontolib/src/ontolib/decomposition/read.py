@@ -11,11 +11,13 @@ from typing import TYPE_CHECKING, cast, get_args
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read_models import (
-    AcceptedEffectiveProjection,
     ConceptDecomposition,
     DecompositionConstituent,
     NotAcceptedProjection,
+    ProjectedEffectiveProjection,
+    ResidualWithheldProjection,
     ReviewRequiredExcludedProjection,
+    UnknownWithheldProjection,
     UpstreamMapping,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -199,7 +201,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
             candidate,
         )
 
-    acceptance = _acceptance_from_rows(acceptance_rows)
+    acceptance = _acceptance_from_rows(code, acceptance_rows)
     return ConceptDecomposition(
         code=code,
         is_legacy_precoordinated=status == vocab.LEGACY_PRECOORDINATED,
@@ -210,11 +212,14 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
 
 
 def _acceptance_from_rows(
+    code: str,
     acceptance_rows: set[tuple[str | None, ...]],
 ) -> (
     NotAcceptedProjection
-    | AcceptedEffectiveProjection
+    | ProjectedEffectiveProjection
     | ReviewRequiredExcludedProjection
+    | UnknownWithheldProjection
+    | ResidualWithheldProjection
 ):
     if len(acceptance_rows) > 1:
         raise ValueError("concept resolved to conflicting acceptance metadata")
@@ -230,10 +235,12 @@ def _acceptance_from_rows(
         "representation_identity": acceptance_values[4],
         "publication_identity": acceptance_values[5],
         "official_source_preserved": True,
+        "acceptance_basis": "machine-evidence",
+        "official_source_url": f"/repositories/ncit/{code}",
     }
-    if acceptance_status == "accepted-effective":
-        return AcceptedEffectiveProjection(
-            **common, effective_status="accepted-effective"
+    if acceptance_status == "projected":
+        return ProjectedEffectiveProjection(
+            **common, effective_status="projected-effective"
         )
     if acceptance_status == "review-required-excluded":
         return ReviewRequiredExcludedProjection.model_validate(
@@ -242,6 +249,14 @@ def _acceptance_from_rows(
                 "effective_status": "excluded-from-accepted-effective-projection",
                 "exclusion_summary": acceptance_values[6],
             }
+        )
+    if acceptance_status == "unknown-withheld":
+        return UnknownWithheldProjection(
+            **common, effective_status="withheld-from-effective"
+        )
+    if acceptance_status == "residual-withheld":
+        return ResidualWithheldProjection(
+            **common, effective_status="withheld-from-effective"
         )
     raise ValueError("persisted acceptance status is invalid")
 

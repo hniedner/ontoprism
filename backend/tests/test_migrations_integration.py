@@ -643,7 +643,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0028_distinct_group_identities"
+    assert revision == "0029_acceptance_publication"
     assert legacy_rows == 1
     assert publication_tables == 2
 

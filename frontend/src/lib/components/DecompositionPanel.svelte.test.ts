@@ -2,13 +2,40 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
-import type { ConceptDecomposition } from '$lib/types';
+import type { AcceptanceProjection, ConceptDecomposition } from '$lib/types';
 
 vi.mock('$lib/api', () => ({ getDecomposition: vi.fn() }));
 import { getDecomposition } from '$lib/api';
 
 const mock = vi.mocked(getDecomposition);
 const notAccepted = { status: 'not-accepted' } as const;
+
+function acceptedProjection(
+	status: Exclude<AcceptanceProjection['status'], 'not-accepted'>
+): AcceptanceProjection {
+	const common = {
+		source_release: '26.07d',
+		source_identity: 'a'.repeat(64),
+		run_id: 'run-1',
+		representation_identity: 'b'.repeat(64),
+		publication_identity: 'c'.repeat(64),
+		acceptance_basis: 'machine-evidence' as const,
+		official_source_preserved: true as const,
+		official_source_url: '/repositories/ncit/C9305' as const
+	};
+	if (status === 'projected') {
+		return { ...common, status, effective_status: 'projected-effective' };
+	}
+	if (status === 'review-required-excluded') {
+		return {
+			...common,
+			status,
+			effective_status: 'excluded-from-accepted-effective-projection',
+			exclusion_summary: 'Review required — excluded from accepted effective projection'
+		};
+	}
+	return { ...common, status, effective_status: 'withheld-from-effective' };
+}
 
 const decomposed: ConceptDecomposition = {
 	code: 'C6135',
@@ -44,6 +71,32 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+	it.each([
+		['projected', 'Projected — Machine evidence accepted'],
+		['review-required-excluded', 'Review required — excluded'],
+		['unknown-withheld', 'Unknown outcome — withheld'],
+		['residual-withheld', 'Residual classification — withheld']
+	] as const)('renders %s with exact publication and source identities', async (status, label) => {
+		mock.mockResolvedValue({
+			code: 'C9305',
+			is_legacy_precoordinated: status === 'projected',
+			decomposed_on: 'run-1',
+			constituents: status === 'projected' ? decomposed.constituents : [],
+			acceptance: acceptedProjection(status)
+		});
+
+		render(DecompositionPanel, { code: 'C9305' });
+		expect(await screen.findByText(label)).toBeInTheDocument();
+		expect(screen.getByText(/run-1/)).toBeInTheDocument();
+		expect(screen.getByText(/bbbbbbbb/)).toBeInTheDocument();
+		expect(screen.getByText(/cccccccc/)).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Official NCIt source 26.07d' })).toHaveAttribute(
+			'href',
+			'/repositories/ncit/C9305'
+		);
+		expect(screen.queryByText(/equivalent|NCI adoption/i)).not.toBeInTheDocument();
+	});
+
 	it('aborts replaced requests and ignores their late success and error', async () => {
 		mock.mockClear();
 		const first = Promise.withResolvers<ConceptDecomposition>();
@@ -129,7 +182,9 @@ describe('DecompositionPanel', () => {
 				publication_identity: 'c'.repeat(64),
 				effective_status: 'excluded-from-accepted-effective-projection',
 				exclusion_summary: 'Review required — excluded from accepted effective projection',
-				official_source_preserved: true
+				acceptance_basis: 'machine-evidence',
+				official_source_preserved: true,
+				official_source_url: '/repositories/ncit/C198031'
 			}
 		} as ConceptDecomposition);
 
@@ -139,7 +194,10 @@ describe('DecompositionPanel', () => {
 			await screen.findByText('Review required — excluded from accepted effective projection')
 		).toBeInTheDocument();
 		expect(screen.queryByText('No published decomposition is available.')).not.toBeInTheDocument();
-		expect(screen.getByText(/Official NCIt source 26.07d remains accessible/)).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Official NCIt source 26.07d' })).toHaveAttribute(
+			'href',
+			'/repositories/ncit/C198031'
+		);
 		expect(screen.getByRole('link', { name: 'Retained morphology' })).toBeInTheDocument();
 	});
 
