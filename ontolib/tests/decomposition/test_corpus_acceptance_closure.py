@@ -345,6 +345,35 @@ def test_persisted_evidence_withholds_minted_fillers_from_included_closure() -> 
     )
 
 
+@pytest.mark.unit
+def test_persisted_evidence_refusal_names_the_exact_invalid_assertion() -> None:
+    """A malformed persisted row reports its coordinate and validation cause."""
+    decomposition = cast(
+        "Decomposition",
+        SimpleNamespace(
+            code="C1",
+            constituents=(
+                Constituent(
+                    axis="op:PrimarySite",
+                    filler_code="C2",
+                    axis_source="role",
+                    source_roles=("R101",),
+                    source_definition_ids=("1" * 64,),
+                    source_occurrence_ids=(),
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        CorpusAcceptanceValidationError,
+        match=(
+            r"C1 op:PrimarySite C2.*routed assertion requires exact source occurrences"
+        ),
+    ):
+        persisted_assertion_evidence((decomposition,), policy_identity=POLICY_IDENTITY)
+
+
 def _empty_closure() -> AssertionEvidenceClosure:
     payload = {
         "source": _source(),

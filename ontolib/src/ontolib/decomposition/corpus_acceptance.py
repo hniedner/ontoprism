@@ -985,8 +985,11 @@ def _persisted_assertion_evidence(
             applicability_identity=applicability,
         )
     except ValidationError as exc:
+        detail = str(exc.errors(include_url=False)[0]["msg"])
         raise CorpusAcceptanceValidationError(
-            "persisted assertion lacks exact qualifying evidence"
+            "persisted assertion "
+            f"{concept_code} {constituent.axis} {constituent.filler_code} "
+            f"lacks exact qualifying evidence: {detail}"
         ) from exc
 
 
