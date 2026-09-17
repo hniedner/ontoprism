@@ -4,6 +4,7 @@ import pytest
 
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticError,
+    AxisDiagnosticSource,
     AxisHierarchyEvidence,
     DisjointPair,
     HierarchyEdge,
@@ -402,3 +403,22 @@ def test_disjoint_row_parser_rejects_malformed_rdf_lists(
 ) -> None:
     with pytest.raises(AxisDiagnosticError, match="malformed AllDisjointClasses list"):
         disjoint_pairs_from_rows(rows)
+
+
+@pytest.mark.unit
+def test_a_raw_role_axis_is_unknown_evidence_not_an_error() -> None:
+    """Roles with no contract axis are routed under their role code (e.g. ``R176``)."""
+    snapshot = AxisHierarchyEvidence(
+        source_identity=SOURCE, edges=(), disjoint_pairs=()
+    )
+
+    evidence = AxisDiagnosticSource(snapshot).classify(axis="R176", filler_code="C10")
+
+    assert evidence == UnknownAxisEvidence(
+        status="unknown",
+        axis="R176",
+        filler_code="C10",
+        range_code="C10",
+        source_identity=SOURCE,
+        reason="unknown-axis",
+    )

@@ -1382,3 +1382,39 @@ def test_stage_system_code_value_routes_r88_to_distinct_normalized_axes() -> Non
     sys_fillers = {c.filler_code for c in cons if c.axis == "op:StageSystem"}
     assert r88_fillers == {"C27970"}
     assert sys_fillers == {"C90530"}
+
+
+def _routes(
+    restriction: RoleRestriction, *, parent_morphology: str
+) -> list[tuple[str, str]]:
+    plan = build_routed_plan(
+        [restriction],
+        parent_morphologies=(parent_morphology,),
+        concept_code=None,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    return [(row.normalized_axis, row.semantic_route) for row in plan.occurrences]
+
+
+@pytest.mark.unit
+def test_primary_subsite_override_applies_to_the_primary_site_role_only() -> None:
+    """Bronchus (C12683) is a reviewed *primary* subsite of lung carcinoma (C4878)."""
+    primary = _routes(RoleRestriction("R101", "C12683"), parent_morphology="C4878")
+    associated = _routes(RoleRestriction("R100", "C12683"), parent_morphology="C4878")
+
+    assert primary == [("op:PrimarySubsite", "reviewed-primary-subsite")]
+    assert all(
+        axis != "op:PrimarySubsite" and route != "reviewed-primary-subsite"
+        for axis, route in associated
+    )
+
+
+@pytest.mark.unit
+def test_lineage_routing_outranks_the_primary_subsite_override() -> None:
+    routes = _routes(
+        RoleRestriction("R101", "C12683", anchoring_genus="C3010"),
+        parent_morphology="C4878",
+    )
+
+    assert routes == [(ASSOCIATED_LINEAGE_AXIS, "reviewed-lineage")]

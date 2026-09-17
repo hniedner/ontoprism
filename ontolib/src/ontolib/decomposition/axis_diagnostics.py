@@ -26,7 +26,7 @@ class AxisDiagnosticClient(Protocol):
     ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
 
 
-_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*")
+_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
 _CODE = re.compile(r"C[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _LIST_BINDINGS = frozenset({"set", "head", "node", "first", "rest"})

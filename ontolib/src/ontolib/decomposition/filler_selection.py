@@ -229,13 +229,23 @@ def _primary_site_semantic_route(
     return axes.ASSOCIATED_REGION_AXIS, "p106-non-organ-anatomy", semantic_type
 
 
+def _reviewed_route(
+    restriction: RoleRestriction, parent_morphology: str | None
+) -> tuple[str, SemanticRoute] | None:
+    reviewed = _reviewed_source_axis(restriction, parent_morphology)
+    if reviewed is None:
+        return None
+    subsites = primary_subsites_for_morphology(parent_morphology)
+    if reviewed == axes.PRIMARY_SITE_AXIS and restriction.filler_code in subsites:
+        return axes.PRIMARY_SUBSITE_AXIS, "reviewed-primary-subsite"
+    return reviewed, "reviewed-contextual-override"
+
+
 def _semantic_route(
     restriction: RoleRestriction,
     parent_morphology: str | None,
     semantic_type_of: Callable[[str], str | None] | None,
 ) -> tuple[str, SemanticRoute, str | None]:
-    if restriction.filler_code in primary_subsites_for_morphology(parent_morphology):
-        return axes.PRIMARY_SUBSITE_AXIS, "reviewed-primary-subsite", None
     contextual = _r101_axis(restriction, parent_morphology)
     if contextual is not None:
         route = (
@@ -244,9 +254,9 @@ def _semantic_route(
             else "reviewed-primary-subsite"
         )
         return contextual, route, None
-    reviewed = _reviewed_source_axis(restriction, parent_morphology)
+    reviewed = _reviewed_route(restriction, parent_morphology)
     if reviewed is not None:
-        return reviewed, "reviewed-contextual-override", None
+        return *reviewed, None
     if restriction.role_code != axes.PRIMARY_SITE_ROLE:
         axis_name = route_axis(restriction, parent_morphology)
         route = (
