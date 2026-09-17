@@ -159,12 +159,26 @@ class ResidualWithheldProjection(StrictBoundaryModel):
     official_source_url: str
 
 
+class EvidenceGapWithheldProjection(StrictBoundaryModel):
+    status: Literal["withheld-evidence-gap"]
+    source_release: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_status: Literal["withheld-from-effective"]
+    acceptance_basis: Literal["machine-evidence", "human-adjudication"]
+    official_source_preserved: Literal[True]
+    official_source_url: str
+
+
 AcceptanceProjection = Annotated[
     NotAcceptedProjection
     | ProjectedEffectiveProjection
     | ReviewRequiredExcludedProjection
     | UnknownWithheldProjection
-    | ResidualWithheldProjection,
+    | ResidualWithheldProjection
+    | EvidenceGapWithheldProjection,
     Field(discriminator="status"),
 ]
 

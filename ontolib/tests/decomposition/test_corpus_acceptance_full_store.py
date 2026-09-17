@@ -13,18 +13,96 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.corpus_acceptance import (
+    CertifiedSourceBinding,
     PublicationPlaneBinding,
+    build_assertion_evidence_closure,
+    build_concept_exclusion_dispositions,
     build_effective_artifact,
     build_review_required_exclusions,
     dry_run_corpus_publication,
+    evaluate_persisted_assertion_evidence,
     observe_full_store_acceptance_inputs,
 )
 from ontolib.decomposition.corpus_baseline import load_corpus_baseline
 from ontolib.decomposition.fanout_baseline import load_fanout_baseline
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_store]
+
+
+@pytest.mark.full_store
+async def test_real_corpus_has_complete_gap_inventory_and_zero_included_gaps(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).parents[3]
+    baseline = load_corpus_baseline(root / "tmp/m1-6-current-corpus-baseline.json")
+    manifest_path = root / "data/qlever-ncit/.ontoprism-ncit-candidate.json"
+    manifest = validate_ncit_sibling_manifest(manifest_path)
+    policy_identity = hashlib.sha256(
+        (root / "ontolib/src/ontolib/decomposition/axis_contracts.py").read_bytes()
+    ).hexdigest()
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        outcomes = tuple(await store.work_item_outcomes(baseline.run_id))
+        decompositions = tuple(await store.decompositions_for_run(baseline.run_id))
+        residual = tuple(await store.residual_filler_classifications(baseline.run_id))
+    finally:
+        await dispose_engine(engine)
+
+    evaluation = evaluate_persisted_assertion_evidence(
+        decompositions, policy_identity=policy_identity
+    )
+    closure = build_assertion_evidence_closure(
+        source_artifact=root / "tmp/m1-6-current-full-corpus.ttl",
+        effective_destination=tmp_path / "evidence-closed.ttl",
+        source=CertifiedSourceBinding(
+            release=manifest.ontology_version,
+            source_manifest_identity=hashlib.sha256(
+                manifest_path.read_bytes()
+            ).hexdigest(),
+            source_identity=manifest.source_identity,
+            stated_artifact_identity=manifest.stated_artifact.artifact_identity,
+            certification="expert-curated-ncit-release",
+        ),
+        persisted_evidence=evaluation,
+        concept_exclusions=build_concept_exclusion_dispositions(
+            outcomes=outcomes,
+            decompositions=decompositions,
+            residual_classifications=residual,
+        ),
+    )
+
+    inventory = closure.evidence_gap_inventory
+    observed_counts = {item.reason: item.count for item in inventory.reason_counts}
+    assert observed_counts == {
+        "missing-source-fact": 2_775,
+        "missing-source-occurrence": 43_593,
+        "policy-non-applicable": 1_006,
+        "proposal-quarantined": 2_649,
+        "residual-unknown": 20,
+        "review-required": 43_262,
+    }
+    assert len(inventory.gaps) == 93_305
+    assert len(inventory.withheld_concept_codes) == 14_866
+    assert len(closure.excluded_assertion_closure) == 144_197
+    assert len(closure.included_assertion_closure) == 34
+    assert any(
+        item.concept_code == "C100051"
+        and item.axis == "op:Morphology"
+        and item.filler_code == "C9385"
+        and item.reason == "missing-source-occurrence"
+        for item in inventory.gaps
+    )
+    assert len(closure.included_assertion_closure) == len(closure.evidence_ledger)
+    assert not {
+        item.assertion_identity for item in closure.included_assertion_closure
+    } & {item.assertion_identity for item in inventory.gaps}
+    assert all(
+        item.official_source_preserved for item in closure.excluded_assertion_closure
+    )
 
 
 @pytest.mark.full_store

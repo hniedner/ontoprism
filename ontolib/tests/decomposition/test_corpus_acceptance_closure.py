@@ -22,17 +22,20 @@ from ontolib.decomposition.corpus_acceptance import (
     ConceptExclusionDisposition,
     CorpusAcceptanceValidationError,
     EvidenceAmbiguityReport,
+    EvidenceGapInventory,
     HumanEvidenceAcceptance,
     MachineEvidenceAcceptance,
+    PersistedAssertionAssessment,
     PersistedAssertionEvidence,
+    PersistedEvidenceEvaluation,
     RejectedHumanEvidenceAcceptance,
     build_assertion_evidence_closure,
     build_concept_exclusion_dispositions,
     build_machine_acceptance_metadata_artifact,
     build_machine_evidence_acceptance,
     build_r101_occurrence_closure,
+    evaluate_persisted_assertion_evidence,
     issue_machine_publication_token,
-    persisted_assertion_evidence,
     require_machine_publication_authorization,
 )
 from ontolib.decomposition.models import Constituent, Decomposition
@@ -111,6 +114,30 @@ def _persisted(
     )
 
 
+def _evaluation(
+    *evidence: PersistedAssertionEvidence,
+) -> PersistedEvidenceEvaluation:
+    return PersistedEvidenceEvaluation.build(
+        policy_identity=POLICY_IDENTITY,
+        assessments=tuple(
+            PersistedAssertionAssessment(
+                concept_code=item.concept_code,
+                axis=item.axis,
+                filler_code=item.filler_code,
+                source_fact_ids=item.source_fact_ids,
+                source_occurrence_ids=item.source_occurrence_ids,
+                source_roles=("R101",),
+                transformation_rule=item.transformation_rule,
+                transformation_policy_identity=(item.transformation_policy_identity),
+                applicability_identity=item.applicability_identity,
+                gap_reasons=(),
+                evidence=item,
+            )
+            for item in evidence
+        ),
+    )
+
+
 @pytest.mark.unit
 def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_review(
     tmp_path: Path,
@@ -120,16 +147,16 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
     effective = tmp_path / "effective.ttl"
     source.write_text(
         _constituent("C1", "PrimarySite", "C2", "1" * 64)
-        + _constituent("C1", "PrimarySite", "C3", "2" * 64, needs_review=True)
+        + _constituent("C3", "PrimarySite", "C4", "2" * 64, needs_review=True)
     )
 
     closure = build_assertion_evidence_closure(
         source_artifact=source,
         effective_destination=effective,
         source=_source(),
-        persisted_assertions=(
+        persisted_evidence=_evaluation(
             _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64),
-            _persisted("C1", "PrimarySite", "C3", "2" * 64, "4" * 64),
+            _persisted("C3", "PrimarySite", "C4", "2" * 64, "4" * 64),
         ),
         concept_exclusions=(),
     )
@@ -147,7 +174,8 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
     assert closure.evidence_ledger[0].source == _source()
     assert closure.evidence_ledger[0].source_fact_ids == ("1" * 64,)
     assert closure.evidence_ledger[0].source_occurrence_ids == ("3" * 64,)
-    assert closure.excluded_assertion_closure[0].reason == "review-required"
+    assert closure.excluded_assertion_closure[0].reason == "withheld-evidence-gap"
+    assert closure.evidence_gap_inventory.gaps[0].reason == "review-required"
     assert closure.unresolved_included_assertion_ids == ()
     assert "C3" not in effective.read_text()
     assert hashlib.sha256(effective.read_bytes()).hexdigest() == (
@@ -156,6 +184,130 @@ def test_assertion_closure_cross_checks_real_rdf_and_fast_parser_then_withholds_
     assert (
         closure.rdf_parser_inventory_identity == closure.fast_parser_inventory_identity
     )
+
+
+@pytest.mark.unit
+def test_all_independent_evidence_gaps_are_inventoryed_and_withheld_in_one_pass(
+    tmp_path: Path,
+) -> None:
+    """Collect every gap and withhold whole affected concepts deterministically."""
+    source = tmp_path / "source.ttl"
+    source.write_text(
+        _constituent("C1", "PrimarySite", "C10", "1" * 64)
+        + _constituent("C2", "PrimarySite", "C20", "2" * 64)
+        + _constituent("C2", "PrimarySite", "C21", "3" * 64)
+        + _constituent("C3", "PrimarySite", "C30", "4" * 64)
+    )
+    decompositions = (
+        cast(
+            "Decomposition",
+            SimpleNamespace(
+                code="C1",
+                constituents=(
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C10",
+                        axis_source="role",
+                        source_roles=("R101",),
+                        source_definition_ids=("1" * 64,),
+                        source_occurrence_ids=("a" * 64,),
+                    ),
+                ),
+            ),
+        ),
+        cast(
+            "Decomposition",
+            SimpleNamespace(
+                code="C2",
+                constituents=(
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C20",
+                        axis_source="role",
+                        source_roles=("R101",),
+                        source_definition_ids=("2" * 64,),
+                        source_occurrence_ids=(),
+                    ),
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C21",
+                        axis_source="role",
+                        source_roles=("R101",),
+                        source_definition_ids=("3" * 64,),
+                        source_occurrence_ids=("b" * 64,),
+                    ),
+                ),
+            ),
+        ),
+        cast(
+            "Decomposition",
+            SimpleNamespace(
+                code="C3",
+                constituents=(
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C30",
+                        axis_source="role",
+                        source_roles=("R100",),
+                        source_definition_ids=("4" * 64,),
+                        source_occurrence_ids=("c" * 64,),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    evaluation = evaluate_persisted_assertion_evidence(
+        decompositions, policy_identity=POLICY_IDENTITY
+    )
+    first = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "first.ttl",
+        source=_source(),
+        persisted_evidence=evaluation,
+        concept_exclusions=(),
+    )
+    second = build_assertion_evidence_closure(
+        source_artifact=source,
+        effective_destination=tmp_path / "second.ttl",
+        source=_source(),
+        persisted_evidence=evaluation,
+        concept_exclusions=(),
+    )
+
+    inventory = first.evidence_gap_inventory
+    assert isinstance(inventory, EvidenceGapInventory)
+    assert [
+        (item.concept_code, item.filler_code, item.reason) for item in inventory.gaps
+    ] == [
+        ("C2", "C20", "missing-source-occurrence"),
+        ("C3", "C30", "evidence-contradiction"),
+        ("C3", "C30", "policy-non-applicable"),
+    ]
+    assert [(item.reason, item.count) for item in inventory.reason_counts] == [
+        ("evidence-contradiction", 1),
+        ("missing-source-occurrence", 1),
+        ("policy-non-applicable", 1),
+    ]
+    assert inventory.withheld_concept_codes == ("C2", "C3")
+    assert inventory == second.evidence_gap_inventory
+    assert len(first.included_assertion_closure) == len(first.evidence_ledger) == 1
+    assert {
+        item.assertion.concept_code for item in first.excluded_assertion_closure
+    } == {
+        "C2",
+        "C3",
+    }
+    assert all(
+        item.reason == "withheld-evidence-gap"
+        for item in first.excluded_assertion_closure
+    )
+    included_ids = {
+        item.assertion_identity for item in first.included_assertion_closure
+    }
+    assert not included_ids & {item.assertion_identity for item in inventory.gaps}
+    assert "C2" not in (tmp_path / "first.ttl").read_text()
+    assert "C3" not in (tmp_path / "first.ttl").read_text()
 
 
 @pytest.mark.unit
@@ -176,7 +328,7 @@ def test_assertion_closure_refuses_parser_disagreement_and_missing_role_occurren
             source_artifact=source,
             effective_destination=tmp_path / "effective.ttl",
             source=_source(),
-            persisted_assertions=(
+            persisted_evidence=_evaluation(
                 _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64),
             ),
             concept_exclusions=(),
@@ -299,12 +451,14 @@ def test_persisted_evidence_proves_exact_axis_contract_applicability() -> None:
             ),
         ),
     )
-    evidence = persisted_assertion_evidence(
+    evaluation = evaluate_persisted_assertion_evidence(
         (decomposition,), policy_identity=POLICY_IDENTITY
     )
-    assert evidence[0].transformation_rule == "axis-contract-routing-v1"
-    assert evidence[0].transformation_policy_identity == POLICY_IDENTITY
-    assert evidence[0].applicability_identity != POLICY_IDENTITY
+    evidence = evaluation.assessments[0].evidence
+    assert evidence is not None
+    assert evidence.transformation_rule == "axis-contract-routing-v1"
+    assert evidence.transformation_policy_identity == POLICY_IDENTITY
+    assert evidence.applicability_identity != POLICY_IDENTITY
 
     invalid = cast(
         "Decomposition",
@@ -315,8 +469,10 @@ def test_persisted_evidence_proves_exact_axis_contract_applicability() -> None:
             ),
         ),
     )
-    with pytest.raises(CorpusAcceptanceValidationError, match="axis contract"):
-        persisted_assertion_evidence((invalid,), policy_identity=POLICY_IDENTITY)
+    invalid_evaluation = evaluate_persisted_assertion_evidence(
+        (invalid,), policy_identity=POLICY_IDENTITY
+    )
+    assert invalid_evaluation.assessments[0].gap_reasons == ("policy-non-applicable",)
 
 
 @pytest.mark.unit
@@ -339,15 +495,16 @@ def test_persisted_evidence_withholds_minted_fillers_from_included_closure() -> 
         ),
     )
 
-    assert (
-        persisted_assertion_evidence((decomposition,), policy_identity=POLICY_IDENTITY)
-        == ()
+    evaluation = evaluate_persisted_assertion_evidence(
+        (decomposition,), policy_identity=POLICY_IDENTITY
     )
+    assert evaluation.assessments[0].gap_reasons == ("proposal-quarantined",)
+    assert evaluation.assessments[0].evidence is None
 
 
 @pytest.mark.unit
-def test_persisted_evidence_refusal_names_the_exact_invalid_assertion() -> None:
-    """A malformed persisted row reports its coordinate and validation cause."""
+def test_persisted_evidence_inventory_retains_valid_absent_occurrence() -> None:
+    """A valid absent occurrence is a typed gap rather than an early exception."""
     decomposition = cast(
         "Decomposition",
         SimpleNamespace(
@@ -365,13 +522,11 @@ def test_persisted_evidence_refusal_names_the_exact_invalid_assertion() -> None:
         ),
     )
 
-    with pytest.raises(
-        CorpusAcceptanceValidationError,
-        match=(
-            r"C1 op:PrimarySite C2.*routed assertion requires exact source occurrences"
-        ),
-    ):
-        persisted_assertion_evidence((decomposition,), policy_identity=POLICY_IDENTITY)
+    evaluation = evaluate_persisted_assertion_evidence(
+        (decomposition,), policy_identity=POLICY_IDENTITY
+    )
+    assert evaluation.assessments[0].gap_reasons == ("missing-source-occurrence",)
+    assert evaluation.assessments[0].evidence is None
 
 
 def _empty_closure() -> AssertionEvidenceClosure:
@@ -385,6 +540,7 @@ def _empty_closure() -> AssertionEvidenceClosure:
         "excluded_assertion_closure": (),
         "concept_exclusions": (),
         "evidence_ledger": (),
+        "evidence_gap_inventory": EvidenceGapInventory.build(()),
         "unresolved_included_assertion_ids": (),
         "contradictory_included_assertion_ids": (),
         "ambiguous_included_assertion_ids": (),
@@ -487,14 +643,34 @@ def test_acceptance_metadata_is_derived_from_closure_not_caller_statuses(
     source.write_text(
         _constituent("C1", "PrimarySite", "C2", "1" * 64)
         + _constituent("C3", "PrimarySite", "C4", "2" * 64, needs_review=True)
+        + _constituent("C5", "PrimarySite", "C6", "6" * 64)
+    )
+    evidence = _evaluation(
+        _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64),
+        _persisted("C3", "PrimarySite", "C4", "2" * 64, "4" * 64),
     )
     closure = build_assertion_evidence_closure(
         source_artifact=source,
         effective_destination=raw_effective,
         source=_source(),
-        persisted_assertions=(
-            _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64),
-            _persisted("C3", "PrimarySite", "C4", "2" * 64, "4" * 64),
+        persisted_evidence=PersistedEvidenceEvaluation.build(
+            policy_identity=POLICY_IDENTITY,
+            assessments=(
+                *evidence.assessments,
+                PersistedAssertionAssessment(
+                    concept_code="C5",
+                    axis="op:PrimarySite",
+                    filler_code="C6",
+                    source_fact_ids=("6" * 64,),
+                    source_occurrence_ids=(),
+                    source_roles=("R101",),
+                    transformation_rule="axis-contract-routing-v1",
+                    transformation_policy_identity=POLICY_IDENTITY,
+                    applicability_identity="7" * 64,
+                    gap_reasons=("missing-source-occurrence",),
+                    evidence=None,
+                ),
+            ),
         ),
         concept_exclusions=(
             ConceptExclusionDisposition(
@@ -525,6 +701,9 @@ def test_acceptance_metadata_is_derived_from_closure_not_caller_statuses(
     assert set(graph.objects(URIRef(f"{ncit}C3"), acceptance)) == {
         Literal("review-required-excluded")
     }
+    assert set(graph.objects(URIRef(f"{ncit}C5"), acceptance)) == {
+        Literal("withheld-evidence-gap")
+    }
     assert set(graph.objects(URIRef(f"{ncit}C10"), acceptance)) == {
         Literal("unknown-withheld")
     }
@@ -552,7 +731,7 @@ async def test_machine_authorized_publication_writes_and_verifies_exact_receipt(
         source_artifact=source,
         effective_destination=artifact,
         source=_source(),
-        persisted_assertions=(
+        persisted_evidence=_evaluation(
             _persisted("C1", "PrimarySite", "C2", "1" * 64, "3" * 64),
         ),
         concept_exclusions=(),

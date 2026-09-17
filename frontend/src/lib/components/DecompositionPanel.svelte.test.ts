@@ -75,7 +75,8 @@ describe('DecompositionPanel', () => {
 		['projected', 'Projected — Machine evidence accepted'],
 		['review-required-excluded', 'Review required — excluded'],
 		['unknown-withheld', 'Unknown outcome — withheld'],
-		['residual-withheld', 'Residual classification — withheld']
+		['residual-withheld', 'Residual classification — withheld'],
+		['withheld-evidence-gap', 'Evidence gap — withheld']
 	] as const)('renders %s with exact publication and source identities', async (status, label) => {
 		mock.mockResolvedValue({
 			code: 'C9305',

@@ -205,6 +205,30 @@ def test_review_required_exclusion_remains_visible_with_official_source_identity
 
 
 @pytest.mark.unit
+def test_evidence_gap_withholding_remains_visible_with_official_source_identity() -> (
+    None
+):
+    d = decomposition_from_rows(
+        "C100051",
+        [
+            _row(
+                acceptanceStatus="withheld-evidence-gap",
+                sourceRelease="26.07d",
+                sourceIdentity="a" * 64,
+                acceptedRun="run-1",
+                acceptedRepresentation="b" * 64,
+                publicationIdentity="c" * 64,
+            )
+        ],
+    )
+
+    assert d.acceptance.status == "withheld-evidence-gap"
+    assert d.acceptance.effective_status == "withheld-from-effective"
+    assert d.acceptance.official_source_preserved is True
+    assert d.acceptance.official_source_url == "/repositories/ncit/C100051"
+
+
+@pytest.mark.unit
 def test_projected_effective_projection_retains_exact_publication_binding() -> None:
     d = decomposition_from_rows(
         "C6135",

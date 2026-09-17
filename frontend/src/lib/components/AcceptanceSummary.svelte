@@ -16,6 +16,8 @@
 				return 'Unknown outcome — withheld';
 			case 'residual-withheld':
 				return 'Residual classification — withheld';
+			case 'withheld-evidence-gap':
+				return 'Evidence gap — withheld';
 		}
 	});
 </script>

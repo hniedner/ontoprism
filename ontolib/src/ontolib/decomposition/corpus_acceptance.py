@@ -1,7 +1,7 @@
 """Identity-bound mechanical acceptance for the certified C3262 corpus.
 
-This module can prepare evidence for human authorization.  It cannot authorize or
-publish a corpus, and it never mutates PostgreSQL, QLever, or the official NCIt source.
+This module inventories every qualifying-evidence gap and constructs the exact
+source-preserving effective projection that may receive machine authorization.
 """
 
 from __future__ import annotations
@@ -257,6 +257,86 @@ class PersistedAssertionEvidence(_StrictModel):
         return self
 
 
+EvidenceGapReason = Literal[
+    "missing-source-fact",
+    "missing-source-occurrence",
+    "missing-source-role",
+    "policy-non-applicable",
+    "evidence-contradiction",
+    "evidence-ambiguity",
+    "review-required",
+    "unknown-outcome",
+    "residual",
+    "residual-unknown",
+    "proposal-quarantined",
+]
+
+
+class PersistedAssertionAssessment(_StrictModel):
+    """One persisted coordinate, preserving absence separately from malformed data."""
+
+    concept_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    source_fact_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
+    source_roles: tuple[str, ...]
+    transformation_rule: str | None
+    transformation_policy_identity: str = Field(pattern=_SHA256)
+    applicability_identity: str | None = Field(default=None, pattern=_SHA256)
+    gap_reasons: tuple[EvidenceGapReason, ...]
+    evidence: PersistedAssertionEvidence | None
+
+    @model_validator(mode="after")
+    def _is_canonical_assessment(self) -> Self:
+        _require_canonical_identities("source fact", self.source_fact_ids)
+        _require_canonical_identities("source occurrence", self.source_occurrence_ids)
+        if self.source_roles != tuple(sorted(set(self.source_roles))):
+            raise ValueError("source roles must be canonical and unique")
+        if self.gap_reasons != tuple(sorted(set(self.gap_reasons))):
+            raise ValueError("evidence gap reasons must be canonical and unique")
+        if (self.evidence is None) != bool(self.gap_reasons):
+            raise ValueError("assessment evidence and gap reasons disagree")
+        return self
+
+    @property
+    def coordinate(self) -> tuple[str, str, str]:
+        return self.concept_code, self.axis, self.filler_code
+
+
+class PersistedEvidenceEvaluation(_StrictModel):
+    policy_identity: str = Field(pattern=_SHA256)
+    assessments: tuple[PersistedAssertionAssessment, ...]
+    evaluation_identity: str = Field(pattern=_SHA256)
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        policy_identity: str,
+        assessments: tuple[PersistedAssertionAssessment, ...],
+    ) -> PersistedEvidenceEvaluation:
+        ordered = tuple(sorted(assessments, key=attrgetter("coordinate")))
+        payload = {"policy_identity": policy_identity, "assessments": ordered}
+        return cls.model_validate(
+            {**payload, "evaluation_identity": _identity(_jsonable(payload))}
+        )
+
+    @model_validator(mode="after")
+    def _identity_and_order_match(self) -> Self:
+        coordinates = tuple(item.coordinate for item in self.assessments)
+        if coordinates != tuple(sorted(set(coordinates))):
+            raise ValueError(
+                "persisted evidence assessments must be canonical and unique"
+            )
+        expected = _identity(
+            self.model_dump(mode="json", exclude={"evaluation_identity"})
+        )
+        if self.evaluation_identity != expected:
+            raise ValueError("persisted evidence evaluation identity differs")
+        return self
+
+
 class CanonicalSemanticAssertion(_StrictModel):
     concept_code: str = Field(pattern=_CODE)
     axis: str = Field(min_length=1)
@@ -281,19 +361,9 @@ class CanonicalSemanticAssertion(_StrictModel):
         return self
 
 
-AssertionExclusionReason = Literal[
-    "review-required",
-    "evidence-absent",
-    "evidence-contradictory",
-    "unresolved-ambiguity",
-    "proposal-quarantined",
-    "historical-dispute",
-]
-
-
 class ExcludedSemanticAssertion(_StrictModel):
     assertion: CanonicalSemanticAssertion
-    reason: AssertionExclusionReason
+    reason: Literal["withheld-evidence-gap"]
     official_source_preserved: Literal[True]
 
 
@@ -314,6 +384,104 @@ class QualifyingAssertionEvidence(_StrictModel):
     applicability_identity: str = Field(pattern=_SHA256)
 
 
+class EvidenceGap(_StrictModel):
+    assertion_identity: str = Field(pattern=_SHA256)
+    concept_code: str = Field(pattern=_CODE)
+    axis: str = Field(min_length=1)
+    filler_code: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")
+    source_plane: Literal["official-stated"]
+    effective_plane: Literal["candidate-effective"]
+    reason: EvidenceGapReason
+    source_manifest_identity: str = Field(pattern=_SHA256)
+    source_identity: str = Field(pattern=_SHA256)
+    stated_artifact_identity: str = Field(pattern=_SHA256)
+    source_fact_ids: tuple[str, ...]
+    source_occurrence_ids: tuple[str, ...]
+    transformation_policy_identity: str = Field(pattern=_SHA256)
+    applicability_identity: str | None = Field(default=None, pattern=_SHA256)
+    official_source_preserved: Literal[True]
+    gap_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _identity_matches(self) -> Self:
+        _require_canonical_identities("source fact", self.source_fact_ids)
+        _require_canonical_identities("source occurrence", self.source_occurrence_ids)
+        expected = _identity(self.model_dump(mode="json", exclude={"gap_identity"}))
+        if self.gap_identity != expected:
+            raise ValueError("evidence gap identity differs")
+        return self
+
+
+class EvidenceGapReasonCount(_StrictModel):
+    reason: EvidenceGapReason
+    count: int = Field(ge=1)
+
+
+def _canonical_gap_inventory_parts(
+    gaps: tuple[EvidenceGap, ...],
+) -> tuple[
+    tuple[EvidenceGap, ...],
+    tuple[EvidenceGapReasonCount, ...],
+    tuple[str, ...],
+]:
+    ordered = tuple(
+        sorted(
+            gaps,
+            key=lambda item: (
+                item.concept_code,
+                item.axis,
+                item.filler_code,
+                item.reason,
+                item.assertion_identity,
+            ),
+        )
+    )
+    counts = Counter(item.reason for item in ordered)
+    reason_counts = tuple(
+        EvidenceGapReasonCount(reason=cast("EvidenceGapReason", reason), count=count)
+        for reason, count in sorted(counts.items())
+    )
+    concepts = tuple(sorted({item.concept_code for item in ordered}))
+    return ordered, reason_counts, concepts
+
+
+class EvidenceGapInventory(_StrictModel):
+    gaps: tuple[EvidenceGap, ...]
+    reason_counts: tuple[EvidenceGapReasonCount, ...]
+    withheld_concept_codes: tuple[str, ...]
+    inventory_identity: str = Field(pattern=_SHA256)
+
+    @model_validator(mode="after")
+    def _is_complete_canonical_inventory(self) -> Self:
+        ordered, expected_counts, concepts = _canonical_gap_inventory_parts(self.gaps)
+        if self.gaps != ordered or len(
+            {item.gap_identity for item in self.gaps}
+        ) != len(self.gaps):
+            raise ValueError("evidence gaps must be canonical and unique")
+        if self.reason_counts != expected_counts:
+            raise ValueError("evidence gap reason counts differ")
+        if self.withheld_concept_codes != concepts:
+            raise ValueError("evidence gap withheld concepts differ")
+        expected_identity = _identity(
+            self.model_dump(mode="json", exclude={"inventory_identity"})
+        )
+        if self.inventory_identity != expected_identity:
+            raise ValueError("evidence gap inventory identity differs")
+        return self
+
+    @classmethod
+    def build(cls, gaps: tuple[EvidenceGap, ...]) -> EvidenceGapInventory:
+        ordered, reason_counts, concepts = _canonical_gap_inventory_parts(gaps)
+        payload = {
+            "gaps": ordered,
+            "reason_counts": reason_counts,
+            "withheld_concept_codes": concepts,
+        }
+        return cls.model_validate(
+            {**payload, "inventory_identity": _identity(_jsonable(payload))}
+        )
+
+
 def _require_canonical_partition_ids(label: str, values: tuple[str, ...]) -> None:
     if values != tuple(sorted(set(values))):
         raise ValueError(f"{label} closure must be canonical and unique")
@@ -330,6 +498,20 @@ def _require_exact_partition_relationships(
         raise ValueError("included assertion evidence ledger is not exact")
 
 
+def _require_gap_partition_relationships(
+    *,
+    included: tuple[str, ...],
+    excluded_assertions: tuple[ExcludedSemanticAssertion, ...],
+    inventory: EvidenceGapInventory,
+) -> None:
+    gap_assertions = {item.assertion_identity for item in inventory.gaps}
+    if set(included) & gap_assertions:
+        raise ValueError("included assertion retains an evidence gap")
+    excluded_by_concept = {item.assertion.concept_code for item in excluded_assertions}
+    if not set(inventory.withheld_concept_codes) <= excluded_by_concept:
+        raise ValueError("evidence-gap concept is not withheld")
+
+
 class AssertionEvidenceClosure(_StrictModel):
     source: CertifiedSourceBinding
     source_artifact_identity: str = Field(pattern=_SHA256)
@@ -340,6 +522,7 @@ class AssertionEvidenceClosure(_StrictModel):
     excluded_assertion_closure: tuple[ExcludedSemanticAssertion, ...]
     concept_exclusions: tuple[ConceptExclusionDisposition, ...]
     evidence_ledger: tuple[QualifyingAssertionEvidence, ...]
+    evidence_gap_inventory: EvidenceGapInventory
     unresolved_included_assertion_ids: tuple[str, ...]
     contradictory_included_assertion_ids: tuple[str, ...]
     ambiguous_included_assertion_ids: tuple[str, ...]
@@ -364,6 +547,11 @@ class AssertionEvidenceClosure(_StrictModel):
         for label, values in partitions:
             _require_canonical_partition_ids(label, values)
         _require_exact_partition_relationships(included, excluded, evidence)
+        _require_gap_partition_relationships(
+            included=included,
+            excluded_assertions=self.excluded_assertion_closure,
+            inventory=self.evidence_gap_inventory,
+        )
         return self
 
     @property
@@ -375,6 +563,13 @@ class AssertionEvidenceClosure(_StrictModel):
         return _identity(
             [item.model_dump(mode="json") for item in self.evidence_ledger]
         )
+
+    @property
+    def included_evidence_coverage(self) -> float:
+        included_count = len(self.included_assertion_closure)
+        if included_count == 0:
+            return 1.0
+        return len(self.evidence_ledger) / included_count
 
 
 class EvidenceAmbiguityReport(_StrictModel):
@@ -734,17 +929,12 @@ def _rdf_assertion_rows(
 
 def _assertion_from_row(
     row: dict[str, object],
-    persisted: PersistedAssertionEvidence | None,
+    assessment: PersistedAssertionAssessment | None,
 ) -> CanonicalSemanticAssertion:
-    source_facts = cast("tuple[str, ...]", row["source_fact_ids"])
-    if persisted is not None and persisted.source_fact_ids != source_facts:
-        raise CorpusAcceptanceValidationError(
-            "persisted and RDF source fact inventories differ"
-        )
     payload = {
         **row,
         "source_occurrence_ids": (
-            persisted.source_occurrence_ids if persisted is not None else ()
+            assessment.source_occurrence_ids if assessment is not None else ()
         ),
     }
     return CanonicalSemanticAssertion.model_validate(
@@ -769,20 +959,100 @@ def _evidence_for_assertion(
     )
 
 
-def _closure_exclusion_reason(
+def _row_gap_reasons(
+    *,
+    row: dict[str, object],
     assertion: CanonicalSemanticAssertion,
-    persisted: PersistedAssertionEvidence | None,
+    assessment: PersistedAssertionAssessment | None,
     concept_exclusions: dict[str, ConceptExclusionDisposition],
-) -> AssertionExclusionReason | None:
+) -> tuple[EvidenceGapReason, ...]:
+    reasons = _assessment_row_gap_reasons(row=row, assessment=assessment)
+    reasons.update(_intrinsic_row_gap_reasons(row=row, assertion=assertion))
+    concept_exclusion = concept_exclusions.get(assertion.concept_code)
+    if concept_exclusion is not None:
+        reasons.add(cast("EvidenceGapReason", concept_exclusion.reason))
+    return tuple(sorted(reasons))
+
+
+def _assessment_row_gap_reasons(
+    *,
+    row: dict[str, object],
+    assessment: PersistedAssertionAssessment | None,
+) -> set[EvidenceGapReason]:
+    if assessment is None:
+        return {"missing-source-occurrence"}
+    reasons = set(assessment.gap_reasons)
+    row_facts = cast("tuple[str, ...]", row["source_fact_ids"])
+    row_roles = cast("tuple[str, ...]", row["source_roles"])
+    if _assessment_contradicts_row(
+        assessment, row_facts=row_facts, row_roles=row_roles
+    ):
+        reasons.add("evidence-contradiction")
+    return reasons
+
+
+def _intrinsic_row_gap_reasons(
+    *, row: dict[str, object], assertion: CanonicalSemanticAssertion
+) -> set[EvidenceGapReason]:
+    reasons: set[EvidenceGapReason] = set()
+    row_facts = cast("tuple[str, ...]", row["source_fact_ids"])
+    row_roles = cast("tuple[str, ...]", row["source_roles"])
+    if not row_facts:
+        reasons.add("missing-source-fact")
+    if str(row["axis_source"]) == "role" and not row_roles:
+        reasons.add("missing-source-role")
     if assertion.filler_code.startswith("MINT-"):
-        return "proposal-quarantined"
-    if assertion.concept_code in concept_exclusions:
-        return "unresolved-ambiguity"
+        reasons.add("proposal-quarantined")
     if assertion.needs_review:
-        return "review-required"
-    if persisted is None or not assertion.source_fact_ids:
-        return "evidence-absent"
-    return None
+        reasons.add("review-required")
+    return reasons
+
+
+def _assessment_contradicts_row(
+    assessment: PersistedAssertionAssessment,
+    *,
+    row_facts: tuple[str, ...],
+    row_roles: tuple[str, ...],
+) -> bool:
+    facts_contradict = bool(assessment.source_fact_ids) and (
+        assessment.source_fact_ids != row_facts
+    )
+    roles_contradict = bool(assessment.source_roles) and (
+        assessment.source_roles != row_roles
+    )
+    return facts_contradict or roles_contradict
+
+
+def _evidence_gap(
+    *,
+    assertion: CanonicalSemanticAssertion,
+    reason: EvidenceGapReason,
+    assessment: PersistedAssertionAssessment | None,
+    source: CertifiedSourceBinding,
+    policy_identity: str,
+) -> EvidenceGap:
+    payload = {
+        "assertion_identity": assertion.assertion_identity,
+        "concept_code": assertion.concept_code,
+        "axis": assertion.axis,
+        "filler_code": assertion.filler_code,
+        "source_plane": "official-stated",
+        "effective_plane": "candidate-effective",
+        "reason": reason,
+        "source_manifest_identity": source.source_manifest_identity,
+        "source_identity": source.source_identity,
+        "stated_artifact_identity": source.stated_artifact_identity,
+        "source_fact_ids": assertion.source_fact_ids,
+        "source_occurrence_ids": assertion.source_occurrence_ids,
+        "transformation_policy_identity": policy_identity,
+        "applicability_identity": (
+            assessment.applicability_identity if assessment is not None else None
+        ),
+        "official_source_preserved": True,
+    }
+    return EvidenceGap.model_validate(
+        {**payload, "gap_identity": _identity(_jsonable(payload))}
+    )
 
 
 def _filter_assertion_lines(
@@ -812,20 +1082,15 @@ def _filter_assertion_lines(
 
 
 def _closure_indexes(
-    persisted_assertions: tuple[PersistedAssertionEvidence, ...],
+    persisted_evidence: PersistedEvidenceEvaluation,
     concept_exclusions: tuple[ConceptExclusionDisposition, ...],
 ) -> tuple[
-    dict[tuple[str, str, str], PersistedAssertionEvidence],
+    dict[tuple[str, str, str], PersistedAssertionAssessment],
     dict[str, ConceptExclusionDisposition],
 ]:
     persisted_by_key = {
-        (item.concept_code, item.axis, item.filler_code): item
-        for item in persisted_assertions
+        item.coordinate: item for item in persisted_evidence.assessments
     }
-    if len(persisted_by_key) != len(persisted_assertions):
-        raise CorpusAcceptanceValidationError(
-            "persisted assertion evidence is ambiguous"
-        )
     concepts_by_code = {item.concept_code: item for item in concept_exclusions}
     if len(concepts_by_code) != len(concept_exclusions):
         raise CorpusAcceptanceValidationError("concept exclusion is ambiguous")
@@ -836,40 +1101,71 @@ def _partition_assertion_rows(
     *,
     rdf_rows: tuple[dict[str, object], ...],
     rdf_coordinates: tuple[tuple[str, str, str], ...],
-    persisted_by_key: dict[tuple[str, str, str], PersistedAssertionEvidence],
+    persisted_by_key: dict[tuple[str, str, str], PersistedAssertionAssessment],
     concepts_by_code: dict[str, ConceptExclusionDisposition],
     source: CertifiedSourceBinding,
+    policy_identity: str,
 ) -> tuple[
     list[CanonicalSemanticAssertion],
     list[ExcludedSemanticAssertion],
     list[QualifyingAssertionEvidence],
     set[tuple[str, str, str]],
+    EvidenceGapInventory,
 ]:
     included: list[CanonicalSemanticAssertion] = []
     excluded: list[ExcludedSemanticAssertion] = []
     evidence: list[QualifyingAssertionEvidence] = []
     excluded_coordinates: set[tuple[str, str, str]] = set()
+    evaluated: list[
+        tuple[
+            tuple[str, str, str],
+            CanonicalSemanticAssertion,
+            PersistedAssertionAssessment | None,
+        ]
+    ] = []
+    gaps: list[EvidenceGap] = []
     for row, coordinate in zip(rdf_rows, rdf_coordinates, strict=True):
-        persisted = persisted_by_key.get(coordinate)
-        assertion = _assertion_from_row(row, persisted)
-        reason = _closure_exclusion_reason(assertion, persisted, concepts_by_code)
-        if reason is not None:
+        assessment = persisted_by_key.get(coordinate)
+        assertion = _assertion_from_row(row, assessment)
+        reasons = _row_gap_reasons(
+            row=row,
+            assertion=assertion,
+            assessment=assessment,
+            concept_exclusions=concepts_by_code,
+        )
+        gaps.extend(
+            _evidence_gap(
+                assertion=assertion,
+                reason=reason,
+                assessment=assessment,
+                source=source,
+                policy_identity=policy_identity,
+            )
+            for reason in reasons
+        )
+        evaluated.append((coordinate, assertion, assessment))
+    inventory = EvidenceGapInventory.build(tuple(gaps))
+    withheld_concepts = set(inventory.withheld_concept_codes)
+    for coordinate, assertion, assessment in evaluated:
+        if assertion.concept_code in withheld_concepts:
             excluded.append(
                 ExcludedSemanticAssertion(
                     assertion=assertion,
-                    reason=reason,
+                    reason="withheld-evidence-gap",
                     official_source_preserved=True,
                 )
             )
             excluded_coordinates.add(coordinate)
         else:
-            if persisted is None:
+            if assessment is None or assessment.evidence is None:
                 raise CorpusAcceptanceValidationError(
                     "included assertion lacks evidence"
                 )
             included.append(assertion)
-            evidence.append(_evidence_for_assertion(assertion, persisted, source))
-    return included, excluded, evidence, excluded_coordinates
+            evidence.append(
+                _evidence_for_assertion(assertion, assessment.evidence, source)
+            )
+    return included, excluded, evidence, excluded_coordinates, inventory
 
 
 def build_assertion_evidence_closure(
@@ -877,7 +1173,7 @@ def build_assertion_evidence_closure(
     source_artifact: Path,
     effective_destination: Path,
     source: CertifiedSourceBinding,
-    persisted_assertions: tuple[PersistedAssertionEvidence, ...],
+    persisted_evidence: PersistedEvidenceEvaluation,
     concept_exclusions: tuple[ConceptExclusionDisposition, ...],
 ) -> AssertionEvidenceClosure:
     """Build a parser-cross-checked effective projection and exact evidence closure."""
@@ -898,17 +1194,22 @@ def build_assertion_evidence_closure(
     if rdf_inventory_identity != fast_inventory_identity:
         raise CorpusAcceptanceValidationError("parser inventories differ")
     persisted_by_key, concepts_by_code = _closure_indexes(
-        persisted_assertions, concept_exclusions
+        persisted_evidence, concept_exclusions
     )
-    included, excluded, evidence, excluded_coordinates = _partition_assertion_rows(
-        rdf_rows=rdf_rows,
-        rdf_coordinates=rdf_coordinates,
-        persisted_by_key=persisted_by_key,
-        concepts_by_code=concepts_by_code,
-        source=source,
+    included, excluded, evidence, excluded_coordinates, inventory = (
+        _partition_assertion_rows(
+            rdf_rows=rdf_rows,
+            rdf_coordinates=rdf_coordinates,
+            persisted_by_key=persisted_by_key,
+            concepts_by_code=concepts_by_code,
+            source=source,
+            policy_identity=persisted_evidence.policy_identity,
+        )
     )
     effective_payload = _filter_assertion_lines(
-        payload, excluded_coordinates, set(concepts_by_code)
+        payload,
+        excluded_coordinates,
+        set(concepts_by_code) | set(inventory.withheld_concept_codes),
     )
     if hashlib.sha256(source_artifact.read_bytes()).hexdigest() != source_identity:
         raise CorpusAcceptanceValidationError(
@@ -932,35 +1233,57 @@ def build_assertion_evidence_closure(
             sorted(concept_exclusions, key=attrgetter("concept_code"))
         ),
         evidence_ledger=tuple(evidence),
+        evidence_gap_inventory=inventory,
         unresolved_included_assertion_ids=(),
         contradictory_included_assertion_ids=(),
         ambiguous_included_assertion_ids=(),
     )
 
 
-def _transformation_binding(constituent: Constituent) -> tuple[str, object]:
-    if constituent.axis_source != "role":
-        return (
-            f"source-{constituent.axis_source}-projection-v1",
-            {"axis": constituent.axis, "axis_source": constituent.axis_source},
-        )
-    contract = AXIS_CONTRACTS.get(constituent.axis)
-    if contract is None or not constituent.source_roles:
-        raise CorpusAcceptanceValidationError(
-            "persisted routed assertion lacks an applicable axis contract"
-        )
-    if not set(constituent.source_roles) <= set(contract.source_roles):
-        raise CorpusAcceptanceValidationError(
-            "persisted routed assertion lacks an applicable axis contract"
-        )
-    return "axis-contract-routing-v1", contract.model_dump(mode="json")
+def _constituent_gap_reasons(
+    constituent: Constituent,
+) -> set[EvidenceGapReason]:
+    reasons: set[EvidenceGapReason] = set()
+    if constituent.filler_code.startswith("MINT-"):
+        reasons.add("proposal-quarantined")
+    if not constituent.source_definition_ids:
+        reasons.add("missing-source-fact")
+    if not constituent.source_occurrence_ids:
+        reasons.add("missing-source-occurrence")
+    return reasons
 
 
-def _persisted_assertion_evidence(
-    *, concept_code: str, constituent: Constituent, policy_identity: str
-) -> PersistedAssertionEvidence:
-    rule, contract_payload = _transformation_binding(constituent)
-    applicability = _identity(
+def _constituent_transformation_binding(
+    constituent: Constituent,
+) -> tuple[str | None, object | None, EvidenceGapReason | None]:
+    if constituent.axis_source == "role":
+        contract = AXIS_CONTRACTS.get(constituent.axis)
+        if not constituent.source_roles:
+            return None, None, "missing-source-role"
+        if contract is None or not set(constituent.source_roles) <= set(
+            contract.source_roles
+        ):
+            return None, None, "policy-non-applicable"
+        return "axis-contract-routing-v1", contract.model_dump(mode="json"), None
+    return (
+        f"source-{constituent.axis_source}-projection-v1",
+        {
+            "axis": constituent.axis,
+            "axis_source": constituent.axis_source,
+        },
+        None,
+    )
+
+
+def _transformation_applicability_identity(
+    *,
+    rule: str,
+    contract_payload: object,
+    policy_identity: str,
+    concept_code: str,
+    constituent: Constituent,
+) -> str:
+    return _identity(
         {
             "rule": rule,
             "policy_identity": policy_identity,
@@ -973,53 +1296,122 @@ def _persisted_assertion_evidence(
             "source_occurrence_ids": constituent.source_occurrence_ids,
         }
     )
-    try:
-        return PersistedAssertionEvidence(
-            concept_code=concept_code,
-            axis=constituent.axis,
-            filler_code=constituent.filler_code,
-            source_fact_ids=constituent.source_definition_ids,
-            source_occurrence_ids=constituent.source_occurrence_ids,
-            transformation_rule=rule,
-            transformation_policy_identity=policy_identity,
-            applicability_identity=applicability,
-        )
-    except ValidationError as exc:
-        detail = str(exc.errors(include_url=False)[0]["msg"])
+
+
+def _qualifying_persisted_evidence(
+    *,
+    reasons: set[EvidenceGapReason],
+    rule: str | None,
+    applicability: str | None,
+    policy_identity: str,
+    concept_code: str,
+    constituent: Constituent,
+) -> PersistedAssertionEvidence | None:
+    if reasons:
+        return None
+    if rule is None or applicability is None:
         raise CorpusAcceptanceValidationError(
-            "persisted assertion "
-            f"{concept_code} {constituent.axis} {constituent.filler_code} "
-            f"lacks exact qualifying evidence: {detail}"
-        ) from exc
+            "gap-free persisted assertion lacks transformation applicability"
+        )
+    return PersistedAssertionEvidence(
+        concept_code=concept_code,
+        axis=constituent.axis,
+        filler_code=constituent.filler_code,
+        source_fact_ids=constituent.source_definition_ids,
+        source_occurrence_ids=constituent.source_occurrence_ids,
+        transformation_rule=rule,
+        transformation_policy_identity=policy_identity,
+        applicability_identity=applicability,
+    )
 
 
-def persisted_assertion_evidence(
+def _assess_persisted_assertion(
+    *, concept_code: str, constituent: Constituent, policy_identity: str
+) -> PersistedAssertionAssessment:
+    reasons = _constituent_gap_reasons(constituent)
+    rule, contract_payload, binding_gap = _constituent_transformation_binding(
+        constituent
+    )
+    if binding_gap is not None:
+        reasons.add(binding_gap)
+    applicability = (
+        _transformation_applicability_identity(
+            rule=rule,
+            contract_payload=contract_payload,
+            policy_identity=policy_identity,
+            concept_code=concept_code,
+            constituent=constituent,
+        )
+        if rule is not None and contract_payload is not None
+        else None
+    )
+    evidence = _qualifying_persisted_evidence(
+        reasons=reasons,
+        rule=rule,
+        applicability=applicability,
+        policy_identity=policy_identity,
+        concept_code=concept_code,
+        constituent=constituent,
+    )
+    return PersistedAssertionAssessment(
+        concept_code=concept_code,
+        axis=constituent.axis,
+        filler_code=constituent.filler_code,
+        source_fact_ids=constituent.source_definition_ids,
+        source_occurrence_ids=constituent.source_occurrence_ids,
+        source_roles=constituent.source_roles,
+        transformation_rule=rule,
+        transformation_policy_identity=policy_identity,
+        applicability_identity=applicability,
+        gap_reasons=tuple(sorted(reasons)),
+        evidence=evidence,
+    )
+
+
+def _reconcile_persisted_assessments(
+    assessments: list[PersistedAssertionAssessment],
+) -> PersistedAssertionAssessment:
+    first = assessments[0]
+    if len(assessments) == 1:
+        return first
+    serialized = [item.model_dump(mode="json") for item in assessments]
+    reason: EvidenceGapReason = (
+        "evidence-ambiguity"
+        if all(item == serialized[0] for item in serialized)
+        else "evidence-contradiction"
+    )
+    return first.model_copy(
+        update={
+            "gap_reasons": tuple(sorted({*first.gap_reasons, reason})),
+            "evidence": None,
+        }
+    )
+
+
+def evaluate_persisted_assertion_evidence(
     decompositions: tuple[Decomposition, ...],
     *,
     policy_identity: str,
-) -> tuple[PersistedAssertionEvidence, ...]:
-    """Derive exact row-level transformation applicability from persisted output."""
+) -> PersistedEvidenceEvaluation:
+    """Evaluate every persisted assertion once, retaining all valid evidence gaps."""
     if re.fullmatch(_SHA256, policy_identity) is None:
         raise CorpusAcceptanceValidationError("policy identity is invalid")
-    result: list[PersistedAssertionEvidence] = []
+    grouped: dict[tuple[str, str, str], list[PersistedAssertionAssessment]] = {}
     for decomposition in decompositions:
         for constituent in decomposition.constituents:
-            if constituent.filler_code.startswith("MINT-"):
-                continue
-            if not constituent.source_definition_ids:
-                continue
-            result.append(
-                _persisted_assertion_evidence(
-                    concept_code=decomposition.code,
-                    constituent=constituent,
-                    policy_identity=policy_identity,
-                )
+            assessment = _assess_persisted_assertion(
+                concept_code=decomposition.code,
+                constituent=constituent,
+                policy_identity=policy_identity,
             )
-    return tuple(
-        sorted(
-            result,
-            key=lambda item: (item.concept_code, item.axis, item.filler_code),
-        )
+            grouped.setdefault(assessment.coordinate, []).append(assessment)
+    assessments = tuple(
+        _reconcile_persisted_assessments(grouped[coordinate])
+        for coordinate in sorted(grouped)
+    )
+    return PersistedEvidenceEvaluation.build(
+        policy_identity=policy_identity,
+        assessments=assessments,
     )
 
 
@@ -2459,8 +2851,8 @@ def _acceptance_statuses(
         assertion.concept_code for assertion in closure.included_assertion_closure
     }
     review_required = {
-        item.assertion.concept_code
-        for item in closure.excluded_assertion_closure
+        item.concept_code
+        for item in closure.evidence_gap_inventory.gaps
         if item.reason == "review-required"
     }
     concept_statuses = {
@@ -2472,6 +2864,12 @@ def _acceptance_statuses(
         for item in closure.concept_exclusions
     }
     statuses = dict.fromkeys(projected, "projected")
+    statuses.update(
+        dict.fromkeys(
+            closure.evidence_gap_inventory.withheld_concept_codes,
+            "withheld-evidence-gap",
+        )
+    )
     statuses.update(dict.fromkeys(review_required, "review-required-excluded"))
     statuses.update(concept_statuses)
     return statuses
@@ -3499,6 +3897,8 @@ def _candidate_result(
     exclusion_counts = dict(
         sorted(Counter(item.reason for item in closure.concept_exclusions).items())
     )
+    gap_inventory = closure.evidence_gap_inventory
+    gap_counts = {item.reason: item.count for item in gap_inventory.reason_counts}
     return {
         "candidate_manifest_path": str(generation / "manifest.json"),
         "candidate_manifest_identity": artifact_manifest.manifest_identity,
@@ -3513,7 +3913,18 @@ def _candidate_result(
         "evidence_ledger_identity": closure.evidence_ledger_identity,
         "machine_acceptance_identity": acceptance_identity,
         "included_assertion_count": len(closure.included_assertion_closure),
+        "included_evidence_count": len(closure.evidence_ledger),
+        "included_evidence_coverage": closure.included_evidence_coverage,
         "excluded_assertion_count": len(closure.excluded_assertion_closure),
+        "evidence_gap_inventory_identity": gap_inventory.inventory_identity,
+        "evidence_gap_count": len(gap_inventory.gaps),
+        "evidence_gap_counts_by_reason": gap_counts,
+        "withheld_evidence_gap_assertion_count": len(
+            closure.excluded_assertion_closure
+        ),
+        "withheld_evidence_gap_concept_count": len(
+            gap_inventory.withheld_concept_codes
+        ),
         "concept_exclusion_counts": exclusion_counts,
         "removed_from_effective_count": len(closure.excluded_assertion_closure),
         "review_required_non_emitted_count": effective.non_emitted_pair_count,
@@ -3626,7 +4037,7 @@ async def generate_c3262_acceptance_candidate(  # noqa: PLR0915
                     ),
                     certification="expert-curated-ncit-release",
                 ),
-                persisted_assertions=persisted_assertion_evidence(
+                persisted_evidence=evaluate_persisted_assertion_evidence(
                     decompositions, policy_identity=evidence.policy_identity
                 ),
                 concept_exclusions=concept_exclusions,

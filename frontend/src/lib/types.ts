@@ -405,7 +405,7 @@ export type AcceptanceProjection =
 			official_source_url: OfficialNcitSourceUrl;
 	  }
 	| {
-			status: 'unknown-withheld' | 'residual-withheld';
+			status: 'unknown-withheld' | 'residual-withheld' | 'withheld-evidence-gap';
 			source_release: string;
 			source_identity: string;
 			run_id: string;

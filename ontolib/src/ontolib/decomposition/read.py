@@ -13,6 +13,7 @@ from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
+    EvidenceGapWithheldProjection,
     NotAcceptedProjection,
     ProjectedEffectiveProjection,
     ResidualWithheldProjection,
@@ -220,6 +221,7 @@ def _acceptance_from_rows(
     | ReviewRequiredExcludedProjection
     | UnknownWithheldProjection
     | ResidualWithheldProjection
+    | EvidenceGapWithheldProjection
 ):
     if len(acceptance_rows) > 1:
         raise ValueError("concept resolved to conflicting acceptance metadata")
@@ -250,15 +252,34 @@ def _acceptance_from_rows(
                 "exclusion_summary": acceptance_values[6],
             }
         )
+    withheld = _withheld_projection(acceptance_status, common)
+    if withheld is not None:
+        return withheld
+    raise ValueError("persisted acceptance status is invalid")
+
+
+def _withheld_projection(
+    acceptance_status: str,
+    common: dict[str, object],
+) -> (
+    UnknownWithheldProjection
+    | ResidualWithheldProjection
+    | EvidenceGapWithheldProjection
+    | None
+):
     if acceptance_status == "unknown-withheld":
-        return UnknownWithheldProjection(
-            **common, effective_status="withheld-from-effective"
+        return UnknownWithheldProjection.model_validate(
+            common | {"effective_status": "withheld-from-effective"}
         )
     if acceptance_status == "residual-withheld":
-        return ResidualWithheldProjection(
-            **common, effective_status="withheld-from-effective"
+        return ResidualWithheldProjection.model_validate(
+            common | {"effective_status": "withheld-from-effective"}
         )
-    raise ValueError("persisted acceptance status is invalid")
+    if acceptance_status == "withheld-evidence-gap":
+        return EvidenceGapWithheldProjection.model_validate(
+            common | {"effective_status": "withheld-from-effective"}
+        )
+    return None
 
 
 def attach_upstream(

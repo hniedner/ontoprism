@@ -9,7 +9,7 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ## 2026-09-16 — #127 acceptance is the certified C3262 corpus, with exact effective exclusions
 
-### D88. Mechanical corpus acceptance is C3262-scoped, source-preserving, and human-authorized only
+### D88. Mechanical corpus acceptance is C3262-scoped, source-preserving, and evidence-closed
 
 **Decision:** Issue #127 covers exactly the certified NCIt `C3262` neoplasm scope, not all NCIt
 and not another ontology. The current immutable baseline contains 15,633 worklist concepts under
@@ -18,9 +18,8 @@ and not another ontology. The current immutable baseline contains 15,633 worklis
 `neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, and representation identity
 `8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2`
 (`pdm run agent-test --full-store ontolib/tests/decomposition/test_corpus_acceptance_full_store.py
--v`, 2026-09-16). The existing full-corpus artifact remains technical evidence until a human
-accepts the exact candidate after its no-write publication dry-run; software cannot supply that
-authorization.
+-v`, 2026-09-16). Publication requires an identity-bound machine acceptance over the exact
+candidate, included assertion closure, evidence ledger, exclusions, policy, and no-write dry-run.
 
 `C27262`, `C102870`, `C198031`, and `C35756` are pair-scoped
 `review-required` exclusions from the accepted effective projection. Their exact disputed grouping,
@@ -40,10 +39,12 @@ identity rebindings, 877 semantic routing changes, and 4,851 unexplained blocker
 review flags or compound field differences into causal explanations. Causal attribution to R101
 remains prohibited
 (`pdm run agent-test ontolib/tests/decomposition/test_corpus_acceptance.py::test_existing_comparison_is_exhaustively_classified_without_causal_overclaim
--v`, 2026-09-16). Mechanical completeness is not scientific acceptance. Final acceptance and
-publication authorization remain an accountable human decision bound to the exact candidate and
-dry-run identities; any unexplained blocker keeps the candidate machine-blocked, and no request is
-created by the mechanical candidate.
+-v`, 2026-09-16). Mechanical completeness is not scientific acceptance. A valid absence of
+qualifying evidence is inventoried by assertion and reason, then withheld from the effective
+projection under project policy while the official stated NCIt assertion remains retrievable. This
+is evidence-gap withholding, not scientific rejection or evidence that the source assertion is
+false. Malformed source data still fails closed; unexplained blockers keep the candidate
+machine-blocked.
 
 ## 2026-09-14 — normalized relationship groups remain source-bound and review-scoped
 

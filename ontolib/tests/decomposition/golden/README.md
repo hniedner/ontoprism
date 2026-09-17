@@ -541,18 +541,18 @@ retained as the exact pre-selection input, not as current readiness state.
 
 ### Final machine-readiness evidence
 
-Issue #127's successor authority is the typed immutable `CorpusAcceptanceCandidate`; the schema-3
+Issue #127's successor authority is the typed immutable evidence-closed candidate; the schema-3
 pre-SME report below remains historical machine input and is no longer the final go/no-go authority.
 The candidate is restricted to the certified 15,633-concept C3262 neoplasm scope, never described as
 all NCIt. It exhaustively classifies each 8fb→cd4b structural and metadata change object, records the
 four exact evidence-bound `review-required` effective exclusions, and remains `machine-blocked`
-while any classifier or mechanical-gate blocker exists. A future candidate can reach
-`ready-for-human-authorization` only after all blockers clear and a no-write PostgreSQL/QLever
-publication dry-run passes. Human authorization remains `not-requested`; publication refuses any
-decision that is not an exact accepted human decision binding both candidate and dry-run identity (`pdm run agent-test
-ontolib/tests/decomposition/test_corpus_acceptance.py -v` and `pdm run agent-test --full-store
-ontolib/tests/decomposition/test_corpus_acceptance_full_store.py -v`, 2026-09-16). No publication or
-human acceptance is recorded here.
+while any classifier or mechanical-gate blocker exists. Every valid absent-evidence assertion is
+listed once per typed reason in the deterministic evidence-gap inventory. Every affected concept is
+withheld whole from the effective projection so metadata cannot leave a silently partial concept;
+the official source plane and source facts remain unchanged and retrievable. This policy disposition
+is `withheld-evidence-gap`, not scientific rejection. Machine authorization requires complete
+evidence for every included assertion and the exact candidate, closure, policy, exclusion, and
+no-write dry-run identities. No publication or NCI adoption is recorded here.
 
 Generate the fixed candidate, source-derived effective artifact, no-write dry-run evidence, and
 pending decision document from the complete certified input set with:
