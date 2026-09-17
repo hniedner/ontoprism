@@ -1404,6 +1404,7 @@ def test_primary_subsite_override_applies_to_the_primary_site_role_only() -> Non
     associated = _routes(RoleRestriction("R100", "C12683"), parent_morphology="C4878")
 
     assert primary == [("op:PrimarySubsite", "reviewed-primary-subsite")]
+    assert associated, "the associated-site restriction must still be routed"
     assert all(
         axis != "op:PrimarySubsite" and route != "reviewed-primary-subsite"
         for axis, route in associated

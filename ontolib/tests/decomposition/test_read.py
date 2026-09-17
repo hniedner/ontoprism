@@ -228,6 +228,27 @@ def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
 
 
 @pytest.mark.unit
+def test_distinct_source_groups_of_one_constituent_are_merged_in_canonical_order() -> (
+    None
+):
+    common = {
+        "status": vocab.LEGACY_PRECOORDINATED,
+        "axis": _ncit("R101"),
+        "filler": _ncit("C12400"),
+        "axisSource": "role",
+    }
+    d = decomposition_from_rows(
+        "C6135",
+        [
+            _row(**common, sourceStructuralGroup="b" * 64),
+            _row(**common, sourceStructuralGroup="a" * 64),
+        ],
+    )
+
+    assert [c.source_group_ids for c in d.constituents] == [("a" * 64, "b" * 64)]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("value", ["TRUE", "yes", "2", ""])
 def test_malformed_persisted_boolean_fails_closed(value: str) -> None:
     with pytest.raises(ValueError, match="RDF boolean"):
