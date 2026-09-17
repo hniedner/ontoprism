@@ -493,7 +493,7 @@ def test_effective_artifact_rejects_false_pair_dispositions(
 
 @pytest.mark.unit
 def test_review_required_exclusions_refuse_missing_target_concept(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     packet_path = ROOT / "evidence/group-review-packet-26.07d-schema3.json"
     packet = load_historical_group_review_packet(packet_path)
@@ -509,12 +509,14 @@ def test_review_required_exclusions_refuse_missing_target_concept(
         "load_historical_group_review_packet",
         lambda _: incomplete,
     )
+    source = tmp_path / "source.ttl"
+    source.write_bytes(b"")
 
     with pytest.raises(CorpusAcceptanceValidationError, match="lacks an exclusion"):
         build_review_required_exclusions(
             packet_path,
             ROOT / "evidence/group-review-rationale-26.07d.md",
-            ROOT / "tmp/m1-6-current-full-corpus.ttl",
+            source,
         )
 
 
