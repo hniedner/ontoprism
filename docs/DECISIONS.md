@@ -48,7 +48,8 @@ from four plain criteria into a corpus-wide acceptance contract.
   deliberate escape hatch for diagnostics and is bounded by rule, not by the map.
 - D85's requirement that pushes and PR creation happen only on an explicit request is
   superseded in part: the primary may push its issue branch, open its issue PR into the
-  milestone branch, and merge that PR when CI is green and no blocker is open. Merges
+  milestone branch, and merge that PR when CI is green and all five review dimensions
+  have converged. Merges
   into `main` still need the owner's authorization of the exact PR number. D85's
   `validate-opencode-*` commands and their tests no longer exist.
 - The SPARQL inventory snapshot is regenerated one last time in this change because it

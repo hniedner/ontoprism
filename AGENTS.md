@@ -85,7 +85,7 @@ instead of improving the product.
   them.** Do not post "amendment" comments that alter scope. If you think the criteria
   are wrong, stop and ask.
 - **Newly discovered work becomes a new issue**, not an expansion of the current one. Ask
-  before treating it as a blocker.
+  before treating it as a prerequisite.
 - **Do not build machinery to certify your own work.** No content hashes of source files,
   git HEAD, or worktree state inside data or evidence files. No committed derived files
   that must be regenerated after an unrelated edit. No tests that assert the wording of
@@ -124,6 +124,7 @@ aggregate coverage above 90%. What changed is *when* each lane runs.
 | On commit | pre-commit hooks | automatic |
 | Before PR, once | everything CI runs | `pdm run verify` |
 | Gate of record | CI on the PR | `gh pr checks <n>` |
+| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary (skips where absent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
 | When the change touches a real store contract | read-only contracts on configured corpora | `pdm run agent-test --full-store <node> -v` |
 
 Other lanes: `pdm run test` (grouped hermetic suites), `pdm run test-integration`
@@ -254,7 +255,11 @@ authorizes VM reset or removal, volume deletion, or free-form `podman machine` c
 If it fails, report it; do not work around it.
 
 Lint and format: `pdm run lint` (ruff + basedpyright), `pdm run fmt`. Frontend, from
-`frontend/`: `npx eslint src/ --max-warnings=0`, `npm run check`, `npm run fallow`.
+`frontend/`: `npx eslint src/ --max-warnings=0`, `npm run check`, `npm run fallow`. The
+fallow gate reports only findings new against the PR base: in CI that is the real base;
+locally it is `origin/main` unless `FALLOW_BASE=<milestone branch>` is set, so a local
+run on an issue branch may show findings from sibling issue PRs (over-strict, never
+silent; CI is the gate of record).
 Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D30/D31).
 
 ## Review
@@ -284,7 +289,9 @@ but keep the five separate verdicts.
 suggestion in the PR; defer a suggestion to an issue only when the owner agrees it is out
 of scope. A dimension has converged when a full pass reports no unresolved verified
 finding and its suggestions are addressed. A converged dimension is excluded from later
-rounds; re-run only the non-converged ones, on the fix range. There is no round ceiling,
+rounds unless a later fix touches what it reviews (a new test re-arms test validity, a
+new docstring re-arms comment accuracy, a new error path re-arms silent failures);
+re-run only the non-converged ones, on the fix range. There is no round ceiling,
 and an existing PR is never rejected as too big. Size is decided when the work is
 planned: one issue or one coherent change per PR, with granularity balanced against the
 cost of a five-dimension review and the workflows every PR triggers (about seven

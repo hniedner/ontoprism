@@ -1,7 +1,7 @@
 # CLAUDE.local.md — ontoprism project standards
 
 Project-specific testing standards. The workflow (milestone branches with issue PRs, CI
-as the gate of record, five-dimension review capped at two rounds, scope discipline,
+as the gate of record, five-dimension review to convergence, scope discipline,
 long-run rules) lives in `AGENTS.md`,
 which `CLAUDE.md` imports; this file only deepens the testing rules. These are enforced,
 not aspirational.

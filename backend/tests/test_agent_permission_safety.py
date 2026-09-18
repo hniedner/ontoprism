@@ -214,20 +214,41 @@ def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None
     assert scripts["agent-github-read"].endswith("--read-only")
 
 
-@pytest.mark.parametrize("path", ["opencode.json", ".opencode/opencode.json"])
+_LOCAL_CONFIGS = (
+    "opencode.json",
+    "opencode.jsonc",
+    ".opencode/opencode.json",
+    ".opencode/opencode.jsonc",
+)
+
+
+def _load_jsonc(text: str) -> dict[str, Any]:
+    without_block_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    without_line_comments = re.sub(r"^\s*//.*$", "", without_block_comments, flags=re.M)
+    return json.loads(without_line_comments)
+
+
+def test_the_tracked_opencode_config_is_present() -> None:
+    assert (_ROOT / "opencode.json").is_file()
+
+
+@pytest.mark.parametrize("path", _LOCAL_CONFIGS)
 def test_no_local_opencode_config_overrides_agents_or_permissions(path: str) -> None:
-    """OpenCode merges these files over the agent files; only the agent files may
-    grant permissions. The machine-local file is untracked and may be absent."""
+    """OpenCode reads all four of these over the agent files; only the agent files may
+    grant permissions. Only the root ``opencode.json`` is tracked; the others are
+    machine-local and absent on most checkouts, hence the skip."""
     config_path = _ROOT / path
     if not config_path.exists():
         pytest.skip(f"{path} is not present on this machine")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config = _load_jsonc(config_path.read_text(encoding="utf-8"))
 
     assert not {"agent", "permission", "plugin"} & set(config), sorted(config)
 
 
 def _opencode_binary() -> Path | None:
-    """The OpenCode CLI the owner's harness runs (.omnigent/config.yaml), if present."""
+    """The OpenCode CLI to contract against: ``ONTOPRISM_OPENCODE_BIN``, else the
+    darwin-arm64 build the owner's untracked harness config installs under
+    ``~/.local/share/omnigent-harnesses``. Elsewhere set the variable."""
     configured = os.environ.get("ONTOPRISM_OPENCODE_BIN")
     candidates = [Path(configured)] if configured else []
     candidates.extend(
@@ -244,10 +265,13 @@ def _opencode_binary() -> Path | None:
 def test_opencode_resolves_the_same_bash_rules_as_the_agent_file(
     agent: str, tmp_path: Path
 ) -> None:
-    """Contract with the real tool: the ordered rule list OpenCode resolves for an agent
-    equals the file's, so the last-match-wins emulation above operates on the right
-    input. An isolated XDG_CONFIG_HOME keeps the owner's global config out of the run.
-    Skipped where the binary is absent; a skip is not a pass."""
+    """Contract with the real tool: the ordered bash, edit and task rules OpenCode
+    resolves for an agent equal the file's, so the emulation above operates on the
+    right input. The run is isolated (empty XDG_CONFIG_HOME, ``--pure``), so it pins
+    the repository's contribution; a global config or plugin on the owner's machine is
+    outside this contract and is guarded only by the local-config test above.
+    Skipped, not passed, where the binary is absent (always in CI); run it locally
+    after editing any agent file."""
     binary = _opencode_binary()
     if binary is None:
         pytest.skip(
@@ -255,20 +279,30 @@ def test_opencode_resolves_the_same_bash_rules_as_the_agent_file(
         )
     (tmp_path / "opencode").mkdir()
     (tmp_path / "opencode" / "opencode.json").write_text("{}", encoding="utf-8")
-    result = subprocess.run(  # noqa: S603 -- fixed binary, fixed arguments
+    result = subprocess.run(  # noqa: S603 -- argv list, no shell
         [str(binary), "debug", "agent", agent, "--pure"],
         cwd=_ROOT,
         env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
         timeout=120,
     )
-    resolved = json.loads(result.stdout[result.stdout.index("{") :])
+    assert result.returncode == 0, result.stderr
+    start = result.stdout.find("{")
+    assert start >= 0, result.stdout
+    resolved, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
 
-    rules = [
-        (rule["pattern"], rule["action"])
-        for rule in resolved["permission"]
-        if rule["permission"] == "bash"
-    ]
-    assert rules == list(_bash_rules(agent).items())
+    def resolved_rules(kind: str) -> list[tuple[str, str]]:
+        return [
+            (rule["pattern"], rule["action"])
+            for rule in resolved["permission"]
+            if rule["permission"] == kind
+        ]
+
+    permission = _frontmatter(agent)["permission"]
+    assert resolved_rules("bash") == list(_bash_rules(agent).items())
+    assert resolved_rules("edit") == [("*", permission["edit"])]
+    task = permission.get("task", "deny")
+    expected_task = list(task.items()) if isinstance(task, dict) else [("*", task)]
+    assert resolved_rules("task") == expected_task

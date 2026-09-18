@@ -27,6 +27,7 @@ from ontolib.decomposition.publication import (
 )
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+from ontolib.terminologies.sparql_transport import SparqlTransportClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -67,6 +68,14 @@ async def _update(url: str, statement: str) -> httpx.Response:
             content=statement.encode(),
             headers={"Content-Type": "application/sparql-update"},
         )
+
+
+async def _count_graph(client: SparqlTransportClient, graph: str) -> int:
+    rows = await client.select(
+        f"SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o }} }}",
+        required_variables=("n",),
+    )
+    return int(rows[0]["n"])
 
 
 async def _ask(url: str, statement: str) -> bool:
@@ -227,6 +236,7 @@ async def test_postgres_advisory_lock_excludes_and_then_admits_a_publisher(
     "isolated_postgres_settings",
     "isolated_qlever_settings",
     "preserved_decomposed_graph",
+    "preserved_stated_graph",
 )
 async def test_production_publication_reconciles_marker_ahead_and_clears_stale_graph(
     isolated_qlever_url: str,
@@ -261,10 +271,17 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
         await conn.execute("DELETE FROM decomp_run WHERE id = $1", _RUN_ID)
         await store.create_run(_RUN_ID, "26.07d", fingerprint)
         await _put_graph(isolated_qlever_url, _PUBLIC, _OLD)
-        await _put_graph(isolated_qlever_url, STATED_GRAPH_IRI, _STATED_SENTINEL)
+        # Added to the seeded stated corpus, never replacing it: the store is shared
+        # by the whole session and preserved_stated_graph restores it afterwards.
+        response = await _update(
+            isolated_qlever_url,
+            f"INSERT DATA {{ GRAPH <{STATED_GRAPH_IRI}> {{ {_STATED_SENTINEL} }} }}",
+        )
+        response.raise_for_status()
         await write_ttl([], artifact, run_id=_RUN_ID)
 
         async with ncit_sparql_client(isolated_qlever_url) as client:
+            stated_triples_before = await _count_graph(client, STATED_GRAPH_IRI)
             with pytest.raises(OSError, match="directory"):
                 await publish_artifact(
                     run_id=_RUN_ID,
@@ -316,11 +333,13 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
             assert not await client.ask(
                 f"ASK {{ GRAPH <{staging_graph_iri(_RUN_ID)}> {{ ?s ?p ?o }} }}"
             )
-            # Publication is additive: the official stated graph is never touched.
+            # Decomposition publication replaces only the decomposed graph; the seeded
+            # stated corpus and the sentinel added to it are left intact.
             assert await client.ask(
                 f"ASK {{ GRAPH <{STATED_GRAPH_IRI}> "
                 '{ <urn:stated-sentinel> <urn:value> "official" } }'
             )
+            assert await _count_graph(client, STATED_GRAPH_IRI) == stated_triples_before
 
         complete = await store.get_run(_RUN_ID)
         assert complete is not None

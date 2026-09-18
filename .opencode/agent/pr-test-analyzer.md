@@ -76,4 +76,4 @@ For each target: copy the file outside the worktree (ask for external-directory 
 
 Also report tests that are not regression indicators: execution-only tests, mock choreography, fakes that clone the implementation, fixture self-consistency, assertions on documentation wording or on committed hash snapshots. Recommend deleting or replacing them.
 
-Classify findings as **blocker** or **follow-up**. A handful of well-chosen mutations is enough; do not mutate everything. Never fix code, leave an edit, stage, commit, or touch a PR.
+Classify findings as **blocker**, **finding** (must be addressed in this PR) or **suggestion** (addressed unless the owner defers it), and state whether this dimension has converged. A handful of well-chosen mutations is enough; do not mutate everything. Never fix code, leave an edit, stage, commit, or touch a PR.

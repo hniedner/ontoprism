@@ -1,7 +1,10 @@
-"""Source-level guards that overlay writers and readers stay on their own graph planes.
+"""Source-level tripwire that no overlay writer names the stated NCIt graph.
 
-These read production source text. A behavioural replacement against a disposable
-QLever (publish, then assert the stated graph is unchanged) is tracked in #339.
+The behavioural guarantee for decomposition publication lives in
+``ontolib/tests/decomposition/test_publication_integration.py`` (a sentinel added to the
+stated graph, and its triple count, survive a real publication). This text check
+additionally covers the showcase, xref and legacy writers, which that contract does not
+exercise.
 """
 
 from __future__ import annotations
@@ -35,34 +38,10 @@ def _assignment_expression(path: str, name: str) -> ast.expr:
     return matches[0]
 
 
-def _qualified_name(node: ast.expr) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        prefix = _qualified_name(node.value)
-        return f"{prefix}.{node.attr}" if prefix is not None else None
-    return None
-
-
-def _static_string(expression: ast.expr, references: dict[str, str]) -> str:
-    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
-        return expression.value
-    if isinstance(expression, ast.JoinedStr):
-        parts: list[str] = []
-        for value in expression.values:
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                parts.append(value.value)
-                continue
-            if isinstance(value, ast.FormattedValue):
-                name = _qualified_name(value.value)
-                assert name in references, f"unresolved static string reference: {name}"
-                parts.append(references[name])
-                continue
-            raise AssertionError(
-                f"unsupported static string component: {ast.dump(value)}"
-            )
-        return "".join(parts)
-    raise AssertionError(f"{ast.dump(expression)} is not a static string expression")
+def _constant_string(expression: ast.expr) -> str:
+    assert isinstance(expression, ast.Constant), ast.dump(expression)
+    assert isinstance(expression.value, str), ast.dump(expression)
+    return expression.value
 
 
 def _function_source(path: str, function_name: str) -> str:
@@ -82,11 +61,10 @@ def _function_source(path: str, function_name: str) -> str:
 
 @pytest.mark.unit
 def test_current_overlay_writers_cannot_target_the_stated_graph() -> None:
-    stated_iri = _static_string(
+    stated_iri = _constant_string(
         _assignment_expression(
             "ontolib/src/ontolib/terminologies/ncit/owl_load.py", "STATED_GRAPH_IRI"
-        ),
-        {},
+        )
     )
     publication_update = _function_source(
         "ontolib/src/ontolib/decomposition/publication.py",

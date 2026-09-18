@@ -123,7 +123,7 @@ repos:
         pass_filenames: false
 
       # fallow: cross-file dead code / import cycles / duplication / complexity —
-      # gates only findings INTRODUCED vs origin/main (see scripts/fallow-gate.mjs).
+      # gates only findings INTRODUCED vs the PR base (origin/main locally) (see scripts/fallow-gate.mjs).
       - id: fallow
         name: fallow (frontend dead-code/dupes/cycles/complexity)
         entry: bash -c 'cd frontend && npm run fallow'
