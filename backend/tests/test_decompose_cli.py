@@ -991,7 +991,6 @@ def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
     assert stub.calls[0]["rehearsal"] is False
 
 
-@pytest.mark.unit
 async def _rehearsal_and_full_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[list[decompose.RunConfig], list[dict[str, Any]]]:
