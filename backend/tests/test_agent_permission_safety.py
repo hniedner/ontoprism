@@ -83,9 +83,23 @@ _NEVER_ALLOWED = (
 )
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """Reject duplicate mapping keys: PyYAML keeps the last value silently, while
+    OpenCode drops the whole rule set for such a file."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> Any:
+        seen: set[object] = set()
+        for key_node, _value in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            assert key not in seen, f"duplicate permission key {key!r}"
+            seen.add(key)
+        return super().construct_mapping(node, deep)
+
+
 def _frontmatter(agent: str) -> dict[str, Any]:
     text = (_AGENT_DIR / f"{agent}.md").read_text(encoding="utf-8")
-    return yaml.safe_load(text.split("\n---\n", 1)[0].removeprefix("---\n"))
+    frontmatter = text.split("\n---\n", 1)[0].removeprefix("---\n")
+    return yaml.load(frontmatter, Loader=_StrictLoader)  # noqa: S506 -- SafeLoader
 
 
 def _bash_rules(agent: str) -> dict[str, str]:
