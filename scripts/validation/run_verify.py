@@ -36,6 +36,10 @@ def _gates(pdm_executable: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
+def _local_preflight(pdm_executable: str) -> tuple[str, ...]:
+    return (pdm_executable, "run", "agent-replay", "ensure-podman-stack")
+
+
 class CommandRunner(Protocol):
     def __call__(
         self,
@@ -89,7 +93,13 @@ def run_verify(
         )
     for variable in DOCKER_SELECTOR_VARIABLES:
         environment.pop(variable, None)
-    for command in _gates(resolved_pdm):
+    commands = _gates(resolved_pdm)
+    if (
+        environment.get("CI") != "true"
+        and environment.get("ONTOPRISM_PODMAN_STACK_ENSURED") != "1"
+    ):
+        commands = (_local_preflight(resolved_pdm), *commands)
+    for command in commands:
         result = runner(
             list(command),
             check=False,

@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol
+from itertools import combinations
+from typing import TYPE_CHECKING, Literal, Never, Protocol
 
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.scope import read_scope_hierarchy_edges
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
@@ -25,9 +26,11 @@ class AxisDiagnosticClient(Protocol):
     ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
 
 
-_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*")
+_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
 _CODE = re.compile(r"C[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_LIST_BINDINGS = frozenset({"set", "head", "node", "first", "rest"})
+_MIN_DISJOINT_MEMBERS = 2
 
 
 class AxisDiagnosticError(ValueError):
@@ -259,14 +262,19 @@ class AxisDiagnosticSource:
 
 
 def build_disjoint_pairs_query() -> str:
-    """Read binary NCIt disjointness from the certified stated graph."""
+    """Read binary disjointness and complete stated disjoint-class lists once."""
     return f"""PREFIX owl: <{OWL_NS}>
-SELECT DISTINCT ?left ?right WHERE {{
+PREFIX rdf: <{RDF_NS}>
+SELECT DISTINCT ?left ?right ?set ?head ?node ?first ?rest WHERE {{
   GRAPH <{STATED_GRAPH_IRI}> {{
-    ?left owl:disjointWith ?right .
-    FILTER(isIRI(?left) && isIRI(?right))
-    FILTER(STRSTARTS(STR(?left), "{NCIT_NS}"))
-    FILTER(STRSTARTS(STR(?right), "{NCIT_NS}"))
+    {{
+      ?left owl:disjointWith ?right .
+    }} UNION {{
+      ?set a owl:AllDisjointClasses ; owl:members ?head .
+      ?head rdf:rest* ?node .
+      OPTIONAL {{ ?node rdf:first ?first . }}
+      OPTIONAL {{ ?node rdf:rest ?rest . }}
+    }}
   }}
 }}
 """
@@ -283,19 +291,117 @@ def _row_code(value: str | None, binding: str) -> str:
     return code
 
 
+def _malformed_list() -> Never:
+    raise AxisDiagnosticError("malformed AllDisjointClasses list")
+
+
+def _list_binding(row: Mapping[str, str | None], binding: str) -> str:
+    value = row.get(binding)
+    if not isinstance(value, str) or not value:
+        _malformed_list()
+    return value
+
+
+def _partition_disjoint_rows(
+    rows: Sequence[Mapping[str, str | None]],
+) -> tuple[set[DisjointPair], dict[str, list[Mapping[str, str | None]]]]:
+    pairs: set[DisjointPair] = set()
+    list_rows: dict[str, list[Mapping[str, str | None]]] = {}
+    for row in rows:
+        if _LIST_BINDINGS.intersection(row):
+            set_id = _list_binding(row, "set")
+            list_rows.setdefault(set_id, []).append(row)
+        else:
+            pairs.add(
+                DisjointPair(
+                    left=_row_code(row.get("left"), "left"),
+                    right=_row_code(row.get("right"), "right"),
+                )
+            )
+    return pairs, list_rows
+
+
+def _list_arcs(
+    rows: list[Mapping[str, str | None]],
+) -> tuple[str, dict[str, tuple[set[str | None], set[str | None]]]]:
+    heads = {_list_binding(row, "head") for row in rows}
+    if len(heads) != 1:
+        _malformed_list()
+    head = next(iter(heads))
+    arcs: dict[str, tuple[set[str | None], set[str | None]]] = {}
+    for row in rows:
+        node = _list_binding(row, "node")
+        firsts, rests = arcs.setdefault(node, (set(), set()))
+        firsts.add(row.get("first"))
+        rests.add(row.get("rest"))
+    return head, arcs
+
+
+def _list_member_and_rest(
+    node: str,
+    arcs: dict[str, tuple[set[str | None], set[str | None]]],
+) -> tuple[str, str]:
+    if node not in arcs:
+        _malformed_list()
+    firsts, rests = arcs[node]
+    if len(firsts) != 1 or len(rests) != 1:
+        _malformed_list()
+    first = next(iter(firsts))
+    rest = next(iter(rests))
+    if not isinstance(rest, str) or not rest:
+        _malformed_list()
+    return _row_code(first, "member"), rest
+
+
+def _validate_list_end(
+    arcs: dict[str, tuple[set[str | None], set[str | None]]],
+    visited: set[str],
+    members: list[str],
+) -> None:
+    nil = f"{RDF_NS}nil"
+    if nil in arcs:
+        firsts, rests = arcs[nil]
+        if firsts != {None} or rests != {None}:
+            _malformed_list()
+        visited.add(nil)
+    if (
+        set(arcs) != visited
+        or len(members) < _MIN_DISJOINT_MEMBERS
+        or len(set(members)) != len(members)
+    ):
+        _malformed_list()
+
+
+def _list_members(
+    rows: list[Mapping[str, str | None]],
+) -> tuple[str, ...]:
+    head, arcs = _list_arcs(rows)
+    nil = f"{RDF_NS}nil"
+    members: list[str] = []
+    visited: set[str] = set()
+    node = head
+    while node != nil:
+        if node in visited:
+            _malformed_list()
+        visited.add(node)
+        member, node = _list_member_and_rest(node, arcs)
+        members.append(member)
+    _validate_list_end(arcs, visited, members)
+    return tuple(members)
+
+
 def disjoint_pairs_from_rows(
     rows: Sequence[Mapping[str, str | None]],
 ) -> tuple[DisjointPair, ...]:
-    """Parse every row strictly; missing and duplicate evidence fail closed."""
-    pairs = tuple(
-        DisjointPair(
-            left=_row_code(row.get("left"), "left"),
-            right=_row_code(row.get("right"), "right"),
+    """Parse complete stated disjointness strictly and return canonical pairs."""
+    pairs, list_rows = _partition_disjoint_rows(rows)
+    for members_rows in list_rows.values():
+        members = _list_members(members_rows)
+        pairs.update(
+            DisjointPair(left=left, right=right)
+            for left, right in combinations(members, 2)
         )
-        for row in rows
-    )
-    if len(pairs) != len(set(pairs)):
-        raise AxisDiagnosticError("duplicate disjoint pair")
+
     return tuple(sorted(pairs))
 
 
@@ -307,7 +413,7 @@ async def read_axis_diagnostic_source(
     scope_edges = await read_scope_hierarchy_edges(client)
     rows = await client.select_once(
         build_disjoint_pairs_query(),
-        required_variables={"left", "right"},
+        required_variables={"left", "right", "set", "head", "node", "first", "rest"},
     )
     return AxisDiagnosticSource(
         snapshot=AxisHierarchyEvidence(

@@ -13,7 +13,11 @@ from ontolib.decomposition.branches import (
     branch_spec,
     parse_branch,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -30,7 +34,7 @@ def test_neoplasm_and_disease_are_nested_scopes_with_one_algorithm() -> None:
     assert neoplasm.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
     assert disease.semantic_types == neoplasm.semantic_types
     assert neoplasm.scope_version == disease.scope_version
-    assert neoplasm.algorithm_version == disease.algorithm_version == "decomposition-v4"
+    assert neoplasm.algorithm_version == disease.algorithm_version == "decomposition-v5"
 
 
 def test_disease_is_supported_but_regimen_remains_unimplemented() -> None:
@@ -43,6 +47,9 @@ def test_fingerprint_separates_hierarchy_scope_from_shared_algorithm() -> None:
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="disease",
         scope_root="C2991",
         scope_version="stated-genus-subclass-v1",

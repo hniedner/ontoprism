@@ -58,7 +58,10 @@ def test_persisted_constituent_reload_rejects_orphan_source_occurrence() -> None
         "source_roles": ["R101"],
         "most_specific": True,
         "needs_review": False,
-        "relationship_group": None,
+        "axis_ambiguity_group_id": None,
+        "source_group_ids": [],
+        "normalized_group_id": None,
+        "normalized_group_label": None,
         "source_definition_ids": [],
     }
     link = {
@@ -252,22 +255,40 @@ def test_detection_result_carries_the_gate_inputs() -> None:
 
 
 @pytest.mark.unit
-def test_constituent_group_defaults_none() -> None:
-    assert (
-        Constituent(axis="R101", filler_code="C12400", axis_source="role").group is None
-    )
-
-
-@pytest.mark.unit
-def test_constituent_accepts_group_id() -> None:
+def test_constituent_distinguishes_all_three_group_identities() -> None:
     c = Constituent(
         axis="op:AssociatedRegion",
         filler_code="C12418",
         axis_source="role",
         source_roles=("R101",),
-        group="op:AssociatedRegion",
+        axis_ambiguity_group_id="op:AssociatedRegion",
+        source_group_ids=("a" * 64, "b" * 64, "a" * 64),
+        normalized_group_id="c" * 64,
+        normalized_group_label="reviewed-regrouping:C1:cccccccccccc",
     )
-    assert c.group == "op:AssociatedRegion"
+    assert c.axis_ambiguity_group_id == "op:AssociatedRegion"
+    assert c.source_group_ids == ("a" * 64, "b" * 64)
+    assert c.normalized_group_id == "c" * 64
+    assert c.normalized_group_label == "reviewed-regrouping:C1:cccccccccccc"
+    assert not hasattr(c, "group")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("group_id", "label"),
+    [("a" * 64, None), (None, "orphan label")],
+)
+def test_constituent_rejects_partial_normalized_group_shape(
+    group_id: str | None, label: str | None
+) -> None:
+    with pytest.raises(ValueError, match="normalized group identity and label"):
+        Constituent(
+            axis="op:Laterality",
+            filler_code="C12418",
+            axis_source="nlp",
+            normalized_group_id=group_id,
+            normalized_group_label=label,
+        )
 
 
 @pytest.mark.unit

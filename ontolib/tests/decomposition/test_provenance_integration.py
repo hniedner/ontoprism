@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import hashlib
+import json
 from pathlib import Path
 
 import asyncpg
@@ -29,6 +30,7 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     DefinitionGroup,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
     canonical_definition_fact_id,
@@ -40,7 +42,11 @@ from ontolib.decomposition.provenance import (
     RunIdentityMismatchError,
     RunStateError,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 from ontolib.decomposition.sampling import load_sample_manifest
 
 _RUN_ID = "test-provenance-integration-run"
@@ -60,10 +66,39 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     return sqlalchemy_url.replace("+asyncpg", "")
 
 
+@pytest.mark.integration
+async def test_occurrence_disposition_constraints_reject_impossible_states() -> None:
+    connection = await asyncpg.connect(_asyncpg_dsn(get_settings().database_url))
+    try:
+        rows = await connection.fetch(
+            "SELECT conname, pg_get_constraintdef(oid) AS definition "
+            "FROM pg_constraint WHERE conrelid = "
+            "'decomp_occurrence_disposition'::regclass"
+        )
+    finally:
+        await connection.close()
+
+    constraints = {row["conname"]: row["definition"] for row in rows}
+    assert "ck_decomp_disposition_filler_relation" in constraints
+    assert "ck_decomp_disposition_r82_endpoints" in constraints
+    assert "ck_decomp_disposition_semantic_route" in constraints
+    assert (
+        "retained_filler = source_filler"
+        in constraints["ck_decomp_disposition_filler_relation"]
+    )
+    assert (
+        "r82_part = retained_filler"
+        in constraints["ck_decomp_disposition_r82_endpoints"]
+    )
+
+
 def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -116,6 +151,7 @@ async def _completion_metrics(
     return {
         **counts.model_dump(),
         "residual_precoordinated_count": 0,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.0,
         "complete_definition_count": sum(
             item.complete_definition is not None for item in decompositions
@@ -195,6 +231,7 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
                 filler_code="C200",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
             ),
         ),
@@ -249,6 +286,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 filler_code="C12400",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences
@@ -268,6 +306,19 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 ),
             ),
             occurrences=occurrences,
+        ),
+        occurrence_dispositions=tuple(
+            OccurrenceDisposition(
+                kind="retained-routed",
+                source_occurrence_id=occurrence.occurrence_id,
+                source_fact_id=fact_id,
+                normalized_axis="op:PrimarySite",
+                source_filler="C12400",
+                retained_filler="C12400",
+                semantic_route="p106-organ",
+                semantic_type="Body Part, Organ, or Organ Component",
+            )
+            for occurrence in occurrences
         ),
     )
 
@@ -425,6 +476,64 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             persisted[0].constituents[0].source_occurrence_ids
             == expected_occurrence_ids
         )
+        assert (
+            tuple(
+                row.source_occurrence_id for row in persisted[0].occurrence_dispositions
+            )
+            == expected_occurrence_ids
+        )
+        assert {
+            (row.kind, row.normalized_axis, row.retained_filler)
+            for row in persisted[0].occurrence_dispositions
+        } == {("retained-routed", "op:PrimarySite", "C12400")}
+
+        conn = await asyncpg.connect(dsn)
+        transaction = conn.transaction()
+        await transaction.start()
+        try:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "UPDATE decomp_occurrence_disposition "
+                    "SET retained_filler = 'C999' WHERE run_id = $1",
+                    _RUN_ID,
+                )
+        finally:
+            await transaction.rollback()
+        transaction = conn.transaction()
+        await transaction.start()
+        try:
+            mixed_path = json.dumps(
+                [
+                    {
+                        "kind": "is-a",
+                        "broader_code": "C12400",
+                        "narrower_code": "C1",
+                        "source_identity": "a" * 64,
+                    },
+                    {
+                        "kind": "r82",
+                        "broader_code": "C1",
+                        "narrower_code": "C999",
+                        "source_identity": "a" * 64,
+                    },
+                ]
+            )
+            await conn.execute(
+                "UPDATE decomp_occurrence_disposition SET disposition = "
+                "'collapsed-mixed', retained_filler = 'C999', "
+                "specificity_path = $2::jsonb WHERE run_id = $1",
+                _RUN_ID,
+                mixed_path,
+            )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "UPDATE decomp_occurrence_disposition "
+                    "SET specificity_path = '[]'::jsonb WHERE run_id = $1",
+                    _RUN_ID,
+                )
+        finally:
+            await transaction.rollback()
+            await conn.close()
 
         finished = await store.finish_run(
             _RUN_ID,
@@ -751,6 +860,9 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
         schema_version=5,
         source_identity=manifest.source_identity,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest.branch,
         scope_root=manifest.scope_root,
         scope_version=manifest.scope_version,
@@ -826,6 +938,9 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
             oracle=_CURRENT_GOLDEN / "neoplasm-adjudicated.json",
             row_decisions=_CURRENT_GOLDEN / "neoplasm-row-decisions.json",
             proposal_registry=_CURRENT_GOLDEN / "proposal-registry.json",
+            proposal_registry_migration=(
+                _CURRENT_GOLDEN / "proposal-registry-schema2-migration.json"
+            ),
             run_id=_CURRENT_EVIDENCE_RUN_ID,
             artifact=artifact,
             engine_output=tmp_path / "engine.json",

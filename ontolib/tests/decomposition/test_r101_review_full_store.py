@@ -8,12 +8,13 @@ import pytest
 from openpyxl import load_workbook
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import (
     NO_COLLAPSE_VETO_POLICY,
     load_packaged_collapse_veto_policy,
 )
 from ontolib.decomposition.fanout_baseline import _CountingClient
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 from ontolib.decomposition.r101_review import (
     QLeverReviewLabels,
     build_r101_review_packet,
@@ -40,7 +41,7 @@ class _RecordedLabels:
 async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
     tmp_path: Path,
 ) -> None:
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
     )
     manifest_path = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
@@ -92,7 +93,7 @@ async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
 @pytest.mark.integration
 @pytest.mark.full_store
 async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
     )
     policy = load_packaged_collapse_veto_policy()
@@ -102,6 +103,9 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
 
     async with ncit_sparql_client("http://localhost:7888") as client:
         counted = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, report.source_identity
+        )
         await _qualify_collapse_policy(
             policy,
             cast("Any", counted),
@@ -116,11 +120,16 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
             label_lookup=no_label_match,
             source_identity=report.source_identity,
             collapse_policy=policy,
+            diagnostic_source=diagnostic_source,
+            detector_identity="0" * 64,
             walker_max_depth=7,
         )
         policy_item_queries = counted.logical_select_count - qualification_queries
     async with ncit_sparql_client("http://localhost:7888") as client:
         baseline_client = _CountingClient(client)
+        diagnostic_source = await read_axis_diagnostic_source(
+            client, report.source_identity
+        )
         baseline = await _decompose_one(
             "C5292",
             cast("Any", baseline_client),
@@ -128,6 +137,8 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
             label_lookup=no_label_match,
             source_identity=report.source_identity,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            diagnostic_source=diagnostic_source,
+            detector_identity="0" * 64,
             walker_max_depth=7,
         )
 
@@ -158,7 +169,9 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
     }
     assert {"C12351", "C12439", "C12512", "C32639"} <= set(primary_sites)
     assert all(primary_sites[code].needs_review for code in primary_sites)
-    assert {primary_sites[code].group for code in primary_sites} == {"op:PrimarySite"}
+    assert {primary_sites[code].axis_ambiguity_group_id for code in primary_sites} == {
+        "op:PrimarySite"
+    }
     prior = {
         link.filler_code
         for row in report.occurrences

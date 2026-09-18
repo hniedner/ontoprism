@@ -23,12 +23,21 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
-from ontolib.decomposition.models import ConceptOutcome
+from ontolib.decomposition.models import (
+    ConceptOutcome,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+    SemanticRoute,
+)
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
 )
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+)
 from ontolib.decomposition.publication import validate_artifact
+from ontolib.decomposition.run_artifacts import resolve_parent_manifest
 from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     load_sample_manifest,
@@ -44,7 +53,7 @@ try:
         GoldenSetValidationError,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -57,7 +66,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         GoldenSetValidationError,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 
@@ -71,6 +80,7 @@ if TYPE_CHECKING:
     )
 
 _SHA256 = r"^[0-9a-f]{64}$"
+_CURRENT_EVIDENCE_SCHEMA_VERSION = 4
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -116,14 +126,34 @@ class CurrentSourceOccurrence(_StrictModel):
     member_position: int = Field(ge=0)
 
 
+class CurrentSourceFact(_StrictModel):
+    fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str
+    depth: int = Field(ge=0)
+    kind: Literal["genus", "restriction"]
+    filler_code: str
+    role_code: str | None
+
+    @model_validator(mode="after")
+    def _kind_matches_role(self) -> Self:
+        if (self.kind == "restriction") != (self.role_code is not None):
+            raise ValueError("source fact kind differs from role availability")
+        return self
+
+
 class CurrentConstituent(_StrictModel):
-    axis: str = Field(pattern=r"^op:[A-Za-z][A-Za-z0-9]*$")
+    axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
-    relationship_group: str | None
+    axis_ambiguity_group_id: str | None
+    source_group_ids: tuple[str, ...]
+    normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
+    normalized_group_label: str | None
     needs_review: bool
     source_definition_ids: tuple[str, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
+    source_facts: tuple[CurrentSourceFact, ...] = ()
     source_occurrence_ids: tuple[str, ...]
     source_occurrences: tuple[CurrentSourceOccurrence, ...]
 
@@ -137,7 +167,7 @@ class CurrentConstituent(_StrictModel):
         )
 
     @model_validator(mode="after")
-    def _citations_match_selected_ids(self) -> Self:
+    def _citations_match_selected_ids(self) -> Self:  # noqa: C901
         if len(set(self.source_definition_ids)) != len(self.source_definition_ids):
             raise ValueError("duplicate source definition citations")
         if tuple(sorted(self.source_definition_ids)) != self.source_definition_ids:
@@ -151,11 +181,80 @@ class CurrentConstituent(_StrictModel):
             raise ValueError("source occurrence citations do not match selected IDs")
         if self.source_occurrences and not self.source_definition_ids:
             raise ValueError("source occurrences require source definition citations")
+        source_fact_ids = tuple(item.fact_id for item in self.source_facts)
+        if len(source_fact_ids) != len(set(source_fact_ids)):
+            raise ValueError("duplicate source fact citations")
+        if not set(self.source_definition_ids) <= set(source_fact_ids):
+            raise ValueError("selected definition citation lacks a source fact")
         occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
         if self.source_definition_ids and not occurrence_fact_ids <= set(
             self.source_definition_ids
         ):
             raise ValueError("source occurrences cite an unselected definition fact")
+        expected_groups = tuple(
+            sorted({item.source_group_id for item in self.source_facts})
+        )
+        if self.source_group_ids != expected_groups:
+            raise ValueError(
+                "source group identities differ from selected source facts: "
+                f"declared={self.source_group_ids!r}, facts={expected_groups!r}"
+            )
+        if (self.normalized_group_id is None) != (self.normalized_group_label is None):
+            raise ValueError("normalized group identity and label must be paired")
+        return self
+
+
+class CurrentSpecificityPathEdge(_StrictModel):
+    kind: Literal["is-a", "r82"]
+    broader_code: str = Field(pattern=r"^C[0-9]+$")
+    narrower_code: str = Field(pattern=r"^C[0-9]+$")
+    source_identity: str = Field(pattern=_SHA256)
+
+
+class CurrentOccurrenceDisposition(_StrictModel):
+    kind: Literal[
+        "retained-routed",
+        "retained-unknown",
+        "collapsed-is-a",
+        "collapsed-r82",
+        "collapsed-mixed",
+        "retained-policy-veto",
+    ]
+    source_occurrence: CurrentSourceOccurrence
+    normalized_axis: str
+    semantic_route: SemanticRoute
+    semantic_type: str | None
+    retained_pair: tuple[str, str]
+    r82_part: str | None
+    r82_whole: str | None
+    specificity_path: tuple[CurrentSpecificityPathEdge, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    policy_decision_identity: str | None
+
+    @model_validator(mode="after")
+    def _evidence_matches_kind(self) -> Self:
+        if self.retained_pair[0] != self.normalized_axis:
+            raise ValueError("retained pair axis differs from normalized axis")
+        retained = self.kind.startswith("retained-")
+        if retained != (self.retained_pair[1] == self.source_occurrence.filler_code):
+            raise ValueError("retained pair filler equality differs from disposition")
+        if (self.kind == "collapsed-r82") != (
+            self.r82_part is not None and self.r82_whole is not None
+        ):
+            raise ValueError("R82 evidence presence differs from disposition")
+        if self.kind == "collapsed-r82" and (
+            self.r82_part,
+            self.r82_whole,
+        ) != (self.retained_pair[1], self.source_occurrence.filler_code):
+            raise ValueError("R82 endpoints differ from disposition")
+        mixed = self.kind == "collapsed-mixed"
+        if mixed != bool(self.specificity_path):
+            raise ValueError("mixed specificity path presence differs from disposition")
+        if (self.kind == "retained-policy-veto") != (
+            self.policy_decision_identity is not None
+        ):
+            raise ValueError("policy evidence presence differs from disposition")
         return self
 
 
@@ -165,6 +264,7 @@ class CurrentConceptEvidence(_StrictModel):
     semantic_types: tuple[str, ...]
     all_source_occurrences: tuple[CurrentSourceOccurrence, ...]
     constituents: tuple[CurrentConstituent, ...]
+    occurrence_dispositions: tuple[CurrentOccurrenceDisposition, ...]
 
     @model_validator(mode="after")
     def _selected_occurrences_are_a_subset(self) -> Self:
@@ -178,27 +278,64 @@ class CurrentConceptEvidence(_StrictModel):
             raise ValueError(
                 "selected source occurrences must be a subset of all source occurrences"
             )
+        r101_occurrences = {
+            item.occurrence_id
+            for item in self.all_source_occurrences
+            if item.role_code == "R101"
+        }
+        disposition_ids = {
+            item.source_occurrence.occurrence_id
+            for item in self.occurrence_dispositions
+            if item.source_occurrence.role_code == "R101"
+        }
+        if len(disposition_ids) != len(
+            [
+                item
+                for item in self.occurrence_dispositions
+                if item.source_occurrence.role_code == "R101"
+            ]
+        ):
+            raise ValueError("R101 occurrence has duplicate dispositions")
+        if not disposition_ids <= r101_occurrences:
+            raise ValueError("R101 disposition references a non-R101 occurrence")
         return self
 
 
 class CurrentEngineEvidence(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
     run_id: str
     run_fingerprint_identity: str = Field(pattern=_SHA256)
+    walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
     representation_identity: str = Field(pattern=_SHA256)
     detector_identity: str = Field(pattern=_SHA256)
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     concepts: tuple[CurrentConceptEvidence, ...]
     evidence_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _validate_identity(self) -> Self:
+        for concept in self.concepts:
+            expected = {
+                item.occurrence_id
+                for item in concept.all_source_occurrences
+                if item.role_code == "R101" and item.depth < self.walker_max_depth
+            }
+            actual = {
+                item.source_occurrence.occurrence_id
+                for item in concept.occurrence_dispositions
+                if item.source_occurrence.role_code == "R101"
+            }
+            if actual != expected:
+                raise ValueError(
+                    "projected-depth R101 occurrences require exactly one disposition"
+                )
         expected = _identity(
             self.model_dump(mode="json", exclude={"evidence_identity"})
         )
@@ -437,18 +574,20 @@ class CurrentRowReplay(_StrictModel):
 
 
 class CurrentComparison(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
     run_id: str
     run_fingerprint_identity: str = Field(pattern=_SHA256)
+    walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
     representation_identity: str = Field(pattern=_SHA256)
     detector_identity: str = Field(pattern=_SHA256)
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     current_evidence_identity: str = Field(pattern=_SHA256)
     metrics: CurrentMetrics
     concepts: tuple[CurrentConceptComparison, ...]
@@ -531,6 +670,58 @@ def _occurrence(value: SourceDefinitionOccurrence) -> CurrentSourceOccurrence:
     )
 
 
+def _disposition_documents(
+    decomposition: Decomposition | None,
+    occurrences: dict[str, CurrentSourceOccurrence],
+    retained_pairs: set[tuple[str, str]],
+) -> tuple[CurrentOccurrenceDisposition, ...]:
+    documents: list[CurrentOccurrenceDisposition] = []
+    for item in (
+        decomposition.occurrence_dispositions if decomposition is not None else ()
+    ):
+        source_occurrence = occurrences.get(item.source_occurrence_id)
+        if source_occurrence is None:
+            raise CurrentEvidenceValidationError(
+                "disposition source occurrence is absent"
+            )
+        if source_occurrence.source_fact_id != item.source_fact_id:
+            raise CurrentEvidenceValidationError(
+                "disposition source fact differs from occurrence"
+            )
+        if source_occurrence.filler_code != item.source_filler:
+            raise CurrentEvidenceValidationError(
+                "disposition source filler differs from occurrence"
+            )
+        retained_pair = (item.normalized_axis, item.retained_filler)
+        if retained_pair not in retained_pairs:
+            raise CurrentEvidenceValidationError(
+                "disposition retained pair is absent from engine output"
+            )
+        documents.append(
+            CurrentOccurrenceDisposition(
+                kind=item.kind,
+                source_occurrence=source_occurrence,
+                normalized_axis=item.normalized_axis,
+                semantic_route=item.semantic_route,
+                semantic_type=item.semantic_type,
+                retained_pair=retained_pair,
+                r82_part=item.r82_part,
+                r82_whole=item.r82_whole,
+                specificity_path=tuple(
+                    CurrentSpecificityPathEdge(
+                        kind=edge.kind,
+                        broader_code=edge.broader_code,
+                        narrower_code=edge.narrower_code,
+                        source_identity=edge.source_identity,
+                    )
+                    for edge in item.specificity_path
+                ),
+                policy_decision_identity=item.policy_decision_identity,
+            )
+        )
+    return tuple(documents)
+
+
 def _concepts(
     outcomes: list[WorkItemOutcome], decompositions: list[Decomposition]
 ) -> tuple[CurrentConceptEvidence, ...]:
@@ -559,13 +750,60 @@ def _concepts(
             )
         )
         occurrences = {item.occurrence_id: item for item in all_occurrences}
+        facts = {
+            item.fact_id: item
+            for item in (
+                decomposition.complete_definition.facts
+                if decomposition is not None
+                and decomposition.complete_definition is not None
+                else ()
+            )
+        }
         constituents = tuple(
             CurrentConstituent(
                 axis=item.axis,
                 filler=item.filler_code,
-                relationship_group=item.group,
+                axis_ambiguity_group_id=item.axis_ambiguity_group_id,
+                source_group_ids=item.source_group_ids,
+                normalized_group_id=item.normalized_group_id,
+                normalized_group_label=item.normalized_group_label,
                 needs_review=item.needs_review,
                 source_definition_ids=item.source_definition_ids,
+                source_facts=tuple(
+                    CurrentSourceFact(
+                        fact_id=fact.fact_id,
+                        source_group_id=fact.group_id,
+                        anchor_code=fact.anchor_code,
+                        depth=fact.depth,
+                        kind=(
+                            "genus"
+                            if isinstance(fact, GenusDefinitionFact)
+                            else "restriction"
+                        ),
+                        filler_code=(
+                            fact.genus_code
+                            if isinstance(fact, GenusDefinitionFact)
+                            else fact.filler_code
+                        ),
+                        role_code=(
+                            fact.role_code
+                            if isinstance(fact, RestrictionDefinitionFact)
+                            else None
+                        ),
+                    )
+                    for fact in sorted(
+                        (
+                            fact
+                            for fact in facts.values()
+                            if (
+                                fact.fact_id in item.source_definition_ids
+                                if item.source_definition_ids
+                                else fact.group_id in item.source_group_ids
+                            )
+                        ),
+                        key=lambda row: row.fact_id,
+                    )
+                ),
                 source_occurrence_ids=item.source_occurrence_ids,
                 source_occurrences=tuple(
                     occurrences[occurrence_id]
@@ -573,8 +811,22 @@ def _concepts(
                 ),
             )
             for item in (
-                decomposition.constituents if decomposition is not None else ()
+                sorted(
+                    decomposition.constituents,
+                    key=lambda row: (
+                        row.axis,
+                        row.filler_code,
+                        row.normalized_group_id or "",
+                    ),
+                )
+                if decomposition is not None
+                else ()
             )
+        )
+        disposition_documents = _disposition_documents(
+            decomposition,
+            occurrences,
+            {(item.axis, item.filler) for item in constituents},
         )
         concepts.append(
             CurrentConceptEvidence(
@@ -583,6 +835,7 @@ def _concepts(
                 semantic_types=outcome.semantic_types or (),
                 all_source_occurrences=all_occurrences,
                 constituents=constituents,
+                occurrence_dispositions=disposition_documents,
             )
         )
     if decompositions_by_code:
@@ -596,7 +849,12 @@ def _scoreable_partition_rows(
     constituents: tuple[GoldenConstituent, ...] | tuple[CurrentConstituent, ...],
 ) -> tuple[tuple[tuple[str, str], str | None], ...]:
     return tuple(
-        ((item.axis, item.filler), item.relationship_group)
+        (
+            (item.axis, item.filler),
+            item.normalized_group_id
+            if isinstance(item, CurrentConstituent)
+            else item.relationship_group,
+        )
         for item in constituents
         if not item.needs_review and item.provenance_status == "ncit-26.07d"
     )
@@ -923,6 +1181,11 @@ def validate_current_comparison(
             evidence.run_fingerprint_identity,
             comparison.run_fingerprint_identity,
         ),
+        (
+            "walker max depth",
+            evidence.walker_max_depth,
+            comparison.walker_max_depth,
+        ),
         ("artifact", evidence.artifact_identity, comparison.artifact_identity),
         (
             "representation",
@@ -940,6 +1203,11 @@ def validate_current_comparison(
             "proposal registry",
             evidence.proposal_registry_identity,
             comparison.proposal_registry_identity,
+        ),
+        (
+            "proposal registry migration",
+            evidence.proposal_registry_migration_identity,
+            comparison.proposal_registry_migration_identity,
         ),
         (
             "evidence",
@@ -993,18 +1261,20 @@ def _build_current_comparison(
             "sample_manifest_identity",
             "run_id",
             "run_fingerprint_identity",
+            "walker_max_depth",
             "artifact_identity",
             "representation_identity",
             "detector_identity",
             "oracle_identity",
             "row_decision_identity",
             "proposal_registry_identity",
+            "proposal_registry_migration_identity",
         )
     }
     metrics, reports = _comparison_payload(adjudicated, evidence)
     row_replay = _row_replay(rows, adjudicated, registry, evidence.concepts)
     comparison_payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         **common,
         "current_evidence_identity": evidence.evidence_identity,
         "metrics": metrics,
@@ -1027,6 +1297,7 @@ def regenerate_current_comparison(
     oracle_path: Path,
     row_decisions_path: Path,
     proposal_registry_path: Path,
+    proposal_registry_migration_path: Path,
     output: Path,
 ) -> CurrentComparison:
     """Regenerate the derived comparison from source-bound tracked evidence."""
@@ -1035,6 +1306,7 @@ def regenerate_current_comparison(
         oracle_path,
         row_decisions_path,
         proposal_registry_path,
+        proposal_registry_migration_path,
     )
     for path in inputs:
         if not path.exists():
@@ -1050,7 +1322,14 @@ def regenerate_current_comparison(
     try:
         evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
         registry = load_proposal_registry(proposal_registry_path)
-        adjudication = load_adjudication(oracle_path, registry)
+        adjudication = load_migrated_historical_adjudication(
+            oracle_path,
+            proposal_registry_path,
+            proposal_registry_migration_path,
+        )
+        migration_identity = load_proposal_registry_migration_envelope(
+            proposal_registry_migration_path
+        ).envelope_identity
         rows = load_row_decisions(row_decisions_path)
     except (ValueError, GoldenSetValidationError) as error:
         raise CurrentEvidenceValidationError(str(error)) from error
@@ -1061,6 +1340,11 @@ def regenerate_current_comparison(
             "proposal registry",
             evidence.proposal_registry_identity,
             registry.registry_identity,
+        ),
+        (
+            "proposal registry migration",
+            evidence.proposal_registry_migration_identity,
+            migration_identity,
         ),
     )
     for name, actual, expected in checks:
@@ -1138,17 +1422,52 @@ def _write_outputs(
             Path(name).unlink(missing_ok=True)
 
 
+def _validate_artifact_binding(
+    artifact: Path,
+    run: CompletedRunForEvidence,
+    artifact_manifest: Path | None,
+    artifact_manifest_identity: str | None,
+) -> None:
+    if artifact.resolve() == Path(run.publication_artifact_path).resolve():
+        return
+    try:
+        if artifact_manifest is None or artifact_manifest_identity is None:
+            raise ValueError("immutable artifact manifest binding is absent")
+        immutable_parent = resolve_parent_manifest(
+            artifact_manifest, artifact_manifest_identity
+        )
+        bound_paths = {
+            (artifact_manifest.parent / record.relative_path).resolve()
+            for record in immutable_parent.artifact_records
+        }
+        if (
+            immutable_parent.run_id != run.run_id
+            or artifact.resolve() not in bound_paths
+        ):
+            raise ValueError(
+                "immutable artifact manifest does not bind supplied artifact"
+            )
+    except (OSError, ValueError) as exc:
+        raise CurrentEvidenceValidationError(
+            "supplied artifact path does not match persisted path or exact "
+            "immutable manifest"
+        ) from exc
+
+
 async def generate_current_evidence(
     *,
     sample_manifest: Path,
     oracle: Path,
     row_decisions: Path,
     proposal_registry: Path,
+    proposal_registry_migration: Path,
     run_id: str,
     artifact: Path,
     engine_output: Path,
     comparison_output: Path,
     store: CurrentEvidenceStore,
+    artifact_manifest: Path | None = None,
+    artifact_manifest_identity: str | None = None,
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
     """Validate inputs, derive identities, then publish a pair with error rollback.
 
@@ -1157,13 +1476,25 @@ async def generate_current_evidence(
     filesystem replacements promise neither crash atomicity nor guaranteed rollback.
     """
     _require_paths(
-        (sample_manifest, oracle, row_decisions, proposal_registry, artifact),
+        (
+            sample_manifest,
+            oracle,
+            row_decisions,
+            proposal_registry,
+            artifact,
+            proposal_registry_migration,
+        ),
         (engine_output, comparison_output),
     )
     try:
         manifest = load_sample_manifest(sample_manifest)
         registry = load_proposal_registry(proposal_registry)
-        adjudication = load_adjudication(oracle, registry)
+        adjudication = load_migrated_historical_adjudication(
+            oracle, proposal_registry, proposal_registry_migration
+        )
+        migration_identity = load_proposal_registry_migration_envelope(
+            proposal_registry_migration
+        ).envelope_identity
         rows = load_row_decisions(row_decisions)
     except (ValueError, GoldenSetValidationError) as error:
         raise CurrentEvidenceValidationError(str(error)) from error
@@ -1202,10 +1533,9 @@ async def generate_current_evidence(
             "persisted run id does not match requested run id"
         )
     _require_run_matches_manifest(run, manifest)
-    if artifact.resolve() != Path(run.publication_artifact_path).resolve():
-        raise CurrentEvidenceValidationError(
-            "supplied artifact path does not match persisted publication artifact path"
-        )
+    _validate_artifact_binding(
+        artifact, run, artifact_manifest, artifact_manifest_identity
+    )
     outcomes = await store.work_item_outcomes(run_id)
     if tuple(item.concept_code for item in outcomes) != manifest.codes:
         raise CurrentEvidenceValidationError("work item outcomes do not match worklist")
@@ -1223,18 +1553,20 @@ async def generate_current_evidence(
         )
     concepts = _concepts(outcomes, await store.decompositions_for_run(run_id))
     common = {
-        "schema_version": 2,
+        "schema_version": _CURRENT_EVIDENCE_SCHEMA_VERSION,
         "ncit_version": run.ncit_version,
         "source_identity": manifest.source_identity,
         "sample_manifest_identity": manifest.identity,
         "run_id": run_id,
         "run_fingerprint_identity": run.fingerprint.identity,
+        "walker_max_depth": run.fingerprint.walker_max_depth,
         "artifact_identity": representation_identity,
         "representation_identity": representation_identity,
         "detector_identity": _detector_identity(run),
         "oracle_identity": adjudication.identity,
         "row_decision_identity": rows.payload_identity,
         "proposal_registry_identity": registry.registry_identity,
+        "proposal_registry_migration_identity": migration_identity,
     }
     evidence_payload = {**common, "concepts": concepts}
     evidence = CurrentEngineEvidence.model_validate(

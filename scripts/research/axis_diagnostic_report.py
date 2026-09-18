@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -29,7 +30,7 @@ try:
         GoldenConstituent,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -48,7 +49,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         GoldenConstituent,
         KeptRow,
         RowDecisionExport,
-        load_adjudication,
+        load_migrated_historical_adjudication,
         load_row_decisions,
     )
 
@@ -70,7 +71,18 @@ from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
+from ontolib.decomposition.projection_validity import (
+    AtomicProjectionEvidence,
+    ProjectionAssessment,
+    ProjectionAtomicityEvidence,
+    ResidualProjectionEvidence,
+    UnknownProjectionEvidence,
+    decide_projection,
+)
 from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry_migration import (
+    load_proposal_registry_migration_envelope,
+)
 from ontolib.decomposition.run import _detect_concept
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
@@ -83,7 +95,6 @@ _REVISE_COUNT = 42
 _CANDIDATE_COUNT = 64
 _SME_INCLUDED = 48
 _SME_SUGGESTIONS = 106
-_MAX_RESIDUAL_DIAGNOSTICS = 8
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
@@ -199,24 +210,21 @@ async def collect_residual_verdicts(
     detector_identity: str,
     walker_max_depth: int,
 ) -> dict[str, ResidualPrecoordinationVerdict]:
-    """Classify one bounded, unique decision set with the production detector."""
+    """Classify one unique decision set concurrently with the production detector."""
     if len(filler_codes) != len(set(filler_codes)):
         raise ValueError("residual diagnostic filler codes must be unique")
-    if len(filler_codes) > _MAX_RESIDUAL_DIAGNOSTICS:
-        raise ValueError("residual diagnostics accept at most 8 fillers")
     if _DIGEST.fullmatch(detector_identity) is None:
         raise ValueError("detector identity is invalid")
     if walker_max_depth < 1:
         raise ValueError("walker max depth must be positive")
-    result: dict[str, ResidualPrecoordinationVerdict] = {}
-    for filler in filler_codes:
+
+    async def classify(filler: str) -> ResidualPrecoordinationVerdict:
         if filler.startswith("MINT-"):
-            result[filler] = ResidualPrecoordinationVerdict(
+            return ResidualPrecoordinationVerdict(
                 status="unknown",
                 reason="proposed-filler-not-in-source",
                 detector_identity=detector_identity,
             )
-            continue
         try:
             (
                 detection,
@@ -231,18 +239,19 @@ async def collect_residual_verdicts(
                 walker_max_depth=walker_max_depth,
             )
         except UnsupportedDefinitionConstructorError:
-            result[filler] = ResidualPrecoordinationVerdict(
+            return ResidualPrecoordinationVerdict(
                 status="unknown",
                 reason="unsupported-definition-constructor",
                 detector_identity=detector_identity,
             )
-            continue
-        result[filler] = ResidualPrecoordinationVerdict(
+        return ResidualPrecoordinationVerdict(
             status=("detected" if detection.is_precoordinated else "not-detected"),
             reason="production-detector",
             detector_identity=detector_identity,
         )
-    return result
+
+    verdicts = await asyncio.gather(*(classify(filler) for filler in filler_codes))
+    return dict(zip(filler_codes, verdicts, strict=True))
 
 
 def _expected_candidate_keys(
@@ -364,11 +373,12 @@ class CandidateRowDiagnostic(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     expected: ExpectedPair
     classification: Literal[
-        "added",
+        "currently-emitted",
         "extraction-miss",
         "selection-miss",
         "proposal-only",
         "unavailable-source-evidence",
+        "explicitly-out-of-scope",
     ]
     source_evidence: SourcePairEvidence
 
@@ -446,6 +456,7 @@ class ResidualPrecoordinationDocument(_StrictModel):
         "production-detector",
         "unsupported-definition-constructor",
         "proposed-filler-not-in-source",
+        "not-classified-for-issue-replay",
     ]
     detector_identity: str = Field(pattern=_SHA256)
 
@@ -510,6 +521,25 @@ class PairRangeDiagnostic(_StrictModel):
     ]
     in_expected_oracle: bool
     verdict: AxisRangeEvidenceDocument
+    atomicity: ResidualPrecoordinationDocument
+    projection_decision: ProjectionDecisionDocument
+
+
+class ProjectionDecisionDocument(_StrictModel):
+    outcome: Literal["accepted", "rejected"]
+    review_bearing: bool
+    axis_range_status: Literal["valid", "invalid", "unknown"]
+    atomicity_status: Literal["atomic", "residual", "unknown"]
+    reasons: tuple[
+        Literal[
+            "valid-atomic",
+            "residual-precoordination",
+            "axis-range-unknown",
+            "atomicity-unknown",
+            "invalid-axis-range",
+        ],
+        ...,
+    ]
 
 
 class DiagnosticMetrics(_StrictModel):
@@ -521,7 +551,7 @@ class DiagnosticMetrics(_StrictModel):
 
 
 class AxisDiagnosticReport(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -533,6 +563,9 @@ class AxisDiagnosticReport(_StrictModel):
     oracle_identity: str = Field(pattern=_SHA256)
     row_decision_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
+    proposal_registry_migration_identity: str | None = Field(
+        default=None, pattern=_SHA256, exclude_if=lambda value: value is None
+    )
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
     metrics: DiagnosticMetrics
@@ -631,7 +664,9 @@ def _revise_rows(
                 group_delta=(
                     "missing-current"
                     if missing
-                    else _delta(expected.relationship_group, current.relationship_group)
+                    else _delta(
+                        expected.relationship_group, current.normalized_group_id
+                    )
                 ),
                 review_delta=(
                     "missing-current"
@@ -655,16 +690,19 @@ def _candidate_classification(
     old_status: RowReplayStatus,
     source: SourcePairEvidence | None,
 ) -> Literal[
-    "added",
+    "currently-emitted",
     "extraction-miss",
     "selection-miss",
     "proposal-only",
     "unavailable-source-evidence",
+    "explicitly-out-of-scope",
 ]:
     if old_status == RowReplayStatus.ADDED:
-        return "added"
+        return "currently-emitted"
     if old_status == RowReplayStatus.PROPOSAL_ONLY:
         return "proposal-only"
+    if old_status == RowReplayStatus.EXPLICITLY_OUT_OF_SCOPE:
+        return "explicitly-out-of-scope"
     if source is not None and source.status != "unavailable":
         return (
             "extraction-miss"
@@ -736,7 +774,7 @@ def build_axis_diagnostic_report(
         for item in concept.expected.constituents
     }
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         "ncit_version": comparison.ncit_version,
         "source_identity": comparison.source_identity,
         "sample_manifest_identity": comparison.sample_manifest_identity,
@@ -748,6 +786,9 @@ def build_axis_diagnostic_report(
         "oracle_identity": oracle.identity,
         "row_decision_identity": rows.payload_identity,
         "proposal_registry_identity": registry.registry_identity,
+        "proposal_registry_migration_identity": (
+            evidence.proposal_registry_migration_identity
+        ),
         "current_evidence_identity": evidence.evidence_identity,
         "current_comparison_identity": comparison.comparison_identity,
         "metrics": DiagnosticMetrics(
@@ -764,15 +805,15 @@ def build_axis_diagnostic_report(
         "revise_rows": _revise_rows(rows, oracle, evidence),
         "candidate_rows": _candidate_rows(rows, comparison, source_evidence),
         "range_diagnostics": tuple(
-            PairRangeDiagnostic(
+            _pair_range_diagnostic(
                 code=code,
                 axis=axis,
                 filler=filler,
-                current_projection_status=_current_projection_status(
-                    current_pairs.get((code, axis, filler))
-                ),
+                current=current_pairs.get((code, axis, filler)),
                 in_expected_oracle=(code, axis, filler) in expected_pairs,
-                verdict=axis_evidence_to_document(verdict),
+                range_verdict=verdict,
+                residual_verdict=residual_verdicts.get(filler),
+                detector_identity=comparison.detector_identity,
             )
             for (code, axis, filler), verdict in sorted(range_verdicts.items())
         ),
@@ -802,6 +843,86 @@ def _current_projection_status(
     if item.needs_review:
         return "review-bearing-release-bound"
     return "scoreable-release-bound"
+
+
+def _projection_atomicity(
+    filler: str,
+    verdict: ResidualPrecoordinationVerdict | None,
+    detector_identity: str,
+) -> ProjectionAtomicityEvidence:
+    if verdict is None:
+        return UnknownProjectionEvidence(
+            status="unknown",
+            reason="not-classified-for-issue-replay",
+            filler_code=filler,
+            detector_identity=detector_identity,
+        )
+    if verdict.status == "detected":
+        return ResidualProjectionEvidence(
+            status="residual",
+            reason="production-detector",
+            filler_code=filler,
+            detector_identity=verdict.detector_identity,
+        )
+    if verdict.status == "not-detected":
+        return AtomicProjectionEvidence(
+            status="atomic",
+            reason="production-detector",
+            filler_code=filler,
+            detector_identity=verdict.detector_identity,
+        )
+    return UnknownProjectionEvidence(
+        status="unknown",
+        reason=verdict.reason,
+        filler_code=filler,
+        detector_identity=verdict.detector_identity,
+    )
+
+
+def _pair_range_diagnostic(
+    *,
+    code: str,
+    axis: str,
+    filler: str,
+    current: CurrentConstituent | None,
+    in_expected_oracle: bool,
+    range_verdict: AxisRangeEvidence,
+    residual_verdict: ResidualPrecoordinationVerdict | None,
+    detector_identity: str,
+) -> PairRangeDiagnostic:
+    if (range_verdict.axis, range_verdict.filler_code) != (axis, filler):
+        raise ValueError("range verdict key does not match its source evidence")
+    atomicity = _projection_atomicity(filler, residual_verdict, detector_identity)
+    decision = decide_projection(
+        ProjectionAssessment(axis_range=range_verdict, atomicity=atomicity)
+    )
+    residual_document = ResidualPrecoordinationDocument(
+        status=(
+            "detected"
+            if atomicity.status == "residual"
+            else "not-detected"
+            if atomicity.status == "atomic"
+            else "unknown"
+        ),
+        reason=atomicity.reason,
+        detector_identity=atomicity.detector_identity,
+    )
+    return PairRangeDiagnostic(
+        code=code,
+        axis=axis,
+        filler=filler,
+        current_projection_status=_current_projection_status(current),
+        in_expected_oracle=in_expected_oracle,
+        verdict=axis_evidence_to_document(range_verdict),
+        atomicity=residual_document,
+        projection_decision=ProjectionDecisionDocument(
+            outcome=decision.outcome,
+            review_bearing=decision.review_bearing,
+            axis_range_status=decision.axis_range_status,
+            atomicity_status=decision.atomicity_status,
+            reasons=decision.reasons,
+        ),
+    )
 
 
 def _required_inputs(paths: tuple[Path, ...], output: Path) -> None:
@@ -888,6 +1009,7 @@ async def generate_axis_diagnostic_report(
     oracle_path: Path,
     row_decisions_path: Path,
     proposal_registry_path: Path,
+    proposal_registry_migration_path: Path,
     current_evidence_path: Path,
     current_comparison_path: Path,
     residual_fillers: tuple[str, ...],
@@ -899,13 +1021,19 @@ async def generate_axis_diagnostic_report(
         oracle_path,
         row_decisions_path,
         proposal_registry_path,
+        proposal_registry_migration_path,
         current_evidence_path,
         current_comparison_path,
     )
     _required_inputs(inputs, output)
     manifest = validate_ncit_sibling_manifest(source_manifest)
     registry = load_proposal_registry(proposal_registry_path)
-    oracle = load_adjudication(oracle_path, registry)
+    oracle = load_migrated_historical_adjudication(
+        oracle_path, proposal_registry_path, proposal_registry_migration_path
+    )
+    migration = load_proposal_registry_migration_envelope(
+        proposal_registry_migration_path
+    )
     rows = load_row_decisions(row_decisions_path)
     evidence = CurrentEngineEvidence.model_validate_json(
         current_evidence_path.read_bytes()
@@ -920,6 +1048,8 @@ async def generate_axis_diagnostic_report(
         raise ValueError("source manifest does not match current evidence")
     if comparison.current_evidence_identity != evidence.evidence_identity:
         raise ValueError("current comparison does not match current evidence")
+    if evidence.proposal_registry_migration_identity != migration.envelope_identity:
+        raise ValueError("current evidence migration binding differs")
 
     async with ncit_sparql_client(endpoint, query_timeout=180.0) as client:
         source = await read_axis_diagnostic_source(client, manifest.source_identity)

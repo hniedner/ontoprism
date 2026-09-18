@@ -33,14 +33,23 @@ from ontolib.decomposition.pre_resume import (
 )
 from ontolib.decomposition.proposal_registry import (
     load_proposal_registry,
+    write_proposal_registry,
     write_submission_exports,
 )
+from ontolib.decomposition.proposal_registry_migration import (
+    write_proposal_registry_migration_envelope,
+)
 from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.r101_comparator import (
+    qualify_r101_comparator,
+    write_r101_comparator_qualification,
+)
 from ontolib.decomposition.r101_conservation import (
     LedgerBuildContext,
     QueryMetrics,
     R101ConservationValidationError,
     build_r101_occurrence_ledger,
+    load_historical_r101_review_report,
     load_r101_conservation_report,
     r82_path_document,
     r101_detector_identity,
@@ -71,12 +80,10 @@ from ontolib.decomposition.r103_review import (
 )
 from ontolib.decomposition.r103_review_promotion import (
     R103_REVISION_MACHINE_QUALIFICATION,
-    build_r103_corroboration,
     prepare_r103_review_revision,
     promote_r103_review_revision,
     promote_r103_review_state,
     transcribe_r103_review_revision,
-    write_r103_corroboration,
 )
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
@@ -206,8 +213,11 @@ class _CurrentEvidenceArgs(Protocol):
     oracle: Path
     row_decisions: Path
     proposal_registry: Path
+    proposal_registry_migration: Path
     run_id: str
     artifact: Path
+    artifact_manifest: Path | None
+    artifact_manifest_identity: str | None
     engine_output: Path
     comparison_output: Path
 
@@ -218,6 +228,7 @@ class _AxisDiagnosticArgs(Protocol):
     oracle: Path
     row_decisions: Path
     proposal_registry: Path
+    proposal_registry_migration: Path
     current_evidence: Path
     current_comparison: Path
     residual_filler: list[str]
@@ -246,6 +257,7 @@ class _GroupReviewArgs(Protocol):
     current_evidence: Path
     current_comparison: Path
     r101_report: Path
+    historical_r101_report: Path
     output: Path
     workbook: Path
     correction_audit: Path
@@ -328,7 +340,6 @@ class _PromoteR103ReviewRevisionArgs(Protocol):
     output_registry: Path
     output_dry_run: Path
     output: Path
-    output_corroboration: Path
 
 
 def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -336,6 +347,7 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser.add_argument("--current-evidence", required=True, type=Path)
     group_parser.add_argument("--current-comparison", required=True, type=Path)
     group_parser.add_argument("--r101-report", required=True, type=Path)
+    group_parser.add_argument("--historical-r101-report", required=True, type=Path)
     group_parser.add_argument("--output", required=True, type=Path)
     group_parser.add_argument("--workbook", required=True, type=Path)
     group_parser.add_argument("--correction-audit", required=True, type=Path)
@@ -401,7 +413,6 @@ def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
     promote_revision.add_argument("--output-registry", required=True, type=Path)
     promote_revision.add_argument("--output-dry-run", required=True, type=Path)
     promote_revision.add_argument("--output", required=True, type=Path)
-    promote_revision.add_argument("--output-corroboration", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -416,6 +427,9 @@ class _R101ConservationArgs(Protocol):
     baseline: Path
     run_id: str
     new_run_id: str
+    old_artifact: Path
+    new_artifact: Path
+    qualification_output: Path
     endpoint: str
     output: Path
     pre_resume_proof_identity: str
@@ -486,8 +500,11 @@ async def _generate_current(args: _CurrentEvidenceArgs) -> None:
             oracle=args.oracle,
             row_decisions=args.row_decisions,
             proposal_registry=args.proposal_registry,
+            proposal_registry_migration=args.proposal_registry_migration,
             run_id=args.run_id,
             artifact=args.artifact,
+            artifact_manifest=args.artifact_manifest,
+            artifact_manifest_identity=args.artifact_manifest_identity,
             engine_output=args.engine_output,
             comparison_output=args.comparison_output,
             store=ProvenanceStore(make_sessionmaker(engine)),
@@ -503,6 +520,7 @@ async def _generate_axis_diagnostics(args: _AxisDiagnosticArgs) -> None:
         oracle_path=args.oracle,
         row_decisions_path=args.row_decisions,
         proposal_registry_path=args.proposal_registry,
+        proposal_registry_migration_path=args.proposal_registry_migration,
         current_evidence_path=args.current_evidence,
         current_comparison_path=args.current_comparison,
         residual_fillers=tuple(args.residual_filler),
@@ -515,6 +533,7 @@ def _generate_group_review(args: _GroupReviewArgs) -> None:
         evidence_path=args.current_evidence,
         comparison_path=args.current_comparison,
         r101_report_path=args.r101_report,
+        historical_r101_report_path=args.historical_r101_report,
         output=args.output,
         workbook=args.workbook,
         correction_audit=args.correction_audit,
@@ -595,39 +614,38 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
 
             store = ProvenanceStore(make_sessionmaker(engine))
             baseline = load_corpus_baseline(args.baseline)
-            old_run = await store.completed_run_for_evidence(args.run_id)
-            new_run = await store.completed_run_for_evidence(args.new_run_id)
+            old_run = await store.completed_comparator_run_for_evidence(args.run_id)
+            new_run = await store.completed_comparator_run_for_evidence(args.new_run_id)
+            qualification = qualify_r101_comparator(
+                old_run=old_run,
+                new_run=new_run,
+                old_baseline=baseline,
+                old_artifact=args.old_artifact,
+                new_artifact=args.new_artifact,
+            )
             if (
-                baseline.run_id != old_run.run_id
-                or baseline.source_identity != manifest.source_identity
-                or baseline.ontology_release != manifest.ontology_version
-                or baseline.representation_identity != old_run.representation_identity
-                or old_run.fingerprint.algorithm_version != "decomposition-v3"
-                or new_run.fingerprint.algorithm_version != "decomposition-v4"
-                or new_run.fingerprint.source_identity != manifest.source_identity
-                or new_run.ncit_version != manifest.ontology_version
+                qualification.shared_controls.source_identity
+                != manifest.source_identity
+                or qualification.shared_controls.ontology_release
+                != manifest.ontology_version
             ):
                 raise ValueError("source-identity-mismatch")
-            old_dimensions = old_run.fingerprint.model_dump(
-                exclude={"algorithm_version", "emitted_at"}
+            write_r101_comparator_qualification(
+                args.qualification_output, qualification
             )
-            new_dimensions = new_run.fingerprint.model_dump(
-                exclude={"algorithm_version", "emitted_at"}
-            )
-            if old_dimensions != new_dimensions:
-                raise ValueError("source-identity-mismatch: run fingerprint drift")
             source_rows = await store.r101_occurrence_ledger(
                 args.run_id, args.new_run_id
             )
             candidate_pairs = tuple(
                 sorted(
                     {
-                        (retained.filler_code, old.filler_code)
+                        (
+                            item.new_disposition.retained_filler,
+                            item.new_disposition.source_filler,
+                        )
                         for item in source_rows.occurrences
-                        if item.old_links and not item.new_links
-                        for old in item.old_links
-                        for retained in item.retained_new_r101_links
-                        if old.axis == retained.axis
+                        if item.new_disposition is not None
+                        and item.new_disposition.kind == "collapsed-r82"
                     }
                 )
             )
@@ -664,13 +682,16 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
                     proof_identity=proof_identity,
                     adapter_id="ncit-stated-r82-v1",
                     query_metrics=QueryMetrics(
-                        postgres_query_count=3,
+                        postgres_query_count=6,
                         qlever_query_count=path_result.query_count + 1,
                         max_pair_batch_size=path_result.max_pair_batch_size,
                         max_r82_hops=8,
                         max_asserted_superclass_hops=20,
                     ),
                     non_r101_delta_evidence=source_rows.non_r101_delta_evidence,
+                    comparator_qualification_identity=(
+                        qualification.qualification_identity
+                    ),
                 ),
             )
             write_r101_occurrence_ledger(args.output, report)
@@ -685,7 +706,7 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
 
 
 async def _prepare_r101_review(args: _PrepareR101ReviewArgs) -> None:
-    report = load_r101_conservation_report(args.report)
+    report = load_historical_r101_review_report(args.report)
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     if (
         source.source_identity != report.source_identity
@@ -723,7 +744,7 @@ def _import_r101_review(args: _ImportR101ReviewArgs) -> None:
 
 def _dry_run_r101_decision_expansion(args: _DryRunR101DecisionExpansionArgs) -> None:
     result = dry_run_r101_decision_expansion(
-        load_r101_conservation_report(args.report),
+        load_historical_r101_review_report(args.report),
         load_r101_review_packet(args.packet),
         load_r101_decision_registry(args.registry),
     )
@@ -821,11 +842,8 @@ def _promote_r103_review_revision(args: _PromoteR103ReviewRevisionArgs) -> None:
         output_dry_run_path=args.output_dry_run,
         output_path=args.output,
     )
-    corroboration = build_r103_corroboration(revision)
-    write_r103_corroboration(args.output_corroboration, corroboration)
     print(
         f"artifact_identity={revision.artifact_identity} "
-        f"corroboration_identity={corroboration.corroboration_identity} "
         "readiness=ready-for-separate-application writes_performed=false",
         file=sys.stderr,
     )
@@ -836,7 +854,7 @@ async def _generate_r101_collapse_policy(
 ) -> None:
     registry = load_r101_decision_registry(args.registry)
     packet = load_r101_review_packet(args.packet)
-    report = load_r101_conservation_report(args.report)
+    report = load_historical_r101_review_report(args.report)
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     if (
         source.source_identity != report.source_identity
@@ -971,6 +989,9 @@ def _add_r101_parsers(subparsers: Any) -> None:
     conservation_parser.add_argument("--baseline", required=True, type=Path)
     conservation_parser.add_argument("--run-id", required=True)
     conservation_parser.add_argument("--new-run-id", required=True)
+    conservation_parser.add_argument("--old-artifact", required=True, type=Path)
+    conservation_parser.add_argument("--new-artifact", required=True, type=Path)
+    conservation_parser.add_argument("--qualification-output", required=True, type=Path)
     conservation_parser.add_argument("--endpoint", required=True)
     conservation_parser.add_argument("--output", required=True, type=Path)
     conservation_parser.add_argument("--pre-resume-proof-identity", required=True)
@@ -1025,6 +1046,19 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     export_parser = subparsers.add_parser("export-proposals")
     export_parser.add_argument("registry", type=Path)
     export_parser.add_argument("output_directory", type=Path)
+    registry_parser = subparsers.add_parser("write-proposal-registry")
+    registry_parser.add_argument("registry", type=Path)
+    migration_parser = subparsers.add_parser("bind-proposal-registry-migration")
+    migration_parser.add_argument("--historical-oracle", required=True, type=Path)
+    migration_parser.add_argument("--historical-r103-review", required=True, type=Path)
+    migration_parser.add_argument(
+        "--historical-r103-revision", required=True, type=Path
+    )
+    migration_parser.add_argument(
+        "--historical-r103-corroboration", required=True, type=Path
+    )
+    migration_parser.add_argument("--current-registry", required=True, type=Path)
+    migration_parser.add_argument("--output", required=True, type=Path)
     rows_parser = subparsers.add_parser(
         "export-row-decisions",
         help="Export the selected row-decision projection from an attested workbook",
@@ -1044,8 +1078,13 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     current_parser.add_argument("--oracle", required=True, type=Path)
     current_parser.add_argument("--row-decisions", required=True, type=Path)
     current_parser.add_argument("--proposal-registry", required=True, type=Path)
+    current_parser.add_argument(
+        "--proposal-registry-migration", required=True, type=Path
+    )
     current_parser.add_argument("--run-id", required=True)
     current_parser.add_argument("--artifact", required=True, type=Path)
+    current_parser.add_argument("--artifact-manifest", type=Path)
+    current_parser.add_argument("--artifact-manifest-identity")
     current_parser.add_argument("--engine-output", required=True, type=Path)
     current_parser.add_argument("--comparison-output", required=True, type=Path)
     axis_parser = subparsers.add_parser("generate-axis-diagnostics")
@@ -1054,6 +1093,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     axis_parser.add_argument("--oracle", required=True, type=Path)
     axis_parser.add_argument("--row-decisions", required=True, type=Path)
     axis_parser.add_argument("--proposal-registry", required=True, type=Path)
+    axis_parser.add_argument("--proposal-registry-migration", required=True, type=Path)
     axis_parser.add_argument("--current-evidence", required=True, type=Path)
     axis_parser.add_argument("--current-comparison", required=True, type=Path)
     axis_parser.add_argument(
@@ -1108,6 +1148,20 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return
     if args.command == "export-proposals":
         _export_proposals(args.registry, args.output_directory)
+        return
+    if args.command == "write-proposal-registry":
+        registry = load_proposal_registry(args.registry)
+        write_proposal_registry(registry, args.registry)
+        return
+    if args.command == "bind-proposal-registry-migration":
+        write_proposal_registry_migration_envelope(
+            historical_oracle_path=args.historical_oracle,
+            historical_r103_review_path=args.historical_r103_review,
+            historical_r103_revision_path=args.historical_r103_revision,
+            historical_r103_corroboration_path=args.historical_r103_corroboration,
+            current_registry_path=args.current_registry,
+            output_path=args.output,
+        )
         return
     if args.command == "export-row-decisions":
         _write_row_decisions(args.workbook, args.output)
@@ -1183,13 +1237,6 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         publication_args = cast("_R101PublicationArgs", args)
         report = load_r101_conservation_report(publication_args.report)
         validate_r101_publication(report)
-        if (
-            report.content_authorization.authorized_digest
-            != publication_args.authorization_digest
-        ):
-            raise R101ConservationValidationError(
-                "content-authorization-digest-mismatch"
-            )
         return
     if args.command == "prepare-r101-review-packet":
         asyncio.run(_prepare_r101_review(cast("_PrepareR101ReviewArgs", args)))

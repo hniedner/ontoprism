@@ -109,16 +109,16 @@ class CollapseVetoPolicy(_StrictModel):
             }
         )
 
-    def protected_fillers(
+    def applicable_vetoes(
         self,
         restrictions: Iterable[RoleRestriction],
         *,
         source_identity: str | None,
         concept_code: str | None,
         route_axis: Callable[[RoleRestriction], str],
-    ) -> set[tuple[str, str]]:
-        """Return exact ``(axis, broader)`` pairs protected before anchor is lost."""
-        return _protected_fillers(
+    ) -> tuple[CollapseVeto, ...]:
+        """Return exact authorized vetoes applicable to the routed live tuples."""
+        return _applicable_vetoes(
             self.entries,
             restrictions,
             source_identity=source_identity,
@@ -154,24 +154,25 @@ def _entry_applies(
     )
 
 
-def _protected_fillers(
+def _applicable_vetoes(
     entries: tuple[CollapseVeto, ...],
     restrictions: Iterable[RoleRestriction],
     *,
     source_identity: str | None,
     concept_code: str | None,
     route_axis: Callable[[RoleRestriction], str],
-) -> set[tuple[str, str]]:
+) -> tuple[CollapseVeto, ...]:
     context = _policy_context(entries, source_identity, concept_code)
     if context is None:
-        return set()
+        return ()
     rows = tuple(restrictions)
     routed = {(route_axis(row), row.filler_code) for row in rows}
     candidates = (
-        _protected_entry(entry, rows, routed, context[0], context[1], route_axis)
+        entry
         for entry in entries
+        if _protected_entry(entry, rows, routed, context[0], context[1], route_axis)
     )
-    return {candidate for candidate in candidates if candidate is not None}
+    return tuple(candidates)
 
 
 def _policy_context(
@@ -195,31 +196,27 @@ def _protected_entry(
     source_identity: str,
     concept_code: str,
     route_axis: Callable[[RoleRestriction], str],
-) -> tuple[str, str] | None:
-    if not _entry_applies(entry, source_identity, concept_code):
-        return None
-    matches = [row for row in rows if _matches_broader(entry, row, route_axis)]
-    if len(matches) > 1:
-        raise CollapsePolicyError("duplicate live collapse-veto tuple")
-    if not matches or (entry.normalized_axis, entry.narrower_code) not in routed:
-        return None
-    return entry.normalized_axis, entry.broader_code
-
-
-def _matches_broader(
-    entry: CollapseVeto,
-    row: RoleRestriction,
-    route_axis: Callable[[RoleRestriction], str],
 ) -> bool:
+    if not _entry_applies(entry, source_identity, concept_code):
+        return False
+    live_matches = [row for row in rows if _matches_live_broader(entry, row)]
+    if len(live_matches) > 1:
+        raise CollapsePolicyError("duplicate live collapse-veto tuple")
+    if not live_matches:
+        return False
+    if route_axis(live_matches[0]) != entry.normalized_axis:
+        raise CollapsePolicyError("live collapse-veto normalized axis drifted")
+    return (entry.normalized_axis, entry.narrower_code) in routed
+
+
+def _matches_live_broader(entry: CollapseVeto, row: RoleRestriction) -> bool:
     return (
         row.role_code,
         row.anchoring_genus,
-        route_axis(row),
         row.filler_code,
     ) == (
         entry.role_code,
         entry.anchoring_genus,
-        entry.normalized_axis,
         entry.broader_code,
     )
 

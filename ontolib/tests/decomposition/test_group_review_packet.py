@@ -23,7 +23,7 @@ from scripts.research.group_review_packet import (
     load_group_review_packet,
 )
 
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 
 pytestmark = pytest.mark.unit
 
@@ -55,7 +55,7 @@ def _packet() -> GroupReviewPacket:
     return build_group_review_packet(
         evidence=evidence,
         comparison=comparison,
-        r101_report=load_r101_conservation_report(_R101),
+        r101_report=load_historical_r101_review_report(_R101),
     )
 
 
@@ -100,26 +100,37 @@ def test_packet_derives_current_cohort_metrics_and_controls() -> None:
 def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> None:
     packet = _packet()
 
-    assert len(packet.concepts) == 18
+    assert tuple(item.code for item in packet.concepts) == (
+        packet.cohort.policy_evidence_codes
+    )
+    assert set(packet.cohort.full_disagreement_codes) <= set(
+        packet.cohort.policy_evidence_codes
+    )
     assert packet.schema_version == 4
     assert any(item.pair_relations.expected_not_emitted for item in packet.concepts)
     assert any(item.pair_relations.current_only_scoreable for item in packet.concepts)
-    assert {item.grouping_diagnosis.kind for item in packet.concepts} >= {
-        "agrees-on-common-pairs",
-        "over-merge",
-        "over-split",
-    }
+    assert {
+        item.code
+        for item in packet.concepts
+        if item.grouping_diagnosis.kind == "over-split"
+    } == {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    assert {
+        item.grouping_diagnosis.kind
+        for item in packet.concepts
+        if item.code not in {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    } == {"agrees-on-common-pairs"}
     a, b, c = ("op:A", "C1"), ("op:B", "C2"), ("op:C", "C3")
     assert diagnose_grouping(((a, b), (c,)), ((a, c), (b,))).kind == "misassignment"
     assert all(item.disposition.status != "accepted" for item in packet.concepts)
-    assert any(
-        (
-            item.pair_relations.expected_not_emitted
-            or item.pair_relations.current_only_scoreable
-        )
-        and item.grouping_diagnosis.kind
-        in {"over-merge", "over-split", "misassignment"}
-        for item in packet.concepts
+    assert {
+        item.concept_code
+        for item in packet.review_rows
+        if item.review_type == "grouping"
+    } == {"C27262", "C102870", "C181564", "C186620", "C162226"}
+    assert all(
+        item.review_type
+        == ("grouping" if item.grouping_diagnosis.kind == "over-split" else "pair-only")
+        for item in packet.review_rows
     )
     assert {item.disposition.status for item in packet.concepts} == {
         "human-review-pending"
@@ -138,6 +149,7 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         expected = comparison_by_code[concept.code].pair_relations
         assert concept.pair_relations == expected
         assert row.pair_relations == expected
+
         assert row.current_scoreable_group_ids == tuple(
             group.normalized_group_id for group in concept.actual_groups
         )
@@ -159,6 +171,7 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         ("C101539", "C47817"),
         ("C132677", "C40557"),
         ("C132677", "C40989"),
+        ("C132677", "C41444"),
         ("C132677", "C48322"),
         ("C100054", "C36027"),
         ("C100054", "C8326"),
@@ -170,12 +183,35 @@ def test_packet_copies_pair_relations_and_exposes_non_scoreable_occurrences() ->
         if context.relation == "expected-emitted-review-bearing"
     }
     assert expected_review <= observed_review
-    c132677 = next(item for item in packet.concepts if item.code == "C132677")
-    assert ("op:ClinicalFinding", "C41444") in (
-        c132677.pair_relations.expected_not_emitted
-    )
     c100054 = next(item for item in packet.concepts if item.code == "C100054")
     assert not c100054.pair_relations.expected_not_emitted
+
+
+def test_reviewed_stage_targets_are_exact_and_exclude_proposals() -> None:
+    packet = _packet()
+    by_code = {item.code: item for item in packet.concepts}
+
+    assert by_code["C101539"].decision_target_pair_set == (
+        ("op:StageSystem", "C140961"),
+        ("op:StageValue", "C27966"),
+    )
+    assert by_code["C115057"].decision_target_pair_set == (
+        ("op:StageSystem", "C90529"),
+        ("op:StageSystem", "C90530"),
+        ("op:StageValue", "C27966"),
+    )
+    assert by_code["C115057"].reviewed_partition == (
+        by_code["C115057"].decision_target_pair_set,
+    )
+    for code in ("C181564", "C186620", "C162226"):
+        assert by_code[code].reviewed_partition == tuple(
+            (pair,) for pair in by_code[code].decision_target_pair_set
+        )
+    assert all(
+        not filler.startswith("MINT-")
+        for concept in by_code.values()
+        for _axis, filler in concept.decision_target_pair_set
+    )
 
 
 def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
@@ -210,6 +246,15 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
                 if pair.availability == "unavailable-upstream":
                     assert pair.reason == "source-occurrence-unavailable-upstream"
                     continue
+                if pair.availability == "not-applicable-genus-fact":
+                    assert not pair.occurrences
+                    assert pair.source_facts
+                    assert all(item.kind == "genus" for item in pair.source_facts)
+                    continue
+                if pair.availability == "available-source-fact":
+                    assert not pair.occurrences
+                    assert pair.source_facts
+                    continue
                 assert pair.occurrences
                 assert pair.occurrence_ids == tuple(
                     item.occurrence_id for item in pair.occurrences
@@ -222,6 +267,30 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
                 assert all(
                     item.filler_code == pair.pair[1] for item in pair.occurrences
                 )
+
+
+def test_genus_groups_carry_fact_coordinates_without_fabricated_occurrences() -> None:
+    packet = build_group_review_packet(
+        evidence=CurrentEngineEvidence.model_validate_json(_EVIDENCE.read_bytes()),
+        comparison=CurrentComparison.model_validate_json(_COMPARISON.read_bytes()),
+        r101_report=load_historical_r101_review_report(_R101),
+    )
+    concept = next(item for item in packet.concepts if item.code == "C27262")
+    morphology = next(
+        pair
+        for group in concept.actual_groups
+        for pair in group.pairs
+        if pair.pair == ("op:Morphology", "C35501")
+    )
+
+    assert morphology.availability == "not-applicable-genus-fact"
+    assert morphology.occurrence_ids == ()
+    assert morphology.occurrences == ()
+    assert morphology.source_facts
+    assert all(item.kind == "genus" for item in morphology.source_facts)
+    assert all(
+        item.source_group_id and item.anchor_code for item in morphology.source_facts
+    )
 
 
 def test_rule_boundary_names_complete_catalog_without_fabricating_evidence() -> None:
@@ -266,7 +335,7 @@ def test_wrong_highest_fanout_normalized_partition_is_rejected() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=wrong,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
 
@@ -277,7 +346,7 @@ def test_packet_rejects_rebound_and_aliased_group_identity() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=rebound,
-            r101_report=load_r101_conservation_report(_R101),
+            r101_report=load_historical_r101_review_report(_R101),
         )
 
     packet = _packet()
@@ -344,6 +413,8 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
             "comparison.json",
             "--r101-report",
             "r101.json.gz",
+            "--historical-r101-report",
+            "historical-r101.json.gz",
             "--output",
             "packet.json",
             "--workbook",
@@ -421,9 +492,7 @@ def test_blank_workbook_has_no_machine_generated_human_text(tmp_path: Path) -> N
     sheet = book["Group Review"]
     headers = _sheet_headers(sheet)
     assert sheet.max_row - 1 == len(packet.review_rows)
-    assert len(packet.review_rows) == sum(
-        not row.full_partition.agrees for row in _inputs()[1].concepts
-    )
+    assert len(packet.review_rows) == len(packet.cohort.policy_evidence_codes)
     for name in ("Decision", "Rationale", "Reviewer", "Date"):
         assert all(
             sheet.cell(row, headers[name]).value is None
@@ -759,7 +828,9 @@ def test_import_closes_decisions_and_dry_run_reports_deferred_without_writes(
     book = load_workbook(path)
     sheet = book["Group Review"]
     sheet.cell(2, headers["Decision"], ABSTAIN)
+    sheet.cell(2, headers["Pair Decision"], ABSTAIN)
     sheet.cell(3, headers["Decision"], CORRECT)
+    sheet.cell(3, headers["Pair Decision"], CORRECT)
     book.save(path)
     registry = group_review.import_group_review_decisions(
         packet, path, tmp_path / "decisions.json"
@@ -860,17 +931,51 @@ def test_highest_fanout_generation_loads_each_authoritative_source_once(
 
 
 @pytest.mark.unit
-def test_readme_gives_exact_group_post_sme_import_and_dry_run_commands() -> None:
+def test_group_review_boundary_restores_every_output_after_generation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    outputs = (
+        tmp_path / "packet.json",
+        tmp_path / "packet.xlsx",
+        tmp_path / "audit.xlsx",
+        tmp_path / "blank-validation.json",
+    )
+    originals = {}
+    for index, output in enumerate(outputs):
+        output.write_bytes(f"original-{index}".encode())
+        originals[output] = output.read_bytes()
+
+    def fail_workbook(_path: Path, _packet: group_review.GroupReviewPacket) -> None:
+        raise OSError("injected workbook failure")
+
+    monkeypatch.setattr(group_review, "write_group_review_workbook", fail_workbook)
+
+    with pytest.raises(OSError, match="injected workbook failure"):
+        group_review.generate_group_review_boundary(
+            evidence_path=_EVIDENCE,
+            comparison_path=_COMPARISON,
+            r101_report_path=_R101,
+            output=outputs[0],
+            workbook=outputs[1],
+            correction_audit=outputs[2],
+            blank_validation=outputs[3],
+        )
+
+    assert {output: output.read_bytes() for output in outputs} == originals
+
+
+@pytest.mark.unit
+def test_readme_omits_superseded_fixed_tmp_group_review_instructions() -> None:
     readme = (_GOLDEN / "README.md").read_text(encoding="utf-8")
-    assert (
+    assert "### Group-review candidate" in readme
+    for obsolete in (
         "pdm run adjudication import-group-review --packet "
         "tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx "
         "tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output "
-        "tmp/m1-6-group-review-decisions-rev2.json"
-    ) in readme
-    assert (
+        "tmp/m1-6-group-review-decisions-rev2.json",
         "pdm run adjudication dry-run-group-review --packet "
         "tmp/m1-6-group-review-packet-rev2.json --registry "
         "tmp/m1-6-group-review-decisions-rev2.json --output "
-        "tmp/m1-6-group-review-dry-run-rev2.json"
-    ) in readme
+        "tmp/m1-6-group-review-dry-run-rev2.json",
+    ):
+        assert obsolete not in readme

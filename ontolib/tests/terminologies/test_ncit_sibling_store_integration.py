@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from scripts.decompose import _source_snapshot
+from test_support.projection import unknown_axis_diagnostic_source
 
 from ontolib.decomposition import stated_queries as stated_queries_module
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
@@ -163,6 +164,8 @@ async def _m1_walker_evidence(
             label_lookup=unexpected_label_lookup,
             source_identity="0" * 64,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
+            detector_identity="0" * 64,
             walker_max_depth=5,
         )
         outcome_evidence[code] = (candidate.semantic_types, candidate.outcome)

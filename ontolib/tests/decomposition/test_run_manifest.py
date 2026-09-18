@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
 
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
     PersistedRunMetrics,
     RunFingerprint,
     RunResumeIdentity,
+    RunStageCheckpoint,
     RunSummary,
     WorkItemOutcome,
+)
+from ontolib.decomposition.semantic_identity import (
+    ROUTING_IMPLEMENTATION_FILES,
+    routing_implementation_identity,
 )
 
 
@@ -21,6 +29,9 @@ def _fingerprint(**updates: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
+        "routing_implementation_identity": "1" * 64,
+        "mixed_chain_inventory_identity": "2" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -39,6 +50,141 @@ def _fingerprint(**updates: object) -> RunFingerprint:
 
 
 @pytest.mark.unit
+def test_routing_identity_binds_declared_semantic_bytes_but_not_unrelated_files(
+    tmp_path: Path,
+) -> None:
+    inventory = (Path("route.py"), Path("detector.py"))
+    for path, content in ((inventory[0], b"route-v1"), (inventory[1], b"detect-v1")):
+        (tmp_path / path).write_bytes(content)
+    unrelated = tmp_path / "unrelated.py"
+    unrelated.write_bytes(b"unrelated-v1")
+
+    original = routing_implementation_identity(tmp_path, inventory=inventory)
+    unrelated.write_bytes(b"unrelated-v2")
+    assert routing_implementation_identity(tmp_path, inventory=inventory) == original
+
+    (tmp_path / inventory[0]).write_bytes(b"route-v2")
+    assert routing_implementation_identity(tmp_path, inventory=inventory) != original
+
+
+@pytest.mark.unit
+def test_routing_identity_inventory_is_versioned_and_covers_route_semantics() -> None:
+    required = (
+        Path("ontolib/src/ontolib/decomposition/axes.py"),
+        Path("ontolib/src/ontolib/decomposition/axis_contracts.py"),
+        Path("ontolib/src/ontolib/decomposition/branches.py"),
+        Path("ontolib/src/ontolib/decomposition/collapse_policy.py"),
+        Path("ontolib/src/ontolib/decomposition/complete_definition.py"),
+        Path("ontolib/src/ontolib/decomposition/detector.py"),
+        Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
+        Path("ontolib/src/ontolib/decomposition/models.py"),
+        Path("ontolib/src/ontolib/decomposition/normalized_group_policy.py"),
+        Path("ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"),
+        Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
+        Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
+    )
+    assert required == ROUTING_IMPLEMENTATION_FILES
+    assert len(routing_implementation_identity()) == 64
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["empty", "duplicate", "absolute"])
+def test_routing_identity_rejects_ambiguous_or_escaping_inventory(
+    mode: str, tmp_path: Path
+) -> None:
+    tracked = Path("ontolib/src/ontolib/decomposition/axes.py")
+    inventory = {
+        "empty": (),
+        "duplicate": (tracked, tracked),
+        "absolute": (tmp_path.resolve(),),
+    }[mode]
+    with pytest.raises(ValueError, match=r"unique and nonempty|must be relative"):
+        routing_implementation_identity(tmp_path, inventory=inventory)
+
+
+@pytest.mark.unit
+def test_stage_checkpoint_requires_fenced_identity_bound_state_shapes() -> None:
+    running = RunStageCheckpoint(
+        run_id="run-1",
+        stage="residual-classification",
+        ordinal=2,
+        state="running",
+        attempt_count=1,
+        claim_token=UUID("00000000-0000-0000-0000-000000000001"),
+        input_identity="a" * 64,
+        started_at=datetime.datetime(2026, 9, 9, tzinfo=datetime.UTC),
+    )
+    assert running.output_identity is None
+
+    with pytest.raises(ValidationError, match="complete stage requires output"):
+        RunStageCheckpoint.model_validate(
+            running.model_dump()
+            | {
+                "state": "complete",
+                "claim_token": None,
+                "finished_at": datetime.datetime(2026, 9, 9, tzinfo=datetime.UTC),
+            }
+        )
+
+    with pytest.raises(ValidationError, match="pending stage cannot bind an attempt"):
+        RunStageCheckpoint.model_validate(running.model_dump() | {"state": "pending"})
+
+
+@pytest.mark.unit
+def test_stage_checkpoint_reject_branches_preserve_each_state_invariant() -> None:
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.UTC)
+    pending = {
+        "run_id": "run-1",
+        "stage": "preflight",
+        "ordinal": 0,
+        "state": "pending",
+        "attempt_count": 0,
+    }
+    running = {
+        "run_id": "run-1",
+        "stage": "preflight",
+        "ordinal": 0,
+        "state": "running",
+        "attempt_count": 1,
+        "claim_token": UUID(int=1),
+        "input_identity": "a" * 64,
+        "started_at": now,
+    }
+    complete = {
+        **running,
+        "state": "complete",
+        "claim_token": None,
+        "output_identity": "b" * 64,
+        "output_payload": {"allowed": True},
+        "finished_at": now,
+    }
+    failed = {
+        **running,
+        "state": "failed",
+        "claim_token": None,
+        "failed_at": now,
+        "error_type": "RuntimeError",
+        "error_message": "failed",
+    }
+    assert RunStageCheckpoint.model_validate(pending).state == "pending"
+    assert RunStageCheckpoint.model_validate(complete).state == "complete"
+    assert RunStageCheckpoint.model_validate(failed).state == "failed"
+
+    invalid = (
+        ({**running, "claim_token": None}, "running stage requires"),
+        ({**running, "output_identity": "b" * 64}, "running stage cannot carry"),
+        ({**complete, "error_type": "RuntimeError"}, "complete stage cannot carry"),
+        ({**failed, "output_payload": {}}, "failed stage cannot carry"),
+        ({**running, "ordinal": 1}, "ordinal does not match"),
+        ({**running, "attempt_count": 0}, "attempted stage requires"),
+        ({**complete, "claim_token": UUID(int=1)}, "terminal stage cannot retain"),
+    )
+    for values, message in invalid:
+        with pytest.raises(ValidationError, match=message):
+            RunStageCheckpoint.model_validate(values)
+
+
+@pytest.mark.unit
 def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     original = _fingerprint()
     equivalent = RunFingerprint.model_validate_json(original.model_dump_json())
@@ -46,7 +192,7 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     assert equivalent.identity == original.identity
     assert (
         original.identity
-        == "9b7abb633d44fe1b5189f954332eff57c425d46c30bade9450de473a2b0818f5"
+        == "16b596795b1af283dfe300c08a50554c5458b32ce38c84414367f688e62a1736"
     )
     assert len(original.identity) == 64
 
@@ -364,6 +510,7 @@ def _completion_metrics(**updates: object) -> CompletionRunMetrics:
         "atomic_noop": 1,
         "unknown_outcome": 0,
         "residual_precoordinated_count": 2,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.4,
         "minted_count": 0,
         "complete_definition_count": 5,
@@ -420,3 +567,32 @@ def test_completion_metrics_bound_residual_precoordination_by_decomposed() -> No
     """D37's numerator counts decomposed concepts, so it cannot exceed them."""
     with pytest.raises(ValidationError, match="residual count exceeds decomposed"):
         _completion_metrics(residual_precoordinated_count=6)
+
+
+@pytest.mark.unit
+def test_completion_metrics_preserve_an_unclassifiable_residual_result() -> None:
+    metrics = _completion_metrics(
+        residual_precoordination_unknown_count=2,
+        residual_precoordination=None,
+    )
+
+    assert metrics.residual_precoordination_unknown_count == 2
+    assert metrics.residual_precoordination is None
+
+
+@pytest.mark.unit
+def test_completion_metrics_require_a_rate_when_all_fillers_are_classified() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="rate is required when all fillers are classifiable",
+    ):
+        _completion_metrics(residual_precoordination=None)
+
+
+@pytest.mark.unit
+def test_completion_metrics_reject_a_rate_when_residual_results_are_unknown() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="rate must be unavailable when fillers are unclassifiable",
+    ):
+        _completion_metrics(residual_precoordination_unknown_count=1)

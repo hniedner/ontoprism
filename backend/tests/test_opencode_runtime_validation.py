@@ -504,6 +504,11 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("pdm run agent-git switch-new feat/x", "allow"),
         ("pdm run agent-replay decompose-current", "allow"),
         (
+            "pdm run agent-replay decompose-current-resume "
+            "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
+            "deny",
+        ),
+        (
             "pdm run agent-git commit-staged --message test:change",
             "allow",
         ),

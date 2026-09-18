@@ -18,6 +18,7 @@ from ontolib.decomposition.axes import (
     is_excluded_role,
     is_in_scope,
     is_lineage_generic,
+    is_projectable_role,
 )
 from ontolib.decomposition.models import RoleRestriction
 
@@ -74,6 +75,14 @@ def test_defining_role_excludes_negative_axioms() -> None:
     negative = RoleRestriction("R109", "C12345", "Disease_Excludes_Abnormal_Cell")
     assert is_defining_role(positive)
     assert not is_defining_role(negative)
+
+
+@pytest.mark.unit
+def test_unknown_role_is_nondefining_without_losing_projectability() -> None:
+    unknown = RoleRestriction("R999", "C1", "Disease_Has_Unknown")
+
+    assert is_projectable_role(unknown)
+    assert not is_defining_role(unknown)
 
 
 @pytest.mark.unit

@@ -16,15 +16,19 @@ from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
     STAGE_CLASSIFICATION_VERSION,
     STAGE_SYSTEM_CODES,
-    comparison_filler_codes,
+    RoutedOccurrence,
+    _disposition,
+    _reduce_routed_plan,
+    build_routed_plan,
     filter_excluded,
     most_specific,
     route_axis,
 )
-from ontolib.decomposition.filler_selection import (
-    select_constituents as _select_constituents,
+from ontolib.decomposition.models import (
+    OccurrenceDisposition,
+    RoleRestriction,
+    SpecificityPathEdge,
 )
-from ontolib.decomposition.models import RoleRestriction
 from ontolib.decomposition.site_resolution import (
     MORPHOLOGY_TO_ORGAN,
     MORPHOLOGY_TO_PRIMARY_SUBSITES,
@@ -33,12 +37,161 @@ from ontolib.decomposition.site_resolution import (
 
 def select_constituents(*args: Any, **kwargs: Any):
     """Exercise ordinary selection with the explicit no-veto policy."""
-    return _select_constituents(
-        *args,
-        **kwargs,
+    restrictions, is_ancestor = args
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
         source_identity=None,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
+    return list(
+        _reduce_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {
+                "kind": "retained-routed",
+                "retained_filler": "C20",
+                "r82_part": None,
+                "r82_whole": None,
+            },
+            "retained filler equality",
+        ),
+        (
+            {"r82_part": "C21"},
+            "directed endpoints",
+        ),
+        (
+            {
+                "kind": "retained-routed",
+                "retained_filler": "C30",
+                "r82_part": None,
+                "r82_whole": None,
+                "policy_decision_identity": "3" * 64,
+            },
+            "policy decision identity presence",
+        ),
+        (
+            {
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                )
+            },
+            "only mixed collapse",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (),
+            },
+            "both specificity edge kinds",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C40",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C25",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "does not start at source filler",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C25",
+                        narrower_code="C40",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "does not end at retained filler",
+        ),
+        (
+            {
+                "kind": "collapsed-mixed",
+                "r82_part": None,
+                "r82_whole": None,
+                "specificity_path": (
+                    SpecificityPathEdge(
+                        kind="is-a",
+                        broader_code="C30",
+                        narrower_code="C25",
+                        source_identity="4" * 64,
+                    ),
+                    SpecificityPathEdge(
+                        kind="r82",
+                        broader_code="C26",
+                        narrower_code="C20",
+                        source_identity="4" * 64,
+                    ),
+                ),
+            },
+            "not contiguous",
+        ),
+    ],
+)
+def test_occurrence_disposition_rejects_impossible_domain_states(
+    changes: dict[str, object], message: str
+) -> None:
+    payload: dict[str, object] = {
+        "kind": "collapsed-r82",
+        "source_occurrence_id": "1" * 64,
+        "source_fact_id": "2" * 64,
+        "normalized_axis": "op:PrimarySite",
+        "source_filler": "C30",
+        "retained_filler": "C20",
+        "semantic_route": "p106-organ",
+        "semantic_type": "Body Part, Organ, or Organ Component",
+        "r82_part": "C20",
+        "r82_whole": "C30",
+        "policy_decision_identity": None,
+    }
+    payload.update(changes)
+
+    with pytest.raises(ValueError, match=message):
+        OccurrenceDisposition(**payload)  # type: ignore[arg-type]
 
 
 # A tiny fake hierarchy: (ancestor, descendant) pairs. Endocrine Gland and Neck are
@@ -60,6 +213,21 @@ def _is_ancestor(a: str, b: str) -> bool:
 
 def _roles(*pairs: tuple[str, str, str]) -> list[RoleRestriction]:
     return [RoleRestriction(code, filler, label) for code, filler, label in pairs]
+
+
+@pytest.mark.unit
+def test_projectable_occurrence_without_source_identities_fails_closed() -> None:
+    occurrence = RoutedOccurrence(
+        restriction=RoleRestriction("R101", "C12400", source_kind="stated"),
+        normalized_axis=PRIMARY_SITE_AXIS,
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        source_fact_id=None,
+        source_occurrence_id=None,
+    )
+
+    with pytest.raises(ValueError, match="source occurrence and fact identities"):
+        _disposition(occurrence, {}, {})
 
 
 @pytest.mark.unit
@@ -251,7 +419,13 @@ def test_comparison_fillers_respect_routing_and_lineage_exemption() -> None:
         RoleRestriction("R101", "C12705", anchoring_genus="C3010"),
     ]
 
-    assert comparison_filler_codes(restrictions) == ["C12400", "C12401"]
+    plan = build_routed_plan(
+        restrictions,
+        concept_code=None,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    assert plan.specificity_groups == ((PRIMARY_SITE_AXIS, ("C12400", "C12401")),)
 
 
 @pytest.mark.unit
@@ -337,9 +511,7 @@ def test_most_specific_flag_is_per_filler_not_axis_aggregate() -> None:
 
 
 @pytest.mark.unit
-def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
-    # A pathological cycle (A ancestor of B AND B ancestor of A) must not silently drop
-    # the whole axis — keep both and flag for curation.
+def test_cyclic_hierarchy_fails_closed() -> None:
     def cyclic(a: str, b: str) -> bool:
         return {(a, b), (b, a)} & {("C1001", "C1002"), ("C1002", "C1001")} != set()
 
@@ -347,9 +519,8 @@ def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
         ("R101", "C1001", "Disease_Has_Primary_Anatomic_Site"),
         ("R101", "C1002", "Disease_Has_Primary_Anatomic_Site"),
     )
-    constituents = select_constituents(restrictions, cyclic)
-    assert {c.filler_code for c in constituents} == {"C1001", "C1002"}
-    assert all(c.needs_review for c in constituents)
+    with pytest.raises(ValueError, match=r"cycle|mutually broader"):
+        select_constituents(restrictions, cyclic)
 
 
 @pytest.mark.unit
@@ -587,7 +758,8 @@ def test_coequal_nonnested_leaves_share_a_group_and_are_not_review() -> None:
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     assert {c.axis for c in cons} == {ASSOCIATED_REGION_AXIS}
     assert all(
-        c.group == ASSOCIATED_REGION_AXIS and c.needs_review is False for c in cons
+        c.axis_ambiguity_group_id == ASSOCIATED_REGION_AXIS and c.needs_review is False
+        for c in cons
     )
 
 
@@ -596,7 +768,7 @@ def test_single_filler_axis_has_no_group() -> None:
     assert (
         select_constituents(
             [RoleRestriction("R88", "C27970", "Disease_Is_Stage")], lambda a, b: False
-        )[0].group
+        )[0].axis_ambiguity_group_id
         is None
     )
 
@@ -619,7 +791,9 @@ def test_lineage_leaves_are_ungrouped_without_source_group_evidence() -> None:
     ]
     cons = select_constituents(r, lambda a, b: False)
     assert {c.axis for c in cons} == {ASSOCIATED_LINEAGE_AXIS}
-    assert all(c.group is None and c.needs_review is False for c in cons)
+    assert all(
+        c.axis_ambiguity_group_id is None and c.needs_review is False for c in cons
+    )
 
 
 @pytest.mark.unit
@@ -639,7 +813,7 @@ def test_r82_partonomy_does_not_collapse_or_group_lineage_classifiers() -> None:
         (ASSOCIATED_LINEAGE_AXIS, "C12704"),
         (ASSOCIATED_LINEAGE_AXIS, "C12705"),
     }
-    assert all(item.group is None for item in constituents)
+    assert all(item.axis_ambiguity_group_id is None for item in constituents)
 
 
 @pytest.mark.unit
@@ -658,7 +832,7 @@ def test_semantic_type_ranking_one_organ_one_region() -> None:
     assert by_filler["C12400"].needs_review is False
     assert by_filler["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert by_filler["C12418"].needs_review is False
-    assert by_filler["C12418"].group is None
+    assert by_filler["C12418"].axis_ambiguity_group_id is None
 
 
 @pytest.mark.unit
@@ -674,7 +848,7 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     assert {c.axis for c in cons} == {PRIMARY_SITE_AXIS}
     assert all(c.needs_review for c in cons)
-    assert all(c.group is None for c in cons)
+    assert {c.axis_ambiguity_group_id for c in cons} == {PRIMARY_SITE_AXIS}
 
 
 @pytest.mark.unit
@@ -942,7 +1116,8 @@ def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None
         if constituent.axis == ASSOCIATED_REGION_AXIS
     ]
     assert all(
-        constituent.group is None and constituent.needs_review is False
+        constituent.axis_ambiguity_group_id is None
+        and constituent.needs_review is False
         for constituent in regions
     )
 
@@ -1177,7 +1352,7 @@ def test_multiple_stage_systems_are_grouped_and_not_flagged() -> None:
     assert len(stage_sys) == 2
     assert {c.filler_code for c in stage_sys} == {"C90529", "C90530"}
     assert all(c.needs_review is False for c in stage_sys)
-    assert all(c.group == "op:StageSystem" for c in stage_sys)
+    assert all(c.axis_ambiguity_group_id == "op:StageSystem" for c in stage_sys)
 
 
 @pytest.mark.unit
@@ -1207,3 +1382,40 @@ def test_stage_system_code_value_routes_r88_to_distinct_normalized_axes() -> Non
     sys_fillers = {c.filler_code for c in cons if c.axis == "op:StageSystem"}
     assert r88_fillers == {"C27970"}
     assert sys_fillers == {"C90530"}
+
+
+def _routes(
+    restriction: RoleRestriction, *, parent_morphology: str
+) -> list[tuple[str, str]]:
+    plan = build_routed_plan(
+        [restriction],
+        parent_morphologies=(parent_morphology,),
+        concept_code=None,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    return [(row.normalized_axis, row.semantic_route) for row in plan.occurrences]
+
+
+@pytest.mark.unit
+def test_primary_subsite_override_applies_to_the_primary_site_role_only() -> None:
+    """Bronchus (C12683) is a reviewed *primary* subsite of lung carcinoma (C4878)."""
+    primary = _routes(RoleRestriction("R101", "C12683"), parent_morphology="C4878")
+    associated = _routes(RoleRestriction("R100", "C12683"), parent_morphology="C4878")
+
+    assert primary == [("op:PrimarySubsite", "reviewed-primary-subsite")]
+    assert associated, "the associated-site restriction must still be routed"
+    assert all(
+        axis != "op:PrimarySubsite" and route != "reviewed-primary-subsite"
+        for axis, route in associated
+    )
+
+
+@pytest.mark.unit
+def test_lineage_routing_outranks_the_primary_subsite_override() -> None:
+    routes = _routes(
+        RoleRestriction("R101", "C12683", anchoring_genus="C3010"),
+        parent_morphology="C4878",
+    )
+
+    assert routes == [(ASSOCIATED_LINEAGE_AXIS, "reviewed-lineage")]

@@ -75,6 +75,18 @@ def test_single_site_role_plus_parent_morphology_qualifies() -> None:
 
 
 @pytest.mark.unit
+def test_unknown_role_preserves_candidate_eligibility_without_becoming_defining() -> (
+    None
+):
+    roles = _roles(("R999", "C12400", "Disease_Has_Unknown"))
+
+    result = detect("C1", ["Neoplastic Process"], roles, has_parent_morphology=True)
+
+    assert result.defining_role_count == 0
+    assert result.is_precoordinated
+
+
+@pytest.mark.unit
 def test_excludes_roles_do_not_count_toward_the_gate() -> None:
     roles = _roles(
         ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),

@@ -20,6 +20,7 @@ from backend.api.v1.icdo import (
 )
 from backend.api.v1.ncit import ConceptMappings
 from backend.api.v1.refresh import RefreshReport
+from ontolib.decomposition.read_models import ConceptDecomposition
 from ontolib.repositories.cadsr.models import CdeSearchPage
 from ontolib.repositories.icdo.models import (
     IcdoAxis,
@@ -346,3 +347,11 @@ def test_double_licensed_mappings_require_capability_and_entitlement(
         "8241/3",
         "8248/1",
     ]
+
+
+def test_double_decomposition_serves_every_field_production_serializes() -> None:
+    response = TestClient(app).get("/api/v1/ncit/concepts/C3262/decomposition")
+
+    production = ConceptDecomposition.model_validate_json(response.text)
+
+    assert response.json() == production.model_dump(mode="json")

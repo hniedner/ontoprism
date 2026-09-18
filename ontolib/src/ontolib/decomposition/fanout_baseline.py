@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticSource,
+    read_axis_diagnostic_source,
+)
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.models import RestrictionDefinitionFact
@@ -388,6 +392,9 @@ class _CountingClient:
 async def rerun_fanout_concept(
     client: FanoutClient,
     concept_code: str,
+    diagnostic_source: AxisDiagnosticSource,
+    *,
+    source_identity: str,
 ) -> FanoutRerun:
     """Run one observed maximum through the unchanged production decomposition path."""
     counted = _CountingClient(client)
@@ -400,8 +407,10 @@ async def rerun_fanout_concept(
         cast("DecompositionSparqlClient", counted),
         label=None,
         label_lookup=no_label_match,
-        source_identity="0" * 64,
+        source_identity=source_identity,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=diagnostic_source,
+        detector_identity="0" * 64,
     )
     if result.decomposition is None:
         raise ValueError(f"highest-fanout concept {concept_code} did not decompose")
@@ -435,8 +444,12 @@ async def generate_fanout_baseline(
     for query in build_fanout_discovery_queries():
         discovery_rows.extend(await client.select(query))
     observation = highest_fanout_from_discovery_rows(codes, discovery_rows)
+    diagnostic_source = await read_axis_diagnostic_source(client, source_identity)
     reruns = [
-        await rerun_fanout_concept(client, code) for code in observation.concept_codes
+        await rerun_fanout_concept(
+            client, code, diagnostic_source, source_identity=source_identity
+        )
+        for code in observation.concept_codes
     ]
     fact_count, logical_budget, r82_budget = _validated_rerun_counts(
         observation, reruns

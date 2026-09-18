@@ -369,6 +369,10 @@ export interface DecompositionConstituent {
 	filler_label: string | null;
 	axis_source: string;
 	most_specific: boolean;
+	axis_ambiguity_group_id: string | null;
+	source_group_ids: string[];
+	normalized_group_id: string | null;
+	normalized_group_label: string | null;
 }
 
 export interface ConceptDecomposition {

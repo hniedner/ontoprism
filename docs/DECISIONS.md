@@ -7,6 +7,40 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-14 — normalized relationship groups remain source-bound and review-scoped
+
+### D87. Group correction is additive, source-bound, pair-preserving, and separately governed
+
+**Decision:** normalized projection groups are a separate plane from source structural groups and
+axis-ambiguity groups. Policy rows preserve the tracked historical expected and observed partitions,
+exact pair-level source facts and coordinates, and the historical reviewer/date/rationale identity
+(`pdm run agent-test ontolib/tests/decomposition/test_normalized_group_policy.py -v`). Human review
+governs only its exact StageSystem/StageValue target subset. C181564, C186620, and C162226 retain the
+reviewed singleton partition; the eight reviewed rows whose exact historical partition keeps stage
+method and value together retain one shared stage block. Other pairs remain machine/source-derived
+and carry no human identity (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_historical_stage_review_preserves_exact_separate_and_together_partitions
+-v`).
+
+C27262 and C102870 retain their historical `Abstain / escalate` records. Their disputed morphology
+pairs are explicitly unresolved and therefore have neither a normalized group ID nor a human or
+machine decision identity; their pair membership and exact NCIt 26.07d source evidence remain
+available (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_c27262_source_evidence_partitions_each_final_axis_without_conflation
+-v`). The `unavailable_historical_artifact` records only status `not-retained`, the expected historical
+digest, run/family, overwrite reason, and evidentiary use `none`; it is not a parent binding and cannot
+supply evidence bytes (`pdm run agent-test
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_unavailable_prechange_metadata_is_self_contained
+-v`).
+
+HL7 mCODE Cancer Stage 4.0.0 STU4 distinguishes the staging system in `method` from the stage in
+`value[x]` within one assessment
+(https://hl7.org/fhir/us/mcode/STU4/StructureDefinition-mcode-cancer-stage.html, retrieved
+2026-09-15). This corroborates retaining distinct StageSystem and StageValue axes; it does not
+prescribe OntoPrism normalized group IDs, and it does not make either a together or separate
+OntoPrism partition source-mandated. Fresh bounded artifacts acquire their path, manifest identity,
+and byte digests only after generation; this decision intentionally predeclares none.
+
 ## 2026-09-04 — OntoPrism separates its ontology-platform target from its current NCIt product
 
 ### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
@@ -126,6 +160,17 @@ those claims, and OntoPrism never assigns adoption to NCI. D60 remains authorita
 enhancement: this decision **qualifies D60** and **does not supersede D60**. The exact lifecycle
 vocabulary and current model divergence belong to [#304](https://github.com/hniedner/ontoprism/issues/304);
 this decision neither enumerates a replacement lifecycle nor claims convergence is implemented.
+
+**Implemented lifecycle amendment (2026-09-07; #304):** proposal-registry schema 2 now uses
+exactly `proposed`, `locally-approved`, `submitted`, `accepted-in-ncit`, and `rejected`.
+`accepted-in-ncit` requires typed evidence from an identified certified official NCIt release;
+local approval remains distinct and no migration infers adoption. The append-only schema-1-to-2
+binding preserves the historical human evidence as immutable inputs while the active registry
+loader rejects schema 1. This implements D86's current lifecycle boundary without implementing
+#313 transitions, #314 publication/crosswalk redesign, #311 per-assertion review, or
+correction-aware reconciliation (`pdm run agent-test
+ontolib/tests/decomposition/test_proposal_registry.py
+ontolib/tests/decomposition/test_proposal_registry_migration.py -v`, 2026-09-07).
 
 The Metathesaurus-interoperability target is a typed, evidence-bearing mapping and link-out
 capability, not a claim that OntoPrism is NCI Metathesaurus. Every relation binds the endpoint
@@ -357,6 +402,32 @@ Machine readiness may mark only the R103 requirement satisfied; group review, R1
 and final scientific acceptance/publication remain separate human requirements, so overall
 authorization remains false.
 
+**C2860 specificity resolution (2026-09-07):** the accountable user selected
+`qualify-global-most-specific-claim` for `C2860/R103/C12950`. `C12950` remains the
+source-supported effective filler, and none of the 16 named stated descendants enumerated beneath
+`C12950` in NCIt `26.07d` is a better normal-tissue-origin filler. That bounded
+comparison does not establish global NCIt optimality, so the prior rationale's claim that `C12950`
+is the globally most-specific available NCIt tissue-origin filler is withdrawn rather than carried
+into the effective rationale. The selected artifact binds the prior decision, candidate set,
+specificity target, and unchanged applied-policy report; it creates no correction proposal, infers
+no NCI adoption, and records software only as transcriber
+(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
+
+Two literature records provide context for adrenal-rest-tumour origin without deciding the NCIt
+candidate comparison: Claahsen-van der Grinten et al., “Testicular adrenal rest tumours in
+congenital adrenal hyperplasia,” PMID
+[19500764](https://pubmed.ncbi.nlm.nih.gov/19500764/),
+doi:[10.1016/j.beem.2008.09.007](https://doi.org/10.1016/j.beem.2008.09.007), and Schröder et al.,
+“Transcriptional comparison of testicular adrenal rest tumors with fetal and adult tissues,” PMID
+[36047744](https://pubmed.ncbi.nlm.nih.gov/36047744/),
+doi:[10.1530/EJE-22-0143](https://doi.org/10.1530/EJE-22-0143). Citation metadata was retrieved from
+the NCBI PubMed ESummary endpoints for
+[19500764](https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=19500764&retmode=json)
+and
+[36047744](https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=36047744&retmode=json)
+(`GET` of each linked ESummary URL, 2026-09-07). These references are corroborating context, not an
+AI recommendation, a candidate-selection verdict, or evidence of global NCIt specificity.
+
 ## 2026-08-22 — Python domain values and wire documents have separate model systems
 
 ### D79. Dataclasses model domain values; Pydantic models validate boundaries
@@ -473,7 +544,7 @@ its count is derived from those rows rather than accepted as an independent scal
 
 Mechanical completion, content authorization, and publication eligibility are independent states.
 The tracked report currently records `complete`, `pending`, and `blocked`, respectively
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
 2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
 review remains a final M1.6 milestone decision before publication.
 
@@ -576,6 +647,29 @@ two reported high advisories are resolved at patched transitive versions, and op
 `fsevents` install scripts are explicitly denied rather than silently approved
 (`npm audit --prefix frontend --json` and `npm install-scripts ls --prefix frontend`,
 2026-08-14).
+
+**Current-status addition (2026-09-06):** `MachineReadinessReport` schema 2 now emits
+all five canonical metric names with their denominator rules, represents strict M1.6
+improvement and #44's inclusive 0.9 indicators separately, and carries the closed
+semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
+states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
+2026-09-06). A zero delta from the R101-isolated comparison remains not evaluated for
+total full-corpus classification; primary-site cardinality and unexplained R101 loss
+are evaluated from their identity-bound evidence, while #274 owns the deferred axis,
+normalized-group, and golden-cohort detectors and #127 owns total delta classification
+(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
+2026-09-06). The current high-severity npm audit reports no vulnerabilities
+(`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
+
+**Current-status addition (2026-09-11):** `MachineReadinessReport` schema 3 and the R101
+conservation schema 4 no longer conflate complete enumeration with causal explanation. The exact
+v4→v5 pair certifies all 43,414 R101 occurrences and enumerates all 79,393 typed non-R101 delta
+rows exactly once, while explanation remains `incomplete`, semantic isolation remains
+`partial-unqualified`, execution comparability remains `unqualified`, causal attribution is
+prohibited, authorization is pending, and publication is blocked
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-11). Inventory completeness is therefore evidence that the bounded populations were
+exhaustively represented, not evidence that the treatment caused any observed delta.
 
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 
@@ -1216,6 +1310,33 @@ can expose systematic loss outside the small golden cohort.
 ## 2026-08-02 — missing concepts and relations remain typed proposals
 
 ### D57. Proposal governance is source-bound, duplicate-checked, and non-promoting
+
+**Current-status correction (2026-09-07; #304):** proposal-registry schema 2 replaces
+the historical lifecycle spelling below with the exact closed set `proposed`,
+`locally-approved`, `submitted`, `accepted-in-ncit`, and `rejected`; persisted missing,
+legacy `accepted`, `review-required`, and malformed values are invalid. The separate SME
+adjudication `DecisionStatus.accepted` is not a proposal lifecycle value and remains unchanged
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_proposal_status_is_the_exact_closed_lifecycle ontolib/tests/decomposition/test_proposal_registry.py::test_persisted_registry_rejects_missing_legacy_and_malformed_status ontolib/tests/decomposition/test_golden_review.py::test_scorable_view_uses_accepted_decisions_and_retains_review_exclusions -v`,
+2026-09-07).
+
+`accepted-in-ncit` is structurally valid only with typed adoption evidence that identifies a
+certified official NCIt release by release, source/artifact/manifest fingerprints and
+certification profile/evidence identity; binds the exact adopted concept or relation assertion;
+and identifies its adoption provenance. Its replacement concept code or relation IRI/version
+must match that evidence. Every nonterminal status forbids both replacement and adoption-evidence
+fields (`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_terminal_concept_requires_matching_replacement_and_adoption_evidence ontolib/tests/decomposition/test_proposal_registry.py::test_terminal_relation_requires_correlated_identity_version_and_evidence ontolib/tests/decomposition/test_proposal_registry.py::test_nonterminal_proposals_forbid_adoption_evidence -v`,
+2026-09-07). No current proposal-registry software transition assigns `accepted-in-ncit`
+(`git grep -n 'status.*accepted-in-ncit' -- ontolib/src scripts`, which returns only validation,
+comparison, and SQL-policy literals and no assignment, 2026-09-07). The tracked registry contains
+two `locally-approved` and five `proposed` records, with no terminal record
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_tracked_proposal_registry_remains_valid -v`,
+2026-09-07).
+
+This correction supplies only the minimal terminal-state evidence invariant. #313 owns evidence
+intake, lifecycle history, and transitions; #314 owns publication, crosswalk, and accepted-
+replacement redesign; #311 owns per-assertion review. It does not unify `enhanced_showcase`, add a
+proposal-level `review-required` state, implement correction reconciliation, or resolve D86's
+stable enhanced-code design.
 
 Issue #57 exposed two separate gaps that the former qualifier-only mint record could not
 represent safely: a missing atomic NCIt concept and an overloaded NCIt source role that

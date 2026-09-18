@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from openpyxl import load_workbook
 from scripts.adjudication import _parser
 
 from ontolib.decomposition import r103_review_promotion
@@ -15,7 +14,6 @@ from ontolib.decomposition.axes import (
     is_unsupported_filler,
 )
 from ontolib.decomposition.r103_review import R103ReviewValidationError
-from ontolib.decomposition.r103_review_promotion import load_r103_corroboration
 
 GOLDEN = Path(__file__).with_name("golden")
 REV1 = GOLDEN / "r103-review-state-26.07d.json"
@@ -73,48 +71,10 @@ def _revision_api() -> tuple[Any, Any, Any, Any]:
     return prepare, transcribe, promote, loader
 
 
-def _build_revision(tmp_path: Path):
-    prepare, transcribe, promote, loader = _revision_api()
-    blank = tmp_path / "r103-revision-blank.xlsx"
-    reviewed = tmp_path / "r103-revision-transcribed.xlsx"
-    registry = tmp_path / "r103-revision-decisions.json"
-    dry_run = tmp_path / "r103-revision-dry-run.json"
-    output = tmp_path / "r103-review-state-26.07d-rev2.json"
-    prepare(predecessor_path=REV1, output_workbook_path=blank)
-    transcribe(
-        predecessor_path=REV1,
-        blank_workbook_path=blank,
-        output_workbook_path=reviewed,
-        assertion=ASSERTION,
-        outcome=OUTCOME,
-        rationale=RATIONALE,
-        reviewer=REVIEWER,
-        review_date=REVIEW_DATE,
-    )
-    revision = promote(
-        predecessor_path=REV1,
-        reviewed_workbook_path=reviewed,
-        oracle_path=GOLDEN / "neoplasm-adjudicated.json",
-        proposal_registry_path=GOLDEN / "proposal-registry.json",
-        qualification=QUALIFICATION,
-        output_registry_path=registry,
-        output_dry_run_path=dry_run,
-        output_path=output,
-    )
-    return revision, output, blank, reviewed, registry, dry_run, loader
-
-
 @pytest.mark.unit
-def test_governed_revision_transcribes_exact_human_decision_and_binds_predecessor(
-    tmp_path: Path,
-) -> None:
-    rev1_before = REV1.read_bytes()
-    revision, _output, blank, reviewed, _registry, _dry_run, _loader = _build_revision(
-        tmp_path
-    )
-
-    assert REV1.read_bytes() == rev1_before
-    assert blank.read_bytes() != reviewed.read_bytes()
+def test_historical_revision_preserves_exact_human_decision_and_predecessor() -> None:
+    _prepare, _transcribe, _promote, loader = _revision_api()
+    revision = loader(REV2)
     assert revision.predecessor_artifact_identity == (
         "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a"
     )
@@ -140,23 +100,13 @@ def test_governed_revision_transcribes_exact_human_decision_and_binds_predecesso
     )
     assert revision.packet == revision.predecessor.packet
 
-    book = load_workbook(reviewed, data_only=False, keep_links=False)
-    bindings = {
-        row[0].value: row[1].value
-        for row in book["Bindings"].iter_rows(min_row=2, max_col=2)
-    }
-    assert bindings["packet_identity"] == revision.packet.packet_identity
-    assert bindings["source_identity"] == revision.packet.source_identity
-
 
 @pytest.mark.unit
-def test_revision_is_exact_write_free_effective_decision_state(tmp_path: Path) -> None:
+def test_historical_revision_is_exact_write_free_effective_decision_state() -> None:
     oracle = GOLDEN / "neoplasm-adjudicated.json"
     proposals = GOLDEN / "proposal-registry.json"
     before = (oracle.read_bytes(), proposals.read_bytes())
-    revision, _output, _blank, _reviewed, _registry, _dry_run, _loader = (
-        _build_revision(tmp_path)
-    )
+    revision = r103_review_promotion.load_r103_promoted_review_revision(REV2)
 
     assert tuple(
         (row.subject_code, row.outcome) for row in revision.registry.decisions
@@ -212,10 +162,9 @@ def test_revision_is_exact_write_free_effective_decision_state(tmp_path: Path) -
 def test_revision_loader_rejects_tampering_even_with_recomputed_outer_identity(
     tmp_path: Path, mutation: str
 ) -> None:
-    _revision, output, _blank, _reviewed, _registry, _dry_run, loader = _build_revision(
-        tmp_path
-    )
-    payload = json.loads(output.read_text(encoding="ascii"))
+    _prepare, _transcribe, _promote, loader = _revision_api()
+    output = tmp_path / "revision.json"
+    payload = json.loads(REV2.read_text(encoding="ascii"))
     if mutation == "predecessor":
         payload["predecessor_artifact_identity"] = "0" * 64
     elif mutation == "qualification":
@@ -282,70 +231,28 @@ def test_revision_workflow_reject_branches_are_live(tmp_path: Path) -> None:
     }
     with pytest.raises(R103ReviewValidationError, match="qualification"):
         promote(**{**promotion, "qualification": "R103 is defining."})
-    first = promote(**promotion)
-    assert promote(**promotion) == first
-    Path(promotion["output_path"]).write_text("conflict\n", encoding="utf-8")
-    with pytest.raises(R103ReviewValidationError, match="output conflict"):
+    with pytest.raises(
+        R103ReviewValidationError, match="proposal registry semantic binding"
+    ):
         promote(**promotion)
+    assert not Path(promotion["output_path"]).exists()
+    assert not Path(promotion["output_registry_path"]).exists()
+    assert not Path(promotion["output_dry_run_path"]).exists()
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "mutation", ["citation", "qualification", "identity", "binding"]
-)
-def test_corroboration_loader_rejects_tampering(tmp_path: Path, mutation: str) -> None:
+def test_tracked_rev2_and_historical_corroboration_bytes_are_preserved() -> None:
     _prepare, _transcribe, _promote, loader = _revision_api()
     revision = loader(REV2)
-    payload = json.loads(CORROBORATION.read_text(encoding="ascii"))
-    if mutation == "citation":
-        payload["citations"][0]["doi"] = "10.1000/wrong"
-    elif mutation == "qualification":
-        payload["scope_qualification"] = "descendants are excluded"
-    elif mutation == "identity":
-        payload["corroboration_identity"] = "0" * 64
-    else:
-        payload["effective_decision_identity"] = "0" * 64
-    if mutation in {"citation", "qualification", "binding"}:
-        payload["corroboration_identity"] = hashlib.sha256(
-            json.dumps(
-                {
-                    key: value
-                    for key, value in payload.items()
-                    if key != "corroboration_identity"
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            ).encode("ascii")
-        ).hexdigest()
-    changed = tmp_path / f"corroboration-{mutation}.json"
-    changed.write_text(json.dumps(payload), encoding="ascii")
 
-    with pytest.raises(R103ReviewValidationError):
-        load_r103_corroboration(changed, revision=revision)
-
-
-@pytest.mark.unit
-def test_tracked_rev2_and_corroboration_are_strict_source_bound_contracts() -> None:
-    _prepare, _transcribe, _promote, loader = _revision_api()
-    revision = loader(REV2)
-    corroboration_loader = cast(
-        "Any", getattr(r103_review_promotion, "load_r103_corroboration", None)
+    assert hashlib.sha256(REV1.read_bytes()).hexdigest() == (
+        "3b17fee5ac354ca8d48637f2a7f8b0451e0b4afed6922d0f745e6d284ca9c899"
     )
-    assert callable(corroboration_loader), "strict corroboration consumer is missing"
-    corroboration = cast("Any", corroboration_loader(CORROBORATION, revision=revision))
-
-    assert revision.registry.decisions[1].decision_identity == (
-        corroboration.effective_decision_identity
+    assert hashlib.sha256(REV2.read_bytes()).hexdigest() == (
+        "03822dcbfc4190e09e9394cb310aae2a6cca2f9c8d728bf3997d9e11d1e4730f"
     )
-    assert corroboration.relationship == "corroboration-not-proof"
-    assert corroboration.scope_qualification == QUALIFICATION
-    assert tuple((item.doi, item.pmid) for item in corroboration.citations) == (
-        ("10.1038/nature09587", "21150899"),
-        ("10.1038/s41586-019-1158-7", "31043743"),
-        ("10.1111/bpa.13059", "35266242"),
-        ("10.1016/j.neuron.2022.07.012", "35985323"),
-        ("10.3390/genes12020318", "33672414"),
+    assert hashlib.sha256(CORROBORATION.read_bytes()).hexdigest() == (
+        "a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823"
     )
     decided_subset = {
         (item.subject_code, item.role_code): frozenset({item.filler_code})
@@ -413,8 +320,6 @@ def test_cli_exposes_governed_prepare_transcribe_and_promote_revision_commands()
             "dry-run.json",
             "--output",
             "rev2.json",
-            "--output-corroboration",
-            "corroboration.json",
         ]
     )
 

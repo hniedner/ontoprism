@@ -108,7 +108,14 @@ def _constituent_from_row(
         ),
         most_specific=_as_bool(row.get("mostSpecific")),
         needs_review=_as_bool(row.get("needsReview")),
-        group=row.get("group"),
+        axis_ambiguity_group_id=row.get("axisAmbiguityGroup"),
+        source_group_ids=(
+            (source_group,)
+            if (source_group := row.get("sourceStructuralGroup"))
+            else ()
+        ),
+        normalized_group_id=row.get("normalizedProjectionGroup"),
+        normalized_group_label=row.get("normalizedProjectionGroupLabel"),
         source_definition_ids=((source_id,) if source_id is not None else ()),
     )
 
@@ -117,7 +124,7 @@ def _without_repeated_fields(
     constituent: DecompositionConstituent,
 ) -> DecompositionConstituent:
     return constituent.model_copy(
-        update={"source_definition_ids": (), "source_roles": ()}
+        update={"source_definition_ids": (), "source_roles": (), "source_group_ids": ()}
     )
 
 
@@ -137,9 +144,16 @@ def _merge_constituent(
     source_roles = tuple(
         sorted(set(existing.source_roles) | set(candidate.source_roles))
     )
+    source_group_ids = tuple(
+        sorted(set(existing.source_group_ids) | set(candidate.source_group_ids))
+    )
     return DecompositionConstituent.model_validate(
         existing.model_dump()
-        | {"source_definition_ids": source_ids, "source_roles": source_roles}
+        | {
+            "source_definition_ids": source_ids,
+            "source_roles": source_roles,
+            "source_group_ids": source_group_ids,
+        }
     )
 
 

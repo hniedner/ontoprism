@@ -18,6 +18,7 @@ from backend.api.v1.icdo import (
     require_served_icdo_dataset,
     validate_icdo_grid_filters,
 )
+from ontolib.decomposition.read_models import ConceptDecomposition
 from ontolib.repositories.cadsr.models import CdeRepositorySort, CdeSearchPage
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.icdo.models import (
@@ -655,7 +656,9 @@ async def get_ncit_mappings(
     }
 
 
-@app.get("/api/v1/ncit/concepts/{code}/decomposition")
+@app.get(
+    "/api/v1/ncit/concepts/{code}/decomposition", response_model=ConceptDecomposition
+)
 async def get_ncit_decomposition(
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
@@ -683,7 +686,7 @@ async def get_ncit_decomposition(
                 "axis_label": "Morphology",
                 "filler": "C3262",
                 "filler_label": "Neoplasm",
-                "axis_source": "normalization",
+                "axis_source": "parent",
                 "most_specific": True,
                 "upstream": upstream,
             }

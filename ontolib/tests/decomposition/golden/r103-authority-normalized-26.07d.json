@@ -1,0 +1,51 @@
+{
+  "artifact_identity": "429bb9c8f7c40ff3b3032d377e57d1289369cd8a2e539fb3a705558fa75b2afd",
+  "entries": [
+    {
+      "authority_kind": "carried-forward-predecessor-decision",
+      "effective_decision_identity": "6967a9d51bbcb877a727058be93fa70c9c3ac3c7e3a71598d15bd997b3278e27",
+      "entry_identity": "f37f93c48d48894c3c83dbc4cdcae9e1282c0c417d6634c819ac03578d6c6a80",
+      "filler_code": "C12950",
+      "predecessor_decision_identity": "921d4b2386bfec3b45106389c0ece417c9cf5bb8fda4d41e3f1ca3ad22d7c2a7",
+      "role_code": "R103",
+      "software_authorship": false,
+      "source_occurrence_identity": "f82f07767009dc2b4c45d4189faa6fa88ad234c941575c82ab7b248674373293",
+      "subject_code": "C2860",
+      "superseded_predecessor_decision_identity": null,
+      "transcription_authority": null
+    },
+    {
+      "authority_kind": "new-human-decision",
+      "effective_decision_identity": "13160d82001bf177c4a48ffef94c96c612aed0d1950889cc79e06454cc0422ed",
+      "entry_identity": "dc40d104ed491e23550716e0b5dde0c364f85f67aaa1e3967ed4ea94298970bd",
+      "filler_code": "C12950",
+      "predecessor_decision_identity": "d40cf8603a5c1cdd4ef1ca1d7fdd47296159d4d4c851e89d2601c42eff50c8b6",
+      "role_code": "R103",
+      "software_authorship": false,
+      "source_occurrence_identity": "ea85091fadd45ae71ec60966c4de0e852f9211f09b1dd682bf6d87a48c64c66d",
+      "subject_code": "C3264",
+      "superseded_predecessor_decision_identity": "d40cf8603a5c1cdd4ef1ca1d7fdd47296159d4d4c851e89d2601c42eff50c8b6",
+      "transcription_authority": "explicit-human-instruction"
+    },
+    {
+      "authority_kind": "carried-forward-predecessor-decision",
+      "effective_decision_identity": "1833ac6bf24aba6523a50d29c41fbcc649f81c36f324e958077b9ae428b48e84",
+      "entry_identity": "e391f14bb8756d066ca45bb2ed597cdf9642efb7f8c96c01d011d9b09f3199a4",
+      "filler_code": "C34228",
+      "predecessor_decision_identity": "287f545fe4ee2d399a606cf59bb2c124612ac0e46abe61532331a48dcdc2d6f2",
+      "role_code": "R103",
+      "software_authorship": false,
+      "source_occurrence_identity": "508910e91fefe93eb90e762be2341bed4153620be5756b5049b86a2b3ae2f620",
+      "subject_code": "C3716",
+      "superseded_predecessor_decision_identity": null,
+      "transcription_authority": null
+    }
+  ],
+  "historical_rev1_artifact_identity": "90ea507e93cebaf6399b3aa5bea92081e6d3dba50b7631783666d9382d267d1a",
+  "historical_rev1_file_sha256": "3b17fee5ac354ca8d48637f2a7f8b0451e0b4afed6922d0f745e6d284ca9c899",
+  "historical_rev2_artifact_identity": "d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160",
+  "historical_rev2_file_sha256": "03822dcbfc4190e09e9394cb310aae2a6cca2f9c8d728bf3997d9e11d1e4730f",
+  "migration_envelope_identity": "ee414d3632cbf4fbf7b1471be3a13573b2d62717b96eaa7128b71d446d2d8705",
+  "schema_version": 1,
+  "source_inventory_identity": "80c1cab0c4f7a8277eaf0c51f82a42b1103ddbb3fd1c0cedf3450907a623f355"
+}

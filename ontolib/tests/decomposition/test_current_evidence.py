@@ -6,7 +6,7 @@ import datetime
 import hashlib
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from scripts.research.current_evidence import (
     CurrentEvidenceValidationError,
     CurrentMetrics,
     CurrentRateMetric,
+    CurrentSourceFact,
     CurrentSourceOccurrence,
     HistoricalOraclePairCitation,
     PairRelationSummary,
@@ -37,7 +38,7 @@ from scripts.research.golden_review import (
     GoldenSetValidationError,
     KeptRow,
     evaluate_adjudication,
-    load_adjudication,
+    load_migrated_historical_adjudication,
     load_row_decisions,
 )
 
@@ -47,14 +48,19 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     DefinitionGroup,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
     canonical_source_occurrence_id,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
     CompletedRunForEvidence,
     RunFingerprint,
     WorkItemOutcome,
@@ -64,6 +70,7 @@ _GOLDEN = Path(__file__).parent / "golden"
 _ORACLE = _GOLDEN / "neoplasm-adjudicated.json"
 _ROWS = _GOLDEN / "neoplasm-row-decisions.json"
 _REGISTRY = _GOLDEN / "proposal-registry.json"
+_REGISTRY_MIGRATION = _GOLDEN / "proposal-registry-schema2-migration.json"
 _MANIFEST = Path("samples/ncit-26.07d-m1-current-replay.json")
 _TRACKED_CURRENT_EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _TRACKED_CURRENT_COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
@@ -164,6 +171,9 @@ def _fingerprint() -> RunFingerprint:
         schema_version=5,
         source_identity=manifest["source_identity"],
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest["branch"],
         scope_root=manifest["scope_root"],
         scope_version=manifest["scope_version"],
@@ -269,6 +279,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 filler_code="C12400",
                 axis_source="role",
                 source_roles=("R101",),
+                source_group_ids=(group_id,),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences
@@ -291,30 +302,75 @@ def _repeated_occurrence_decomposition() -> Decomposition:
             root_group_ids=(group_id,),
             occurrences=occurrences,
         ),
+        occurrence_dispositions=tuple(
+            OccurrenceDisposition(
+                kind="retained-routed",
+                source_occurrence_id=occurrence.occurrence_id,
+                source_fact_id=fact_id,
+                normalized_axis="op:PrimarySite",
+                source_filler="C12400",
+                retained_filler="C12400",
+                semantic_route="p106-organ",
+                semantic_type="Body Part, Organ, or Organ Component",
+            )
+            for occurrence in occurrences
+        ),
     )
 
 
 @pytest.mark.unit
 def test_current_constituent_preserves_and_validates_source_fact_citations() -> None:
     fact_id = "a" * 64
+    fact = CurrentSourceFact(
+        fact_id=fact_id,
+        source_group_id="b" * 64,
+        anchor_code="C1",
+        depth=0,
+        kind="genus",
+        filler_code="C9290",
+        role_code=None,
+    )
     constituent = CurrentConstituent(
         axis="op:Morphology",
         filler="C9290",
-        relationship_group=None,
+        axis_ambiguity_group_id=None,
+        source_group_ids=("b" * 64,),
+        normalized_group_id=None,
+        normalized_group_label=None,
         needs_review=False,
         source_definition_ids=(fact_id,),
+        source_facts=(fact,),
         source_occurrence_ids=(),
         source_occurrences=(),
     )
 
     assert constituent.source_definition_ids == (fact_id,)
+
+    policy_grouped = CurrentConstituent(
+        axis="op:WithFinding",
+        filler="C9290",
+        axis_ambiguity_group_id=None,
+        source_group_ids=("b" * 64,),
+        normalized_group_id="c" * 64,
+        normalized_group_label="source-evidence-grouping:C1:cccccccccccc",
+        needs_review=False,
+        source_definition_ids=(),
+        source_facts=(fact,),
+        source_occurrence_ids=(),
+        source_occurrences=(),
+    )
+    assert policy_grouped.source_facts == (fact,)
     with pytest.raises(ValueError, match="duplicate source definition citations"):
         CurrentConstituent(
             axis="op:Morphology",
             filler="C9290",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=("b" * 64,),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(fact_id, fact_id),
+            source_facts=(fact, fact),
             source_occurrence_ids=(),
             source_occurrences=(),
         )
@@ -335,9 +391,13 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=("b" * 64,),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(fact_id,),
+            source_facts=(fact,),
             source_occurrence_ids=(occurrence.occurrence_id,),
             source_occurrences=(occurrence,),
         )
@@ -345,12 +405,32 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=(),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(),
             source_occurrence_ids=(occurrence.occurrence_id,),
             source_occurrences=(occurrence,),
         )
+
+
+@pytest.mark.unit
+def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
+    constituent = CurrentConstituent(
+        axis="R999",
+        filler="C1",
+        axis_ambiguity_group_id=None,
+        source_group_ids=(),
+        normalized_group_id=None,
+        normalized_group_label=None,
+        needs_review=True,
+        source_occurrence_ids=(),
+        source_occurrences=(),
+    )
+
+    assert constituent.axis == "R999"
 
 
 @pytest.mark.unit
@@ -369,7 +449,10 @@ def test_current_constituent_rejects_malformed_axis_or_filler(
         CurrentConstituent(
             axis=axis,
             filler=filler,
-            relationship_group=None,
+            axis_ambiguity_group_id=None,
+            source_group_ids=(),
+            normalized_group_id=None,
+            normalized_group_label=None,
             needs_review=False,
             source_definition_ids=(),
             source_occurrence_ids=(),
@@ -392,6 +475,7 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=engine_output,
@@ -469,16 +553,79 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
     assert comparison.concepts[0].full_partition.primary_diagnosis is None
     with pytest.raises(GoldenSetValidationError):
         evaluate_adjudication(
-            load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY)),
+            load_migrated_historical_adjudication(
+                _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+            ),
             json.loads(engine_output.read_text()),
             {},
         )
 
 
 @pytest.mark.unit
+def test_current_models_require_the_proposal_registry_migration_identity() -> None:
+    for model, path, identity_field in (
+        (CurrentEngineEvidence, _TRACKED_CURRENT_EVIDENCE, "evidence_identity"),
+        (CurrentComparison, _TRACKED_CURRENT_COMPARISON, "comparison_identity"),
+    ):
+        payload = json.loads(path.read_text())
+        payload.pop("proposal_registry_migration_identity")
+        payload[identity_field] = _payload_identity(
+            {key: value for key, value in payload.items() if key != identity_field}
+        )
+
+        with pytest.raises(ValueError, match="proposal_registry_migration_identity"):
+            model.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("migration_kind", ["missing", "malformed", "drifted"])
+def test_invalid_migration_envelopes_fail_before_current_output_replacement(
+    tmp_path: Path,
+    migration_kind: str,
+) -> None:
+    artifact = tmp_path / "current.ttl"
+    migration = tmp_path / "migration.json"
+    engine_output = tmp_path / "engine.json"
+    comparison_output = tmp_path / "comparison.json"
+    _empty_artifact(artifact)
+    engine_output.write_bytes(b"original engine\n")
+    comparison_output.write_bytes(b"original comparison\n")
+    if migration_kind == "malformed":
+        migration.write_text("{")
+    elif migration_kind == "drifted":
+        payload = json.loads(_REGISTRY_MIGRATION.read_text())
+        payload["new_registry"]["registry_identity"] = "0" * 64
+        payload["envelope_identity"] = _payload_identity(
+            {key: value for key, value in payload.items() if key != "envelope_identity"}
+        )
+        migration.write_text(json.dumps(payload))
+
+    with pytest.raises(CurrentEvidenceValidationError):
+        asyncio.run(
+            generate_current_evidence(
+                sample_manifest=_MANIFEST,
+                oracle=_ORACLE,
+                row_decisions=_ROWS,
+                proposal_registry=_REGISTRY,
+                proposal_registry_migration=migration,
+                run_id="current-run",
+                artifact=artifact,
+                engine_output=engine_output,
+                comparison_output=comparison_output,
+                store=_Store(artifact),
+            )
+        )
+
+    assert engine_output.read_bytes() == b"original engine\n"
+    assert comparison_output.read_bytes() == b"original comparison\n"
+
+
+@pytest.mark.unit
 def test_row_replay_classifies_every_status() -> None:
     rows = load_row_decisions(_ROWS)
-    adjudication = load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY))
+    adjudication = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     concepts = {
         concept.code: CurrentConceptEvidence(
             code=concept.code,
@@ -486,6 +633,7 @@ def test_row_replay_classifies_every_status() -> None:
             semantic_types=("Neoplastic Process",),
             all_source_occurrences=(),
             constituents=(),
+            occurrence_dispositions=(),
         )
         for concept in adjudication.concepts
     }
@@ -501,7 +649,10 @@ def test_row_replay_classifies_every_status() -> None:
                     CurrentConstituent(
                         axis=pair.axis,
                         filler=pair.filler,
-                        relationship_group=None,
+                        axis_ambiguity_group_id=None,
+                        source_group_ids=(),
+                        normalized_group_id=None,
+                        normalized_group_label=None,
                         needs_review=False,
                         source_occurrence_ids=(),
                         source_occurrences=(),
@@ -548,7 +699,10 @@ def test_row_replay_classifies_every_status() -> None:
                 CurrentConstituent(
                     axis=excluded_pair.axis,
                     filler=excluded_pair.filler,
-                    relationship_group=None,
+                    axis_ambiguity_group_id=None,
+                    source_group_ids=(),
+                    normalized_group_id=None,
+                    normalized_group_label=None,
                     needs_review=False,
                     source_occurrence_ids=(),
                     source_occurrences=(),
@@ -603,6 +757,7 @@ def test_typed_comparison_models_reject_untyped_metric_and_partition_payloads(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -689,6 +844,7 @@ def test_partition_diagnosis_names_only_changed_shared_pairs() -> None:
         semantic_types=("Neoplastic Process",),
         all_source_occurrences=(),
         constituents=(),
+        occurrence_dispositions=(),
     )
 
     diagnosis = _typed_diagnosis(
@@ -758,6 +914,7 @@ def test_generate_current_evidence_preserves_repeated_source_occurrences(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -780,6 +937,42 @@ def test_generate_current_evidence_preserves_repeated_source_occurrences(
 
 
 @pytest.mark.unit
+def test_generate_current_evidence_rejects_disposition_fact_drift(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "current.ttl"
+    _empty_artifact(artifact)
+    store = _Store(artifact)
+    decomposition = _repeated_occurrence_decomposition()
+    drifted = replace(decomposition.occurrence_dispositions[0], source_fact_id="f" * 64)
+    store.decompositions = [
+        replace(
+            decomposition,
+            occurrence_dispositions=(
+                drifted,
+                *decomposition.occurrence_dispositions[1:],
+            ),
+        )
+    ]
+
+    with pytest.raises(CurrentEvidenceValidationError, match=r"disposition.*fact"):
+        asyncio.run(
+            generate_current_evidence(
+                sample_manifest=_MANIFEST,
+                oracle=_ORACLE,
+                row_decisions=_ROWS,
+                proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
+                run_id="current-run",
+                artifact=artifact,
+                engine_output=tmp_path / "engine.json",
+                comparison_output=tmp_path / "comparison.json",
+                store=store,
+            )
+        )
+
+
+@pytest.mark.unit
 def test_current_concept_rejects_selected_occurrence_outside_complete_definition() -> (
     None
 ):
@@ -796,13 +989,28 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                 CurrentConstituent(
                     axis="op:PrimarySite",
                     filler="C12400",
-                    relationship_group=None,
+                    axis_ambiguity_group_id=None,
+                    source_group_ids=(occurrence.source_group_id,),
+                    normalized_group_id=None,
+                    normalized_group_label=None,
                     needs_review=False,
                     source_definition_ids=(occurrence.source_fact_id,),
+                    source_facts=(
+                        CurrentSourceFact(
+                            fact_id=occurrence.source_fact_id,
+                            source_group_id=occurrence.source_group_id,
+                            anchor_code=occurrence.anchor_code,
+                            depth=occurrence.depth,
+                            kind="restriction",
+                            filler_code=occurrence.filler_code,
+                            role_code=occurrence.role_code,
+                        ),
+                    ),
                     source_occurrence_ids=(occurrence.occurrence_id,),
                     source_occurrences=(occurrence,),
                 ),
             ),
+            occurrence_dispositions=(),
         )
 
 
@@ -836,6 +1044,7 @@ def test_generate_current_evidence_rejects_fingerprint_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -862,6 +1071,7 @@ def test_generate_current_evidence_rejects_artifact_and_representation_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -881,6 +1091,7 @@ def test_generate_current_evidence_rejects_artifact_and_representation_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine-2.json",
@@ -906,6 +1117,7 @@ def test_generate_current_evidence_rejects_returned_run_id_drift(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=tmp_path / "engine.json",
@@ -929,6 +1141,7 @@ def test_generate_current_evidence_rejects_an_output_that_aliases_an_input(
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=artifact,
@@ -951,6 +1164,7 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         "sample_manifest_identity": "b" * 64,
         "run_id": "run",
         "run_fingerprint_identity": "c" * 64,
+        "walker_max_depth": 7,
         "artifact_identity": "d" * 64,
         "representation_identity": "d" * 64,
         "detector_identity": "e" * 64,
@@ -1029,12 +1243,14 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         ("sample_manifest_identity", "manifest"),
         ("run_id", "run"),
         ("run_fingerprint_identity", "fingerprint"),
+        ("walker_max_depth", "walker max depth"),
         ("artifact_identity", "artifact"),
         ("representation_identity", "representation"),
         ("detector_identity", "detector"),
         ("oracle_identity", "oracle"),
         ("row_decision_identity", "row decision"),
         ("proposal_registry_identity", "proposal registry"),
+        ("proposal_registry_migration_identity", "proposal registry migration"),
         ("current_evidence_identity", "evidence"),
     ],
 )
@@ -1049,6 +1265,7 @@ def test_current_comparator_rejects_each_identity_drift(
             oracle=_ORACLE,
             row_decisions=_ROWS,
             proposal_registry=_REGISTRY,
+            proposal_registry_migration=_REGISTRY_MIGRATION,
             run_id="current-run",
             artifact=artifact,
             engine_output=tmp_path / "engine.json",
@@ -1058,7 +1275,11 @@ def test_current_comparator_rejects_each_identity_drift(
     )
     drifted = comparison.model_copy(
         update={
-            field: ("different" if field in {"run_id", "ncit_version"} else "f" * 64)
+            field: (
+                8
+                if field == "walker_max_depth"
+                else ("different" if field in {"run_id", "ncit_version"} else "f" * 64)
+            )
         }
     )
 
@@ -1075,34 +1296,37 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
         _TRACKED_CURRENT_COMPARISON.read_bytes()
     )
     validate_current_comparison(evidence, comparison)
+    policy = load_packaged_normalized_group_policy()
 
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
-    assert evidence.representation_identity == (
-        "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e"
-    )
+    assert policy.basis_run_id == evidence.run_id == comparison.run_id
+    assert policy.basis_evidence_identity == evidence.evidence_identity
+    assert policy.basis_comparison_identity == comparison.comparison_identity
+    assert policy.basis_artifact_identity == evidence.artifact_identity
+    assert evidence.walker_max_depth == 7
+    assert evidence.representation_identity == evidence.artifact_identity
     assert comparison.metrics.exact_pair_precision.model_dump() == {
-        "numerator": 100,
-        "denominator": 108,
-        "rate": 100 / 108,
+        "numerator": 111,
+        "denominator": 132,
+        "rate": 111 / 132,
     }
     assert comparison.metrics.exact_pair_recall.model_dump() == {
-        "numerator": 100,
+        "numerator": 111,
         "denominator": 153,
-        "rate": 100 / 153,
+        "rate": 111 / 153,
     }
     assert comparison.row_replay.aggregates.model_dump() == {
         "retained_exact": 79,
         "retained_revised": 10,
-        "excluded_still_emitted": 12,
-        "excluded_not_emitted": 4,
+        "excluded_still_emitted": 9,
+        "excluded_not_emitted": 7,
         "missing_kept": 1,
-        "added": 34,
-        "selection_miss": 16,
+        "added": 56,
+        "selection_miss": 0,
         "proposal_only": 1,
-        "unavailable_source_evidence": 13,
+        "unavailable_source_evidence": 7,
         "explicitly_out_of_scope": 19,
     }
 
@@ -1118,6 +1342,7 @@ def test_regenerate_current_comparison_uses_tracked_evidence_without_store(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=output,
     )
 
@@ -1144,6 +1369,7 @@ def test_pair_relations_are_exhaustive_unique_and_reach_all_six_variants(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=tmp_path / "comparison.json",
     )
     field_names = tuple(PairRelationSummary.model_fields)
@@ -1164,8 +1390,9 @@ def test_pair_relations_are_exhaustive_unique_and_reach_all_six_variants(
     evidence = CurrentEngineEvidence.model_validate_json(
         _TRACKED_CURRENT_EVIDENCE.read_bytes()
     )
-    registry = load_proposal_registry(_REGISTRY)
-    oracle = load_adjudication(_ORACLE, registry)
+    oracle = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     oracle_target = next(item for item in oracle.concepts if item.code == "C101539")
     evidence_target = next(item for item in evidence.concepts if item.code == "C101539")
     assert oracle_target.expected is not None
@@ -1204,17 +1431,20 @@ def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
         oracle_path=_ORACLE,
         row_decisions_path=_ROWS,
         proposal_registry_path=_REGISTRY,
+        proposal_registry_migration_path=_REGISTRY_MIGRATION,
         output=tmp_path / "comparison.json",
     )
     by_code = {concept.code: concept.pair_relations for concept in comparison.concepts}
     expected_review_bearing = {
         "C101539": {
+            ("op:ClinicalFinding", "C188014"),
             ("op:ClinicalFinding", "C47806"),
             ("op:ClinicalFinding", "C47817"),
         },
         "C132677": {
             ("op:ClinicalFinding", "C40557"),
             ("op:ClinicalFinding", "C40989"),
+            ("op:ClinicalFinding", "C41444"),
             ("op:ClinicalFinding", "C48322"),
         },
         "C100054": {
@@ -1225,9 +1455,6 @@ def test_review_bearing_expected_pairs_are_emitted_and_not_absent(
     for code, pairs in expected_review_bearing.items():
         assert set(by_code[code].expected_emitted_review_bearing) == pairs
         assert not pairs & set(by_code[code].expected_not_emitted)
-    assert ("op:ClinicalFinding", "C41444") in set(
-        by_code["C132677"].expected_not_emitted
-    )
     assert not by_code["C100054"].expected_not_emitted
 
 
@@ -1236,8 +1463,9 @@ def test_scoreable_predicate_mutation_moves_pair_without_reinterpreting_it() -> 
     evidence = CurrentEngineEvidence.model_validate_json(
         _TRACKED_CURRENT_EVIDENCE.read_bytes()
     )
-    registry = load_proposal_registry(_REGISTRY)
-    oracle = load_adjudication(_ORACLE, registry)
+    oracle = load_migrated_historical_adjudication(
+        _ORACLE, _REGISTRY, _REGISTRY_MIGRATION
+    )
     baseline_metrics, baseline = _comparison_payload(oracle.concepts, evidence)
     target = next(
         concept
@@ -1314,6 +1542,7 @@ def test_generate_current_evidence_rolls_back_both_outputs_on_second_replace_fai
                 oracle=_ORACLE,
                 row_decisions=_ROWS,
                 proposal_registry=_REGISTRY,
+                proposal_registry_migration=_REGISTRY_MIGRATION,
                 run_id="current-run",
                 artifact=artifact,
                 engine_output=engine_output,

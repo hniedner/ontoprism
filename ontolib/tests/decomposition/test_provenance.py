@@ -25,7 +25,12 @@ from ontolib.decomposition.provenance import (
     RunIdentityMismatchError,
     RunStateError,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint, WorkItemOutcome
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    WorkItemOutcome,
+)
+from ontolib.decomposition.r101_comparator import HistoricalV4ComparatorFingerprint
 
 
 def _empty_completion_metrics() -> dict[str, object]:
@@ -37,6 +42,7 @@ def _empty_completion_metrics() -> dict[str, object]:
         "atomic_noop": 0,
         "unknown_outcome": 0,
         "residual_precoordinated_count": 0,
+        "residual_precoordination_unknown_count": 0,
         "residual_precoordination": 0.0,
         "minted_count": 0,
         "complete_definition_count": 0,
@@ -47,6 +53,119 @@ def _empty_completion_metrics() -> dict[str, object]:
         "pct_decomposed": 0.0,
         "roundtrip_fidelity": None,
     }
+
+
+@pytest.mark.unit
+def test_stage_and_residual_identity_helpers_fail_closed() -> None:
+    stage_rows = cast(
+        "Any", tuple({"stage": stage} for stage in provenance_module.RUN_STAGE_SEQUENCE)
+    )
+    provenance_module._require_stage_inventory(stage_rows)
+    with pytest.raises(RunIdentityMismatchError, match="checkpoint inventory"):
+        provenance_module._require_stage_inventory(stage_rows[:-1])
+
+    assert (
+        provenance_module._completed_stage_matches(
+            cast("Any", {"state": "pending", "input_identity": None}), "a" * 64
+        )
+        is False
+    )
+    assert (
+        provenance_module._completed_stage_matches(
+            cast("Any", {"state": "complete", "input_identity": "a" * 64}),
+            "a" * 64,
+        )
+        is True
+    )
+    with pytest.raises(RunIdentityMismatchError, match="completed stage input"):
+        provenance_module._completed_stage_matches(
+            cast("Any", {"state": "complete", "input_identity": "b" * 64}),
+            "a" * 64,
+        )
+
+    provenance_module._require_residual_context("a" * 64, "a" * 64, "running")
+    with pytest.raises(RunIdentityMismatchError, match="source identity differs"):
+        provenance_module._require_residual_context("b" * 64, "a" * 64, "running")
+    with pytest.raises(RunStateError, match="requires stage claim"):
+        provenance_module._require_residual_context("a" * 64, "a" * 64, "pending")
+
+    expected = (("C1", "a" * 64, "b" * 64),)
+    row = {
+        "filler_code": "C1",
+        "source_identity": "a" * 64,
+        "detector_identity": "b" * 64,
+    }
+    assert provenance_module._existing_residual_inventory_matches((), expected) is False
+    assert (
+        provenance_module._existing_residual_inventory_matches(
+            cast("Any", (row,)), expected
+        )
+        is True
+    )
+    with pytest.raises(RunIdentityMismatchError, match="inventory differs"):
+        provenance_module._existing_residual_inventory_matches(
+            cast("Any", ({**row, "filler_code": "C2"},)), expected
+        )
+
+    provenance_module._require_completion_source(
+        cast("Any", {"source_identity": "a" * 64}), "a" * 64
+    )
+    with pytest.raises(RunIdentityMismatchError, match="completion source identity"):
+        provenance_module._require_completion_source(
+            cast("Any", {"source_identity": "b" * 64}), "a" * 64
+        )
+
+    assert provenance_module._bounded_failure(RuntimeError("")) == (
+        "RuntimeError",
+        "RuntimeError",
+    )
+    assert provenance_module._bounded_failure(ValueError("bad")) == (
+        "ValueError",
+        "bad",
+    )
+
+
+@pytest.mark.unit
+def test_completion_publication_helper_preserves_state_distinctions() -> None:
+    provenance_module._require_completion_publication(
+        cast("Any", {"publication_state": "not_requested"}), None, "run-1"
+    )
+    with pytest.raises(RunIdentityMismatchError, match="non-publishing"):
+        provenance_module._require_completion_publication(
+            cast("Any", {"publication_state": "not_requested"}), "a" * 64, "run-1"
+        )
+
+    publishing = {
+        "publication_state": "publishing",
+        "representation_identity": "a" * 64,
+    }
+    provenance_module._require_completion_publication(
+        cast("Any", publishing), "a" * 64, "run-1"
+    )
+    with pytest.raises(RunIdentityMismatchError, match="publication intent"):
+        provenance_module._require_completion_publication(
+            cast("Any", publishing), "b" * 64, "run-1"
+        )
+    with pytest.raises(RunStateError, match="has not completed coordination"):
+        provenance_module._require_completion_publication(
+            cast("Any", {"publication_state": "pending"}), None, "run-1"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("raw", "identity", "detail"),
+    [
+        (None, "0" * 64, "is corrupt"),
+        ({"schema_version": 0}, "0" * 64, "predates the exact-run schema"),
+        ({"schema_version": 1}, "a" * 64, "predates the hierarchy-scope schema"),
+        ({"schema_version": 4}, "a" * 64, "is corrupt"),
+    ],
+)
+def test_invalid_fingerprint_detail_classifies_only_known_history(
+    raw: object, identity: str, detail: str
+) -> None:
+    assert detail in provenance_module._invalid_fingerprint_detail(raw, identity)
 
 
 def _make_mock_sf(*, rowcount: int = 1) -> MagicMock:
@@ -529,6 +648,9 @@ async def test_finish_run_sets_complete() -> None:
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -599,6 +721,9 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
         schema_version=5,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -677,6 +802,88 @@ async def test_completed_run_for_evidence_rejects_malformed_fingerprint() -> Non
 
     with pytest.raises(RunIdentityMismatchError, match="corrupt"):
         await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+
+def _comparator_run_row(**changes: object) -> dict[str, object]:
+    fingerprint = HistoricalV4ComparatorFingerprint.model_validate(
+        {
+            "schema_version": 4,
+            "source_identity": "a" * 64,
+            "collapse_policy_identity": "b" * 64,
+            "branch": "neoplasm",
+            "scope_root": "C3262",
+            "scope_version": "stated-genus-subclass-v1",
+            "semantic_types": ("Neoplastic Process",),
+            "worklist": ("C1",),
+            "total_limit": None,
+            "sample_manifest_identity": None,
+            "algorithm_version": "decomposition-v4",
+            "config_version": "nested-definition-v2",
+            "walker_max_depth": 7,
+            "output_mode": "file",
+            "load_mode": "none",
+            "emitted_at": datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC),
+        }
+    )
+    row: dict[str, object] = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": fingerprint.source_identity,
+        "fingerprint": fingerprint.model_dump(mode="json"),
+        "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "published",
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/historical.ttl",
+    }
+    row.update(changes)
+    return row
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "error", "message"),
+    [
+        ({"status": "running"}, RunStateError, "not complete and published"),
+        (
+            {"publication_state": "not_requested"},
+            RunStateError,
+            "not complete and published",
+        ),
+        ({"representation_identity": None}, RunStateError, "publication evidence"),
+        ({"publication_artifact_path": None}, RunStateError, "publication evidence"),
+        (
+            {"source_identity": "d" * 64},
+            RunIdentityMismatchError,
+            "source identity",
+        ),
+    ],
+)
+def test_comparator_run_reader_rejects_incomplete_or_inconsistent_evidence(
+    changes: dict[str, object],
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error, match=message):
+        provenance_module._comparator_run_from_row(
+            "historical-full", cast("Any", _comparator_run_row(**changes)), ("C1",)
+        )
+
+
+@pytest.mark.unit
+def test_comparator_worklist_must_match_immutable_fingerprint() -> None:
+    with pytest.raises(RunIdentityMismatchError, match="source schema"):
+        provenance_module._comparator_run_from_row(
+            "historical-full", cast("Any", _comparator_run_row()), ("C2",)
+        )
+
+
+@pytest.mark.unit
+async def test_completed_comparator_run_for_evidence_rejects_missing_run() -> None:
+    sf = _make_mock_sf()
+    sf().execute.return_value.mappings.return_value.first.return_value = None
+
+    with pytest.raises(RunStateError, match="does not exist"):
+        await ProvenanceStore(sf).completed_comparator_run_for_evidence("missing")
 
 
 @pytest.mark.unit
@@ -875,6 +1082,7 @@ async def test_completion_detects_claim_change_after_locked_validation() -> None
     update_lost_claim = MagicMock(rowcount=0)
     sf().execute.side_effect = [
         locked,
+        MagicMock(),
         MagicMock(),
         MagicMock(),
         MagicMock(),
@@ -1208,7 +1416,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             "source_roles": ["R101"],
             "most_specific": True,
             "needs_review": True,
-            "relationship_group": "anatomy-1",
+            "axis_ambiguity_group_id": "op:PrimarySite",
+            "source_group_ids": [group_id],
+            "normalized_group_id": None,
+            "normalized_group_label": None,
             "source_definition_ids": f'["{restriction_id}"]',
         }
     ]
@@ -1255,6 +1466,8 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     occurrences.mappings.return_value.all.return_value = []
     occurrence_links = MagicMock()
     occurrence_links.mappings.return_value.all.return_value = []
+    dispositions = MagicMock()
+    dispositions.mappings.return_value.all.return_value = []
     sf().execute.side_effect = [
         consistent_counts,
         work_items,
@@ -1264,6 +1477,7 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
         edges,
         occurrences,
         occurrence_links,
+        dispositions,
     ]
     store = ProvenanceStore(sf)
 
@@ -1279,7 +1493,8 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
                     source_roles=("R101",),
                     most_specific=True,
                     needs_review=True,
-                    group="anatomy-1",
+                    axis_ambiguity_group_id="op:PrimarySite",
+                    source_group_ids=(group_id,),
                     source_definition_ids=(restriction_id,),
                 )
             ],
@@ -1306,3 +1521,62 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             ),
         )
     ]
+
+
+@pytest.mark.unit
+async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
+    sf = _make_mock_sf()
+    constituent_rows = MagicMock()
+    constituent_rows.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C2",
+            "axis_source": "role",
+            "source_roles": ["R100"],
+            "most_specific": False,
+            "needs_review": False,
+            "axis_ambiguity_group_id": None,
+            "source_group_ids": [],
+            "normalized_group_id": None,
+            "normalized_group_label": None,
+            "source_definition_ids": ["d" * 64],
+        }
+    ]
+    links = MagicMock()
+    links.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C2",
+            "occurrence_id": "c" * 64,
+        }
+    ]
+    dispositions = MagicMock()
+    dispositions.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "occurrence_id": "c" * 64,
+            "source_fact_id": "d" * 64,
+            "disposition": "retained-routed",
+            "normalized_axis": "op:PrimarySite",
+            "source_filler": "C2",
+            "retained_filler": "C2",
+            "semantic_route": "p106-organ",
+            "semantic_type": "Neoplastic Process",
+            "r82_part": None,
+            "r82_whole": None,
+            "specificity_path": [],
+            "policy_decision_identity": None,
+        }
+    ]
+    sf().execute.side_effect = [constituent_rows, links, dispositions]
+
+    states = await ProvenanceStore(sf).projection_state_for_codes("run-1", ("C1",))
+
+    assert states[0].concept_code == "C1"
+    assert states[0].constituents[0].source_occurrence_ids == ("c" * 64,)
+    assert states[0].dispositions[0].source_fact_id == "d" * 64
+    assert sf().execute.call_count == 3
+    for call in sf().execute.call_args_list:
+        assert call.args[1] == {"run_id": "run-1", "codes": ["C1"]}

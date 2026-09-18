@@ -31,7 +31,11 @@ from scripts.research.stage_bundle_pilot import (
     write_review_workbook,
 )
 
-from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry import (
+    ProposalRegistry,
+    RelationProposal,
+    load_proposal_registry,
+)
 from ontolib.decomposition.semantic_bundles import (
     BundleAxis,
     MemberRole,
@@ -461,22 +465,77 @@ def test_provenance_ledger_dispositions_exactly_304_occurrences() -> None:
         ],
     }
     engine = {
+        "walker_max_depth": 7,
         "concepts": [
-            {"code": fact["root_code"], "outcome": "decomposed"} for fact in facts
-        ]
+            {
+                "code": fact["root_code"],
+                "outcome": "decomposed",
+                "occurrence_dispositions": (
+                    [
+                        {
+                            "kind": "retained-routed",
+                            "source_occurrence": {
+                                "occurrence_id": canonical_restriction_fact_id(
+                                    fact["anchor_code"],
+                                    fact["group_id"],
+                                    fact["role_code"],
+                                    fact["filler_code"],
+                                ),
+                                "source_fact_id": canonical_restriction_fact_id(
+                                    fact["anchor_code"],
+                                    fact["group_id"],
+                                    fact["role_code"],
+                                    fact["filler_code"],
+                                ),
+                                "root_code": fact["root_code"],
+                                "role_code": fact["role_code"],
+                                "filler_code": fact["filler_code"],
+                            },
+                            "normalized_axis": "op:PrimarySite",
+                            "semantic_route": "p106-organ",
+                            "semantic_type": "Body Part, Organ, or Organ Component",
+                            "retained_pair": ["op:PrimarySite", fact["filler_code"]],
+                            "r82_part": None,
+                            "r82_whole": None,
+                            "policy_decision_identity": None,
+                        }
+                    ]
+                    if fact["role_code"] == "R101"
+                    else []
+                ),
+                "constituents": (
+                    [
+                        {
+                            "axis": "op:PrimarySite",
+                            "filler": fact["filler_code"],
+                        }
+                    ]
+                    if fact["role_code"] == "R101"
+                    else []
+                ),
+            }
+            for fact in facts
+        ],
     }
 
     ledger = build_provenance_ledger(audit, disposition, engine)
 
     assert ledger["occurrence_count"] == 304
     assert ledger["counts"] == {
-        "constituent-workbook-review": 303,
         "contracted-role-disposition": 1,
+        "engine-r101-disposition": 303,
     }
     rows = cast("list[dict[str, object]]", ledger["occurrences"])
     assert all(len(cast("str", row["fact_id"])) == 64 for row in rows)
     with pytest.raises(ValueError, match="fact count does not match"):
         build_provenance_ledger(audit | {"facts": facts[:-1]}, disposition, engine)
+
+    first_concept = cast(
+        "dict[str, object]", cast("list[object]", engine["concepts"])[0]
+    )
+    first_concept["occurrence_dispositions"] = []
+    with pytest.raises(ValueError, match="engine R101 disposition"):
+        build_provenance_ledger(audit, disposition, engine)
 
 
 def _blank_workbook(path: Path) -> None:
@@ -1028,6 +1087,40 @@ def test_review_workbook_binds_augmented_pair_to_proposal_registry(
     tampered.save(review)
     with pytest.raises(ValueError, match="unknown proposal"):
         import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+
+
+@pytest.mark.unit
+def test_stage_bundle_proposal_matching_uses_direct_status_and_fails_closed() -> None:
+    relation = next(
+        proposal
+        for proposal in _PROPOSAL_REGISTRY.proposals
+        if isinstance(proposal, RelationProposal)
+    )
+    submitted = RelationProposal.model_validate(
+        relation.model_dump() | {"status": "submitted"}
+    )
+    registry = ProposalRegistry(
+        source_identity=_PROPOSAL_REGISTRY.source_identity,
+        ontology_version=_PROPOSAL_REGISTRY.ontology_version,
+        proposals=(submitted,),
+    )
+
+    assert (
+        stage_bundle_pilot._proposal_for_workbook_pair(
+            registry,
+            "submitted",
+            submitted.axis,
+            "C27262",
+        )
+        == submitted.id
+    )
+    with pytest.raises(ValueError, match="invalid proposal provenance status"):
+        stage_bundle_pilot._proposal_for_workbook_pair(
+            registry,
+            "accepted",
+            submitted.axis,
+            "C27262",
+        )
 
 
 @pytest.mark.unit

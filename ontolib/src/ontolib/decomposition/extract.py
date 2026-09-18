@@ -114,6 +114,7 @@ def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
                 role_code=role_code,
                 filler_code=filler_code,
                 role_label=row.get("relLabel"),
+                source_kind="stated",
             )
         )
     return restrictions

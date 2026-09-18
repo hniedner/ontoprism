@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import json
 import os
@@ -30,7 +29,17 @@ from ontolib.decomposition.evaluation import (
     grouping_difference_pairs,
 )
 from ontolib.decomposition.models import ConceptOutcome
-from ontolib.decomposition.r101_conservation import R82PathEdge, R101ConservationReport
+from ontolib.decomposition.normalized_group_policy import (
+    ACTIVE_GROUP_CODES,
+    REVIEWED_STAGE_CODES,
+)
+from ontolib.decomposition.r101_conservation import (
+    HistoricalR101ConservationReport,
+    R82PathEdge,
+    R101ConservationReport,
+    load_group_review_r101_report,
+    load_historical_r101_review_report,
+)
 
 try:
     from scripts.research.current_evidence import (
@@ -102,6 +111,16 @@ class SourceOccurrenceDocument(StrictFrozenBoundaryModel):
     member_position: int = Field(ge=0)
 
 
+class SourceFactDocument(StrictFrozenBoundaryModel):
+    fact_id: str = Field(pattern=_SHA256)
+    source_group_id: str = Field(pattern=_SHA256)
+    anchor_code: str
+    depth: int = Field(ge=0)
+    kind: Literal["genus", "restriction"]
+    filler_code: str
+    role_code: str | None
+
+
 class ControlConcept(StrictFrozenBoundaryModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     outcome: Literal["semantic-excluded", "atomic-no-op"]
@@ -119,6 +138,10 @@ class ReviewCohort(StrictFrozenBoundaryModel):
     common_pair_ineligible_codes: tuple[str, ...]
     highest_fanout_code: str = Field(pattern=r"^C[0-9]+$")
     highest_fanout_occurrences: int = Field(ge=0)
+
+
+class CurrentReviewCohort(ReviewCohort):
+    policy_evidence_codes: tuple[str, ...]
 
 
 class PairDeltaDiagnosis(StrictFrozenBoundaryModel):
@@ -199,8 +222,36 @@ class ActualPairEvidenceUnavailable(StrictFrozenBoundaryModel):
     reason: Literal["source-occurrence-unavailable-upstream"]
 
 
+class ActualGenusFactEvidence(StrictFrozenBoundaryModel):
+    availability: Literal["not-applicable-genus-fact"]
+    pair: Pair
+    occurrence_ids: tuple[()] = ()
+    occurrences: tuple[()] = ()
+    source_facts: tuple[SourceFactDocument, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _facts_match_pair(self) -> Self:
+        if any(
+            item.kind != "genus" or item.filler_code != self.pair[1]
+            for item in self.source_facts
+        ):
+            raise ValueError("genus source facts do not match normalized pair")
+        return self
+
+
+class ActualSourceFactEvidence(StrictFrozenBoundaryModel):
+    availability: Literal["available-source-fact"]
+    pair: Pair
+    occurrence_ids: tuple[()] = ()
+    occurrences: tuple[()] = ()
+    source_facts: tuple[SourceFactDocument, ...] = Field(min_length=1)
+
+
 ActualPairEvidenceDocument = Annotated[
-    ActualPairEvidence | ActualPairEvidenceUnavailable,
+    ActualPairEvidence
+    | ActualGenusFactEvidence
+    | ActualSourceFactEvidence
+    | ActualPairEvidenceUnavailable,
     Field(discriminator="availability"),
 ]
 
@@ -225,8 +276,15 @@ class ActualNormalizedGroup(StrictFrozenBoundaryModel):
                 {
                     item.source_group_id
                     for pair in self.pairs
-                    if isinstance(pair, ActualPairEvidence)
-                    for item in pair.occurrences
+                    for item in (
+                        pair.occurrences
+                        if isinstance(pair, ActualPairEvidence)
+                        else pair.source_facts
+                        if isinstance(
+                            pair, ActualGenusFactEvidence | ActualSourceFactEvidence
+                        )
+                        else ()
+                    )
                 }
             )
         )
@@ -448,6 +506,10 @@ class GroupReviewRow(StrictFrozenBoundaryModel):
 
 class GroupReviewConcept(StrictFrozenBoundaryModel):
     code: str = Field(pattern=r"^C[0-9]+$")
+    policy_pair_set: tuple[Pair, ...] = Field(min_length=1)
+    decision_target_pair_set: tuple[Pair, ...]
+    reviewed_partition: Partition
+    policy_output_partition: Partition
     expected_partition: Partition
     actual_partition: Partition
     pair_relations: PairRelationSummary
@@ -461,6 +523,18 @@ class GroupReviewConcept(StrictFrozenBoundaryModel):
 
     @model_validator(mode="after")
     def _partitions_and_diagnoses_are_consistent(self) -> Self:
+        if tuple(sorted(set(self.policy_pair_set))) != self.policy_pair_set:
+            raise ValueError("policy pair set must be canonical and unique")
+        if {pair for block in self.reviewed_partition for pair in block} != set(
+            self.decision_target_pair_set
+        ):
+            raise ValueError("reviewed partition differs from decision target pair set")
+        if {pair for block in self.policy_output_partition for pair in block} != set(
+            self.policy_pair_set
+        ):
+            raise ValueError(
+                "policy output partition differs from exact policy pair set"
+            )
         expected_rows = _partition_rows(self.expected_partition)
         actual_rows = _partition_rows(self.actual_partition)
         common = compare_common_pair_partition(expected_rows, actual_rows)
@@ -507,9 +581,10 @@ class GroupReviewPacket(StrictFrozenBoundaryModel):
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
     r101_report_identity: str = Field(pattern=_SHA256)
+    historical_r101_report_identity: str = Field(pattern=_SHA256)
     historical_full_partition_agreement: HistoricalAgreement
     current_metrics: CurrentMetrics
-    cohort: ReviewCohort
+    cohort: CurrentReviewCohort
     transformation_rule_catalog: tuple[TransformationRuleCatalogEntry, ...] = Field(
         min_length=5, max_length=5
     )
@@ -523,8 +598,10 @@ class GroupReviewPacket(StrictFrozenBoundaryModel):
     @model_validator(mode="after")
     def _validate_packet(self) -> Self:
         concept_codes = tuple(item.code for item in self.concepts)
-        if concept_codes != self.cohort.full_disagreement_codes:
-            raise ValueError("packet concepts do not match full disagreement cohort")
+        if concept_codes != self.cohort.policy_evidence_codes or not set(
+            self.cohort.full_disagreement_codes
+        ) <= set(concept_codes):
+            raise ValueError("packet concepts do not match policy evidence cohort")
         if tuple(row.concept_code for row in self.review_rows) != concept_codes:
             raise ValueError("packet review rows do not match disagreement cohort")
         evidence_ids = {row.row_identity for row in self.rule_evidence}
@@ -597,6 +674,13 @@ def _occurrence_document(value: object) -> SourceOccurrenceDocument:
     return SourceOccurrenceDocument.model_validate(model_dump())
 
 
+def _fact_document(value: object) -> SourceFactDocument:
+    model_dump = getattr(value, "model_dump", None)
+    if model_dump is None:
+        raise TypeError("source fact must be a boundary model")
+    return SourceFactDocument.model_validate(model_dump())
+
+
 def _expected_groups(
     code: str, partition: Partition
 ) -> tuple[ExpectedNormalizedGroup, ...]:
@@ -639,6 +723,29 @@ def _actual_groups(
                         ),
                     )
                 )
+            elif constituent.source_facts and all(
+                item.kind == "genus" and item.filler_code == pair[1]
+                for item in constituent.source_facts
+            ):
+                pairs.append(
+                    ActualGenusFactEvidence(
+                        availability="not-applicable-genus-fact",
+                        pair=pair,
+                        source_facts=tuple(
+                            _fact_document(item) for item in constituent.source_facts
+                        ),
+                    )
+                )
+            elif constituent.source_facts:
+                pairs.append(
+                    ActualSourceFactEvidence(
+                        availability="available-source-fact",
+                        pair=pair,
+                        source_facts=tuple(
+                            _fact_document(item) for item in constituent.source_facts
+                        ),
+                    )
+                )
             else:
                 pairs.append(
                     ActualPairEvidenceUnavailable(
@@ -652,8 +759,15 @@ def _actual_groups(
                 {
                     item.source_group_id
                     for pair in pairs
-                    if isinstance(pair, ActualPairEvidence)
-                    for item in pair.occurrences
+                    for item in (
+                        pair.occurrences
+                        if isinstance(pair, ActualPairEvidence)
+                        else pair.source_facts
+                        if isinstance(
+                            pair, ActualGenusFactEvidence | ActualSourceFactEvidence
+                        )
+                        else ()
+                    )
                 }
             )
         )
@@ -677,7 +791,7 @@ def _validate_actual_partition(
     comparison: CurrentConceptComparison, evidence: CurrentConceptEvidence
 ) -> None:
     rows = tuple(
-        ((item.axis, item.filler), item.relationship_group)
+        ((item.axis, item.filler), item.normalized_group_id)
         for item in evidence.constituents
         if not item.needs_review and item.provenance_status == "ncit-26.07d"
     )
@@ -727,8 +841,54 @@ def _concept_packet(
     _validate_actual_partition(comparison, evidence)
     full = comparison.full_partition
     common = comparison.common_pair_partition
+    policy_pairs = tuple(
+        sorted((item.axis, item.filler) for item in evidence.constituents)
+    )
+    decision_target_pair_set = (
+        tuple(
+            sorted(
+                (item.axis, item.filler)
+                for item in evidence.constituents
+                if item.axis in {"op:StageSystem", "op:StageValue"}
+                and item.filler.startswith("C")
+            )
+        )
+        if comparison.code in REVIEWED_STAGE_CODES
+        else ()
+    )
+    reviewed_partition = (
+        tuple((pair,) for pair in decision_target_pair_set)
+        if comparison.code in {"C181564", "C186620", "C162226"}
+        else (decision_target_pair_set,)
+        if decision_target_pair_set
+        else ()
+    )
+    target = set(decision_target_pair_set)
+    non_target_groups: dict[tuple[object, ...], list[Pair]] = {}
+    for item in evidence.constituents:
+        pair = (item.axis, item.filler)
+        if pair in target:
+            continue
+        key = (
+            ("preserved-singleton", pair)
+            if item.needs_review
+            or item.filler.startswith("MINT-")
+            or not item.source_group_ids
+            else ("source-evidence", item.axis, item.source_group_ids)
+        )
+        non_target_groups.setdefault(key, []).append(pair)
+    deterministic_partition = tuple(
+        sorted(tuple(sorted(block)) for block in non_target_groups.values())
+    )
+    policy_output_partition = tuple(
+        sorted((*reviewed_partition, *deterministic_partition))
+    )
     return GroupReviewConcept(
         code=comparison.code,
+        policy_pair_set=policy_pairs,
+        decision_target_pair_set=decision_target_pair_set,
+        reviewed_partition=reviewed_partition,
+        policy_output_partition=policy_output_partition,
         expected_partition=full.expected_partition,
         actual_partition=full.actual_partition,
         pair_relations=comparison.pair_relations,
@@ -808,7 +968,8 @@ def _available_occurrences(
 def _machine_rule_evidence(  # noqa: C901
     concepts: tuple[GroupReviewConcept, ...],
     evidence: CurrentEngineEvidence,
-    report: R101ConservationReport,
+    report: HistoricalR101ConservationReport | R101ConservationReport,
+    historical_report: HistoricalR101ConservationReport,
 ) -> tuple[RuleEvidenceRow, ...]:
     result: list[RuleEvidenceRow] = []
     evidence_by_code = {row.code: row for row in evidence.concepts}
@@ -907,7 +1068,13 @@ def _machine_rule_evidence(  # noqa: C901
         for concept in evidence.concepts
         for row in concept.all_source_occurrences
     }
-    for row in report.occurrences:
+    report_rows = {
+        row.occurrence_id: row
+        for source in (historical_report, report)
+        for row in source.occurrences
+        if row.retained_r82_target is not None
+    }
+    for row in report_rows.values():
         if (
             row.concept_code not in packet_by_code
             or row.retained_r82_target is None
@@ -939,7 +1106,19 @@ def _machine_rule_evidence(  # noqa: C901
     kinds = {row.kind for row in result}
     missing = set(cast("tuple[RuleKind, ...]", _RULE_KINDS)) - kinds
     if missing:
-        raise ValueError(f"machine rule evidence is absent for: {sorted(missing)}")
+        retained_r82_codes = tuple(
+            sorted(
+                {
+                    row.concept_code
+                    for row in report.occurrences
+                    if row.retained_r82_target is not None
+                }
+            )
+        )
+        raise ValueError(
+            f"machine rule evidence is absent for: {sorted(missing)}; "
+            f"R101 report retained-R82 concepts={retained_r82_codes!r}"
+        )
     return tuple(
         sorted(result, key=lambda row: (row.concept_code, row.kind, row.row_identity))
     )
@@ -990,7 +1169,8 @@ def build_group_review_packet(
     *,
     evidence: CurrentEngineEvidence,
     comparison: CurrentComparison,
-    r101_report: R101ConservationReport,
+    r101_report: HistoricalR101ConservationReport | R101ConservationReport,
+    historical_r101_report: HistoricalR101ConservationReport | None = None,
 ) -> GroupReviewPacket:
     """Derive the current disagreement packet without making an SME decision."""
     _validate_inputs(evidence, comparison)
@@ -1002,6 +1182,11 @@ def build_group_review_packet(
     by_code = {item.code: item for item in evidence.concepts}
     disagreements = tuple(
         item for item in comparison.concepts if item.full_partition.agrees is False
+    )
+    policy_evidence = tuple(
+        item
+        for item in comparison.concepts
+        if item.full_partition.agrees is False or item.code in ACTIVE_GROUP_CODES
     )
     controls = tuple(
         ControlConcept(
@@ -1018,9 +1203,14 @@ def build_group_review_packet(
         key=lambda item: (len(item.all_source_occurrences), item.code),
     )
     concepts = tuple(
-        _concept_packet(item, by_code[item.code]) for item in disagreements
+        _concept_packet(item, by_code[item.code]) for item in policy_evidence
     )
-    rule_evidence = _machine_rule_evidence(concepts, evidence, r101_report)
+    historical_r101_report = historical_r101_report or cast(
+        "HistoricalR101ConservationReport", r101_report
+    )
+    rule_evidence = _machine_rule_evidence(
+        concepts, evidence, r101_report, historical_r101_report
+    )
     payload = {
         "schema_version": 4,
         "source_identity": comparison.source_identity,
@@ -1028,13 +1218,14 @@ def build_group_review_packet(
         "current_evidence_identity": evidence.evidence_identity,
         "current_comparison_identity": comparison.comparison_identity,
         "r101_report_identity": r101_report.report_identity,
+        "historical_r101_report_identity": historical_r101_report.report_identity,
         "historical_full_partition_agreement": HistoricalAgreement(
             numerator=_HISTORICAL_AGREEMENTS,
             denominator=_HISTORICAL_COHORT,
             provenance="historical-57",
         ),
         "current_metrics": comparison.metrics,
-        "cohort": ReviewCohort(
+        "cohort": CurrentReviewCohort(
             accepted_concept_count=len(comparison.concepts),
             outcome_counts=cast(
                 "dict[ConceptOutcome, int]",
@@ -1047,6 +1238,7 @@ def build_group_review_packet(
             ),
             controls=controls,
             full_disagreement_codes=tuple(item.code for item in disagreements),
+            policy_evidence_codes=tuple(item.code for item in policy_evidence),
             common_pair_eligible_codes=tuple(
                 item.code
                 for item in comparison.concepts
@@ -1091,9 +1283,7 @@ def build_machine_group_review_packet(
     r101_report_path: Path,
 ) -> GroupReviewPacket:
     """Build the complete machine boundary while leaving all SME fields absent."""
-    report = R101ConservationReport.model_validate_json(
-        gzip.decompress(r101_report_path.read_bytes())
-    )
+    report = load_historical_r101_review_report(r101_report_path)
     return build_group_review_packet(
         evidence=evidence, comparison=comparison, r101_report=report
     )
@@ -2080,14 +2270,6 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
             raise ValueError("immutable review cells differ")
         pair_decision = observed[-1]
         decision = sheet.cell(index, headers["Decision"]).value
-        if expected.review_type == "pair-only" and (
-            pair_decision is None or str(pair_decision).strip() == ""
-        ):
-            raise ValueError("pair decision is required for pair-only rows")
-        if pair_decision is not None and pair_decision not in _DECISIONS:
-            raise ValueError("pair decision is not one of the closed values")
-        if pair_decision is not None and pair_decision != decision:
-            raise ValueError("pair and grouping decisions are contradictory")
         values = (
             decision,
             sheet.cell(index, headers["Rationale"]).value,
@@ -2096,6 +2278,14 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
         )
         if any(value is None or str(value).strip() == "" for value in values):
             raise ValueError("all human fields are required")
+        if expected.review_type == "pair-only" and (
+            pair_decision is None or str(pair_decision).strip() == ""
+        ):
+            raise ValueError("pair decision is required for pair-only rows")
+        if pair_decision is not None and pair_decision not in _DECISIONS:
+            raise ValueError("pair decision is not one of the closed values")
+        if pair_decision is not None and pair_decision != decision:
+            raise ValueError("pair and grouping decisions are contradictory")
         if decision not in _DECISIONS:
             raise ValueError("decision is not one of the closed values")
         rationale = str(values[1]).strip()
@@ -2272,6 +2462,7 @@ def generate_group_review_packet(
     evidence_path: Path,
     comparison_path: Path,
     r101_report_path: Path,
+    historical_r101_report_path: Path | None = None,
     output: Path,
 ) -> GroupReviewPacket:
     """Generate canonical JSON from the validated current evidence pair."""
@@ -2286,12 +2477,17 @@ def generate_group_review_packet(
         r101_report_path.resolve(),
     }:
         raise ValueError("output must differ from inputs")
+    primary_report = load_group_review_r101_report(r101_report_path)
+    historical_report = (
+        load_historical_r101_review_report(historical_r101_report_path)
+        if historical_r101_report_path is not None
+        else cast("HistoricalR101ConservationReport", primary_report)
+    )
     packet = build_group_review_packet(
         evidence=CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes()),
         comparison=CurrentComparison.model_validate_json(comparison_path.read_bytes()),
-        r101_report=R101ConservationReport.model_validate_json(
-            gzip.decompress(r101_report_path.read_bytes())
-        ),
+        r101_report=primary_report,
+        historical_r101_report=historical_report,
     )
     _write_json(output, packet.model_dump(mode="json"))
     if load_group_review_packet(output) != packet:
@@ -2304,24 +2500,62 @@ def generate_group_review_boundary(
     evidence_path: Path,
     comparison_path: Path,
     r101_report_path: Path,
+    historical_r101_report_path: Path | None = None,
     output: Path,
     workbook: Path,
     correction_audit: Path,
     blank_validation: Path,
 ) -> GroupReviewPacket:
     """Generate the bound machine packet and blank manual-review workbook."""
-    packet = generate_group_review_packet(
-        evidence_path=evidence_path,
-        comparison_path=comparison_path,
-        r101_report_path=r101_report_path,
-        output=output,
-    )
-    write_group_review_workbook(workbook, packet)
-    write_group_correction_audit(correction_audit, packet)
-    validate_blank_group_review_outputs(
-        packet=packet,
-        review_workbook=workbook,
-        correction_audit=correction_audit,
-        output=blank_validation,
-    )
-    return packet
+    outputs = (output, workbook, correction_audit, blank_validation)
+    if len({path.resolve() for path in outputs}) != len(outputs):
+        raise ValueError("group review outputs must be distinct")
+    for path in outputs:
+        if not path.parent.is_dir():
+            raise ValueError(f"output parent does not exist: {path.parent}")
+    with tempfile.TemporaryDirectory(
+        prefix=".group-review-boundary.", dir=output.parent
+    ) as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        staged = tuple(
+            temporary_root / f"{index}-{path.name}"
+            for index, path in enumerate(outputs)
+        )
+        packet = generate_group_review_packet(
+            evidence_path=evidence_path,
+            comparison_path=comparison_path,
+            r101_report_path=r101_report_path,
+            historical_r101_report_path=historical_r101_report_path,
+            output=staged[0],
+        )
+        write_group_review_workbook(staged[1], packet)
+        write_group_correction_audit(staged[2], packet)
+        validate_blank_group_review_outputs(
+            packet=packet,
+            review_workbook=staged[1],
+            correction_audit=staged[2],
+            output=staged[3],
+        )
+        originals = {
+            path: path.read_bytes() if path.exists() else None for path in outputs
+        }
+        replaced: list[Path] = []
+        try:
+            for source, destination in zip(staged, outputs, strict=True):
+                os.replace(source, destination)
+                replaced.append(destination)
+        except BaseException as original:
+            for destination in reversed(replaced):
+                previous = originals[destination]
+                try:
+                    if previous is None:
+                        destination.unlink(missing_ok=True)
+                    else:
+                        _write_bytes(destination, previous)
+                except BaseException as rollback_error:
+                    original.add_note(
+                        f"Rolling back {destination} also failed: "
+                        f"{type(rollback_error).__name__}: {rollback_error}"
+                    )
+            raise
+        return packet

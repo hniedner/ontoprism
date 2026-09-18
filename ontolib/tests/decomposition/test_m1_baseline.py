@@ -34,12 +34,10 @@ from scripts.research.golden_review import (
     ExpectedTriple,
     KeptRow,
     evaluate_adjudication,
-    load_adjudication,
+    load_migrated_historical_adjudication,
     load_row_decisions,
     read_json_without_duplicates,
 )
-
-from ontolib.decomposition.proposal_registry import load_proposal_registry
 
 if TYPE_CHECKING:
     from scripts.research.golden_review import AdjudicationArtifact, RowDecisionExport
@@ -50,6 +48,7 @@ _ADJUDICATION_PATH = _GOLDEN / "neoplasm-adjudicated.json"
 _ENGINE_EVIDENCE_PATH = _GOLDEN / "neoplasm-engine-evidence.json"
 _CORPUS_COMPARISON_PATH = _GOLDEN / "neoplasm-corpus-comparison.json"
 _PROPOSAL_REGISTRY_PATH = _GOLDEN / "proposal-registry.json"
+_PROPOSAL_REGISTRY_MIGRATION_PATH = _GOLDEN / "proposal-registry-schema2-migration.json"
 _ROW_DECISIONS_PATH = _GOLDEN / "neoplasm-row-decisions.json"
 _MINT_ID = "MINT-781c8c8c6096"
 _OBSOLETE_MINTED_GOLDEN = "minted" + "-concepts.json"
@@ -136,9 +135,10 @@ def _oracle_triples(artifact: AdjudicationArtifact) -> set[ExpectedTriple]:
 @pytest.fixture(scope="module")
 def m1_artifact() -> AdjudicationArtifact:
     """Load the tracked oracle bound to its tracked proposal registry."""
-    return load_adjudication(
+    return load_migrated_historical_adjudication(
         _ADJUDICATION_PATH,
-        load_proposal_registry(_PROPOSAL_REGISTRY_PATH),
+        _PROPOSAL_REGISTRY_PATH,
+        _PROPOSAL_REGISTRY_MIGRATION_PATH,
     )
 
 

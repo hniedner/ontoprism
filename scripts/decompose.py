@@ -167,6 +167,15 @@ async def _run(
         resume_from=resume,
         walker_max_depth=walker_max_depth,
         sample_manifest=sample,
+        mixed_chain_inventory_path=(
+            Path(__file__).resolve().parents[1]
+            / "ontolib/src/ontolib/decomposition/data/"
+            "neoplasm_mixed_chain_inventory.json"
+            if branch is DecompositionBranch.NEOPLASM
+            and sample is None
+            and total_limit is None
+            else None
+        ),
     )
     if sample is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
@@ -334,6 +343,13 @@ def main(
             sample_manifest,
         )
     )
+    residual_rate = metrics.residual_precoordination
+    residual_summary = (
+        f"{residual_rate:.2%} "
+        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        if residual_rate is not None
+        else f"unavailable (unknown={metrics.residual_precoordination_unknown_count})"
+    )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
         f"residual={metrics.residual} "
@@ -342,8 +358,7 @@ def main(
         f"minted={metrics.minted_count} "
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
-        f"residual_precoordination={metrics.residual_precoordination:.2%} "
-        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
+        f"residual_precoordination={residual_summary}"
     )
 
 

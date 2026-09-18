@@ -14,10 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
+from test_support.projection import unknown_axis_diagnostic_source
 
 from ontolib.decomposition import stated_queries
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticError,
     AxisHierarchyEvidence,
     HierarchyEdge,
     build_disjoint_pairs_query,
@@ -39,12 +41,16 @@ from ontolib.decomposition.extract import (
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import (
-    select_constituents as _select_constituents,
+    _reduce_routed_plan,
+    build_routed_plan,
 )
 from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
     RoleRestriction,
+)
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.run import _decompose_one as _decompose_one_impl
 from ontolib.decomposition.scope import read_scope_hierarchy_edges
@@ -60,7 +66,7 @@ from ontolib.decomposition.stated_queries import (
     resolve_morphology_filler,
     walk_genus_chain,
 )
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import (
@@ -171,6 +177,68 @@ class _SingleAttemptClient:
         )
 
 
+class _RecordingRowsClient:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.calls: list[
+            tuple[str, str, tuple[str, ...], list[dict[str, str | None]]]
+        ] = []
+
+    async def select(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        rows = await self._client.select(query, required_variables=required_variables)
+        copied = [dict(row) for row in rows]
+        self.calls.append(("select", query, tuple(sorted(required_variables)), copied))
+        return copied
+
+    async def select_once(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        rows = await self._client.select_once(
+            query, required_variables=required_variables
+        )
+        copied = [dict(row) for row in rows]
+        self.calls.append(
+            ("select_once", query, tuple(sorted(required_variables)), copied)
+        )
+        return copied
+
+
+class _DeterministicRowsDouble:
+    def __init__(
+        self,
+        calls: list[tuple[str, str, tuple[str, ...], list[dict[str, str | None]]]],
+    ) -> None:
+        self._calls = iter(calls)
+        self.consumed = 0
+
+    async def _next(
+        self,
+        method: str,
+        query: str,
+        required_variables: Collection[str],
+    ) -> list[dict[str, str | None]]:
+        expected_method, expected_query, expected_required, rows = next(self._calls)
+        assert (method, query, tuple(sorted(required_variables))) == (
+            expected_method,
+            expected_query,
+            expected_required,
+        )
+        self.consumed += 1
+        return [dict(row) for row in rows]
+
+    async def select(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return await self._next("select", query, required_variables)
+
+    async def select_once(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return await self._next("select_once", query, required_variables)
+
+
 @pytest.mark.integration
 async def test_stated_query_builders_parse_against_disposable_store(
     isolated_qlever_url: str,
@@ -209,6 +277,9 @@ async def test_axis_range_double_matches_disposable_qlever(
         ncit:C99701 rdfs:subClassOf ncit:C99702 .
         ncit:C99702 rdfs:subClassOf ncit:C7057 .
         ncit:C99703 owl:disjointWith ncit:C7057 .
+        [ a owl:AllDisjointClasses ;
+          owl:members (ncit:C7057 ncit:C99703 ncit:C99704)
+        ] .
     """
     async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
@@ -240,7 +311,30 @@ async def test_axis_range_double_matches_disposable_qlever(
             HierarchyEdge(child="C99702", parent="C7057"),
         ),
         disjoint_pairs=disjoint_pairs_from_rows(
-            [{"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C99703"}]
+            [
+                {"left": f"{NCIT_NS}C99703", "right": f"{NCIT_NS}C7057"},
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-1",
+                    "first": f"{NCIT_NS}C7057",
+                    "rest": "cell-2",
+                },
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-2",
+                    "first": f"{NCIT_NS}C99703",
+                    "rest": "cell-3",
+                },
+                {
+                    "set": "set-1",
+                    "head": "cell-1",
+                    "node": "cell-3",
+                    "first": f"{NCIT_NS}C99704",
+                    "rest": f"{RDF_NS}nil",
+                },
+            ]
         ),
     )
     real = tuple(
@@ -250,7 +344,7 @@ async def test_axis_range_double_matches_disposable_qlever(
             contract.range_code,
             real_snapshot,
         ).status
-        for filler in ("C99701", "C99703", "C99704")
+        for filler in ("C99701", "C99703", "C99704", "C99705")
     )
     doubled = tuple(
         classify_axis_range(
@@ -259,10 +353,176 @@ async def test_axis_range_double_matches_disposable_qlever(
             contract.range_code,
             doubled_snapshot,
         ).status
-        for filler in ("C99701", "C99703", "C99704")
+        for filler in ("C99701", "C99703", "C99704", "C99705")
     )
 
-    assert real == doubled == ("valid", "invalid", "unknown")
+    assert real == doubled == ("valid", "invalid", "invalid", "unknown")
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_disjoint_query_exposes_malformed_all_disjoint_list(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdf: <{RDF_NS}> .
+
+        [] a owl:AllDisjointClasses ; owl:members [
+            rdf:first ncit:C99701 ;
+            rdf:rest rdf:nil, [ rdf:first ncit:C99702 ; rdf:rest rdf:nil ]
+        ] .
+    """
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        rows = await client.select_once(
+            build_disjoint_pairs_query(),
+            required_variables={"left", "right"},
+        )
+
+    with pytest.raises(AxisDiagnosticError, match="malformed AllDisjointClasses list"):
+        disjoint_pairs_from_rows(rows)
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_occurrence_selection_double_matches_disposable_qlever_rows(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+
+        ncit:C99750 ncit:P106 "Neoplastic Process" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99751
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R101 ;
+                      owl:someValuesFrom ncit:C99752 ]
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R101 ;
+                      owl:someValuesFrom ncit:C99752 ]
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R105 ;
+                      owl:someValuesFrom ncit:C99753 ]
+                )
+            ] .
+        ncit:C99752 ncit:P106 "Anatomic Structure, System, or Substance" .
+        ncit:C99753 ncit:P106 "Cell" .
+    """
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        recording = _RecordingRowsClient(client)
+        real = await _decompose_one(
+            "C99750", recording, label=None, label_lookup=no_label_match
+        )
+
+    doubled_client = _DeterministicRowsDouble(recording.calls)
+    doubled = await _decompose_one(
+        "C99750", doubled_client, label=None, label_lookup=no_label_match
+    )
+
+    assert doubled_client.consumed == len(recording.calls) > 0
+    assert real == doubled
+    assert real.decomposition is not None
+    complete = real.decomposition.complete_definition
+    assert complete is not None
+    restrictions = tuple(
+        fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
+    )
+    assert len(restrictions) == 2
+    assert len(complete.groups) == 1
+    facts_by_pair = {(item.role_code, item.filler_code): item for item in restrictions}
+    assert [
+        (
+            item.occurrence_id,
+            item.anchor_code,
+            item.depth,
+            item.role_code,
+            item.filler_code,
+            item.structural_path,
+            item.member_position,
+            item.source_fact_id,
+            item.source_group_id,
+        )
+        for item in complete.occurrences
+    ] == [
+        (
+            item.occurrence_id,
+            "C99750",
+            0,
+            role,
+            filler,
+            (0, position),
+            position,
+            facts_by_pair[(role, filler)].fact_id,
+            complete.groups[0].group_id,
+        )
+        for position, (item, role, filler) in enumerate(
+            zip(
+                complete.occurrences,
+                ("R101", "R101", "R105"),
+                ("C99752", "C99752", "C99753"),
+                strict=True,
+            ),
+            start=1,
+        )
+    ]
+    selected = real.decomposition.constituents
+    assert [
+        (
+            item.axis,
+            item.filler_code,
+            item.source_definition_ids,
+            item.source_occurrence_ids,
+        )
+        for item in selected
+    ] == [
+        (
+            "op:AssociatedRegion",
+            "C99752",
+            (facts_by_pair[("R101", "C99752")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R101"
+                )
+            ),
+        ),
+        (
+            "op:CellType",
+            "C99753",
+            (facts_by_pair[("R105", "C99753")].fact_id,),
+            tuple(
+                sorted(
+                    item.occurrence_id
+                    for item in complete.occurrences
+                    if item.role_code == "R105"
+                )
+            ),
+        ),
+    ]
 
 
 @pytest.mark.integration
@@ -976,7 +1236,7 @@ async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
         is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
     )
     assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
-    assert all(item.group is None for item in constituents)
+    assert all(item.axis_ambiguity_group_id is None for item in constituents)
 
 
 @pytest.mark.integration
@@ -1503,7 +1763,7 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
         if constituent.axis == "op:AssociatedRegion"
     ]
     assert all(
-        constituent.group is None
+        constituent.axis_ambiguity_group_id is None
         and constituent.source_roles == ("R101",)
         and constituent.source_definition_ids
         and constituent.needs_review is False
@@ -1584,7 +1844,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
             "C33209",
         }, grouped.constituents
         assert all(
-            constituent.group == "op:AssociatedRegion"
+            constituent.axis_ambiguity_group_id == "op:AssociatedRegion"
             and constituent.source_definition_ids
             for constituent in grouped_regions
         )
@@ -1652,18 +1912,34 @@ async def test_ncit_role_metadata_contract_matches_normalization() -> None:
 
 
 def select_constituents(*args: Any, **kwargs: Any):
-    return _select_constituents(
-        *args,
-        **kwargs,
+    restrictions, is_ancestor = args
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
         source_identity=None,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    return list(
+        _reduce_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
     )
 
 
 async def _decompose_one(*args: Any, **kwargs: Any):
+    no_group_policy = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "0" * 64, "rows": ()}
+    )
     return await _decompose_one_impl(
         *args,
         **kwargs,
         source_identity="0" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
+        detector_identity="0" * 64,
+        normalized_group_policy=no_group_policy,
     )

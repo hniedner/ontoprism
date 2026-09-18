@@ -104,6 +104,7 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "pre-commit run --all-files",
     "agent-test *",
     "agent-replay *",
+    "agent-replay ensure-podman-stack",
 )
 IMPLEMENTER_LOCAL_GIT_WRAPPERS = (
     "agent-git switch-existing *",

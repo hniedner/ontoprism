@@ -2,6 +2,7 @@
   "ontology_version": "26.07d",
   "proposals": [
     {
+      "adoption_evidence": null,
       "axis": "op:CellType",
       "definition": "A malignant germ cell that is a cellular component of a non-seminomatous germ cell neoplasm.",
       "duplicate_checks": [
@@ -48,17 +49,29 @@
           "version": "2025-09-01"
         }
       ],
-      "parent_concepts": ["C54110"],
+      "parent_concepts": [
+        "C54110"
+      ],
       "preferred_name": "Malignant Non-Seminomatous Germ Cell",
       "rationale": "NCIt 26.07d contains C54110 Malignant Germ Cell and multiple disease/morphology concepts for non-seminomatous germ-cell neoplasia, but no Cell concept for the required non-seminomatous malignant germ-cell subtype.",
-      "semantic_types": ["Cell"],
-      "source_concepts": ["C27787"],
-      "source_roles": ["R105"],
+      "replacement_ncit_code": null,
+      "semantic_types": [
+        "Cell"
+      ],
+      "source_concepts": [
+        "C27787"
+      ],
+      "source_roles": [
+        "R105"
+      ],
       "status": "locally-approved",
       "submission_target": "NCIt",
-      "synonyms": ["Malignant Nonseminomatous Germ Cell"]
+      "synonyms": [
+        "Malignant Nonseminomatous Germ Cell"
+      ]
     },
     {
+      "adoption_evidence": null,
       "axis": "op:AssociatedPriorDisease",
       "definition": "Relates a disease to a distinct disease that was present earlier in the same patient and provides the stated temporal context for the subject disease, without by itself asserting direct causation or material transformation.",
       "domain": "C7057",
@@ -72,7 +85,9 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship"],
+          "candidates": [
+            "RO:0040035 disease relationship"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "associated prior disease",
           "resource": "RO",
@@ -80,7 +95,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo reviewer-side relation candidates"],
+          "candidates": [
+            "Mondo reviewer-side relation candidates"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "associated prior disease",
           "resource": "Mondo",
@@ -93,12 +110,20 @@
       "preferred_name": "associated prior disease",
       "range": "C7057",
       "rationale": "NCIt R126 conflates prior-history context with causal and non-temporal associations.",
-      "source_examples": ["C172130->C27262", "C4037->C3247"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C172130->C27262",
+        "C4037->C3247"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "locally-approved",
       "submission_target": "RO"
     },
     {
+      "adoption_evidence": null,
       "axis": "op:ArisesInPrecursorDisease",
       "definition": "Relates a neoplastic disease to a pre-existing disease or neoplastic lesion within which the subject neoplasm arose.",
       "domain": "C7057",
@@ -112,7 +137,9 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship"],
+          "candidates": [
+            "RO:0040035 disease relationship"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "arises in precursor disease",
           "resource": "RO",
@@ -120,7 +147,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo reviewer-side relation candidates"],
+          "candidates": [
+            "Mondo reviewer-side relation candidates"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "arises in precursor disease",
           "resource": "Mondo",
@@ -133,12 +162,20 @@
       "preferred_name": "arises in precursor disease",
       "range": "C7057",
       "rationale": "NCIt R126 uses the same role for explicit arises-in precursor relationships.",
-      "source_examples": ["C213378->C96479", "C4235->C4234"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C213378->C96479",
+        "C4235->C4234"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "proposed",
       "submission_target": "RO"
     },
     {
+      "adoption_evidence": null,
       "axis": "op:CausedByAssociatedDisease",
       "definition": "Relates a disease to another disease or disorder stated to be a direct cause of the subject disease.",
       "domain": "C7057",
@@ -152,7 +189,9 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship"],
+          "candidates": [
+            "RO:0040035 disease relationship"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "caused by associated disease",
           "resource": "RO",
@@ -160,7 +199,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo reviewer-side relation candidates"],
+          "candidates": [
+            "Mondo reviewer-side relation candidates"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "caused by associated disease",
           "resource": "Mondo",
@@ -173,12 +214,20 @@
       "preferred_name": "caused by associated disease",
       "range": "C7057",
       "rationale": "Direct causal R126 assertions must not be represented by a neutral association.",
-      "source_examples": ["C162541->C27851", "C27687->C3097"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C162541->C27851",
+        "C27687->C3097"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "proposed",
       "submission_target": "RO"
     },
     {
+      "adoption_evidence": null,
       "axis": "op:PredisposedByDisease",
       "definition": "Relates a disease to a distinct disease or syndrome that increases the risk of developing the subject disease without making development inevitable.",
       "domain": "C7057",
@@ -192,7 +241,9 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship"],
+          "candidates": [
+            "RO:0040035 disease relationship"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "predisposed by disease",
           "resource": "RO",
@@ -200,7 +251,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo reviewer-side relation candidates"],
+          "candidates": [
+            "Mondo reviewer-side relation candidates"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "predisposed by disease",
           "resource": "Mondo",
@@ -213,12 +266,20 @@
       "preferred_name": "predisposed by disease",
       "range": "C7057",
       "rationale": "Predisposition is neither direct causation nor simple co-occurrence.",
-      "source_examples": ["C213036->C3105", "C213055->C3225"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C213036->C3105",
+        "C213055->C3225"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "proposed",
       "submission_target": "Mondo/RO"
     },
     {
+      "adoption_evidence": null,
       "axis": "op:HasDiseaseManifestation",
       "definition": "Relates a syndrome or composite disease to a distinct disease that is one of its characteristic manifestations or constituent disease features.",
       "domain": "C7057",
@@ -232,7 +293,10 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship", "RO:0004029 disease has feature"],
+          "candidates": [
+            "RO:0040035 disease relationship",
+            "RO:0004029 disease has feature"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "has disease manifestation",
           "resource": "RO",
@@ -240,7 +304,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo disease_has_feature"],
+          "candidates": [
+            "Mondo disease_has_feature"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "has disease manifestation",
           "resource": "Mondo",
@@ -253,12 +319,20 @@
       "preferred_name": "has disease manifestation",
       "range": "C7057",
       "rationale": "R126 is also used from syndromes toward their disease manifestations, reversing the direction used by predisposition examples.",
-      "source_examples": ["C3213->C3007", "C3274->C3276"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C3213->C3007",
+        "C3274->C3276"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "proposed",
       "submission_target": "RO"
     },
     {
+      "adoption_evidence": null,
       "axis": "op:CoOccursWithDisease",
       "definition": "Relates a disease to a clinically relevant distinct disease stated to coexist in the same case, without asserting temporal order, causation, or risk.",
       "domain": "C7057",
@@ -272,7 +346,9 @@
           "version": "26.07d"
         },
         {
-          "candidates": ["RO:0040035 disease relationship"],
+          "candidates": [
+            "RO:0040035 disease relationship"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/oborel/obo-relations/6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b/ro-base.owl",
           "query": "co-occurs with disease",
           "resource": "RO",
@@ -280,7 +356,9 @@
           "version": "6ad4fa75c7bc782c792fae5192f4bb66de6b0c6b"
         },
         {
-          "candidates": ["Mondo reviewer-side relation candidates"],
+          "candidates": [
+            "Mondo reviewer-side relation candidates"
+          ],
           "evidence_url": "https://raw.githubusercontent.com/monarch-initiative/mondo/5ce72d8464ab8237da96539ffb510f7b45815556/src/ontology/mondo-edit.obo",
           "query": "co-occurs with disease",
           "resource": "Mondo",
@@ -293,13 +371,20 @@
       "preferred_name": "co-occurs with disease",
       "range": "C7057",
       "rationale": "True concurrent disease assertions require a neutral relation distinct from statistical RO:0002610 correlated with.",
-      "source_examples": ["C186735->C3708", "C157461->C95597"],
-      "source_roles": ["R126"],
+      "replacement_relation_iri": null,
+      "replacement_relation_version": null,
+      "source_examples": [
+        "C186735->C3708",
+        "C157461->C95597"
+      ],
+      "source_roles": [
+        "R126"
+      ],
       "status": "proposed",
       "submission_target": "RO"
     }
   ],
-  "registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
-  "schema_version": 1,
+  "registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
+  "schema_version": 2,
   "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
 }

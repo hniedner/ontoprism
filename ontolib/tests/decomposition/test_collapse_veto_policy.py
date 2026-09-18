@@ -18,10 +18,17 @@ from ontolib.decomposition.collapse_policy_generation import (
     _entry,
     _validate_authorized_accounting,
 )
-from ontolib.decomposition.filler_selection import select_constituents
+from ontolib.decomposition.filler_selection import (
+    _reduce_routed_plan,
+    build_routed_plan,
+)
 from ontolib.decomposition.models import RoleRestriction
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE_IDENTITY,
+    RunFingerprint,
+    RunResumeIdentity,
+)
+from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
 from ontolib.decomposition.r101_review import load_r101_decision_registry
 
 _SOURCE = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
@@ -83,9 +90,31 @@ def _policy(source_identity: str = _SOURCE):
     )
 
 
+def select_constituents(
+    restrictions: list[RoleRestriction],
+    is_ancestor: Any,
+    **kwargs: Any,
+) -> list[Any]:
+    plan = build_routed_plan(
+        restrictions,
+        semantic_type_of=kwargs.pop("semantic_type_of", None),
+        parent_morphologies=kwargs.pop("parent_morphologies", ()),
+        concept_code=kwargs.pop("concept_code", None),
+        source_identity=kwargs.pop("source_identity"),
+        collapse_policy=kwargs.pop("collapse_policy"),
+    )
+    return list(
+        _reduce_routed_plan(
+            plan,
+            is_ancestor,
+            is_part_of=kwargs.pop("is_part_of", None),
+        ).constituents
+    )
+
+
 @pytest.mark.unit
 def test_selector_requires_an_explicit_typed_policy() -> None:
-    parameter = inspect.signature(select_constituents).parameters["collapse_policy"]
+    parameter = inspect.signature(build_routed_plan).parameters["collapse_policy"]
     assert parameter.default is inspect.Parameter.empty
 
 
@@ -109,7 +138,7 @@ def test_exact_c5292_veto_retains_broaders_as_one_unresolved_group() -> None:
     }
     assert {row.axis for row in constituents} == {"op:PrimarySite"}
     assert all(row.needs_review for row in constituents)
-    assert {row.group for row in constituents} == {"op:PrimarySite"}
+    assert {row.axis_ambiguity_group_id for row in constituents} == {"op:PrimarySite"}
 
 
 @pytest.mark.unit
@@ -140,38 +169,19 @@ def test_veto_adds_broaders_without_erasing_normal_r101_region_resolution() -> N
         source_identity=_SOURCE,
         collapse_policy=collapse_policy.NO_COLLAPSE_VETO_POLICY,
     )
-    protected = select_constituents(
-        roles,
-        ancestors,
-        concept_code="C5292",
-        parent_morphologies=("C4959",),
-        semantic_type_of=semantic_types.get,
-        source_identity=_SOURCE,
-        collapse_policy=_policy(),
-    )
+    with pytest.raises(CollapsePolicyError, match=r"axis.*drift"):
+        select_constituents(
+            roles,
+            ancestors,
+            concept_code="C5292",
+            parent_morphologies=("C4959",),
+            semantic_type_of=semantic_types.get,
+            source_identity=_SOURCE,
+            collapse_policy=_policy(),
+        )
     baseline_pairs = {(row.axis, row.filler_code) for row in baseline}
-    protected_pairs = {(row.axis, row.filler_code) for row in protected}
 
     assert ("op:AssociatedRegion", "C32292") in baseline_pairs
-    assert protected_pairs == baseline_pairs | {
-        ("op:PrimarySite", "C12351"),
-        ("op:PrimarySite", "C12439"),
-        ("op:PrimarySite", "C12512"),
-    }
-    primary = [row for row in protected if row.axis == "op:PrimarySite"]
-    assert len(primary) > 1
-    assert all(row.needs_review and row.group == "op:PrimarySite" for row in primary)
-    baseline_region = next(
-        row
-        for row in baseline
-        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
-    )
-    protected_region = next(
-        row
-        for row in protected
-        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
-    )
-    assert protected_region == baseline_region
 
 
 @pytest.mark.unit
@@ -188,21 +198,15 @@ def test_single_protected_axis_value_is_not_grouped_as_ambiguous() -> None:
         RoleRestriction("R101", "C12351", anchoring_genus="C4807"),
         RoleRestriction("R101", "C32639", anchoring_genus="C5292"),
     ]
-    constituents = select_constituents(
-        roles,
-        lambda parent, child: (parent, child) == ("C12351", "C32639"),
-        concept_code="C5292",
-        semantic_type_of=lambda _code: "Anatomical Structure",
-        source_identity=_SOURCE,
-        collapse_policy=policy,
-    )
-    protected = next(
-        row
-        for row in constituents
-        if row.axis == "op:PrimarySite" and row.filler_code == "C12351"
-    )
-    assert protected.needs_review is False
-    assert protected.group is None
+    with pytest.raises(CollapsePolicyError, match=r"axis.*drift"):
+        select_constituents(
+            roles,
+            lambda parent, child: (parent, child) == ("C12351", "C32639"),
+            concept_code="C5292",
+            semantic_type_of=lambda _code: "Anatomical Structure",
+            source_identity=_SOURCE,
+            collapse_policy=policy,
+        )
 
 
 @pytest.mark.unit
@@ -311,6 +315,9 @@ def test_policy_identity_is_required_by_fingerprint_and_resume_identity() -> Non
         "schema_version": 4,
         "source_identity": _SOURCE,
         "collapse_policy_identity": _policy().policy_identity,
+        "routing_implementation_identity": "1" * 64,
+        "mixed_chain_inventory_identity": "2" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -404,7 +411,7 @@ def test_policy_second_staging_failure_leaves_no_partial_or_temp_file(
 
 
 def _rejected_evidence():
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
     )
     source = next(
@@ -597,7 +604,7 @@ def test_policy_live_qualification_accepts_all_keys_and_rejects_provenance_drift
     None
 ):
     policy = _policy()
-    report = load_r101_conservation_report(
+    report = load_historical_r101_review_report(
         Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
     )
     by_id = {row.occurrence_id: row for row in report.occurrences}

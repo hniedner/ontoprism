@@ -17,10 +17,13 @@ This evidence record retains the exact axis names used by the source rows.
 | `complete-definition.json` | Fixture for the complete-definition path. |
 | `neoplasm-current-engine-evidence.json` | Current-source 20-code replay evidence; never the historical attested run. |
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
-| `neoplasm-current-corpus-baseline.json` | Current-source full-corpus pre-change counts and exact representation identity. |
-| `neoplasm-highest-fanout.json` | Current-source highest-fanout concepts and fixed query budgets. |
+| `neoplasm-current-corpus-baseline.json` | Current-source v5 full-corpus counts and exact representation identity. |
+| `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
 | `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
 | `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
+| `neoplasm-r101-v5-conservation.json.gz` | Current qualified 8fb→cd4b full-corpus diagnostic ledger, promoted as mechanical evidence only—not content authorization or publication; occurrence certification is complete while explanation is incomplete (`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`, 2026-09-12). |
+| `neoplasm-r101-v5-2b39-historical-conservation.json.gz` | Immutable schema-3 source diagnostic for the historical 2b39 mixed-chain inventory/projection era. |
+| `neoplasm-r101-v5-corrected-projection.json` | Immutable corrected projection bound to the historical 2b39 inventory and source diagnostic; not a run. |
 | `r101-review-registry-v3-sme.json.gz` | Deterministic test golden of the complete proposed review registry; it is not runtime package data or publication authorization. |
 
 `proposal-registry.json` is the sole current strict golden governance record for minted proposals.
@@ -31,11 +34,63 @@ replace or certify those runtime surfaces. The C27787 adjudication rationale con
 lifecycle prose whose identity-bound correction is deferred and blocked as recorded in D82; the
 strict registry, not that prose, is current authority.
 
+The active registry uses schema 2 and canonical registry identity
+`fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1`; it contains two
+`locally-approved` and five `proposed` records and no `accepted-in-ncit` record
+(`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_tracked_proposal_registry_remains_valid -v`,
+2026-09-07). Schema 2 adds the closed typed `adoption_evidence` field and rejects schema 1 rather
+than interpreting it. The deterministic atomic current-schema writer can canonicalize an already
+valid registry in place without changing its bytes:
+
+```bash
+pdm run adjudication write-proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json
+```
+
+The writer's two-output and in-place determinism are exercised by
+`pdm run agent-test ontolib/tests/decomposition/test_proposal_registry.py::test_registry_writer_is_canonical_atomic_and_deterministic -v`
+(2026-09-07). The registry identity above was bound after the schema-2 writer generated the
+payload; the current evidence envelopes were then regenerated, while the historical human
+adjudication and R103 artifacts remained immutable and are checked through the separate migration
+binding
+(`pdm run agent-test ontolib/tests/decomposition/test_current_evidence.py ontolib/tests/decomposition/test_r103_review.py ontolib/tests/decomposition/test_r103_review_promotion.py ontolib/tests/decomposition/test_r103_terminal_revision.py -v`,
+2026-09-07).
+
+`proposal-registry-schema2-migration.json` is the append-only machine binding from the exact
+schema-1 registry identity and file digest referenced by the historical evidence to the active
+schema-2 registry. It records every proposal ID, kind, status, source reference, and subject
+semantics identity; binds the unchanged human-decision artifacts byte-for-byte; and states both
+that no proposal transitioned to `accepted-in-ncit` and that NCI adoption was not inferred. Generate
+it only after all five named inputs and the output parent exist (`ls
+ontolib/tests/decomposition/golden/neoplasm-adjudicated.json
+ontolib/tests/decomposition/golden/r103-review-state-26.07d.json
+ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json
+ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json
+ontolib/tests/decomposition/golden/proposal-registry.json tmp`, 2026-09-07):
+
+```bash
+pdm run adjudication bind-proposal-registry-migration \
+  --historical-oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json \
+  --historical-r103-review ontolib/tests/decomposition/golden/r103-review-state-26.07d.json \
+  --historical-r103-revision ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json \
+  --historical-r103-corroboration ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json \
+  --current-registry ontolib/tests/decomposition/golden/proposal-registry.json \
+  --output ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json
+```
+
+Two independent generations matched each other and the tracked bytes (`cmp
+tmp/proposal-registry-schema2-migration-first.json
+tmp/proposal-registry-schema2-migration-second.json` and `cmp
+tmp/proposal-registry-schema2-migration-first.json
+ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json`, 2026-09-07). The
+tracked envelope SHA-256 is `73b135ffcafa7efee6617a52d9037c51bf32ee9ba66f3f1bf7d1492a3ed5a6b3`
+(`shasum -a 256
+ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json`, 2026-09-07).
+
 The compressed review registry has schema 3/status `proposed`, identity
 `358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975`, and exactly
 3,291 atomic rows partitioned into 3,288 `approved-non-exclusive-coverage` and three
 `rejected-retain-broader` outcomes; all 2,800 disease-exception values are false
-(`pdm run pytest ontolib/tests/decomposition/test_collapse_veto_policy.py::test_tracked_registry_golden_has_exact_authorized_accounting -q`,
+(`pdm run agent-test ontolib/tests/decomposition/test_collapse_veto_policy.py::test_tracked_registry_golden_has_exact_authorized_accounting -v`,
 2026-08-20). The three rejections are operational collapse vetoes only: their broader source
 sites remain review-required alongside Frontal Sulcus (C32639), while complete source facts,
 equivalence quarantine, publication state, and NCIt adoption state remain unchanged.
@@ -254,69 +309,104 @@ shell. Read the issue contract through the same narrow entry point:
 pdm run agent-replay read-issue 274
 ```
 
-Run the exact current 20-code cohort. The completed replay generated the persisted run
-`neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d` (`pdm run agent-replay decompose-current`,
-2026-08-24):
+Run creation remains a separate operation. A refused fresh run is never changed into an implicit
+resume, and a complete, published run cannot be resumed. The completed-run replay route was
+therefore removed rather than copying or rebinding bytes as though current decomposition code had
+executed.
+
+Generate the final downstream evidence candidate from an existing immutable replay generation.
+The supplied manifest identity certifies the exact historical replay bytes; the wrapper also
+checks those bytes against the run's currently persisted published representation. The replay's
+generator may be an older repository identity. Only the downstream evidence generator executes at
+the current repository identity, so the resulting chain does not claim that decomposition was
+rerun with current code:
 
 ```bash
-pdm run agent-replay decompose-current
-pdm run agent-replay generate-current-evidence neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d
+pdm run agent-replay generate-current-evidence-candidate \
+  tmp/artifacts/v1/generations/m1-6-current-replay/<generation-id>/manifest.json \
+  <manifest-identity>
 ```
+
+Supply the exact existing manifest path and its computed identity at execution time; placeholders
+are not accepted. The retired run-ID-only form completed against the persisted
+Postgres run on 2026-09-07 after
+`ls -l tmp/m1-6-current-replay.ttl` established the published input existed. It regenerated bytes
+with SHA-256 `0705d725eafa1c49e95a1cb0885c90657bc84078f584ca153102cf3d5fa8fb4c` for
+`neoplasm-current-engine-evidence.json`,
+`8c675e3fde38b6c27f52cce9ec65fdb0a8a9af98bad23fac436313df75793a6a` for
+`neoplasm-current-comparison.json`, and
+`b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e` for the published Turtle
+(`shasum -a 256 ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json
+ontolib/tests/decomposition/golden/neoplasm-current-comparison.json
+tmp/m1-6-current-replay.ttl`, 2026-09-07). `git diff --no-ext-diff --` followed by both current
+artifact paths returned no output after generation, proving that the regenerated bytes equal the
+tracked bytes (2026-09-07).
+
+The historical human and historical engine inputs remained byte-identical before and after that
+generation. The before and after `shasum -a 256` commands returned, respectively:
+`b3e909802ddc762d3c348c19ac25f343cc888d9e2ec29108bd94b02c89657509`
+(`neoplasm-adjudicated.json`),
+`f8f32483ba8b438e15a5ebe83a885f3de9f3ba34e37de3e0aef19e541be85cc9`
+(`neoplasm-row-decisions.json`),
+`42e33238c7b18985263f780a165ad42d1230bb620a2aac8edf11748cf661f74f`
+(`neoplasm-engine-evidence.json`),
+`34c34d671e77ec041f0d66ace73a2c9a5fcb7fd77134c2d3fa0fb1036f3b3ff5`
+(`neoplasm-corpus-comparison.json`),
+`3b17fee5ac354ca8d48637f2a7f8b0451e0b4afed6922d0f745e6d284ca9c899`
+(`r103-review-state-26.07d.json`),
+`03822dcbfc4190e09e9394cb310aae2a6cca2f9c8d728bf3997d9e11d1e4730f`
+(`r103-review-state-26.07d-rev2.json`), and
+`a1d4b82f985d6fc099040491ac3ad4d40231452265efc10c2b8ac1c43519c823`
+(`r103-c3264-corroboration-26.07d.json`) (the same exact seven-path `shasum -a 256` command before
+and after generation, 2026-09-07). A path-scoped `git diff --no-ext-diff --` over those seven files
+also returned no output afterward (2026-09-07).
 
 The generator derives every identity from those inputs and the completed persisted run. It refuses
 source, release, manifest, worklist, run, fingerprint, artifact, representation, detector, oracle,
-row-decision, registry, or evidence drift before replacing either output.
+row-decision, registry, migration-envelope, or evidence drift before replacing either output.
+Occurrence identity is retained through Postgres provenance and these current evidence/report
+outputs. The decomposed RDF/read API remains intentionally fact-level under #9 and cites complete
+source fact IDs rather than occurrence IDs; that reporting boundary does not permit occurrence
+erasure before persistence or current reporting.
+
+`neoplasm-highest-fanout.json` records the exhaustive maximum only within the stated-genus
+subclass scope rooted at C3262 (15,633 neoplasm concepts scanned). It is not an all-NCIt maximum.
 
 Generate the current axis diagnostics for the three explicit residual-detector branches (detected,
-not detected, and proposed filler absent from source), then the normalized-group machine packet and
-blank SME workbook:
+not detected, and proposed filler absent from source):
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review-rev2
 ```
 
-The generated group workbook keeps all human fields blank. For pair-only rows, the SME must
-complete both `Pair Decision` and `Decision` with the same closed value; for grouping rows,
-`Decision` is required and an optional `Pair Decision` must agree. After the SME saves a reviewed
-copy, import it and run the write-free impact preview with these exact commands:
-
-```bash
-pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet-rev2.json --reviewed-xlsx tmp/m1-6-group-review-workbook-rev2-reviewed.xlsx --output tmp/m1-6-group-review-decisions-rev2.json
-pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet-rev2.json --registry tmp/m1-6-group-review-decisions-rev2.json --output tmp/m1-6-group-review-dry-run-rev2.json
-```
-
-The evidence is intentionally asymmetric: actual normalized groups cite current stated-source
-occurrences, while expected-side source evidence is unavailable. The expected grouping is the
-historical oracle proposal, not a source-stated relationship group. The evidence sheets display
-the exact source facts, groups, occurrences, anchors, depth/path, and transformation witnesses;
-labels and definitions are marked unavailable where the bound current evidence artifact contains
-no source text. Machine evidence is never reviewer rationale.
+The active normalized-group policy covers each current output pair with exact source-fact evidence.
+Restriction evidence uses occurrence citations when available and otherwise records the exact
+available source fact and coordinate; genus facts are explicitly non-occurrence evidence. Historical
+expected partitions remain separately identified review context. The evidence sheets display exact
+source facts, source groups, occurrences where applicable, anchors, depth/path, and transformation
+witnesses. Machine evidence is never reviewer rationale.
 
 The tracked historical admission preserves the completed Markdown verbatim at
 `evidence/group-review-rationale-26.07d.md`; its JSON sidecar is digest/operational binding only,
 and `evidence/group-review-packet-26.07d-schema3.json` preserves the exact schema-3 machine context.
 Schema 3 did not distinguish scoreable release-bound pairs from review-bearing emitted pairs, so
-the old review is historical context rather than an active decision registry. Generate fresh
-schema-4 diagnostics and a blank schema 4 review boundary instead of transcribing it:
+the old review is historical context rather than an active decision registry. Generate fresh axis
+diagnostics instead of transcribing it. The immutable candidate chain supplies the blank schema-4
+review boundary.
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
-pdm run agent-replay generate-group-review-rev2
 ```
 
-The historical record contains 11 corrections and 4 escalations. They remain open context for the
-new blank review and block #274 and #127; this evidence does not satisfy the group requirement or
-authorize publication.
+The historical record contains 11 corrections and 4 escalations. The scoped current policy resolves
+the #274 normalized-group targets without treating historical context as current authorization.
+The broader total-delta classification remains open under #127 and publication remains unauthorized.
 
-### Group-review generation
+### Group-review candidate
 
-The group-review generation writes `tmp/m1-6-axis-diagnostics-rev2.json`,
-`tmp/m1-6-group-review-packet-rev2.json`, `tmp/m1-6-group-review-workbook-rev2.xlsx`,
-`tmp/m1-6-group-correction-audit-rev2.xlsx`, and
-`tmp/m1-6-group-review-blank-validation-rev2.json`; all are gitignored diagnostic/review artifacts.
-The workbook leaves Pair Decision, Decision, Rationale, Reviewer, and Date blank, so generation
-records no SME adjudication (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
+The immutable group-review candidate contains the packet, workbook, pair-relation audit, and blank
+validation. The workbook leaves Pair Decision, Decision, Rationale, Reviewer, and Date blank, so
+candidate generation records no SME adjudication.
 
 The group-review rule-evidence audit is deliberately narrow:
 
@@ -328,9 +418,8 @@ The group-review rule-evidence audit is deliberately narrow:
 | repeated pairs | `generate_current_evidence()` → the complete `CurrentConstituent.source_occurrences` set for one normalized axis/filler pair |
 | reviewed regrouping | `validate_current_comparison()` → current/expected partitions and grouping diagnosis, joined to current source occurrences and output groups; the historical expected partition is explicitly labelled as lacking source citations |
 
-The packet and workbook are generated from exactly the tracked current evidence, tracked current
-comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
-execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review-rev2`, 2026-08-29).
+The candidate resolves its current evidence, current comparison, and R101 conservation report from
+the exact parent manifests. `run_agent_replay.py` checks those parent identities before generation.
 
 ### R103 manual SME review boundary (#294)
 
@@ -402,17 +491,53 @@ The governed reconstruction, transcription, and promotion commands are:
 ```bash
 pdm run adjudication prepare-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --output-xlsx tmp/m1-6-r103-review-revision-blank.xlsx
 pdm run adjudication transcribe-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --blank-xlsx tmp/m1-6-r103-review-revision-blank.xlsx --output-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --subject C3264 --role R103 --filler C12950 --outcome concept-scoped-accuracy-exclusion --rationale-file tmp/r103-terminal-rationale.json --reviewer "R. Hannes Niedner, M.D." --review-date 2026-08-28
-pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json --output-corroboration ontolib/tests/decomposition/golden/r103-c3264-corroboration-26.07d.json
+pdm run adjudication promote-r103-review-revision --predecessor ontolib/tests/decomposition/golden/r103-review-state-26.07d.json --reviewed-xlsx tmp/m1-6-r103-review-revision-transcribed.xlsx --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output-registry tmp/m1-6-r103-review-revision-decisions.json --output-dry-run tmp/m1-6-r103-review-revision-dry-run.json --output ontolib/tests/decomposition/golden/r103-review-state-26.07d-rev2.json
 ```
 
-Promotion reported revision identity
-`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and
-corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`
-(the final `pdm run adjudication promote-r103-review-revision ...` command above, 2026-08-28).
-The corroboration sidecar is keyed to the effective C3264 decision identity and describes
-authoritative PubMed metadata as corroboration, never proof. It contains no publisher content.
-The dry run is write-free, has zero unresolved decisions, no proposal previews, one exact
-exclusion preview, and readiness `ready-for-separate-application`; application remains separate.
+The historical promotion reported revision identity
+`d99b3f27bb2d6416149411ecbe13893aed88d183f39405acd80529c771a5d160` and historical
+corroboration identity `f96081372e6d7e3be0e65a5ab8342b12f5b5d129df16b263db5dbafe6130552c`.
+Those bytes are preserved, but the historical PubMed authority/verification claim is not current
+evidence because no response bytes were retained.
+The current machine path is generated with:
+
+```bash
+pdm run agent-replay generate-r103-evidence-application
+```
+
+It writes the source-only inventory, the complete 16-row named stated C12950 descendant
+enumeration, normalized authority, downgraded reviewer-reference corroboration, applied-policy
+report, strict C2860 specificity target, and unanswered C2860 specificity-review state. The target
+binds the candidate artifact only to the exact C2860/R103/C12950 source occurrence and its
+carried-forward decision. The applied report remains unchanged: it preserves the official source assertions, suppresses only
+C3264/R103/C12950 in the effective projection, retains C2860 and C3716, leaves the schema-2
+proposal registry and oracle unchanged, creates no proposal, infers no NCI adoption, and leaves
+authorization false. Candidate generation cannot reopen that terminal C3264 exclusion.
+
+The C2860 question asks whether one of the 16 enumerated named stated descendants of C12950 in
+NCIt 26.07d provides a better normal-tissue-origin filler than C12950. Its exact choices are:
+
+1. affirm that none of those bounded 16 candidates is better;
+2. retain source-supported C2860/R103/C12950 while qualifying or withdrawing the global
+   most-specific claim; or
+3. select one enumerated existing NCIt candidate as a proposed replacement and initiate a
+   separately governed correction proposal.
+
+The pending artifact selects none of these choices and records no software-authored human decision.
+The accountable user selected choice 2 on 2026-09-07: retain source-supported
+`C2860/R103/C12950`, record that none of the bounded 16 candidates is better, and withdraw the
+global-most-specific rationale because the bounded comparison cannot establish global NCIt
+optimality. Generate its strict successor from the named pending and machine inputs with:
+
+```bash
+pdm run agent-replay transcribe-r103-specificity-selection
+```
+
+The selected artifact binds the target, candidate artifact, prior carried-forward decision, and
+unchanged applied-policy report. It records software as transcriber rather than author, selects no
+replacement candidate, creates no proposal, and infers no NCI adoption
+(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07). The pending artifact is
+retained as the exact pre-selection input, not as current readiness state.
 
 ### Final machine-readiness evidence
 
@@ -430,26 +555,48 @@ The operation observes the clean Git HEAD before and after running the literal
 selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
 local machine evidence and performs no ontology or store publication.
 
-After the current comparison, R101 reuse validation, primary-site audit, schema-4
-`tmp/m1-6-group-review-packet-rev2.json`, tracked R103 promoted state, full-corpus baseline/artifact, proposal registry,
-source manifest, and current-HEAD verify evidence all exist, generate the pending-human
+After the current comparison, the explicit tracked historical row decisions, R101 reuse validation, primary-site audit, tracked
+R103 promoted state, full-corpus baseline/artifact, proposal registry, source manifest, selected R103 specificity state, and
+current-HEAD verify evidence all exist,
+generate the pending-human
 report from a clean worktree:
 
 ```bash
-pdm run agent-replay generate-pre-sme-readiness
+pdm run agent-replay generate-pre-sme-readiness \
+  tmp/artifacts/v1/generations/m1-6-grouping-detector-candidate/<generation-id>/manifest.json \
+  <exact-manifest-identity>
 ```
 
 Readiness strictly loads the complete promoted R103 state, validating its embedded
-packet, registry, dry-run, decision vector, and cross-bindings. It then consumes only
-the state's `.packet` for the existing source, candidate-manifest, proposal-registry,
-count, and packet-identity checks; it does not interpret registry decisions or dry-run
-semantics in the report. Therefore changed or malformed registry or dry-run state still
-fails readiness closed, while all three R103 rows remain pending human requirements.
+packet, registry, dry-run, decision vector, and cross-bindings. It also loads the strict
+C2860 specificity-review state. Changed or malformed registry, dry-run, target, or review
+state fails readiness closed. C3264 remains terminally excluded and C3716 remains covered
+by its prior terminal decision; only the C2860 specificity question is pending. A future
+human-selected review state satisfies that one requirement while retaining the same source,
+target, and candidate evidence identities.
 
-The operation validates all fixed input identities and cohort invariants, refuses verify
-evidence from another Git HEAD, and atomically writes
-`tmp/m1-6-machine-readiness.json`. The output remains
-`awaiting-human-review`, records no authorization, and does not perform publication.
+The operation resolves the exact schema-4 group-review packet through the detector manifest's parent
+bindings instead of a mutable fixed `tmp/` packet path. It validates all remaining fixed input
+identities and cohort invariants, including the
+row-decision identity that supplies the immutable historical 48/106 SME include rate,
+refuses verify evidence from another Git HEAD, and atomically writes
+`tmp/m1-6-machine-readiness.json`. Schema 3 reports the five named metric contracts,
+the strict M1.6 improvement gate, the separate #44 quality indicators, and one canonical
+entry for each semantic blocker. The identity-bound #274 axis-contract, normalized-group,
+and unadjudicated-golden-change detectors are evaluated; the broader total-delta classifier
+remains `not-evaluated` under #127. Any evaluated violation produces a blocked report rather
+than publication authorization. The output
+always records authorization false and publication `not-attempted`
+(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
+2026-09-06).
+
+Readiness consumes the current 8fb→cd4b v5 diagnostic for mechanical conservation while retaining
+the v4 packet/registry validation only as separately identified historical human evidence. The
+current diagnostic contains 2,097 structural rows and 38,648 semantic-metadata pairs; content
+authorization remains pending. The broader total-delta classifier remains `not-evaluated` under
+Issue #127 rather than being inferred from the R101-isolated comparison
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-12).
 
 Generate the exhaustive fanout observation against the configured current source:
 
@@ -461,20 +608,22 @@ pdm run python scripts/observe_decomposition_fanout.py \
   --out ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json
 ```
 
-Generate the full-corpus pre-change baseline only after a complete file publication:
+Generate the current full-corpus baseline from the fixed already-published cd4b run without
+repeating concept work:
 
 ```bash
-pdm run decompose \
-  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
-  --branch neoplasm \
-  --out tmp/m1-6-current-full-corpus.ttl
-
-pdm run adjudication generate-corpus-baseline \
-  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
-  --run-id <completed-current-full-corpus-run-id> \
-  --artifact tmp/m1-6-current-full-corpus.ttl \
-  --output ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json
+pdm run agent-replay generate-current-corpus-baseline neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
 ```
+
+The tracked baseline binds run `neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, all 15,633
+worklist concepts, 14,884 decomposed outcomes, 139 explicitly persisted unknown outcomes, and
+representation identity `8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2`
+(`pdm run agent-test ontolib/tests/decomposition/test_corpus_baseline.py::test_tracked_current_corpus_baseline_binds_exact_persisted_counts -v`,
+2026-09-12). This generates a baseline candidate only; `pdm run agent-replay
+promote-current-r101-evidence` remains the separate promotion operation and must validate the
+qualified comparator/report pair before replacing tracked current evidence (the promotion sequence
+in [R101 v4-to-v5 qualified occurrence ledger](#r101-v4-to-v5-qualified-occurrence-ledger),
+2026-09-12).
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.
@@ -501,10 +650,10 @@ The generated schema-3 report contains 43,414 source occurrences partitioned int
 projected, 10,083 unchanged-unprojected, 3,291 covered by stated R82 evidence, and zero
 unresolved rows; the R82 evidence is independently partitioned into 1,954 one-step and 1,337
 closure-only paths, and the non-R101 delta is zero
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
 2026-08-19). The observed budgets are three PostgreSQL queries, 177 QLever queries, batches of
 at most eight candidate pairs, eight R82 hops, and twenty asserted-superclass hops
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.query_metrics.model_dump())'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.query_metrics.model_dump())'`,
 2026-08-19).
 
 The self-excluding canonical semantic `json_identity` is
@@ -521,13 +670,87 @@ The exact non-R101 delta evidence contains zero canonical rows and binds the old
 the SQL query contract identity
 `2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1`; the reported count is
 derived from those rows
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; e=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")).non_r101_delta_evidence; print(e.old_run_id,e.new_run_id,e.query_identity,len(e.rows))'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; e=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")).non_r101_delta_evidence; print(e.old_run_id,e.new_run_id,e.query_identity,len(e.rows))'`,
 2026-08-19).
 
 Mechanical validation is complete, content authorization is pending, and publication is blocked
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
 2026-08-19). No authorization is recorded here. SME pattern review is deferred to the final M1.6
 milestone review; this ledger must not be described as published or accepted content.
+
+## R101 v4-to-v5 qualified occurrence ledger
+
+The bounded operations first qualify the exact persisted comparator pair and then regenerate the
+current ledger and baseline from those two persisted runs and artifacts. Promotion validates the
+complete occurrence inventory separately from the incomplete causal explanation:
+
+```bash
+pdm run agent-replay qualify-current-r101-comparator neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820 neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay generate-current-r101-conservation neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820 neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay generate-current-corpus-baseline neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
+pdm run agent-replay promote-current-r101-evidence
+pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz
+```
+
+The report binds old run `neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820` and new run
+`neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, records 43,414 R101 source occurrences as
+30,276 projected and 13,138 unchanged-unprojected with zero unresolved occurrences, and has report
+identity `23e620ddb64ebbe93393bd47aaf19b4318687f67cd3b73a86c93bda4c06ecd4b`.
+Its exact typed non-R101 inventory has 79,393 rows: 38,648 paired semantic metadata changes consume
+77,296 rows and 2,097 are structural rows. No row has occurrence-level evidence that proves
+causation by a changed R101 link, so none is classified. Every raw typed row is represented exactly
+once. The report binds the complete occurrence inventory as
+`e77d040d9ac8dc905f432290361db5bcc9445532200a415591c3a2b2bf4163de` and the complete typed
+non-R101 inventory as `24d12d8cdd5254c4ad741a312ddc0b769eeadd4da9ffdcd5bd67369d71d160e0`.
+`r101_occurrence_certification` and `non_r101_enumeration` are `complete`, while `explanation` is
+`incomplete`, semantic isolation is `partial-unqualified`, execution comparability is
+`unqualified`, the comparison is not fully controlled, causal attribution is prohibited,
+authorization is pending, and publication is blocked
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-11). The tracked gzip SHA-256 is
+`fba1e472b6a072f5089f6931742ab6a1c8b42c4b8106306a24db110a28dac0dc`
+(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
+2026-09-12). The comparator qualification identity is
+`b88f8d245919838b02bfa075d3bf5fb5b6ae30c7c02d6fbe2ef01fcd7becae9a`; its file SHA-256 is
+`ff8a7a384009b0104c889ae932af4ffff09461124ebc5efad5786735bc34b278`
+(`shasum -a 256 tmp/m1-6-r101-v5-comparator-qualification.json`, 2026-09-11). This current report
+does not replace the historical v3→v4 review packet: v5
+routes source R101 directly before R82 collapse, so it has no `covered-by-retained-r82` patterns
+from which to regenerate that historical 162-pattern review boundary.
+
+### Historical 2b39 mixed-chain inventory and corrected projection
+
+The separately identified #267 inventory and corrected projection belong to the historical 2b39
+era, not to the current 8fb→cd4b comparator pair. Their exact tracked source is
+`neoplasm-r101-v5-2b39-historical-conservation.json.gz`: file SHA-256
+`f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f`, report identity
+`25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba`, and new run
+`neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722` (`pdm run agent-test
+ontolib/tests/decomposition/test_mixed_chain_inventory.py::test_historical_mixed_chain_inventory_binds_available_report_evidence
+-v`, 2026-09-12). That immutable report has 39 structural additions; it is retained only to
+reproduce this historical derivation, not as the current diagnostic (`pdm run
+agent-test --full-store ontolib/tests/decomposition/test_mixed_chain_full_store.py::test_historical_inventory_generator_replays_from_exact_report
+-v`, 2026-09-12).
+
+Generate the historical inventory and projection from their exact tracked report and persisted
+2b39 state, then record only the validated generated artifacts:
+
+```bash
+pdm run agent-replay generate-mixed-chain-inventory
+pdm run agent-replay record-mixed-chain-inventory
+pdm run agent-replay generate-mixed-chain-corrected-projection
+pdm run agent-replay record-mixed-chain-corrected-projection
+```
+
+The projection is explicitly typed `corrected-projection-not-a-run`: it does not mutate, resume,
+or replace any completed run or diagnostic. It records 39 structural removals, zero additions, 42
+metadata-row changes, and 39 disposition changes; the metadata classification is 36
+`needs_review` true→false transitions, six relationship-group changes, and no `most_specific`
+transitions. Its projection identity remains
+`9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6` (`pdm run agent-test
+--full-store ontolib/tests/decomposition/test_mixed_chain_full_store.py::test_corrected_projection_generator_binds_exact_historical_report
+-v`, 2026-09-12). A corrected published run still requires database-backed admission before
+execution; this projection preserves evidence and grants no content or publication authority.
 
 ### Prepare the #267 human review packet
 
