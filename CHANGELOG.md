@@ -19,6 +19,56 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.24.1 (2026-09-18)
+
+### Bug Fixes
+
+- **agents**: Address the third review round
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Close the escapes the second review round found
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Make the milestone model executable and close the permission gaps
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+### Chores
+
+- **agents**: Address the fourth review round
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Keep all five review dimensions and bound the loop instead
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Keep the milestone model and run CI and review per issue PR
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Review to convergence, and address the remaining review suggestions
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Tier the gates, shrink the agent roster, drop self-certifying checks
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Tiered gates, milestone model with per-issue CI and review, smaller agent roster
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+### Documentation
+
+- Update README code line-count table
+  ([`a899a91`](https://github.com/hniedner/ontoprism/commit/a899a919f20703ec2d958b42cfac1837738daf7c))
+
+- **agents**: Say how the OpenCode contract lane is run, ignore a root opencode.jsonc
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+### Testing
+
+- **agents**: Probe a relative --output target and drop a constant pin
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+- **agents**: Reject duplicate keys in agent permission frontmatter
+  ([`cbbae59`](https://github.com/hniedner/ontoprism/commit/cbbae59e69e4265f58e53df9fe11ef326f640f35))
+
+
 ## v0.24.0 (2026-09-18)
 
 ### Bug Fixes
