@@ -27,6 +27,10 @@ _NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
 ).hexdigest()
 
 
+class ClosureBudgetExceededError(RuntimeError):
+    """The worklist's dependency closure is larger than the preflight budget."""
+
+
 class SourcePreflightResult(BaseModel):
     """Identity-bound census output, including every rejected source code."""
 
@@ -142,7 +146,12 @@ async def run_source_preflight(
     max_nodes: int,
     mixed_chain_inventory_identity: str = _NO_MIXED_CHAIN_INVENTORY_IDENTITY,
 ) -> SourcePreflightResult:
-    """Census exact roots plus conservative defined-genus and filler closure."""
+    """Census exact roots plus conservative defined-genus and filler closure.
+
+    ``max_nodes`` bounds the dependency concepts of the whole worklist; when it is
+    spent the census stops with ``ClosureBudgetExceededError``. ``overflow_codes``
+    holds only concepts whose own definition exceeds a reader bound.
+    """
     queue = deque((code, True) for code in worklist)
     scheduled = set(worklist)
     supported: set[str] = set()
@@ -150,6 +159,7 @@ async def run_source_preflight(
     malformed: set[str] = set()
     overflow: set[str] = set()
     closure_count = 0
+    expanded = 0
     while queue:
         code, expand_dependencies = queue.popleft()
         definition = await _read_classified_definition(
@@ -164,10 +174,15 @@ async def run_source_preflight(
             continue
         if not expand_dependencies:
             continue
+        expanded += 1
         for dependency in sorted(_dependencies(definition) - scheduled):
             if closure_count >= max_nodes:
-                overflow.add(code)
-                break
+                raise ClosureBudgetExceededError(
+                    "source preflight closure needs more than its budget of "
+                    f"{max_nodes} dependency concepts; it was spent after {expanded} "
+                    f"of {len(worklist)} worklist concepts. The budget is shared by "
+                    "the whole worklist: no single concept is at fault."
+                )
             scheduled.add(dependency)
             queue.append((dependency, False))
             closure_count += 1
