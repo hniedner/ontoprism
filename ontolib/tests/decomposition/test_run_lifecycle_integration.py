@@ -1154,8 +1154,29 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         await dispose_engine(engine)
 
 
+async def test_a_persisted_run_inspects_as_content_valid() -> None:
+    """The writer's identity and the inspector's raw-JSON hash must agree."""
+    run_ids = [_new_run_id("neoplasm"), _new_run_id("neoplasm")]
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_ids[0], "26.07d", _fingerprint())
+        await store.create_run(
+            run_ids[1],
+            "26.07d",
+            _fingerprint().model_copy(update={"rehearsal_nonce": "d" * 32}),
+        )
+
+        inspections = await inspect_decomposition_runs(engine, tuple(run_ids))
+
+        assert [item.fingerprint_content_valid for item in inspections] == [True, True]
+    finally:
+        await _cleanup(run_ids)
+        await dispose_engine(engine)
+
+
 async def test_a_rehearsal_cannot_be_resumed() -> None:
-    """A failed rehearsal's id is the first one on stderr; resuming it must refuse."""
+    """The id on the `preflight run=` line names a rehearsal; resuming it refuses."""
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))

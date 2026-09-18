@@ -73,10 +73,10 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 # input, environment or reporting defect surfaces well before the full run does the
 # work. The rehearsal is a throwaway run: admitted afresh each time, never published,
 # never promoting its mints, never resumable, and it borrows only the sample's codes
-# (not its source binding). It cannot carry the mixed-chain inventory or the
-# whole-worklist closure checks, which are bound to the full worklist; those still run
-# at hour zero of the full run. This is distinct from the engine's own `preflight`
-# stage, the constructor census every run performs.
+# (the sample's source binding is recorded, not enforced). It cannot carry the
+# mixed-chain inventory or the whole-worklist closure checks, which are bound to the
+# full worklist; those still run at hour zero of the full run. This is distinct from
+# the engine's own `preflight` stage, the constructor census every run performs.
 PREFLIGHT_SAMPLES = {
     DecompositionBranch.NEOPLASM: (
         Path(__file__).resolve().parents[1] / "samples/ncit-26.07d-m1-sme-review.json"
@@ -133,10 +133,13 @@ def _print_progress(progress: RunProgress, *, prefix: str = "") -> None:
         print(prefix + message, file=sys.stderr, flush=True)
 
 
-def _print_residual_progress(completed: int, total: int, filler: str) -> None:
+def _print_residual_progress(
+    completed: int, total: int, filler: str, *, prefix: str = ""
+) -> None:
     if completed in (0, total) or completed % 100 == 0:
         print(
-            f"phase=residual-metric completed={completed}/{total} active={filler}",
+            f"{prefix}phase=residual-metric completed={completed}/{total} "
+            f"active={filler}",
             file=sys.stderr,
             flush=True,
         )
@@ -206,6 +209,7 @@ async def _run(
     )
     if sample is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
+    prefix = "preflight " if rehearsal else ""
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
@@ -228,11 +232,10 @@ async def _run(
                             get_labels=store.labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
-                            progress=partial(
-                                _print_progress,
-                                prefix="preflight " if rehearsal else "",
+                            progress=partial(_print_progress, prefix=prefix),
+                            residual_progress=partial(
+                                _print_residual_progress, prefix=prefix
                             ),
-                            residual_progress=_print_residual_progress,
                         )
                     except BaseException as exc:
                         primary_error = exc
@@ -405,7 +408,7 @@ def _rehearse(
     emit_equivalence: bool,
     walker_max_depth: int,
 ) -> None:
-    """Run the branch's preflight sample as a rehearsal; a failure keeps its output."""
+    """Run the branch's preflight sample as a rehearsal; a failure deletes nothing."""
     sample = PREFLIGHT_SAMPLES.get(branch)
     if sample is None:
         raise typer.BadParameter(
@@ -437,9 +440,14 @@ def _rehearse(
                 f"preflight decomposed no concepts: {_summary_line(metrics)}"
             )
     except BaseException as exc:
+        output = (
+            f"its output is left at {preflight_out}"
+            if preflight_out.exists()
+            else "no output was written"
+        )
         exc.add_note(
             f"raised by the preflight rehearsal of {sample}; the full run was not "
-            f"started; its output is kept at {preflight_out}; --no-preflight skips it"
+            f"started; {output}; --no-preflight skips it"
         )
         raise
     typer.echo(f"preflight: {_summary_line(metrics)}")

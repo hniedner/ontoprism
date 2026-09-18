@@ -758,15 +758,22 @@ _NEOPLASM_SAMPLE = decompose.PREFLIGHT_SAMPLES[decompose.DecompositionBranch.NEO
 class _RunStub:
     """Stand in for `_run`, recording keyword calls and writing the output file."""
 
-    def __init__(self, *, fail: BaseException | None = None, decomposed: int = 1):
+    def __init__(
+        self,
+        *,
+        fail: BaseException | None = None,
+        decomposed: int = 1,
+        writes_output: bool = True,
+    ):
         self.calls: list[dict[str, object]] = []
         self.fail = fail
         self.decomposed = decomposed
+        self.writes_output = writes_output
 
     async def __call__(self, **kwargs: object) -> decompose.RunMetrics:
         self.calls.append(kwargs)
         out = kwargs["out"]
-        if isinstance(out, Path):
+        if self.writes_output and isinstance(out, Path):
             out.write_text("# ttl\n")
         if self.fail is not None:
             raise self.fail
@@ -830,11 +837,30 @@ def test_a_failing_preflight_stops_the_full_run_and_names_itself(
     (note,) = error.value.__notes__
     assert note.startswith("raised by the preflight rehearsal of ")
     assert "samples/ncit-26.07d-m1-sme-review.json" in note
-    assert f"kept at {tmp_path / 'decomposed.ttl.preflight'}" in note
+    assert f"left at {tmp_path / 'decomposed.ttl.preflight'}" in note
     assert "--no-preflight skips it" in note
     assert (tmp_path / "decomposed.ttl.preflight").exists(), (
-        "a failed preflight keeps its output for diagnosis"
+        "a failed preflight does not delete its output"
     )
+
+
+@pytest.mark.unit
+def test_a_preflight_that_failed_before_writing_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _RunStub(fail=RuntimeError("admission refused"), writes_output=False)
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    with pytest.raises(RuntimeError, match="admission refused") as error:
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    (note,) = error.value.__notes__
+    assert "no output was written" in note
+    assert "left at" not in note
 
 
 @pytest.mark.unit
@@ -922,14 +948,18 @@ def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
 
 @pytest.mark.unit
 async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_inventory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     configs: list[decompose.RunConfig] = []
+    progress_kwargs: list[dict[str, Any]] = []
 
     async def pipeline(
-        config: decompose.RunConfig, *_args: object, **_kwargs: object
+        config: decompose.RunConfig, *_args: object, **kwargs: Any
     ) -> decompose.RunMetrics:
         configs.append(config)
+        progress_kwargs.append(kwargs)
         return _metrics(1)
 
     _install_run_collaborators(monkeypatch, pipeline)
@@ -957,6 +987,25 @@ async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_invent
     )
 
     rehearsal, full = (vars(config) for config in configs)
+    event = RunProgress(
+        run_id="r",
+        phase="started",
+        concept_code="C1",
+        completed=0,
+        total=20,
+        session_completed=0,
+        elapsed_seconds=0.0,
+    )
+    for kwargs in progress_kwargs:
+        kwargs["progress"](event)
+        kwargs["residual_progress"](0, 1, "C1")
+    stderr = capsys.readouterr().err.splitlines()
+    assert [line.startswith("preflight ") for line in stderr] == [
+        True,
+        True,
+        False,
+        False,
+    ], "only the rehearsal's progress and residual lines carry the prefix"
     assert rehearsal["rehearsal"] is True
     assert full["rehearsal"] is False
     assert rehearsal["sample_manifest"] is not None

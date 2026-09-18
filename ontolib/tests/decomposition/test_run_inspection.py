@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ontolib.decomposition import run_inspection
-from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE,
+    canonical_json_identity,
+)
 from ontolib.decomposition.run_inspection import RunInspection, summarize_fingerprint
 
 
@@ -53,7 +56,7 @@ def _run_row(
         "finished_at": finished_at,
         "source_identity": "b" * 64,
         "fingerprint": fingerprint,
-        "fingerprint_sha256": run_inspection._json_identity(fingerprint),
+        "fingerprint_sha256": canonical_json_identity(fingerprint),
         "publication_state": "published",
         "representation_identity": "c" * 64,
         "publication_artifact_path": "artifact.ttl",

@@ -116,8 +116,12 @@ class FullRunExecutionIdentity(BaseModel):
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
     # A rehearsal (the CLI preflight) is a throwaway run of the pipeline; the nonce
-    # keeps it admissible on unchanged input instead of colliding with itself.
-    rehearsal_nonce: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    # keeps it admissible on unchanged input instead of colliding with itself. An
+    # absent nonce is not serialised, so identities and persisted documents of real
+    # runs are exactly what they were before the field existed.
+    rehearsal_nonce: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$", exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _rehearsal_never_publishes(self) -> Self:
@@ -154,7 +158,7 @@ class FullRunExecutionIdentity(BaseModel):
 
     @property
     def identity(self) -> str:
-        return _content_identity(self.model_dump(mode="json"))
+        return canonical_json_identity(self.model_dump(mode="json"))
 
     @classmethod
     def from_fingerprint(cls, fingerprint: RunFingerprint) -> FullRunExecutionIdentity:
@@ -162,14 +166,8 @@ class FullRunExecutionIdentity(BaseModel):
         return cls.model_validate(payload)
 
 
-def _content_identity(payload: dict[str, object]) -> str:
-    """SHA-256 over the canonical JSON.
-
-    An absent rehearsal nonce is left out, so identities persisted before the field
-    existed keep matching their rows.
-    """
-    if payload.get("rehearsal_nonce") is None:
-        payload = {k: v for k, v in payload.items() if k != "rehearsal_nonce"}
+def canonical_json_identity(payload: object) -> str:
+    """SHA-256 over the canonical JSON encoding shared by writers and inspectors."""
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     ).encode()
@@ -202,10 +200,7 @@ def _require_matching_output_load(
 
 def stage_output_identity(payload: dict[str, object]) -> str:
     """Identify one stage output from canonical JSON only."""
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_json_identity(payload)
 
 
 class NcitSourceSnapshot(BaseModel):
@@ -261,7 +256,9 @@ class RunFingerprint(BaseModel):
     walker_max_depth: int = Field(gt=0)
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
-    rehearsal_nonce: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    rehearsal_nonce: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$", exclude_if=lambda value: value is None
+    )
     emitted_at: AwareDatetime
 
     @model_validator(mode="after")
@@ -299,7 +296,7 @@ class RunFingerprint(BaseModel):
     @property
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
-        return _content_identity(self.model_dump(mode="json"))
+        return canonical_json_identity(self.model_dump(mode="json"))
 
 
 class CompletedRunForEvidence(BaseModel):

@@ -1027,7 +1027,8 @@ async def _validated_sample_worklist(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
 ) -> tuple[str, ...] | None:
-    """Validate a review manifest against the live source and complete branch scope."""
+    """Validate a review manifest against the complete branch scope, and (except for
+    a rehearsal) against the live source."""
     sample = config.sample_manifest
     if sample is None:
         return None
@@ -2089,6 +2090,11 @@ async def _resume_preflight(
     if config.resume_from is None:
         raise RuntimeError("resume preflight requires an explicit run id")
     persisted = await provenance.fingerprint_for_run(config.resume_from)
+    if persisted.rehearsal_nonce is not None:
+        raise RunStateError(
+            f"decomposition run {config.resume_from!r} is a rehearsal; rehearsals "
+            "are throwaway runs and cannot be resumed"
+        )
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if sample_worklist is not None and sample_worklist != persisted.worklist:
         raise SourcePreflightRejectedError(

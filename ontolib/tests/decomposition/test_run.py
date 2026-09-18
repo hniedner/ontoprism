@@ -2082,6 +2082,27 @@ async def test_run_pipeline_resume_with_no_prior_manifest_is_rejected() -> None:
 
 
 @pytest.mark.unit
+async def test_run_pipeline_refuses_to_resume_a_rehearsal_by_name() -> None:
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    persisted = run_module._requested_fingerprint(
+        RunConfig(branch="neoplasm", rehearsal=True),
+        _source_snapshot(),
+        semantic_types=("Neoplastic Process",),
+        total_limit=None,
+        worklist=("C1",),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    provenance.fingerprint_for_run = AsyncMock(return_value=persisted)
+    config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
+
+    with pytest.raises(RunStateError, match=r"is a rehearsal;.*cannot be resumed"):
+        await run_pipeline(config, client, provenance)
+
+    provenance.admit_run.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_run_pipeline_resume_with_version_mismatch_raises() -> None:
     client = _FakeClient(pages=[[]], version="26.05d")
     provenance = _mock_provenance()

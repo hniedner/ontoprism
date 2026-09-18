@@ -441,12 +441,13 @@ branch's tracked stratified SME sample (for neoplasm
 `samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
 rehearsed through the same pipeline, including the final metrics report, to
 `data/ncit_decomposed.ttl.preflight` without loading the graph. The rehearsal is a
-throwaway run: it is admitted afresh every time, it borrows only the sample's codes (not
-the source the sample was reviewed against), its mint proposals never reach the curator
-queue, it cannot be resumed, and it is listed with `rehearsal: true` in the runs API.
-Its output file is deleted after a successful preflight and kept after a failed one. A
-preflight failure, or a preflight that decomposed nothing, stops the run before hour
-zero; the error names the sample, the kept output and `--no-preflight`. The mixed-chain
+throwaway run: it is admitted afresh every time, it borrows only the sample's codes (the
+source the sample was reviewed against is recorded but not enforced), its mint proposals
+never reach the curator queue, it cannot be resumed, and it is listed with
+`rehearsal: true` in the runs API. Its output file is deleted after a successful
+preflight and not deleted after a failed one. A preflight failure, or a preflight that
+decomposed nothing, stops the run before hour zero; the error names the sample, whether
+any output was written and where, and `--no-preflight`. The mixed-chain
 inventory and the whole-worklist closure checks are bound to the full worklist, so they
 still run at the start of the full run. `--no-preflight` skips the preflight; resumes,
 `--total-limit` and `--sample-manifest` runs never preflight, and a branch without a

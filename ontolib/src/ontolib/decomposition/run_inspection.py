@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import RowMapping
 
-from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE,
+    canonical_json_identity,
+)
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 
 if TYPE_CHECKING:
@@ -78,13 +79,6 @@ class RunInspection(BaseModel):
     resume_compatible: bool
 
 
-def _json_identity(payload: object) -> str:
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def summarize_fingerprint(fingerprint: dict[str, object]) -> dict[str, object]:
     """Retain exact dimensions while replacing a large worklist with its identity."""
     worklist = fingerprint.get("worklist")
@@ -93,7 +87,7 @@ def summarize_fingerprint(fingerprint: dict[str, object]) -> dict[str, object]:
     return {
         **{key: value for key, value in fingerprint.items() if key != "worklist"},
         "worklist_count": len(worklist),
-        "worklist_identity": _json_identity(worklist),
+        "worklist_identity": canonical_json_identity(worklist),
     }
 
 
@@ -147,7 +141,7 @@ def _run_summary(row: RowMapping, current_routing_identity: str) -> dict[str, ob
         "fingerprint": summarize_fingerprint(fingerprint),
         "fingerprint_sha256": values["fingerprint_sha256"],
         "fingerprint_content_valid": (
-            _json_identity(fingerprint) == values["fingerprint_sha256"]
+            canonical_json_identity(fingerprint) == values["fingerprint_sha256"]
         ),
         "persisted_routing_implementation_identity": fingerprint.get(
             "routing_implementation_identity"
