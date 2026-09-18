@@ -4036,7 +4036,8 @@ def test_ensure_podman_stack_reports_a_dead_gvproxy_only_when_it_saw_one(
 ) -> None:
     """The recurring stale state is gvproxy gone while vfkit runs on. The line states
     what was seen (a pid that names no process); a missing or unreadable pid file,
-    or a live pid, is no observation and says nothing."""
+    a pid that is not a positive process id, or a live pid, is no observation and
+    says nothing."""
     _write_compose_inputs(tmp_path)
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     socket_path.parent.mkdir()

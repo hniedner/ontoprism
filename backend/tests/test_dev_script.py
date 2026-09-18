@@ -142,6 +142,8 @@ def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
     running" beside a live server."""
     without_lsof = tmp_path / "bin"
     without_lsof.mkdir()
+    # The external commands dev.sh itself uses, so only lsof is missing and the script
+    # would otherwise reach "was not running".
     for tool in ("dirname", "mkdir", "sleep", "xargs"):
         found = shutil.which(tool)
         assert found is not None
