@@ -1855,6 +1855,39 @@ async def test_a_residual_filler_failure_survives_a_failed_failure_record(
 
 
 @pytest.mark.unit
+async def test_a_cancellation_during_the_failure_record_still_cancels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancellation that lands while the failure is being recorded is not
+    downgraded to a note on the failure; it propagates, carrying the failure."""
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock(side_effect=asyncio.CancelledError())
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert isinstance(cancellation.value.__cause__, CompleteDefinitionError)
+    assert cancellation.value.__notes__ == [
+        "Cancelled while recording the residual filler failure: "
+        "CompleteDefinitionError: malformed"
+    ]
+
+
+@pytest.mark.unit
 async def test_unsupported_residual_constructor_is_a_typed_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3429,8 +3462,9 @@ async def test_publication_finalization_failure_seals_the_completed_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Finalization fails after the run published; the stage completes, nothing
-    is demoted, and the failure still surfaces."""
+    """publish_artifact reports a finalization failure (the run is already
+    published); the stage is sealed complete, nothing is demoted, and the
+    failure still surfaces."""
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -3445,9 +3479,11 @@ async def test_publication_finalization_failure_seals_the_completed_run(
         await _finalization_failure_pipeline(tmp_path, monkeypatch, provenance)
 
     assert getattr(error.value, "__notes__", []) == []
-    assert provenance._test_state["stage_outputs"]["publication"][1] == {
-        "publication_state": "published"
-    }
+    publication_stage = next(
+        row for row in await provenance.run_stages("run") if row.stage == "publication"
+    )
+    assert publication_stage.state == "complete"
+    assert publication_stage.output_payload == {"publication_state": "published"}
     assert "publication" not in [
         call.args[1] for call in provenance.fail_stage.await_args_list
     ]

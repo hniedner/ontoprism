@@ -1051,18 +1051,20 @@ async def _load_pending_run_data(
         pending = await provenance.pending_codes(run_id)
         return pending, await _fetch_labels(get_labels, pending)
     except BaseException as exc:
-        try:
-            if not await provenance.fail_run(run_id, exc):
-                exc.add_note(
-                    f"Run setup failure was NOT recorded: run {run_id!r} holds a "
-                    "different terminal state, or its row is gone."
-                )
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run setup failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run setup failure", _record_setup_failure(provenance, run_id, exc)
+        )
         raise
+
+
+async def _record_setup_failure(
+    provenance: ProvenanceStore, run_id: str, exc: BaseException
+) -> None:
+    if not await provenance.fail_run(run_id, exc):
+        exc.add_note(
+            f"Run setup failure was NOT recorded: run {run_id!r} holds a "
+            "different terminal state, or its row is gone."
+        )
 
 
 async def _prepare_run(
@@ -1585,9 +1587,18 @@ async def _journal_without_masking(
     exc: BaseException, what: str, record: Awaitable[object]
 ) -> None:
     """Await a provenance write made on behalf of ``exc`` without letting the
-    write's own failure replace ``exc``; that failure becomes a note instead."""
+    write's own failure replace ``exc``; that failure becomes a note instead.
+
+    A cancellation that interrupts the write still cancels: it propagates with
+    ``exc`` as its cause so neither is lost.
+    """
     try:
         await record
+    except asyncio.CancelledError as cancellation:
+        cancellation.add_note(
+            f"Cancelled while recording the {what}: {type(exc).__name__}: {exc}"
+        )
+        raise cancellation from exc
     except BaseException as failure_error:
         exc.add_note(
             f"Recording the {what} also failed: "
@@ -2276,11 +2287,7 @@ async def run_pipeline(
         # completion. Neither may demote the decomposition run via fail_run.
         raise
     except BaseException as exc:
-        try:
-            await _record_pipeline_failure(provenance, setup, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run failure", _record_pipeline_failure(provenance, setup, exc)
+        )
         raise
