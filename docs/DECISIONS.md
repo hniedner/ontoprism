@@ -7,6 +7,34 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-18 — cancellation while recording a failure
+
+### D90. Publication shields its failure record; the decomposition run abandons its own
+
+**Context.** Two helpers record a failure without letting the recording error replace the
+original one, and they treat a cancellation differently (#366 review, issue #371).
+`publication._record_failure_without_masking` starts the write as a task under
+`asyncio.shield`, lets it finish while the cancellation waits, then re-raises the
+cancellation. `run._journal_without_masking` awaits the write directly, so a cancellation
+abandons it. Shielding keeps the record but lets a stuck database write delay a
+cancellation. Abandoning cancels at once but can lose the record.
+
+**Decision.** Keep the split; it follows what each lost record costs.
+- Publication shields. `record_publication_failure` is the only record of a failed
+  publication attempt, and nothing that runs later rebuilds it.
+- The decomposition run abandons. What an abandoned write leaves behind is recovered or
+  flagged elsewhere: the next resume reclaims work-item, residual-filler and stage claims;
+  an unwritten `fail_run` leaves the run `running` for the next resume to reopen; an
+  unwritten `invalidate_run` leaves partial results, and `_record_pipeline_failure` adds a
+  note saying so. The one gap is the publication-stage seal of a run that is already
+  complete: it has no resume and may stay claimed.
+- A new failure-recording helper chooses by the same test: shield only when nothing later
+  recovers the record.
+
+**Why.** Shielding every write would make Ctrl-C wait on the database during a long run.
+Abandoning the publication record would lose the only trace of a failed publication.
+Unifying the helpers would force one of those costs onto the other path.
+
 ## 2026-09-17 — recovery: tiered gates, reviewed issue PRs, no self-certifying machinery
 
 ### D89. CI is the gate of record on issue PRs into milestone branches; rules and roster cut back
