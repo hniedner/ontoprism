@@ -988,6 +988,31 @@ async def _persisted_definition_counts(
     )
 
 
+async def _require_finished_work(session: AsyncSession, run_id: str) -> None:
+    """Fail unless every work item completed with consistent persisted counts."""
+    incomplete = await session.execute(
+        text(
+            "SELECT count(*) FROM decomp_work_item "
+            "WHERE run_id = :id AND state <> 'complete'"
+        ),
+        {"id": run_id},
+    )
+    if incomplete.scalar_one() != 0:
+        raise RunStateError(f"decomposition run {run_id!r} has unfinished work items")
+    await _require_persisted_completion_counts(session, run_id)
+
+
+async def _require_recounted_metrics(
+    session: AsyncSession, run_id: str, metrics: CompletionRunMetrics
+) -> None:
+    """Fail unless ``metrics`` equal what the persisted outcomes recount to."""
+    _require_matching_completion_metrics(
+        metrics,
+        await _persisted_outcome_counts(session, run_id),
+        await _persisted_definition_counts(session, run_id),
+    )
+
+
 def _require_matching_completion_metrics(
     metrics: CompletionRunMetrics,
     counts: RunOutcomeCounts,
@@ -3099,6 +3124,19 @@ class ProvenanceStore:
             roundtrip_fidelity=metrics.roundtrip_fidelity,
         )
 
+    async def require_completion_recount(
+        self, run_id: str, metrics: CompletionRunMetrics
+    ) -> None:
+        """Fail unless the run's work is finished and ``metrics`` equal the recount.
+
+        ``finish_run`` repeats this in its own transaction, but it runs after
+        publication; the metrics stage asks here first, so a mismatch fails the run
+        before the public graph is replaced.
+        """
+        async with self._sf() as session:
+            await _require_finished_work(session, run_id)
+            await _require_recounted_metrics(session, run_id, metrics)
+
     async def finish_run(
         self,
         run_id: str,
@@ -3136,25 +3174,10 @@ class ProvenanceStore:
                 await self._require_materialized_worklist(session, run_id, fingerprint)
                 if row["status"] != "running":
                     raise RunStateError(f"decomposition run {run_id!r} is not running")
-                incomplete = await session.execute(
-                    text(
-                        "SELECT count(*) FROM decomp_work_item "
-                        "WHERE run_id = :id AND state <> 'complete'"
-                    ),
-                    {"id": run_id},
-                )
-                if incomplete.scalar_one() != 0:
-                    raise RunStateError(
-                        f"decomposition run {run_id!r} has unfinished work items"
-                    )
-                await _require_persisted_completion_counts(session, run_id)
+                await _require_finished_work(session, run_id)
                 _require_completion_publication(row, representation_identity, run_id)
                 completion_metrics = CompletionRunMetrics.model_validate(metrics)
-                _require_matching_completion_metrics(
-                    completion_metrics,
-                    await _persisted_outcome_counts(session, run_id),
-                    await _persisted_definition_counts(session, run_id),
-                )
+                await _require_recounted_metrics(session, run_id, completion_metrics)
                 metrics = completion_metrics.model_dump()
                 await _promote_mint_proposals(session, run_id, fingerprint)
                 result = await session.execute(

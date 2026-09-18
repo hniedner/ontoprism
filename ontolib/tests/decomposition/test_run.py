@@ -2009,6 +2009,7 @@ async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
 @pytest.mark.unit
 async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
     provenance = MagicMock()
+    provenance.require_completion_recount = AsyncMock()
     provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
     provenance.unknown_outcome_codes = AsyncMock(return_value=())
     provenance.complete_stage = AsyncMock(return_value="b" * 64)
@@ -3465,6 +3466,44 @@ async def test_artifact_validation_failure_fails_the_run(
     provenance.fail_run.assert_awaited_once()
     provenance.record_publication_failure.assert_not_awaited()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recount ran only inside `finish_run`, after the public graph had been
+    replaced; a mismatch must fail the metrics stage instead."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
 
 
 @pytest.mark.unit

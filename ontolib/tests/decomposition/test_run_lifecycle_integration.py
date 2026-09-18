@@ -40,6 +40,7 @@ from ontolib.decomposition.provenance import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletionRunMetrics,
     FreshAdmitted,
     FullRunExecutionIdentity,
     NcitSourceSnapshot,
@@ -47,6 +48,7 @@ from ontolib.decomposition.provenance_models import (
     ResumeKind,
     RunAdmission,
     RunFingerprint,
+    RunOutcomeCounts,
     RunResumeIdentity,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
@@ -1190,6 +1192,59 @@ async def test_a_rehearsal_cannot_be_resumed() -> None:
             await store.resume_run(
                 run_id, RunResumeIdentity.from_fingerprint(rehearsal)
             )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_the_completion_recount_is_available_before_publication() -> None:
+    """The recount used to run only inside `finish_run`, after the public graph had
+    been replaced; the metrics stage must be able to ask for it first."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        nothing_counted = CompletionRunMetrics.model_validate(
+            {
+                **RunOutcomeCounts(
+                    total_in_scope=0, decomposed=0, residual=0, minted_count=0
+                ).model_dump(),
+                "residual_precoordinated_count": 0,
+                "residual_precoordination_unknown_count": 0,
+                "residual_precoordination": 0.0,
+                "complete_definition_count": 0,
+                "complete_fact_count": 0,
+                "projected_fact_count": 0,
+                "projection_loss_count": 0,
+                "projection_loss_rate": 0.0,
+                "pct_decomposed": 0.0,
+                "roundtrip_fidelity": None,
+            }
+        )
+        for code in ("C0", "C1"):
+            with pytest.raises(RunStateError, match="unfinished work items"):
+                await store.require_completion_recount(run_id, nothing_counted)
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code, semantic_type="Neoplastic Process", constituents=[]
+                ),
+                minted=(),
+                semantic_types=("Neoplastic Process",),
+            )
+        recounted = await _completion_metrics(store, run_id)
+
+        await store.require_completion_recount(
+            run_id, CompletionRunMetrics.model_validate(recounted)
+        )
+        with pytest.raises(RunStateError, match="do not match persisted work-item"):
+            await store.require_completion_recount(run_id, nothing_counted)
+        assert (await store.get_run(run_id)).status == "running"  # type: ignore[union-attr]
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
