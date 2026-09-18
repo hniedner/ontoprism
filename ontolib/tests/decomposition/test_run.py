@@ -2910,6 +2910,48 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
+async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
+    """A cancellation inside `invalidate_run` rolls the discard back; the drift
+    error must still carry the partial-results warning when it propagates as the
+    cancellation's cause."""
+    client = _FakeClient(pages=[["C0"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(side_effect=asyncio.CancelledError())
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    drift = cancellation.value.__cause__
+    assert isinstance(drift, SourceIdentityChangedError)
+    (note,) = drift.__notes__
+    assert note.startswith("Partial results were NOT discarded: invalidating run ")
+    assert note.endswith(
+        "was interrupted. Inspect decomp_constituent/decomp_minted_proposal "
+        "before reuse."
+    )
+
+
+@pytest.mark.unit
 async def test_unrecorded_run_failure_is_reported_on_the_raised_error() -> None:
     """A run in some other terminal state means the failure was never recorded."""
     client = _FakeClient(pages=[["C1"]])
