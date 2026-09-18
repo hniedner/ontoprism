@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.decomposition import provenance as provenance_module
 from ontolib.decomposition.models import (
@@ -27,6 +28,7 @@ from ontolib.decomposition.provenance import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    FullRunExecutionIdentity,
     RunFingerprint,
     WorkItemOutcome,
 )
@@ -1580,3 +1582,66 @@ async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
     assert sf().execute.call_count == 3
     for call in sf().execute.call_args_list:
         assert call.args[1] == {"run_id": "run-1", "codes": ["C1"]}
+
+
+def _identity_payload() -> dict[str, object]:
+    return {
+        "source_identity": "a" * 64,
+        "worklist": ("C1",),
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
+        "semantic_types": ("Neoplastic Process",),
+        "algorithm_version": "decomposition-v3",
+        "config_version": "nested-definition-v2",
+        "walker_max_depth": 5,
+        "routing_implementation_identity": "b" * 64,
+        "collapse_policy_identity": "c" * 64,
+        "mixed_chain_inventory_identity": "d" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
+        "output_mode": "file",
+        "load_mode": "none",
+    }
+
+
+@pytest.mark.unit
+def test_rehearsal_nonce_separates_otherwise_identical_run_identities() -> None:
+    first = FullRunExecutionIdentity(**_identity_payload(), rehearsal_nonce="1" * 32)
+    second = FullRunExecutionIdentity(**_identity_payload(), rehearsal_nonce="2" * 32)
+    real = FullRunExecutionIdentity(**_identity_payload())
+
+    assert first.identity != second.identity
+    assert first.identity != real.identity
+    assert FullRunExecutionIdentity(**_identity_payload()).identity == real.identity
+
+
+@pytest.mark.unit
+def test_a_rehearsal_never_publishes_to_the_store() -> None:
+    with pytest.raises(ValidationError, match="a rehearsal never publishes"):
+        FullRunExecutionIdentity(
+            **{**_identity_payload(), "load_mode": "named-graph"},
+            rehearsal_nonce="1" * 32,
+        )
+
+
+@pytest.mark.unit
+def test_run_summary_marks_rehearsal_rows() -> None:
+    def row(fingerprint: dict[str, object] | None) -> dict[str, object]:
+        return {
+            "id": "neoplasm-1",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.07d",
+            "started_at": datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+            "finished_at": None,
+            "fingerprint": fingerprint,
+            "metrics": None,
+        }
+
+    rehearsal = ProvenanceStore._row_to_run(row({"rehearsal_nonce": "1" * 32}))
+    real = ProvenanceStore._row_to_run(row({"rehearsal_nonce": None}))
+    legacy = ProvenanceStore._row_to_run(row(None))
+
+    assert rehearsal.rehearsal is True
+    assert real.rehearsal is False
+    assert legacy.rehearsal is False

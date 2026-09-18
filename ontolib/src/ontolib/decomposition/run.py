@@ -228,6 +228,7 @@ class RunConfig:
         walker_max_depth: int = 5,
         sample_manifest: DecompositionSampleManifest | None = None,
         mixed_chain_inventory_path: Path | None = None,
+        rehearsal: bool = False,
     ) -> None:
         self.branch = parse_branch(branch)
         self.out = out
@@ -237,6 +238,11 @@ class RunConfig:
         self.walker_max_depth = walker_max_depth
         self.sample_manifest = sample_manifest
         self.mixed_chain_inventory_path = mixed_chain_inventory_path
+        # A rehearsal runs the pipeline as a throwaway: it is admitted afresh every
+        # time, never publishes, and never promotes its mint proposals.
+        self.rehearsal = rehearsal
+        if self.rehearsal and self.load_to_store:
+            raise ValueError("a rehearsal never publishes to the store")
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -929,6 +935,7 @@ def _requested_fingerprint(
 ) -> RunFingerprint:
     return RunFingerprint(
         schema_version=5 if config.sample_manifest is not None else 4,
+        rehearsal_nonce=uuid4().hex if config.rehearsal else None,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),

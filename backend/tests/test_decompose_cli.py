@@ -695,8 +695,8 @@ def test_main_prints_metrics_and_forwards_resume_options(
 ) -> None:
     captured: dict[str, object] = {}
 
-    async def run_command(*args: object) -> decompose.RunMetrics:
-        captured["args"] = args
+    async def run_command(**kwargs: object) -> decompose.RunMetrics:
+        captured["kwargs"] = kwargs
         return decompose.RunMetrics(
             total_in_scope=4,
             decomposed=2,
@@ -721,17 +721,18 @@ def test_main_prints_metrics_and_forwards_resume_options(
         walker_max_depth=6,
     )
 
-    assert captured["args"] == (
-        tmp_path / "candidate.json",
-        decompose.DecompositionBranch.DISEASE,
-        output,
-        False,
-        False,
-        "disease-run-1",
-        4,
-        6,
-        None,
-    )
+    assert captured["kwargs"] == {
+        "source_manifest": tmp_path / "candidate.json",
+        "branch": decompose.DecompositionBranch.DISEASE,
+        "out": output,
+        "load": False,
+        "emit_equivalence": False,
+        "resume": "disease-run-1",
+        "total_limit": 4,
+        "walker_max_depth": 6,
+        "sample_manifest": None,
+        "rehearsal": False,
+    }
     assert capsys.readouterr().out == (
         "in_scope=4 decomposed=2 residual=0 semantic_excluded=1 atomic_noop=1 "
         "unknown=0 minted=1 coverage=50.00% "
@@ -739,10 +740,10 @@ def test_main_prints_metrics_and_forwards_resume_options(
     )
 
 
-def _metrics(total: int) -> decompose.RunMetrics:
+def _metrics(total: int, *, decomposed: int | None = None) -> decompose.RunMetrics:
     return decompose.RunMetrics(
         total_in_scope=total,
-        decomposed=total,
+        decomposed=total if decomposed is None else decomposed,
         residual=0,
         semantic_excluded=0,
         atomic_noop=0,
@@ -751,19 +752,32 @@ def _metrics(total: int) -> decompose.RunMetrics:
     )
 
 
+class _RunStub:
+    """Stand in for `_run`, recording keyword calls and writing the output file."""
+
+    def __init__(self, *, fail: BaseException | None = None, decomposed: int = 1):
+        self.calls: list[dict[str, object]] = []
+        self.fail = fail
+        self.decomposed = decomposed
+
+    async def __call__(self, **kwargs: object) -> decompose.RunMetrics:
+        self.calls.append(kwargs)
+        out = kwargs["out"]
+        if isinstance(out, Path):
+            out.write_text("# ttl\n")
+        if self.fail is not None:
+            raise self.fail
+        return _metrics(len(self.calls), decomposed=self.decomposed)
+
+
 @pytest.mark.unit
-def test_full_run_is_preceded_by_a_bounded_preflight_of_the_same_pipeline(
+def test_full_run_is_preceded_by_a_stratified_rehearsal_of_the_same_pipeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    calls: list[tuple[object, ...]] = []
-
-    async def run_command(*args: object) -> decompose.RunMetrics:
-        calls.append(args)
-        return _metrics(len(calls))
-
-    monkeypatch.setattr(decompose, "_run", run_command)
+    stub = _RunStub()
+    monkeypatch.setattr(decompose, "_run", stub)
     output = tmp_path / "decomposed.ttl"
 
     decompose.main(
@@ -773,37 +787,66 @@ def test_full_run_is_preceded_by_a_bounded_preflight_of_the_same_pipeline(
         load=True,
     )
 
-    preflight, full = calls
-    assert preflight[2] == tmp_path / "decomposed.ttl.preflight"
-    assert preflight[3] is False, "the preflight never loads the graph"
-    assert preflight[6] == decompose.PREFLIGHT_LIMIT
-    assert full[2:7] == (output, True, False, None, None)
+    preflight, full = stub.calls
+    assert preflight == {
+        **full,
+        "out": tmp_path / "decomposed.ttl.preflight",
+        "load": False,
+        "sample_manifest": decompose.PREFLIGHT_SAMPLE,
+        "rehearsal": True,
+    }
+    assert full["out"] == output
+    assert full["load"] is True
+    assert full["sample_manifest"] is None
+    assert full["rehearsal"] is False
+    assert decompose.PREFLIGHT_SAMPLE.is_file()
+    assert not (tmp_path / "decomposed.ttl.preflight").exists(), (
+        "a successful preflight deletes its output"
+    )
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("preflight: in_scope=1 ")
     assert lines[1].startswith("in_scope=2 ")
 
 
 @pytest.mark.unit
-def test_a_failing_preflight_stops_the_full_run(
+def test_a_failing_preflight_stops_the_full_run_and_names_itself(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[tuple[object, ...]] = []
+    stub = _RunStub(fail=RuntimeError("unsupported constructor at concept 7"))
+    monkeypatch.setattr(decompose, "_run", stub)
 
-    async def run_command(*args: object) -> decompose.RunMetrics:
-        calls.append(args)
-        raise RuntimeError("unsupported constructor at concept 7")
-
-    monkeypatch.setattr(decompose, "_run", run_command)
-
-    with pytest.raises(RuntimeError, match="concept 7"):
+    with pytest.raises(RuntimeError, match="concept 7") as error:
         decompose.main(
             source_manifest=tmp_path / "candidate.json",
             branch=decompose.DecompositionBranch.NEOPLASM,
             out=tmp_path / "decomposed.ttl",
         )
 
-    assert len(calls) == 1
-    assert calls[0][6] == decompose.PREFLIGHT_LIMIT
+    assert len(stub.calls) == 1
+    assert stub.calls[0]["rehearsal"] is True
+    assert error.value.__notes__ == [
+        "raised by the preflight rehearsal; the full run was not started"
+    ]
+    assert (tmp_path / "decomposed.ttl.preflight").exists(), (
+        "a failed preflight keeps its output for diagnosis"
+    )
+
+
+@pytest.mark.unit
+def test_a_preflight_that_decomposed_nothing_stops_the_full_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _RunStub(decomposed=0)
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    with pytest.raises(RuntimeError, match="preflight decomposed no concepts"):
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    assert len(stub.calls) == 1
 
 
 @pytest.mark.unit
@@ -812,19 +855,15 @@ def test_a_failing_preflight_stops_the_full_run(
     [
         {"resume": "neoplasm-run-1"},
         {"total_limit": 10},
+        {"sample_manifest": decompose.PREFLIGHT_SAMPLE},
         {"preflight": False},
     ],
 )
 def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict[str, object]
 ) -> None:
-    calls: list[tuple[object, ...]] = []
-
-    async def run_command(*args: object) -> decompose.RunMetrics:
-        calls.append(args)
-        return _metrics(1)
-
-    monkeypatch.setattr(decompose, "_run", run_command)
+    stub = _RunStub()
+    monkeypatch.setattr(decompose, "_run", stub)
 
     decompose.main(
         source_manifest=tmp_path / "candidate.json",
@@ -833,7 +872,77 @@ def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
         **options,  # type: ignore[arg-type]
     )
 
-    assert len(calls) == 1
+    assert len(stub.calls) == 1
+    assert stub.calls[0]["rehearsal"] is False
+
+
+@pytest.mark.unit
+async def test_a_rehearsal_run_config_differs_only_in_output_and_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs: list[decompose.RunConfig] = []
+
+    async def pipeline(
+        config: decompose.RunConfig, *_args: object, **_kwargs: object
+    ) -> decompose.RunMetrics:
+        configs.append(config)
+        return _metrics(1)
+
+    _install_run_collaborators(monkeypatch, pipeline)
+    common = {
+        "source_manifest": tmp_path / "candidate.json",
+        "branch": decompose.DecompositionBranch.NEOPLASM,
+        "emit_equivalence": False,
+        "resume": None,
+        "total_limit": None,
+        "walker_max_depth": 4,
+    }
+    await decompose._run(
+        **common,
+        out=tmp_path / "x.ttl.preflight",
+        load=False,
+        sample_manifest=decompose.PREFLIGHT_SAMPLE,
+        rehearsal=True,
+    )
+    await decompose._run(
+        **common,
+        out=tmp_path / "x.ttl",
+        load=True,
+        sample_manifest=None,
+        rehearsal=False,
+    )
+
+    rehearsal, full = (vars(config) for config in configs)
+    assert rehearsal["rehearsal"] is True
+    assert full["rehearsal"] is False
+    assert rehearsal["sample_manifest"] is not None
+    assert full["sample_manifest"] is None
+    assert full["mixed_chain_inventory_path"] is not None
+    assert rehearsal["mixed_chain_inventory_path"] is None, (
+        "the inventory is bound to the whole worklist; a rehearsal cannot carry it"
+    )
+    differing = {key for key in full if rehearsal[key] != full[key]}
+    assert differing == {
+        "out",
+        "load_to_store",
+        "sample_manifest",
+        "rehearsal",
+        "mixed_chain_inventory_path",
+    }
+
+
+@pytest.mark.unit
+def test_cli_accepts_the_preflight_opt_out_flag() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/decompose.py", "--help"],
+        cwd=Path(__file__).resolve().parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "--no-preflight" in unstyle(result.stdout)
 
 
 @pytest.mark.unit
@@ -842,7 +951,7 @@ def test_main_prints_unavailable_residual_rate_with_unknown_count(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    async def run_command(*_args: object) -> decompose.RunMetrics:
+    async def run_command(**_kwargs: object) -> decompose.RunMetrics:
         return decompose.RunMetrics(
             total_in_scope=1,
             decomposed=1,
@@ -873,7 +982,7 @@ def test_main_propagates_pipeline_failure_without_success_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    async def fail_command(*_args: object) -> decompose.RunMetrics:
+    async def fail_command(**_kwargs: object) -> decompose.RunMetrics:
         raise RuntimeError("pipeline unavailable")
 
     monkeypatch.setattr(decompose, "_run", fail_command)

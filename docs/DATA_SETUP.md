@@ -437,13 +437,22 @@ pdm run decompose \
 ```
 
 A full run takes about fifteen hours, so by default it is preceded by a preflight: the
-first 50 concepts go through the whole pipeline, including the final metrics report, to
-`data/ncit_decomposed.ttl.preflight` (deleted afterwards) without loading the graph. A
-preflight failure stops the run before hour zero. `--no-preflight` skips it; resumes,
-`--total-limit` and `--sample-manifest` runs never preflight. Give the tool or shell
-timeout at least 1.5 times the expected duration, and prefer running in the background
-with `--resume` available: in September 2026 ten of thirteen full runs were lost to short
-timeouts and late-surfacing errors.
+tracked stratified SME sample (`samples/ncit-26.07d-m1-sme-review.json`, 20 concepts
+across every review stratum) is rehearsed through the same pipeline, including the final
+metrics report, to `data/ncit_decomposed.ttl.preflight` without loading the graph. The
+rehearsal is a throwaway run: it is admitted afresh every time, its mint proposals never
+reach the curator queue, and it is listed with `rehearsal: true` in the runs API. Its
+output file is deleted after a successful preflight and kept after a failed one. A
+preflight failure, or a preflight that decomposed nothing, stops the run before hour
+zero; the error names the preflight. The mixed-chain inventory and the whole-worklist
+closure checks are bound to the full worklist, so they still run at the start of the
+full run. `--no-preflight` skips the preflight; resumes, `--total-limit` and
+`--sample-manifest` runs never preflight. On a different NCIt release the tracked sample
+no longer matches the source and the preflight refuses until the sample is re-minted.
+Give the tool or shell timeout at least 1.5 times the expected duration, and prefer
+running in the background with `--resume` available (the full run's id is the second
+`run=` value on stderr; the first belongs to the rehearsal): in September 2026 ten of
+thirteen full runs were lost to short timeouts and late-surfacing errors.
 
 For the deterministic, review-only 26.07d M1 slice:
 

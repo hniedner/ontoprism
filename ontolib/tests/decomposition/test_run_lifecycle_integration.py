@@ -1154,6 +1154,59 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         await dispose_engine(engine)
 
 
+async def test_a_completed_rehearsal_never_reaches_the_curator_queue() -> None:
+    """A rehearsal must not claim the deterministic mint ids the real run will mint."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(
+            run_id,
+            "26.07d",
+            _fingerprint().model_copy(update={"rehearsal_nonce": "f" * 32}),
+        )
+        for code in ("C0", "C1"):
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code,
+                    semantic_type="Neoplastic Process",
+                    constituents=[
+                        Constituent(
+                            axis="op:Laterality",
+                            filler_code=_minted_for(code).id,
+                            axis_source="nlp",
+                        )
+                    ],
+                ),
+                minted=(_minted_for(code),),
+                semantic_types=("Neoplastic Process",),
+            )
+
+        assert await store.finish_run(
+            run_id,
+            source_identity="a" * 64,
+            metrics=await _completion_metrics(store, run_id),
+        )
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+        assert (await store.get_run(run_id)).rehearsal is True  # type: ignore[union-attr]
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_mint_proposals_reach_the_curator_queue_only_on_completion() -> None:
     """D48: a proposal must not enter the global queue before the run completes.
 
