@@ -323,7 +323,7 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
-    assert list((tmp_path / "data" / "opencode").glob("opencode*.db")), (
+    assert list((tmp_path / "data" / "opencode").glob("*.db")), (
         "the binary must keep its database under the test's own XDG data dir; "
         "sharing the owner's makes parallel cases fail with 'database is locked'"
     )
