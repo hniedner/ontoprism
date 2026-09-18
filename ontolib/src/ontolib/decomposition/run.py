@@ -1627,11 +1627,13 @@ async def _record_stage_failure(
 async def _preflight_stage(
     setup: _RunSetup,
     config: RunConfig,
-    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
-    *,
-    precomputed: SourcePreflightResult | None = None,
+    preflight: SourcePreflightResult,
 ) -> str:
+    """Seal ``preflight`` (computed before admission) as the run's preflight stage. If
+    an earlier attempt already sealed the stage, use that stored result instead and
+    ignore ``preflight``. Either result must still pass the preflight gate and, when
+    the config names a mixed-chain inventory, match that inventory's identity."""
     input_identity = setup.fingerprint.identity
     claim = await provenance.claim_stage(setup.run_id, "preflight", input_identity)
     if claim is None:
@@ -1641,13 +1643,7 @@ async def _preflight_stage(
         result = SourcePreflightResult.model_validate_json(json.dumps(payload))
     else:
         try:
-            result = precomputed or await _source_preflight_result(
-                config,
-                client,
-                setup.fingerprint.worklist,
-                source_identity=setup.fingerprint.source_identity,
-                routing_identity=setup.fingerprint.routing_implementation_identity,
-            )
+            result = preflight
             payload = result.model_dump(mode="json", exclude_computed_fields=True)
             output_identity = await provenance.complete_stage(
                 setup.run_id, "preflight", claim, payload
@@ -2359,11 +2355,7 @@ async def run_pipeline(
 
     try:
         preflight_identity = await _preflight_stage(
-            setup,
-            config,
-            client,
-            provenance,
-            precomputed=fresh_preflight,
+            setup, config, provenance, fresh_preflight
         )
         concept_identity = await _concept_workset_stage(
             setup,
