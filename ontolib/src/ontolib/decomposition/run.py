@@ -1591,12 +1591,8 @@ async def _journal_without_masking(
     A cancellation that interrupts the write still cancels: it propagates with
     ``exc`` as its cause so neither is lost. The write itself is not retried or
     shielded (contrast ``publication._record_failure_without_masking``), so it
-    may never have landed. A work-item, residual-filler or stage claim it may
-    leave behind is reclaimed by the next resume (the publication seal of an
-    already completed run has no resume and may stay claimed). An unwritten
-    ``fail_run`` leaves the run ``running`` for the next resume to reopen; an
-    unwritten ``invalidate_run`` leaves partial results in place, which is why
-    ``_record_pipeline_failure`` adds its own warning.
+    may never have landed. D90 in ``docs/DECISIONS.md`` says which abandoned
+    writes a later resume recovers and which leave only these notes.
     """
     try:
         await record

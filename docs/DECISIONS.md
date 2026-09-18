@@ -27,7 +27,8 @@ database write delay a cancellation. Abandoning cancels at once but can lose the
   behind is recovered later: the next resume reclaims work-item, residual-filler and stage
   claims, and an unwritten `fail_run` leaves the run `running` for the next resume to
   reopen.
-- Three known gaps, where the only trace is the note on the cancelled exception:
+- Three known gaps, where the only trace is the notes on the propagating cancellation and
+  its cause:
   - the publication-stage seal of a run that is already complete, which has no resume and
     may stay claimed;
   - an unwritten `invalidate_run`: it follows a source change, so the run cannot be
