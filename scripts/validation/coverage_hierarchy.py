@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Final, Literal, Protocol, Self, cast
 
+from coverage.config import DEFAULT_EXCLUDE
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,9 +40,10 @@ _EXEMPTION_KINDS = {
     "coverage-partial-regex",
 }
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
-# Coverage.py's default exclusion pattern, matched over raw source as the tool does.
-_PYTHON_MARKER = re.compile(r"#\s*pragma[:\s]?\s*no\s*cover", re.IGNORECASE)
+# Coverage.py's own `pragma: no cover` pattern, searched per raw source line.
+_PYTHON_MARKER = re.compile(DEFAULT_EXCLUDE[0])
 _IGNORE_MARKERS = ("istanbul ignore", "v8 ignore", "c8 ignore")
+_MARKER_SUFFIXES = (".py", ".js", ".mjs", ".ts", ".svelte")
 MetricKind = Literal["lines", "branches"]
 SupportedCoverageTool = Literal["coverage.py", "vitest"]
 SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
@@ -538,12 +540,15 @@ def _validate_exemption(
 
 
 def _ignore_marker_count(path: Path) -> int:
-    """Count coverage-ignore markers the way the measuring tool matches them.
+    """Count coverage-ignore markers per raw source line.
 
-    Python lines are matched with Coverage.py's pragma pattern over raw source; other
-    languages count a line that carries both a marker and a comment prefix.
+    Python lines are matched with Coverage.py's own pragma pattern; other languages
+    are approximated by a line that carries both a marker and a comment prefix.
     """
-    lines = path.read_text(encoding="utf-8").splitlines()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path} is not UTF-8: {exc}") from exc
     if path.suffix == ".py":
         return sum(_PYTHON_MARKER.search(line) is not None for line in lines)
     return sum(
@@ -563,11 +568,11 @@ def _pragma_ownership_errors(
     errors: list[str] = []
     for relative in sorted({surface.path for surface in surfaces} | set(owned)):
         path = root / relative
-        if path.suffix not in {".py", ".js", ".mjs", ".ts", ".svelte"}:
+        if path.suffix not in _MARKER_SUFFIXES:
             if relative in owned:
                 errors.append(
-                    f"pragma exemption {relative} names a file that cannot carry "
-                    "a marker"
+                    f"pragma exemption {relative} names a file the marker scan does "
+                    f"not read (only {', '.join(_MARKER_SUFFIXES)})"
                 )
             continue
         if not path.is_file():

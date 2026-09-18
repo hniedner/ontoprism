@@ -13,7 +13,6 @@ from coverage.config import DEFAULT_EXCLUDE
 from pydantic import ValidationError
 from scripts.validation import coverage_hierarchy
 from scripts.validation.coverage_hierarchy import (
-    _PYTHON_MARKER,
     ArtifactIdentity,
     Metric,
     build_frontend_report,
@@ -460,7 +459,7 @@ def test_two_exemptions_with_the_same_rationale_are_rejected(tmp_path: Path) -> 
     assert errors == ["exemptions must be unique"]
 
 
-def test_a_pragma_exemption_on_a_file_that_cannot_carry_a_marker_is_rejected(
+def test_a_pragma_exemption_on_an_unscanned_file_type_is_rejected(
     tmp_path: Path,
 ) -> None:
     manifest_path = _pragma_repo(
@@ -475,29 +474,53 @@ def test_a_pragma_exemption_on_a_file_that_cannot_carry_a_marker_is_rejected(
 
     errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
-    assert "pragma exemption src/run.sh names a file that cannot carry a marker" in (
-        errors
-    )
+    assert (
+        "pragma exemption src/run.sh names a file the marker scan does not read "
+        "(only .py, .js, .mjs, .ts, .svelte)"
+    ) in errors
     assert "unowned pragma/ignore marker: src/module.py (1 markers, 0 owned)" in errors
 
 
 @pytest.mark.parametrize(
-    "line",
+    ("pragma", "expected"),
     [
-        "x = 1  # pragma: no cover",
-        "x = 1  #pragma:no cover",
-        "x = 1  # PRAGMA NO COVER",
-        'x = "# pragma: no cover"',
-        'x = "pragma: no cover"',
-        "# pragma: nocover",
-        "x = 1  # pragma: no-cover",
+        ("# pragma: no cover", []),
+        ("#pragma:no cover", []),
+        ("# PRAGMA NO COVER", []),
+        (
+            "# Pragma: No Cover",
+            ["stale pragma exemption: src/module.py (0 markers, 1 owned)"],
+        ),
+        ("# pragma: nocover", []),
+        (
+            "# pragma: no-cover",
+            ["stale pragma exemption: src/module.py (0 markers, 1 owned)"],
+        ),
     ],
 )
-def test_python_marker_regex_matches_what_coverage_py_excludes(line: str) -> None:
-    """Contract: the ownership scan honours exactly the lines Coverage.py excludes."""
+def test_only_pragma_spellings_coverage_py_excludes_count_as_markers(
+    tmp_path: Path, pragma: str, expected: list[str]
+) -> None:
+    """Contract with Coverage.py: a spelling it still measures is not a marker."""
+    manifest_path = _pragma_repo(
+        tmp_path, f"def value() -> int:  {pragma}\n    return 1\n"
+    )
     coverage_pragma = re.compile(DEFAULT_EXCLUDE[0])
+    assert bool(coverage_pragma.search(pragma)) is (expected == [])
 
-    assert bool(_PYTHON_MARKER.search(line)) is bool(coverage_pragma.search(line))
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == expected
+
+
+def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "latin.py").write_bytes(b"# caf\xe9\nx = 1\n")
+
+    with pytest.raises(ValueError, match=r"src/latin\.py is not UTF-8"):
+        validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
 
 def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
