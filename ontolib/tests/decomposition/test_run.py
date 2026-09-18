@@ -33,6 +33,7 @@ from ontolib.decomposition.normalized_group_policy import (
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletionRunMetrics,
     FreshAdmitted,
     NcitSourceSnapshot,
     RefusalReason,
@@ -3525,7 +3526,23 @@ async def test_a_resumed_run_is_recounted_again_before_it_publishes(
             total_in_scope=0, decomposed=0, residual=0, minted_count=0
         )
     )
-    provenance._test_state["stage_outputs"]["metrics"] = ("m" * 64, {})
+    # What the earlier attempt sealed for this empty run, so that only the recount can
+    # stop the resumed one.
+    sealed: dict[str, object] = {
+        "metrics": CompletionRunMetrics.model_validate(
+            run_module._persisted_metrics(
+                RunMetrics(total_in_scope=0, decomposed=0, residual=0, minted_count=0)
+            )
+        ).model_dump(mode="json"),
+        "unknown_policy": "allow-enumerated-valid-unsupported",
+        "concept_unknown_codes": [],
+        "residual_unknown_filler_codes": [],
+        "publication_eligible": True,
+    }
+    provenance._test_state["stage_outputs"]["metrics"] = (
+        stage_output_identity(sealed),
+        sealed,
+    )
     provenance.require_completion_recount = AsyncMock(
         side_effect=RunStateError(
             "completion metrics do not match persisted work-item outcomes"
