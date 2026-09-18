@@ -23,7 +23,9 @@ green() { printf '\033[0;32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[1;33m%s\033[0m\n' "$1"; }
 red() { printf '\033[0;31m%s\033[0m\n' "$1"; }
 
-port_pids() { lsof -ti :"$1" 2>/dev/null || true; }
+# Listeners only: a bare `lsof -i :PORT` also lists every client of the port (a browser
+# tab, a proxy, the Podman VM's gvproxy), and stop_port signals whatever this returns.
+port_pids() { lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 
 stop_port() { # $1=port $2=name
   local pids

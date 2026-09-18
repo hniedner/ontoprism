@@ -193,6 +193,26 @@ Agents are authorized to invoke this fixed recovery without prompting when local
 it; this is not authority for arbitrary Podman or Docker commands. GitHub CI continues to use its
 existing Docker service path and does not execute this local preflight.
 
+#### The VM says `running` but nothing can reach it
+
+The machine is two host processes: `vfkit` (the VM) and `gvproxy` (all of its networking: the
+SSH port, the forwarded API socket, and the published ports 5433, 7888 and 7889). gvproxy exits
+on any signal while vfkit runs on, so `podman machine inspect` still reports `running` and
+`podman machine ssh` gets "connection refused". Two things signal it:
+
+- vfkit and gvproxy keep the process group of whatever ran `podman machine start`, so a harness
+  ending a tool call, Ctrl-C, or a closed terminal reaches them. `ensure-podman-stack` therefore
+  starts the machine in its own session; prefer it to a bare `podman machine start`.
+- A kill by port (`lsof -ti :PORT | xargs kill`) hits gvproxy, because it is the listener on the
+  stack's ports. Never clear those ports that way.
+
+`ensure-podman-stack` repairs this state with one stop/start and prints
+`stale-machine-cause=gvproxy is not running ...` when that is what it found. The guest shutdown
+can take a minute or two. To look yourself: `tail "$TMPDIR/podman/gvproxy.log"` (it is
+truncated at the next start), `ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`, and
+`/usr/bin/log show --last 1h --predicate 'process == "launchd" AND eventMessage CONTAINS "sent by"'`.
+Upgrading the Podman client does not change any of this.
+
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
 `ontoprism-podman` context, selects it, and verifies the selected endpoint and Podman API.

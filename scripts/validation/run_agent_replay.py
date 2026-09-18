@@ -59,6 +59,9 @@ _MAX_INSPECTED_RUNS = 8
 _PARENT_MANIFEST_ARGUMENT_COUNT = 2
 _PROMOTION_MANIFEST_ARGUMENT_COUNT = 4
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
+# A guest shutdown or boot, not a diagnostic: a half-dead VM took about 80 s to
+# power off on 2026-09-18, and the 20 s limit made the recovery fail every time.
+_PODMAN_MACHINE_TIMEOUT_SECONDS = 300
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
 _MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
@@ -139,6 +142,7 @@ class CommandRunner(Protocol):
         capture_output: bool,
         text: Literal[True],
         env: dict[str, str] | None = None,
+        start_new_session: bool = False,
     ) -> CapturedCommandResult: ...
 
 
@@ -1145,6 +1149,7 @@ def _subprocess_runner(
     capture_output: bool,
     text: Literal[True],
     env: dict[str, str] | None = None,
+    start_new_session: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         arguments,
@@ -1155,6 +1160,7 @@ def _subprocess_runner(
         capture_output=capture_output,
         text=text,
         env=env,
+        start_new_session=start_new_session,
     )
 
 
@@ -3639,6 +3645,7 @@ def _capture_required(
     environment: dict[str, str] | None = None,
     timeout: int = _DIAGNOSTIC_TIMEOUT_SECONDS,
     display_limit: int | None = _MAX_DIAGNOSTIC_CHARS,
+    new_session: bool = False,
 ) -> str:
     rendered_command = " ".join(command)
     try:
@@ -3651,6 +3658,7 @@ def _capture_required(
             capture_output=True,
             text=True,
             env=environment,
+            start_new_session=new_session,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = _timeout_stream_text(exc.stdout)
@@ -4459,25 +4467,65 @@ def _capture_optional_absent(
     )
 
 
+def _dead_gvproxy_cause(machine: PodmanMachine) -> str | None:
+    """Name the one stale state this script can recognise, or nothing.
+
+    Podman writes gvproxy's pid beside the machine's API socket. A pid that names no
+    process means the VM's networking was signalled away while vfkit kept running.
+    """
+    try:
+        os.kill(int((machine.socket_path.parent / "gvproxy.pid").read_text()), 0)
+    except FileNotFoundError, ProcessLookupError, ValueError:
+        return (
+            "gvproxy is not running while the VM is: a signal reached it (a kill by "
+            "port on 5433/7888/7889, or a signal to the process group that started "
+            "the machine); see docs/DATA_SETUP.md"
+        )
+    except PermissionError:
+        return None
+    return None
+
+
+def _start_podman_machine(root: Path, runner: CommandRunner) -> None:
+    """Start the VM in its own session.
+
+    vfkit and gvproxy outlive ``podman machine start`` but keep its process group.
+    Started from a harness tool or a terminal, a signal to that group (a tool
+    timeout, Ctrl-C, a closed terminal) stops gvproxy while vfkit runs on: the
+    machine still reports ``running`` and nothing can reach it.
+    """
+    _capture_required(
+        [_PODMAN, "machine", "start", _PODMAN_MACHINE],
+        root,
+        runner,
+        timeout=_PODMAN_MACHINE_TIMEOUT_SECONDS,
+        new_session=True,
+    )
+
+
 def _ensure_podman_stack(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("ensure-podman-stack accepts no arguments")
     machine = _podman_machine(root, runner)
     machine_action = "no-op"
     if machine.state == "stopped":
-        _capture_required([_PODMAN, "machine", "start", _PODMAN_MACHINE], root, runner)
+        _start_podman_machine(root, runner)
         machine_action = "started"
     else:
         try:
             _probe_machine_api(machine, root, runner)
         except AgentReplayInputError as stale:
             print(f"stale-machine-diagnostic={_bounded_sanitized(str(stale))}")
+            cause = _dead_gvproxy_cause(machine)
+            if cause is not None:
+                print(f"stale-machine-cause={cause}")
             _capture_required(
-                [_PODMAN, "machine", "stop", _PODMAN_MACHINE], root, runner
+                [_PODMAN, "machine", "stop", _PODMAN_MACHINE],
+                root,
+                runner,
+                timeout=_PODMAN_MACHINE_TIMEOUT_SECONDS,
             )
-            _capture_required(
-                [_PODMAN, "machine", "start", _PODMAN_MACHINE], root, runner
-            )
+            _start_podman_machine(root, runner)
             machine_action = "restarted-stale"
 
     machine = _wait_for_machine_api(root, runner)
