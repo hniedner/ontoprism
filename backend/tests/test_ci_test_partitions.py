@@ -167,10 +167,12 @@ default_weight_seconds = 5.0
         "backend/tests/test_medium.py",
     )
 
-    first = partitions.assign_integration_modules(records, weights, shard_index=0)
-    second = partitions.assign_integration_modules(
-        tuple(reversed(records)), weights, shard_index=1
-    )
+    with pytest.warns(UserWarning, match="backend/tests/test_new.py"):
+        first = partitions.assign_integration_modules(records, weights, shard_index=0)
+    with pytest.warns(UserWarning, match="backend/tests/test_new.py"):
+        second = partitions.assign_integration_modules(
+            tuple(reversed(records)), weights, shard_index=1
+        )
 
     assert first.selected_files == (
         "backend/tests/test_heavy.py",
@@ -204,13 +206,14 @@ schema_version = 1
 measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
 measurement_date = "2026-09-05"
 measurement_worktree_dirty = false
-selected_count = 1
-module_count = 1
+selected_count = 2
+module_count = 2
 measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
 default_weight_seconds = 5.0
 
 [weights]
 "backend/tests/test_stale.py" = 1.0
+"backend/tests/test_current.py" = 12.0
 """.lstrip()
     )
 
@@ -220,14 +223,34 @@ default_weight_seconds = 5.0
         "backend/tests/test_new_b.py",
     )
 
-    shards = [
-        partitions.assign_integration_modules(records, weights, shard_index=index)
-        for index in range(partitions.SHARD_COUNT)
-    ]
+    shards = []
+    for index in range(partitions.SHARD_COUNT):
+        with pytest.warns(
+            UserWarning,
+            match=r"2 integration files take the default weight 5\.0s: "
+            r"backend/tests/test_new_a\.py, backend/tests/test_new_b\.py",
+        ):
+            shards.append(
+                partitions.assign_integration_modules(
+                    records, weights, shard_index=index
+                )
+            )
 
-    assigned = [path for shard in shards for path in shard.selected_files]
-    assert sorted(assigned) == sorted(record.path for record in records)
-    assert shards[0].unweighted_files == tuple(sorted(assigned))
+    assert shards[0].selected_files == ("backend/tests/test_current.py",)
+    assert shards[1].selected_files == (
+        "backend/tests/test_new_a.py",
+        "backend/tests/test_new_b.py",
+    )
+    assert shards[0].total_weight_seconds == 12.0
+    assert shards[1].total_weight_seconds == 10.0
+    assert (
+        shards[0].unweighted_files
+        == shards[1].unweighted_files
+        == (
+            "backend/tests/test_new_a.py",
+            "backend/tests/test_new_b.py",
+        )
+    )
 
 
 def test_duration_capture_requires_clean_complete_calls_and_writes_metadata(

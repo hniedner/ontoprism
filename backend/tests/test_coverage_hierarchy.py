@@ -387,6 +387,89 @@ def test_a_second_pragma_in_an_exempted_file_is_still_unowned(tmp_path: Path) ->
     ]
 
 
+def test_an_exemption_whose_pragma_was_removed_is_reported(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n",
+    )
+    second = _PATH_OWNED_PRAGMA.replace(
+        "structurally unreachable", "unreachable in the async loop"
+    )
+    manifest_path.write_text(manifest_path.read_text() + second)
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["stale pragma exemption: src/module.py (1 markers, 2 owned)"]
+
+
+def test_a_pragma_inside_a_string_literal_does_not_satisfy_an_exemption(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        'MARKER = "pragma: no cover"\n\n\ndef value() -> int:\n    return 1\n',
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["stale pragma exemption: src/module.py (0 markers, 1 owned)"]
+
+
+def test_a_measurement_exclusion_does_not_own_an_ignore_marker(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.coverage.report]\nexclude_also = []\npartial_also = []\n"
+        '[tool.coverage.run]\nomit = ["src/shell.py"]\n',
+        encoding="utf-8",
+    )
+    source = tmp_path / "src" / "shell.py"
+    source.parent.mkdir()
+    source.write_text("def shell() -> int:  # pragma: no cover\n    return 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_shell.py").write_text("def test_shell() -> None:\n")
+    exemption = """
+[[exemption]]
+path = "src/shell.py"
+kind = "measurement-exclusion"
+owner = "test-owner"
+rationale = "The shell cannot be measured by the unit layer."
+behavioral_test = "tests/test_shell.py"
+review_issue = 170
+review_after = "2099-01-01"
+configured_in = "pyproject.toml"
+"""
+    manifest = load_manifest(_write_manifest(tmp_path, exemption=exemption), tmp_path)
+
+    errors = validate_manifest(manifest, tmp_path)
+
+    assert errors == ["unowned pragma/ignore marker: src/shell.py (1 markers, 0 owned)"]
+
+
+def test_two_exemptions_with_the_same_rationale_are_rejected(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n\n\n"
+        "def other() -> int:  # pragma: no cover\n    return 2\n",
+    )
+    manifest_path.write_text(manifest_path.read_text() + _PATH_OWNED_PRAGMA)
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["exemptions must be unique"]
+
+
+def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "module.py").unlink()
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert "exemption src/module.py source does not exist" in errors
+
+
 def test_repository_coverage_config_exclusions_are_owned() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)

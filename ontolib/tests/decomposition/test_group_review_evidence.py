@@ -11,7 +11,6 @@ from scripts.research import group_review_packet as group_review
 pytestmark = pytest.mark.unit
 
 _ROOT = Path(__file__).parents[3]
-_GOLDEN = Path(__file__).with_name("golden")
 _HISTORICAL_PACKET = _ROOT / "evidence/group-review-packet-26.07d-schema3.json"
 _MARKDOWN = _ROOT / "evidence/group-review-rationale-26.07d.md"
 _SIDECAR = _ROOT / "evidence/group-review-rationale-26.07d.json"

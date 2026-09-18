@@ -4,7 +4,7 @@ limitations = [
   "Coverage.py 7.15 native function/class regions are authoritative for Python ownership; zero-branch scopes are rendered as N/A instead of Coverage.py's synthetic 100%.",
   "Vitest's native Istanbul map is authoritative for frontend module denominators. Production-bundle Playwright maps attribute to original Svelte sources but cannot be merged with Vitest without duplicate regions, so browser coverage is behavioral evidence only.",
   "Executable production surfaces absent from their trusted measurement layer report 0% unmeasured. YAML, shell, browser-only routes, and excluded rendering shells are never silently omitted.",
-  "The hierarchy is report-only in #170. Strict independent line and branch aggregate gates for ontolib/src, backend/src, and frontend/src/lib are the blocking gates for those two metrics; Vitest's own thresholds (lines/functions/branches/statements >= 90) additionally block frontend/src/lib. No other coverage gate blocks until #169.",
+  "The hierarchy is report-only in #170. Strict independent line and branch aggregate gates for ontolib/src, backend/src, and frontend/src/lib are the blocking gates for those two metrics; Vitest's own thresholds (lines/functions/branches/statements >= 90) additionally block frontend/src/lib. No other coverage gate blocks.",
 ]
 required_production_paths = [
   "ontolib/src/ontolib/decomposition/stated_queries.py",
@@ -326,6 +326,10 @@ group = "release-yaml"
 [[assignment]]
 pattern = ".github/workflows/update-readme-code-stats.yml"
 group = "release-yaml"
+
+# An exemption is owned by file path: a file carries exactly as many inline ignore
+# markers as it has `pragma-no-cover` exemptions. `review_issue` names the issue that
+# reviewed the exemption (it may be closed); `review_after` is when it is re-reviewed.
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"

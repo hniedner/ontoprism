@@ -13,6 +13,7 @@ import statistics
 import subprocess
 import tempfile
 import tomllib
+import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -326,7 +327,7 @@ class IntegrationClassification(_Document):
 
 
 class IntegrationPartition(_Document):
-    """One measured-weight assignment with at most one default-weight module."""
+    """One greedy-LPT shard; `unweighted_files` fell back to the default weight."""
 
     selected_files: tuple[str, ...]
     total_weight_seconds: Annotated[float, Field(gt=0)]
@@ -336,7 +337,7 @@ class IntegrationPartition(_Document):
 
 
 class IntegrationWeightManifest(_Document):
-    """Clean, complete timing evidence used by integration partition selection."""
+    """Clean timing evidence; a balancing hint for integration partition selection."""
 
     schema_version: Literal[1]
     measured_commit: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
@@ -386,6 +387,12 @@ def assign_integration_modules(
     # Weights only balance the shards: a new file takes the default weight and a weight
     # for a deleted file is ignored, so adding or removing tests needs no re-measure.
     unweighted = tuple(sorted(inventory - set(raw_weights)))
+    if unweighted:
+        warnings.warn(
+            f"{len(unweighted)} integration files take the default weight "
+            f"{default}s: {', '.join(unweighted)}",
+            stacklevel=2,
+        )
     effective = {path: float(raw_weights.get(path, default)) for path in inventory}
     bins: list[list[str]] = [[] for _ in range(SHARD_COUNT)]
     totals = [0.0] * SHARD_COUNT

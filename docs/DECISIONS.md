@@ -279,7 +279,8 @@ hyphen or underscore; `delete-merged` was the operation name that triggered the 
 `eae718822b3d33a40d04cfe783df142a017c1491af0edef3125f6a1671b95f98` and 152 transport
 operations (`pdm run agent-replay refresh-sparql-inventory && jq
 '{query_shape_count,query_shapes_sha256,transport_operation_count}'
-scripts/validation/sparql-inventory.json`, 2026-09-04).
+scripts/validation/sparql-inventory.json`, 2026-09-04). *(Addendum 2026-09-18: the
+inventory, its snapshot and the replay operation were removed by #339; see D89.)*
 
 The orchestrator's effective permission contract allows those wrapper invocations while raw
 Git pull/push and direct PR create/edit remain denied; implementer and reviewer remote
@@ -971,6 +972,7 @@ production definitions/constants and 103 transport operations into an executable
 (`jq '{query_shape_count,transport_operation_count}'
 scripts/validation/sparql-inventory.json`, 2026-08-10).
 Changing, adding, or removing one of those shapes changes the committed inventory digest.
+*(Addendum 2026-09-18: the inventory and its digest were removed by #339; see D89.)*
 
 The corrected exact-corpus workload returned the same NCIt release, stated restriction count,
 role observation, complete-definition identity, genus walks, R82 controls, scope, detail,

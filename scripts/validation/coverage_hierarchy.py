@@ -487,17 +487,6 @@ def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     return errors
 
 
-def _validate_pragma_exemption(exemption: Exemption, root: Path) -> list[str]:
-    if exemption.kind != "pragma-no-cover":
-        return []
-    source = root / exemption.path
-    if not source.is_file():
-        return []
-    if "pragma: no cover" in source.read_text(encoding="utf-8"):
-        return []
-    return [f"exemption {exemption.path} names a file without a pragma: no cover"]
-
-
 def _validate_measurement_exemption(exemption: Exemption, root: Path) -> list[str]:
     if exemption.kind != "measurement-exclusion":
         return []
@@ -541,47 +530,47 @@ def _validate_exemption(
 ) -> list[str]:
     return [
         *_validate_exemption_metadata(exemption, root),
-        *_validate_pragma_exemption(exemption, root),
         *_validate_measurement_exemption(exemption, root),
         *_validate_config_exemption(exemption, coverage_config, root),
     ]
 
 
-def _unowned_ignore_markers(
+def _ignore_marker_count(path: Path) -> int:
+    """Count inline coverage-ignore comments; markers inside strings do not count."""
+    if path.suffix == ".py":
+        with path.open("rb") as stream:
+            return sum(
+                any(marker in token.string.lower() for marker in _IGNORE_MARKERS)
+                for token in tokenize.tokenize(stream.readline)
+                if token.type == tokenize.COMMENT
+            )
+    return sum(
+        any(marker in line.lower() for marker in _IGNORE_MARKERS)
+        and any(prefix in line for prefix in ("//", "/*", "<!--"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
+
+
+def _pragma_ownership_errors(
     manifest: Manifest, surfaces: Sequence[Surface], root: Path
 ) -> list[str]:
-    owned = Counter(item.path for item in manifest.exemptions)
+    """Every inline ignore marker has exactly one pragma exemption for its file."""
+    owned = Counter(
+        item.path for item in manifest.exemptions if item.kind == "pragma-no-cover"
+    )
     errors: list[str] = []
-    for surface in surfaces:
-        path = root / surface.path
+    for relative in sorted({surface.path for surface in surfaces} | set(owned)):
+        path = root / relative
         if path.suffix not in {".py", ".js", ".mjs", ".ts", ".svelte"}:
             continue
-        if path.suffix == ".py":
-            with path.open("rb") as stream:
-                comments = (
-                    (token.start[0], token.string.lower())
-                    for token in tokenize.tokenize(stream.readline)
-                    if token.type == tokenize.COMMENT
-                )
-                markers = tuple(
-                    line_number
-                    for line_number, comment in comments
-                    if any(marker in comment for marker in _IGNORE_MARKERS)
-                )
-        else:
-            markers = tuple(
-                line_number
-                for line_number, line in enumerate(
-                    path.read_text(encoding="utf-8").splitlines(), 1
-                )
-                if any(marker in line.lower() for marker in _IGNORE_MARKERS)
-                and any(prefix in line for prefix in ("//", "/*", "<!--"))
-            )
-        if len(markers) > owned[surface.path]:
-            errors.append(
-                f"unowned pragma/ignore marker: {surface.path} "
-                f"({len(markers)} markers, {owned[surface.path]} owned)"
-            )
+        if not path.is_file():
+            continue
+        markers = _ignore_marker_count(path)
+        counts = f"({markers} markers, {owned[relative]} owned)"
+        if markers > owned[relative]:
+            errors.append(f"unowned pragma/ignore marker: {relative} {counts}")
+        elif markers < owned[relative]:
+            errors.append(f"stale pragma exemption: {relative} {counts}")
     return errors
 
 
@@ -663,7 +652,7 @@ def validate_manifest(manifest: Manifest, root: Path = REPO_ROOT) -> list[str]:
     }
     for kind, expression in sorted(configured_exemptions - owned_config_exemptions):
         errors.append(f"unowned {kind}: {expression}")
-    errors.extend(_unowned_ignore_markers(manifest, surfaces, root))
+    errors.extend(_pragma_ownership_errors(manifest, surfaces, root))
     return sorted(set(errors))
 
 

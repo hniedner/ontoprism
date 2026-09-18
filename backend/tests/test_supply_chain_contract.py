@@ -1209,3 +1209,16 @@ def test_active_runtime_has_no_oxigraph_dependency() -> None:
                         f"{file_path.relative_to(_ROOT)}:{line_number}:{line.strip()}"
                     )
     assert occurrences == []
+
+
+def test_public_docs_never_point_at_the_private_sibling_checkout() -> None:
+    """This repository is public; its setup must not depend on a private clone."""
+    documents = [_ROOT / "README.md", *(_ROOT / "docs").rglob("*.md")]
+
+    offenders = [
+        str(path.relative_to(_ROOT))
+        for path in documents
+        if "../fairdata" in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == []
