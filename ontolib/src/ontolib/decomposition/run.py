@@ -1591,8 +1591,11 @@ async def _journal_without_masking(
 
     A cancellation that interrupts the write still cancels: it propagates with
     ``exc`` as its cause so neither is lost. The write itself is abandoned, not
-    shielded as in ``publication._record_failure_without_masking``: a resume
-    reclaims the claim it leaves behind.
+    shielded as in ``publication._record_failure_without_masking``. A work-item,
+    residual-filler or stage claim left behind is reclaimed by the next resume
+    (the publication seal of an already completed run has none and stays
+    claimed); a run-level record (``fail_run``, ``invalidate_run``) stays
+    unwritten, which is why its callers add their own note.
     """
     try:
         await record
@@ -2180,18 +2183,18 @@ async def _record_pipeline_failure(
     provenance: ProvenanceStore, setup: _RunSetup, exc: BaseException
 ) -> None:
     if isinstance(exc, SourceIdentityChangedError):
-        inspect = "Inspect decomp_constituent/decomp_minted_proposal before reuse."
+        advice = "Inspect decomp_constituent/decomp_minted_proposal before reuse."
         try:
             recorded = await provenance.invalidate_run(setup.run_id, exc)
         except BaseException:
             exc.add_note(
-                "Partial results were NOT discarded: invalidating run "
-                f"{setup.run_id!r} was interrupted. {inspect}"
+                f"Invalidating run {setup.run_id!r} did not complete; partial "
+                f"results may survive. {advice}"
             )
             raise
         message = (
             "Partial results were NOT discarded: run "
-            f"{setup.run_id!r} was no longer 'running'. {inspect}"
+            f"{setup.run_id!r} was no longer 'running'. {advice}"
         )
     else:
         recorded = await provenance.fail_run(setup.run_id, exc)
