@@ -1590,12 +1590,14 @@ async def _journal_without_masking(
     write's own failure replace ``exc``; that failure becomes a note instead.
 
     A cancellation that interrupts the write still cancels: it propagates with
-    ``exc`` as its cause so neither is lost. The write itself is abandoned, not
-    shielded as in ``publication._record_failure_without_masking``. A work-item,
-    residual-filler or stage claim left behind is reclaimed by the next resume
-    (the publication seal of an already completed run has none and stays
-    claimed); a run-level record (``fail_run``, ``invalidate_run``) stays
-    unwritten, which is why its callers add their own note.
+    ``exc`` as its cause so neither is lost. The write itself is not retried or
+    shielded (contrast ``publication._record_failure_without_masking``), so it
+    may never have landed. A work-item, residual-filler or stage claim it may
+    leave behind is reclaimed by the next resume (the publication seal of an
+    already completed run has no resume and may stay claimed). An unwritten
+    ``fail_run`` leaves the run ``running`` for the next resume to reopen; an
+    unwritten ``invalidate_run`` leaves partial results in place, which is why
+    ``_record_pipeline_failure`` adds its own warning.
     """
     try:
         await record
@@ -2183,7 +2185,10 @@ async def _record_pipeline_failure(
     provenance: ProvenanceStore, setup: _RunSetup, exc: BaseException
 ) -> None:
     if isinstance(exc, SourceIdentityChangedError):
-        advice = "Inspect decomp_constituent/decomp_minted_proposal before reuse."
+        advice = (
+            "Inspect the run's decomp_constituent, decomp_minted_proposal, "
+            "decomp_definition_* and decomp_work_item rows before reuse."
+        )
         try:
             recorded = await provenance.invalidate_run(setup.run_id, exc)
         except BaseException:

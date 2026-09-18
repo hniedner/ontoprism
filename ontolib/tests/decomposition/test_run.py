@@ -2911,9 +2911,9 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 @pytest.mark.unit
 async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
-    """When `invalidate_run` is cancelled (its one transaction discards nothing),
-    the drift error must still carry the partial-results warning as it propagates
-    as the cancellation's cause."""
+    """When `invalidate_run` is cancelled (its transaction may not have
+    committed), the drift error must still carry the partial-results warning as
+    it propagates as the cancellation's cause."""
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
@@ -2946,8 +2946,9 @@ async def test_an_interrupted_invalidation_still_warns_about_partial_results() -
     (note,) = drift.__notes__
     assert note.startswith("Invalidating run ")
     assert note.endswith(
-        "did not complete; partial results may survive. Inspect "
-        "decomp_constituent/decomp_minted_proposal before reuse."
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
     )
 
 
@@ -2984,8 +2985,9 @@ async def test_a_failed_invalidation_reports_both_the_warning_and_its_cause() ->
 
     warning, recording = drift.value.__notes__
     assert warning.endswith(
-        "did not complete; partial results may survive. Inspect "
-        "decomp_constituent/decomp_minted_proposal before reuse."
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
     )
     assert recording == (
         "Recording the run failure also failed: ConnectionError: postgres unreachable"
