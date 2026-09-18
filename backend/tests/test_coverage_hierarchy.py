@@ -74,6 +74,7 @@ def _write_manifest(
     required_path: str = "",
     assignment: str = "",
     exemption: str = "",
+    extensions: str = '".py"',
 ) -> Path:
     pyproject = root / "pyproject.toml"
     if not pyproject.exists():
@@ -110,7 +111,7 @@ executable = true
 
 [[inventory]]
 root = "src"
-extensions = [".py"]
+extensions = [{extensions}]
 default_group = "{default_group}"
 
 {assignment}
@@ -529,6 +530,26 @@ def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
     errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
     assert errors == ["src/latin.py is not UTF-8 (invalid continuation byte at byte 5)"]
+
+
+def test_frontend_ignore_markers_count_only_inside_comments(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "shell.ts"
+    source.parent.mkdir()
+    source.write_text(
+        "/* v8 ignore next */\n"
+        'const marker = "v8 ignore next";\n'
+        "export const value = 1;\n"
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "shell.test.ts").write_text("test('value', () => {});\n")
+    exemption = _PATH_OWNED_PRAGMA.replace('"src/module.py"', '"src/shell.ts"').replace(
+        '"tests/test_module.py"', '"tests/shell.test.ts"'
+    )
+    manifest_path = _write_manifest(tmp_path, exemption=exemption, extensions='".ts"')
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == []
 
 
 def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
