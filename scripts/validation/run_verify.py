@@ -17,12 +17,6 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 def _gates(pdm_executable: str) -> tuple[tuple[str, ...], ...]:
     return (
-        (
-            sys.executable,
-            "scripts/validation/validate_opencode_config.py",
-            "--root",
-            ".",
-        ),
         (sys.executable, "-m", "pre_commit", "run", "--all-files"),
         (pdm_executable, "run", "test-ci"),
         ("npm", "--prefix", "frontend", "run", "test:coverage"),

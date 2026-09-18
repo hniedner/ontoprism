@@ -20,8 +20,9 @@ permission:
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
-    "git diff --no-ext-diff main...HEAD": allow
-    "git diff --check main...HEAD": allow
+    "git merge-base * HEAD": allow
+    "git diff --no-ext-diff *...HEAD": allow
+    "git diff --check *...HEAD": allow
     "git log --oneline -10": allow
     "git show --stat --oneline HEAD": allow
     "pdm run agent-github-read *": allow
@@ -33,6 +34,9 @@ permission:
     "git clean *": deny
     "git push *": deny
     "gh pr *": deny
+    "*--output*": deny
+    "*--no-index*": deny
+    "*--ext-diff*": deny
     "*&*": deny
     "*;*": deny
     "*|*": deny
@@ -46,4 +50,6 @@ permission:
 
 # R5 Type-Design Analyzer
 
-Inspect new and changed data models, function boundaries, schemas, DTOs, discriminated unions, and state transitions. Determine whether required invariants are encoded or depend on caller discipline, and whether storage, backend, and frontend shapes preserve distinctions. Prefer concrete invalid states over stylistic preferences. Report a separate R5 verdict without editing, delegating, or changing Git state.
+Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; the milestone branch for an issue PR, `main` for a milestone PR).
+
+Inspect new and changed data models, function boundaries, schemas, DTOs, discriminated unions, and state transitions. Determine whether required invariants are encoded or depend on caller discipline, and whether storage, backend, and frontend shapes preserve distinctions. Prefer concrete invalid states over stylistic preferences. Report a separate R5 verdict without editing, delegating, or changing Git state. Classify every finding as **blocker** (wrong behaviour, data loss, security, rule violation), **finding** (verified, must be addressed in this PR) or **suggestion** (reasonable improvement, also addressed in this PR unless the owner defers it). No findings is a valid result; do not pad. Do not propose new process, new gates, or wider scope. State whether this dimension has converged.

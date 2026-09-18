@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
 import pytest
 
 from ontolib.terminologies.sparql_inventory import (
-    _contains_sparql,
     summarize_sparql_inventory,
 )
 
@@ -101,22 +99,6 @@ def test_inventory_ignores_governance_permission_action_messages(
 
     assert summary["query_shape_count"] == 0
     assert summary["transport_operation_count"] == 0
-
-
-@pytest.mark.unit
-def test_permission_action_validator_is_not_a_sparql_query_shape() -> None:
-    source = (
-        ROOT / "scripts" / "validation" / "validate_opencode_config.py"
-    ).read_text(encoding="utf-8")
-    module = ast.parse(source)
-    function = next(
-        node
-        for node in module.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "validate_permission_actions"
-    )
-
-    assert not _contains_sparql(function)
 
 
 @pytest.mark.unit

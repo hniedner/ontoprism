@@ -175,7 +175,7 @@ fixtures = ["isolated_postgres_settings"]
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
 tests = ["test_production_publication_reconciles_marker_ahead_and_clears_stale_graph"]
-fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings", "preserved_stated_graph"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"

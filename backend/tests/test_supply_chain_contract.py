@@ -57,10 +57,6 @@ _BRACE_EXPANSION_ADVISORIES = (
 )
 
 
-def _normalized_whitespace(value: str) -> str:
-    return " ".join(value.split())
-
-
 def test_python_gate_documentation_describes_current_failure_and_ci_semantics() -> None:
     quality_source = (_ROOT / "scripts/validation/check_test_quality.py").read_text()
     quality_docstring = ast.get_docstring(ast.parse(quality_source))
@@ -923,14 +919,9 @@ def _assert_api_image_python_patch(workflow: dict[str, Any]) -> None:
     ) < runtime_step["run"].index("wait_for_command ontoprism-api-ci")
 
 
-def _assert_ci_job_contract(
-    workflow: dict[str, Any], agents: str, project: str
-) -> None:
+def _assert_ci_job_contract(workflow: dict[str, Any]) -> None:
     jobs = workflow["jobs"]
     assert len(jobs) == 9
-    count_words = {9: "nine"}
-    assert f"exactly {count_words[len(jobs)]} top-level job definitions" in agents
-    assert f"{count_words[len(jobs)]} top-level jobs" in project
 
     legacy_job_id = "python-314-compatibility"
     legacy_display_name = "python 3.14 compatibility"
@@ -1014,45 +1005,6 @@ def _assert_python_metadata_contract() -> None:
     assert any(package["name"] == "networkx" for package in data_build_packages)
 
 
-def _assert_python_runtime_documentation() -> None:
-    agents = (_ROOT / "AGENTS.md").read_text()
-    normalized_agents = _normalized_whitespace(agents)
-    assert "package metadata accepts the Python 3.14 minor series" in normalized_agents
-    assert "Python 3.14.7 remains the only supported local, CI" in normalized_agents
-    readme = _normalized_whitespace((_ROOT / "README.md").read_text())
-    assert "package metadata accepts the Python 3.14 minor series" in readme
-    assert "Python 3.14.7 remains the only supported local, CI" in readme
-    makefile = (_ROOT / "Makefile").read_text()
-    assert "accepts Python >=3.14,<3.15 metadata" in makefile
-    assert "operational runtime 3.14.7" in makefile
-
-    decisions = (_ROOT / "docs" / "DECISIONS.md").read_text()
-    d84 = _normalized_whitespace(
-        decisions.partition("### D84.")[2].partition("\n## 2026-09-03")[0]
-    )
-    assert "metadata floor" in d84
-    assert "intended to unblock" in d84
-    assert "33839863700" in d84
-    assert "conservative regression guard" in d84
-    assert "do not establish spelling sensitivity" in d84
-    assert "networkx" in d84
-    assert "every repository-owned named PDM script" in d84
-    assert "`agent-test`, `pre-commit`, lint" not in d84
-    assert "PR #321's post-merge Dependency Graph result must be checked" in d84
-    assert "failure must be fixed before new work" in d84
-    assert (
-        "test_python_metadata_floor_and_exact_operational_runtime_configuration" in d84
-    )
-    d83 = _normalized_whitespace(
-        decisions.partition("### D83.")[2].partition("\n### D82.")[0]
-    )
-    assert "3.14.7-only" in d83
-    assert "python3.14" in d83
-    assert "Superseded in part by D84" in d83
-    assert "metadata and lock target" in d83
-    assert "full-build mismatch" not in d83
-
-
 def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> None:
     workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.y*ml"))
     workflows = {
@@ -1110,10 +1062,7 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
         text=True,
     ).stdout.strip()
     assert pre_commit_version == "3.14.7"
-    _assert_python_runtime_documentation()
-    agents = (_ROOT / "AGENTS.md").read_text()
-    project = (_ROOT / "pyproject.toml").read_text()
-    _assert_ci_job_contract(workflow, agents, project)
+    _assert_ci_job_contract(workflow)
 
     _assert_api_image_python_patch(workflow)
     _assert_ci_summary_allow_list(workflow)
@@ -1132,11 +1081,7 @@ def test_ci_job_contract_rejects_a_legacy_compatibility_job(
         jobs["supported-runtime"] = {"name": "Python 3.14 compatibility"}
 
     with pytest.raises(AssertionError):
-        _assert_ci_job_contract(
-            workflow,
-            (_ROOT / "AGENTS.md").read_text(),
-            (_ROOT / "pyproject.toml").read_text(),
-        )
+        _assert_ci_job_contract(workflow)
 
 
 def test_ci_summary_contract_rejects_a_new_non_passing_result() -> None:

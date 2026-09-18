@@ -1,447 +1,311 @@
 # AGENTS.md
 
-ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
-(FastAPI + QLever/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
-`README.md` for product goals and `docs/ARCHITECTURE.md` for the full layout.
+ONTOPRISM explores NCIt and caDSR and decomposes pre-coordinated NCIt concepts into
+constituents on semantic axes. FastAPI backend over QLever/SPARQL and Postgres/pgvector,
+SvelteKit 5 frontend, shared Python library `ontolib`. Product goals: `README.md`. Layout:
+`docs/ARCHITECTURE.md`. Decisions and their reasons: `docs/DECISIONS.md` (D1, D2, ...).
 
-## Hard rules (never violate)
+These rules apply to every agent and harness (OpenCode, Claude Code, others).
 
-- **Pre-production carries no dead code or legacy compatibility code.** Transitional
-  compatibility code is permitted only while an active refactor needs it. Remove it
-  before the refactor is considered complete, before local gates are accepted, and
-  before merge. Rebuild internal data/artifacts instead of retaining old-schema readers,
-  adapters, fallbacks, migration shims, or deprecated branches. Do not preserve code for
-  hypothetical rollback or future consumers while the product is pre-production.
+## How work flows
 
-- **Implement acceptance semantics end to end on the first pass.** Before production
-  code, enumerate every required output field, semantic variant, refusal, and scale
-  boundary from the issue. Tests must drive each item through storage/query → backend
-  DTO → frontend rendering. Do not erase distinctions to reuse a component (for example,
-  mapping typed edge kinds to a generic kind). For repository work, the certified
-  identity must cover the exact values served, not only release labels, counts, or
-  sentinels. Validate user input separately from source data so only dedicated input
-  errors become 4xx responses; malformed source rows fail closed. Exercise the real
-  highest-fanout record and assert bounded query count before accepting the design.
+Work is organised in **milestones**. A milestone has a milestone branch off `main`
+(`feat/m<number>-<slug>`). Each issue gets an issue branch forked from the milestone
+branch and merges back into it through a PR. When every issue of the milestone is merged,
+the milestone branch gets its own PR to `main`. A change that belongs to no milestone
+(a hotfix, a dependency bump) uses the same steps with `main` as its base.
 
-- **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
-  `gh pr merge`, fetch `origin/main` and verify the newest push-event `CI` run on `main`
-  completed successfully. Its head must equal `origin/main` or be its ancestor with only
-  documented workflow-generated release/README commits in between. Confirm `origin/main`
-  is an ancestor of the PR head; if not, update the branch and wait for its replacement
-  checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
-  workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
-  successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
-  checks are these 11 visible `CI` checks: `detect changes`,
-  `quality (pre-commit parity)`, `backend tests (shard 1/2)`,
-  `backend tests (shard 2/2)`, `coverage verify (ontolib + backend)`,
-  `web tests + coverage`, `integration tests (services, shard 1/2)`,
-  `integration tests (services, shard 2/2)`, `pinned embedding model contract`,
-  `docker build smoke`, and `CI summary`; plus `conventional commit subject`,
-  `dependency review`, all
-  three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
-  `CI summary` is `"SUCCESS"`. The workflow retains exactly nine top-level job definitions,
-  and `CI summary` retains eight `needs` results because each matrix collapses to its
-  aggregate job ID there. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
-  because of a documented path condition, including a dependent job skipped when its
-  path-gated prerequisite did not run. If any expected check is absent, or any check failed,
-  was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
-  proceeding.
-  **Documented exception (confirmed 2026-08-07):** on PRs that change only dependency
-  manifests (`package.json`, `package-lock.json`) or only workflow files, CodeQL default setup
-  does not run the three `Analyze (...)` jobs and posts the aggregate `CodeQL` check as
-  `"NEUTRAL"`. That combination — Analyze jobs absent **and** aggregate `NEUTRAL` — is expected
-  for those two PR shapes and is not a reason to stop. It is *not* expected on any PR touching
-  source code, where all three Analyze jobs must be present and `"SUCCESS"`. Note also that
-  `statusCheckRollup` sometimes omits `conventional commit subject` even when it has passed;
-  confirm with the `gh run list --workflow pr-title.yml` command above rather than treating the
-  omission as an absent check.
-  An agent may run `gh pr merge` only after the user explicitly authorizes that exact PR
-  number in the current conversation. Re-read the PR immediately before merging; any head,
-  title, base, or merge-state change invalidates the authorization. Use squash merge with the
-  exact conventional PR title and delete the merged branch. Never use `--admin`, auto-merge,
-  a queue, or any bypass. Without that exact current-conversation authorization, stop before
-  the merge command.
-- **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
-  completion.** If any run fails, fix it before starting new work. Do not begin the next
-  issue, create its branch, or open its PR while required post-merge runs are pending or
-  failing.
-- **`pdm run test-ci` must pass locally (or match CI outcome) before pushing CI changes.**
-  If you can't reproduce a CI-only failure, isolate it from xdist rather than guessing.
-- **`main` is protected by a ruleset: no force-pushes, no deletion.** Never attempt to
-  rewrite or delete `main`. Land all work through PRs (see D30). Require-PR/required-CI
-  enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
-  ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
+For each issue:
 
-## Inference must never be written in the form of observation (2026-08-07, re-learned worse 2026-08-08)
+1. Read the issue. Its body is the contract. If it is unclear or too large, say so and
+   propose a smaller one before writing code.
+2. Branch from the current milestone branch: `feat/<slug>-<issue#>`, `fix/...`,
+   `docs/...`, `chore/...`.
+3. Write a failing behavioural test, run it, and see it fail for the intended reason.
+4. Make it pass with the least code. Refactor with tests green.
+5. Inner loop: run only the tests for the code you touched (seconds to two minutes).
+6. Commit. Pre-commit runs on the commit.
+7. Before opening the PR, run `pdm run verify` once.
+8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
+   of record.**
+9. Review the PR in all five dimensions to convergence (see Review).
+10. When every check passes and all five dimensions have converged, squash-merge the
+    issue PR into the milestone branch and delete the issue branch. This merge does not
+    need the owner.
 
-The checklist at the end of this section was added 2026-08-07 and broken the next day, five times,
-by the same session that wrote it. **That is the important datum: prose rules addressed to a future
-reader do not bind the writer at the moment of writing.** Only a format that cannot be filled in
-without running something binds. If you are about to add a rule here because a rule here was
-broken, stop — you are adding ceremony, and ceremony is the disease.
+For the milestone:
 
-**Root cause of every defect in that cycle: inference was written in the same form as observation.**
-A digest that was computed and a digest that was remembered look identical on the page. A step that
-was executed end-to-end and a step that was merely assumed to work look identical. Neither writer
-nor reader can then tell which claims are load-bearing guesses. Actual instances: a workbook digest
-restated from memory that did not match the file; an acceptance step ("run the report → satisfies
-AC7") whose third argument did not exist and has no generator; a required input (the proposal
-registry) omitted from that same step; a "NOT FOUND" produced by `rg` silently skipping gitignored
-paths; and worst, a human SME asked to sign an attestation on the claim that closure was one step
-away, when it was structurally blocked.
+11. When all its issues are merged, bring current `main` into the milestone branch (a
+    local merge is a prompted command for the agent; the owner approves it or does it),
+    run `pdm run verify` once, and open the milestone PR to `main`. Its review is an
+    integration pass: what the issue reviews could not see (interactions between issues,
+    migrations in sequence, the combined diff against `main`).
+12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
+    completion before starting the next milestone.
 
-Mechanical rules. Each is checkable by the reader, which is what forces the check when writing:
+Three rules keep this model from stalling, as it did in September when a milestone branch
+grew to 94k unreviewed lines with no CI run:
 
-1. **Every factual claim carries the command that produced it, inline.** Not "digest is `abc…`" but
-   "digest is `abc…` (`shasum -a 256 <path>`, 2026-08-08)". No command → delete the claim. Never
-   restate a hash, count, or status from memory or from an earlier document.
-2. **An execution step names every argument and proves each exists.** "Run `golden_review.py`" is
-   not a step. `f(a, b, c)`, with each of `a`, `b`, `c` shown present by an `ls`/`rg`, is a step.
-   If any input is missing the step is `BLOCKED`, not pending.
-3. **Never pre-declare the hash of an artifact that does not yet exist.** Bind identities *after*
-   generation. A hash over a payload containing `uuid4()` can never be matched by a later run —
-   `corpus_evidence_identity` cost a full cycle proving exactly that.
-4. **Search artifacts with `rg --no-ignore`.** `tmp/` is gitignored (`.gitignore:2`), so a default
-   `rg` reports absent files that are present and gives no signal that it skipped anything.
-5. **Never request an irreversible human sign-off before executing the step that follows it.**
-   Dry-run the downstream path first. An attestation spent on an unverified critical path is the
-   one thing you cannot refund.
+- **CI must run on the milestone branch.** Never merge an issue branch into it locally.
+  If an issue PR shows no CI checks, stop and fix the workflow triggers first.
+- **Review happens per issue PR, while the diff is small.** Never defer review to the
+  milestone PR.
+- **A stalled milestone is split, not extended.** If the remaining issues are blocked or
+  have grown, move them to a follow-on milestone and land what is finished. Ask the owner
+  to confirm the split.
 
-**When a rule here has failed twice, delete the complexity that made it necessary instead of
-rewriting the rule.** Every defect above occurred inside an apparatus — chained identities, pinned
-digests, two attestations, nineteen untracked artifacts — larger than the 20-concept measurement it
-served. Complexity forces inference; inference produced the errors.
+Start a new agent session for each issue. Do not carry one context across days of work.
 
-Handover briefs additionally: every path and symbol exists (grep it, never infer from prose); every
-artifact you say to regenerate has a generator; every type change states the target shape ("add
-variant `X` to union `Y`"), never a constraint; every acceptance check is sufficient, not merely
-necessary. State which tasks interact.
+## Hard rules
 
-## The one principle that keeps getting rediscovered (D60)
+- **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
+  force-push, no deletion.
+- **Never merge into `main` without the owner's explicit authorization of that exact PR
+  number in the current conversation. Never merge any PR, into `main` or a milestone
+  branch, unless every expected check in `gh pr checks <n>` is present and passing for
+  the current head and base (or skipped by a documented path filter); a check that is
+  absent, or a run made before the PR's base was changed, does not count, so get a
+  fresh run first.** Squash-merge with the PR's Conventional Commit
+  title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
+  title or base changed since authorization, ask again. Known quirk: PRs touching only
+  dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
+  `Analyze` jobs; that is expected for those PRs only.
+- **No dead code and no legacy compatibility code.** The product is pre-production:
+  rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
+- **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
+  volumes, resetting the Podman VM, overwriting a run artifact. Write new outputs to new
+  paths; never overwrite an artifact another step may still need.
 
-**Everything OntoPrism emits is NCIt.** Not NCIt blended with other ontologies — NCIt reorganised,
-which is what makes it adoptable. A concept or role we introduce is NCIt content even when it
-exactly matches, and was derived from, something in Uberon, Cell Ontology, SNOMED CT or ICD-O-3.
+## Scope discipline
 
-All of it is provisional until NCI adopts it: `proposed → locally-approved → submitted →
-accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
+These rules exist because the project lost weeks to work that proved things about itself
+instead of improving the product.
 
-**D86 qualification:** NCIt is the current primary product, not OntoPrism's architectural
-limit. The target is an ontology-generic core plus capability-declaring ontology adapters and
-domain policy; those generic facilities are not currently implemented. NCI adoption is optional
-for local usefulness/publication, while official/NCI-authored/accepted claims require evidence
-from an identified certified official NCIt release. Everything emitted is OntoPrism-governed
-enhanced NCIt content; release-bound official identifiers are source anchors and crosswalk
-endpoints, not necessarily enhanced primary identifiers. A target effective correction preserves
-the official source plane and composes a separately identified effective view: every suppressed
-canonical axiom remains retrievable in the official source and is shown in a nonempty
-`removed-from-effective` delta, never deleted or returned as absent. The effective enhanced view
-intentionally need not contain that assertion. D86 qualifies
-rather than supersedes D60; #304 owns exact lifecycle-vocabulary convergence, #262 owns exact
-impact types, and #316 currently owns proposal transfer rather than correction-aware
-reconciliation.
+- **The issue body is the only place acceptance criteria live, and only the owner changes
+  them.** Do not post "amendment" comments that alter scope. If you think the criteria
+  are wrong, stop and ask.
+- **Newly discovered work becomes a new issue**, not an expansion of the current one. Ask
+  before treating it as a prerequisite.
+- **Do not build machinery to certify your own work.** No content hashes of source files,
+  git HEAD, or worktree state inside data or evidence files. No committed derived files
+  that must be regenerated after an unrelated edit. No tests that assert the wording of
+  documentation. No identity chains between intermediate files. If you need to know
+  whether something is current, recompute it.
+- **Acceptance is never "every item across the whole corpus is classified".** Work on a
+  sample, measure, improve, widen the sample.
+- **Stop at twice the estimate.** If a task has taken twice what you expected, stop,
+  report what you learned, and propose a simpler route. Do the same after a second failed
+  attempt at the same step.
+- **Prefer deleting complexity to adding a rule about it.** If a rule in this file has
+  failed twice, remove whatever made the rule necessary.
+- Issues written before 2026-09-17 may demand identity binding, hash evidence, or
+  reject-branch liveness for every gate. Those demands are void (review to convergence
+  is not one of them; it stands). Before starting such an issue, rewrite it as Why /
+  Scope / Done when (about five checkable criteria) and have the owner confirm.
 
-Derivation is recorded as provenance and alignment, never as ownership — the pattern
-`AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
-what it aligns to. Provenance exists so Metathesaurus integration and cross-terminology mapping
-work, not as an audit ritual.
+## Say what you observed, not what you assume
 
-**Language rule:** never write "external content", "borrowed from" or "depends on" about anything
-we emit. Write "derived from", "aligned to", "corroborated by", or "proposed, evidenced by".
-Wording that implies another project owns part of our output has repeatedly misdirected design
-decisions — see D60 for the full statement.
+- A factual claim about state (a count, a status, a digest, "tests pass", "file exists")
+  comes from a command you ran in this session. Otherwise say "not verified".
+- Never restate a number or hash from memory or from an earlier document.
+- `tmp/` is gitignored: search it with `rg --no-ignore`, or a present file looks absent.
+- A plan step names its inputs, and you have checked each input exists.
+- Dry-run the downstream path before asking a person for a sign-off.
 
-## Repo layout (keep-names, 3 project packages)
+## Testing
 
-- `ontolib/` — shared library, import name `ontolib` (storage, NCIt/Uberon
-  terminologies, caDSR repository, decomposition engine). Editable install.
-- `backend/` — FastAPI app, import name `backend` (`backend/src/backend/main.py` +
-  `api/.../routers`). Editable install.
-- `frontend/` — SvelteKit 5 app, separate npm project in `frontend/`.
-- Root `pyproject.toml` holds all `pdm run` scripts, ruff/basedpyright/coverage
-  config, and pytest markers — the sub-packages have their own minimal `pyproject.toml`
-  but you run everything from the repo root.
-- `docs/DECISIONS.md` is a running decision log (numbered D1, D2, …) — check it before
-  changing import/test setup, versions pins, or the decomposition model; it explains
-  *why*, not just *what*.
+Quality goals are unchanged: strict TDD, behavioural tests, real-boundary contracts,
+aggregate coverage above 90%. What changed is *when* each lane runs.
 
-## Setup & dev servers
+| When | What | Command |
+|---|---|---|
+| Inner loop | the tests for what you touched | `pdm run agent-test <path>[::test] -v` |
+| Before commit, if the change is broad | hermetic unit lane (about 4.5 minutes, measured 2026-09-17) | `pdm run test-unit` |
+| On commit | pre-commit hooks | automatic |
+| Before PR, once | everything CI runs | `pdm run verify` |
+| Gate of record | CI on the PR | `gh pr checks <n>` |
+| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass. The binary is auto-discovered on the owner's machine; elsewhere the owner exports `ONTOPRISM_OPENCODE_BIN` before launching (an inline prefix is prompted or denied for an agent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
+| When the change touches a real store contract | read-only contracts on configured corpora | `pdm run agent-test --full-store <node> -v` |
+
+Other lanes: `pdm run test` (grouped hermetic suites), `pdm run test-integration`
+(disposable Postgres/QLever, needs Podman), `pdm run test-ci` (the strict coverage gate),
+`pdm run agent-test --safe-integration <node>`, `pdm run agent-test --frontend <file>`.
+Use `pdm run agent-test`, not `python -m pytest`: the module form puts the repo root on
+`sys.path`, where the outer `ontolib/` and `backend/` directories shadow the editable
+installs (D6).
+
+A failing `verify` is information, not a ritual: fix the cause, rerun the failing lane,
+and rerun full `verify` once at the end. Do not run `verify` after every edit.
+
+Rules for tests:
+
+- **TDD means an observed RED.** Run the new test before the production edit and confirm
+  it fails for the intended reason. A suite that collects zero tests is a failure.
+- **Every test is a regression indicator.** If a relevant wrong behaviour would not make
+  it fail, delete or replace it. No execution-only tests, mock choreography, fakes that
+  clone the implementation, fixture self-consistency, or assertions added to satisfy a
+  coverage or quality tool.
+- **Coverage above 90% line and branch is an aggregate floor** for `ontolib/src`,
+  `backend/src` and `frontend/src/lib`, enforced in CI. It is a by-product of testing
+  behaviour. There is no per-function gate. Do not lower a gate; raise real coverage or
+  record a justified exception in the PR.
+- **External boundaries need more than doubles.** On #73 about twelve bugs passed a green
+  TDD suite; none was a logic error. Each was a false belief about ROBOT, ELK, asyncpg,
+  RDF serialization or the real Uberon data, shared by the code and its hand-made double.
+  So when code depends on an external tool, driver, service or upstream dataset, add:
+  a **contract test** of what the tool itself does; a **double-fidelity test** running
+  the same input through the double and the real thing; a **data-shape test** pinning what
+  the real store looks like (these run locally against configured stores and skip in CI
+  by design; a skip is not a pass); and a **liveness test** showing the reject branch of
+  a gate can fire on production-shaped input.
+  "External" means something we do not control. Files our own pipeline wrote are not an
+  external boundary and do not get this treatment.
+- Mutating integration tests use nonce-owned disposable fixtures, are listed in
+  `test_support/integration_mutators.toml`, and never touch `live_api_client`, `ncit_url`
+  or a configured persistent store. A required disposable service that fails to start is
+  a failure, not a skip.
+- Frontend: fire-and-forget rejections inside a Svelte `$effect` trip vitest's unhandled-
+  rejection guard when a mock is reset between tests. Use `mockClear`, not `mockReset`.
+
+## Long-running jobs
+
+A full-corpus decompose takes about 15 hours (runs of 891 and 934 minutes in September
+2026). That month most full-run attempts were lost to short timeouts and to errors a
+five-minute sample would have shown (owner's session records, 2026-09-17).
+
+- Run the whole pipeline, including final reporting, on a small sample first.
+- Validate every input before the expensive step, not after it.
+- Set the tool timeout to at least 1.5 times the expected duration, or run the job in
+  the background and poll. Use resume where it exists.
+- A long run is never preconditioned on a commit or a clean worktree.
+- Engine changes are judged on the 20-concept SME oracle (D63), not on full runs. Schedule
+  a full run after several fixes have accumulated, with the owner's agreement.
+- Keep completed full-run artifacts. Never write over one.
+
+## Domain principles
+
+**Everything ONTOPRISM emits is NCIt** (D60, qualified by D86): NCIt reorganised, not NCIt
+blended with other ontologies. A concept or role we introduce is enhanced-NCIt content
+even when it matches or was derived from Uberon, CL, SNOMED CT or ICD-O-3. Derivation is
+recorded as provenance and alignment, never ownership: `op:PrimarySite` is our relation
+and `RO:0004026` is what it aligns to. Write "derived from", "aligned to", "corroborated
+by", "proposed, evidenced by"; never "external content", "borrowed from", "depends on".
+Lifecycle: `proposed -> locally-approved -> submitted -> accepted-in-ncit`. Locally
+approved means our SME accepted it, not NCI. Official source axioms are never deleted; a
+correction is a separately identified effective view with a visible delta.
+
+**Evidence policy (owner, 2026-09-17).** Decomposition decisions are backed by expert-
+curated sources and peer-reviewed literature, with the source evidence preserved and
+linked to the individual decision, and the result is checked with a description-logic
+reasoner. A human SME resolves only what has no evidence, contradictory evidence, or
+ambiguity that context and the reasoner cannot resolve. Evidence is product data stored
+per assertion and shown in the UI. It is not a release gate. The engine's own provenance
+fields are not evidence. Published engine output is labelled `provisional` until an
+assertion has evidence (milestone M1.8).
+
+**Decomposition is additive.** Legacy pre-coordinated concepts are flagged
+(`representationStatus="legacy-precoordinated"`), never deleted; decomposed triples go to
+the separate `ncit_decomposed` graph. Extraction reads the **stated** OWL, not the
+inferred store. Exact reversibility stays quarantined until there is a proof-bearing
+representation (D43). Variant links are navigation between distinct concepts, never
+equivalence (D39).
+
+## Architecture notes not obvious from the code
+
+- NCIt roles are OWL existential restrictions
+  (`?c rdfs:subClassOf [owl:onProperty ?R; owl:someValuesFrom ?filler]`), not direct
+  triples; the restriction-traversal query in `ontolib/src/ontolib/terminologies/ncit/`
+  makes them queryable. Associations are direct triples.
+- The frontend talks only to the FastAPI backend. The backend owns all QLever and
+  Postgres access.
+- The stated OWL is stream-converted by pinned Jena RIOT and indexed by QLever's offline
+  builder; it is never uploaded over HTTP.
+- `pdm run data-build` (owl -> cadsr -> embeddings) rebuilds all data from public
+  sources. The embeddings step needs `pdm install -G data-build`.
+- Validate user input separately from source data: only input errors become 4xx;
+  malformed source rows fail closed.
+
+## Repo layout
+
+- `ontolib/` - shared library (storage, terminologies, repositories, decomposition engine)
+- `backend/` - FastAPI app (`backend/src/backend/main.py`, routers under `api/`)
+- `frontend/` - SvelteKit 5 app, its own npm project
+- Root `pyproject.toml` holds every `pdm run` script and the ruff, basedpyright, coverage
+  and pytest configuration. Run everything from the repo root.
+
+## Setup
 
 ```bash
-pdm install --dev       # Requires Python 3.14.7
+pdm install --dev            # Python 3.14.7
 npm ci --prefix frontend
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
 pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
-export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
-export ONTOPRISM_ROBOT_DIR="$PWD/.tools/robot-1.9.10"
-pdm run data-build owl
-pdm run data-build ncit-bootstrap
-pdm run data-build uberon-store
-pdm run agent-replay ensure-podman-stack  # Recover/select the supported Podman VM and exact data stack
-pdm run up               # Compose via current selected Docker context
-pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
-pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
+export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0" ONTOPRISM_ROBOT_DIR="$PWD/.tools/robot-1.9.10"
+pdm run data-build owl && pdm run data-build ncit-bootstrap && pdm run data-build uberon-store
+pdm run agent-replay ensure-podman-stack   # select/recover the Podman VM and the data stack
+pdm run up && pdm run migrate              # `migrate-stamp` on a pre-existing cloned DB
+pdm run start-all                          # backend :8011, frontend :5175, logs in .dev-logs/
 ```
 
-The package metadata accepts the Python 3.14 minor series. Python 3.14.7 remains the only supported
-local, CI, integration, data-build, and container runtime. Recreate an older project environment
-before installing from the lock.
+Ports are offset from the sibling `fairdata` app so both can run (`docs/DATA_SETUP.md`).
+Agents may run `pdm run agent-replay ensure-podman-stack` without asking; it performs one
+normal stop/start of `ontoprism-vm` and reconciles the three-service stack. It never
+authorizes VM reset or removal, volume deletion, or free-form `podman machine` commands.
+If it fails, report it; do not work around it.
 
-Ports are deliberately offset from the sibling `fairdata` app (8001/5173/7878/7879/5432)
-so both can run at once — see `docs/DATA_SETUP.md`. Copy `.env.example` → `.env` first;
-defaults point at the services above.
+Lint and format: `pdm run lint` (ruff + basedpyright), `pdm run fmt`. Frontend, from
+`frontend/`: `npx eslint src/ --max-warnings=0`, `npm run check`, `npm run fallow`. The
+fallow gate reports only findings new against the PR base: in CI that is the real base;
+locally it is `origin/main` unless `FALLOW_BASE=<milestone branch>` is set (for an agent
+that prefix is a prompted command), so a local run on an issue branch may show findings
+from sibling issue PRs (over-strict, never silent; CI is the gate of record).
+Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D30/D31).
 
-Agents have standing authority to run the fixed, zero-argument
-`pdm run agent-replay ensure-podman-stack` operation without prompting when local Podman health is
-required. It may start a stopped `ontoprism-vm`, or perform one normal stop/start when that exact
-rootless machine claims to run but its SSH/socket/API contract fails; activate only the
-`ontoprism-podman` context; and start or reconcile only the ownership-validated three-service
-OntoPrism stack. It never authorizes free-form `podman machine`/Docker commands, VM reset/removal,
-volume deletion, or destructive recovery. A refusal or failed bounded recovery is reported, not
-worked around.
+## Review
 
-## Testing
+Before the PR is marked ready, review the committed diff against the PR's base branch
+(the milestone branch for an issue PR, `main` for a milestone PR:
+`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, every time**. The owner's
+account of the #73 review is that each dimension caught a class of defect the others
+missed; that is why a subset is never acceptable:
 
-```bash
-pdm run verify              # THE pre-PR gate: everything CI enforces, in CI's own commands
-pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
-pdm run test-unit            # unit-marked only, backend+ontolib
-pdm run test-integration     # safe default: nonce-owned disposable PG/QLever
-pdm run test-integration-full-store  # explicit read-only contracts against configured corpora
-pdm run test-ci              # strict gate: ontolib/src & backend/src each >90% line AND >90% branch (matches CI)
-pdm run test-smoke           # frontend vitest via npm
-```
+1. **Correctness and project rules** (`pr-code-reviewer`)
+2. **Silent failures**: swallowed errors, failures that look like clean results
+   (`pr-silent-failure-hunter`)
+3. **Test validity**: does a changed test fail when production behaviour is wrong?
+   (`pr-test-analyzer`; runs alone because it temporarily mutates production code, restores
+   the original bytes from a copy outside the worktree, and must leave
+   `git status --porcelain` empty)
+4. **Comment accuracy**: comments and docstrings that promise more than the code delivers
+   (`pr-comment-analyzer`)
+5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-- **CI is the last bar, never the discovery mechanism. "Gates green" means `pdm run verify`
-  exited 0** — not a subset of it. On PR #290 three defects reached CI because targeted
-  substitutes were run instead of the real gate commands: a test asserting raw Rich `--help`
-  output (CI enables colour, which injects ANSI escapes inside an option name), a
-  `package.json` script that grew a `pdm` dependency the CI job never installed (invisible
-  locally, where pdm is on PATH), and a ReDoS regex only CodeQL evaluates. A targeted
-  `npx vitest run <file>` or a narrowed pytest selection is a debugging tool, not a gate.
-- CodeQL is the one gate `verify` cannot reproduce (GitHub default setup, pull requests and
-  `main` pushes only). Everything else is covered locally.
+Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
+is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
+but keep the five separate verdicts.
 
-- **Single test / focused run**: use the repository's safe wrapper —
-  `pdm run agent-test ontolib/tests/path/test_x.py::test_name -v`. Agents must never invoke raw
-  `pdm run pytest` or `python -m pytest`: the wrapper constrains paths, flags, markers,
-  environment, and subprocess execution, while the module form also prepends the repo
-  root to `sys.path`, where the outer `ontolib/`/`backend/` dirs shadow the editable
-  install (see `docs/DECISIONS.md` D6).
-  For a mutating/seeded integration node, retain the fail-closed lane:
-  `pdm run agent-test --safe-integration <path>::<test> -v`.
-  Run a focused read-only `full_store` contract with
-  `pdm run agent-test --full-store <node> -v`; the full aggregate remains `pdm run test-integration-full-store`.
-- **Agent frontend single/focused test:** use only `pdm run agent-test --frontend
-  <tracked-test-file> [<tracked-test-file> ...]`; it accepts exact tracked Vitest files under
-  `frontend/src` and no Vitest configuration, setup, reporter, update, or output-path flags. An
-  optional final `-t <bounded-test-name>` filter is supported for implementer use with exactly one
-  test path; R3 uses exact
-  path-only commands. Human developers
-  working outside an agent permission boundary may use `cd frontend && npx vitest run <path>` (or
-  `-t <name>`) as a debugging command.
-- Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
-  `integration` (real services), `mutating_integration` (nonce-owned disposable
-  resources), `full_store` (read-only configured corpora), `full_build` (pinned
-  12.8M-triple NCIt build / real embeddings — excluded from CI, run manually), `e2e`,
-  `slow`.
-- Never let a mutating integration test use `live_api_client`, `ncit_url`, or a
-  configured persistent resource. Add it to `test_support/integration_mutators.toml`
-  and request the exact isolated fixture. Required disposable-service failures fail;
-  they never skip. Run applicable real-corpus contracts explicitly with
-  `pdm run test-integration-full-store`; those contracts are read-only.
-- **Strict TDD + coverage >90%** (line+branch) on `ontolib/src`, `backend/src`, and
-  `frontend/src/lib` is a hard project rule, enforced by CI and a pre-commit
-  test-quality hook that blocks mock-only / coverage-padding tests. Full test-quality
-  rules are in `CLAUDE.local.md` — read it before writing tests.
-- **Strict TDD means an observed RED run.** Before production edits, execute the exact
-  behavioral test and confirm it fails for the intended missing/wrong contract. Never
-  backfill tests after implementation and call that TDD. A declared suite collecting zero
-  tests is a failed gate.
-- **Every test must be a reliable regression indicator.** If a relevant production
-  mutation does not make it fail for the right reason, delete or replace it. No execution-
-  only tests, mock choreography, implementation-clone fakes, fixture self-consistency, or
-  assertions added solely to satisfy coverage/test-quality tooling.
-- **Double-only acceptance is forbidden.** PostgreSQL/schema, QLever, persisted JSON,
-  external HTTP/tooling, adapter-node/browser, Docker, and filesystem changes require a
-  real disposable/configured-boundary contract in addition to unit doubles. Run the
-  applicable configured full-store and built-browser contracts before claiming the work
-  complete; a green hand-authored double does not certify production behavior.
-- **TDD does NOT catch false assumptions about external systems. Three extra test types
-  are mandatory whenever code depends on an external tool, library, or real data.**
-  Learned the hard way on #73 (PR #117): ~12 bugs shipped past a green, strictly-TDD'd
-  suite, and **not one was a logic error in our code** — every one was a false belief
-  about ROBOT's CLI, ELK's output shape, asyncpg, OWL/RDF serialization, or the real
-  Uberon data. The mechanism: *the test and the code are written from the same mental
-  model, so the hand-made double encodes the same false belief as the implementation.
-  They agree with each other, both are wrong, and the suite is green.* Three of the worst
-  bugs were actively **certified** by a test double implementing a rule the real tool does
-  not. So:
-  1. **Contract tests** — assert what the *external tool itself* does, not what our
-     wrapper does (`test_reasoner_contract.py`). A tool upgrade then fails loudly and
-     names the broken assumption, instead of surfacing months later as "no candidate
-     qualified".
-  2. **Double-fidelity tests** — run the *same* input through the double and the real
-     thing; assert they reach the same verdict. A double *stronger* than reality certifies
-     guards that do not exist; a double *weaker* than reality hides gates that cannot fire.
-  3. **Data-shape contract tests** — pin what the *real* store actually looks like
-     (`test_upstream_data_contract.py`). Fixtures encode only what their author believed:
-     Uberon relates organ→system by `part_of`, not `subClassOf`, and assuming otherwise
-     made a veto fire on the canonical *correct* mapping.
-
-  Plus **gate liveness**: for every gate, prove its *reject* branch is reachable on
-  production-shaped input. #73's satisfiability gate was vacuous for a whole round — it
-  could never fire — and every happy-path test still passed.
-- Frontend gotcha: fire-and-forget rejections inside a Svelte `$effect` trip vitest's
-  unhandled-rejection guard on mock reset between tests — use `mockClear`, not
-  `mockReset` (see `CLAUDE.local.md`).
-
-## Quality gates
-
-Pre-commit is the primary gate; CI just replays it (`pdm run pre-commit run
---all-files`) plus the test/coverage jobs. Order matters only in that pre-commit runs
-fixers before checks — locally just run:
-
-```bash
-pdm run lint    # ruff check + basedpyright (full project)
-pdm run fmt     # ruff format
-```
-
-Frontend hooks (`cd frontend`): `npx eslint src/ --max-warnings=0`, `npm run check`
-(svelte-check), `npm run fallow` (cross-file dead-code/cycle/duplication gate — only
-fails on findings introduced vs `origin/main`, needs full git history).
-
-Security gates (public repo, see D30/D31): `zizmor` pre-commit hook lints workflow security
-(unpinned actions, excessive `GITHUB_TOKEN` perms, credential persistence) — keep actions
-SHA-pinned and Docker base images digest-pinned. CI also runs CodeQL (default setup),
-dependency-review, and OpenSSF Scorecard; Dependabot (github-actions/npm/docker, 7-day
-cooldown) + secret scanning + push protection are enabled repo-side.
-
-## Architecture notes not obvious from the code
-
-- **NCIt roles are OWL existential restrictions**, not direct triples
-  (`?c rdfs:subClassOf [owl:onProperty ?R; owl:someValuesFrom ?filler]`). The
-  restriction-traversal query in `ontolib/src/ontolib/terminologies/ncit/` is what
-  makes roles queryable at all — associations, by contrast, *are* direct triples.
-- **Decomposition is additive/non-destructive, never mutating**: legacy pre-coordinated
-  concepts are flagged (`representationStatus="legacy-precoordinated"`), never deleted;
-  decomposed triples go in a separate `ncit_decomposed` named graph. Exact reversibility
-  is quarantined until #153 provides a proof-bearing representation (D43). Extraction reads
-  from the **stated** OWL (stream-converted by pinned Jena RIOT and indexed by QLever's
-  offline builder, never uploaded as the 713MB RDF/XML file over HTTP GSP), not the
-  inferred store.
-- The frontend only ever talks to the FastAPI backend; the backend owns all
-  QLever/Postgres access — don't add direct DB/SPARQL access from `frontend/`.
-- `pdm run data-build` (owl → cadsr → embeddings) rebuilds all data from public sources
-  with no `fairdata` dependency; the embeddings step needs `pdm install -G data-build`
-  (heavy ML extra, not installed by default).
+**Review runs to convergence.** Address every verified finding and every reasonable
+suggestion in the PR; defer a suggestion to an issue only when the owner agrees it is out
+of scope. A dimension has converged when a full pass reports no unresolved verified
+finding and its suggestions are addressed. A converged dimension is excluded from later
+rounds unless a later fix touches what it reviews (a new test re-arms test validity, a
+new docstring re-arms comment accuracy, a new error path re-arms silent failures);
+re-run only the non-converged ones, on the fix range. There is no round ceiling,
+and an existing PR is never rejected as too big. Size is decided when the work is
+planned: one issue or one coherent change per PR, with granularity balanced against the
+cost of a five-dimension review and the workflows every PR triggers (about seven
+minutes of CI, dependency review, CodeQL). Split at planning time, not at review time.
 
 ## Conventions
 
-- **Never commit directly to `main`.** All developer-authored code changes, issue
-  implementations, and fixes must be on a dedicated branch
-  (`feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`) and land via PR. The only
-  exceptions are the workflow-generated semantic-release and `Update README Code Stats`
-  bot commits pushed by CI (with `GITHUB_TOKEN`).
-- **Milestones use one integration branch and one final PR.** When work is scoped as a
-  milestone rather than one isolated issue, create a milestone branch and implement each
-  issue or declared batch on a separate feature branch. On each feature branch: implement
-  and verify the complete issue/batch, commit it, and run `pdm run verify`. Do not open a
-  feature PR and do not run the five-agent pre-PR review cycle there. Merge the verified
-  feature branch into the milestone branch with `--no-ff`, then delete that feature branch
-  locally and remotely. Repeat until every issue assigned to the milestone is implemented.
-  A blocked issue blocks milestone completion unless its milestone assignment is explicitly
-  changed; do not silently omit it.
-
-  Only after every milestone issue is present on the milestone branch: run `pdm run verify`,
-  commit any resulting fixes, and run the milestone branch's full five-agent pre-PR
-  review/fix cycle repeatedly on committed milestone diffs until all five agents converge.
-  Then rerun `pdm run verify`, run required branch
-  CI/checks, and create the milestone's single PR. Wait for every triggered GitHub workflow.
-  Merge the milestone PR only when the required target-branch and PR checks satisfy the hard
-  merge rules above. After the merge, watch every post-merge workflow to completion before
-  starting new work.
-- Branches: `feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`; PRs merge into
-  `main`.
-- **Dependabot PRs: fetch into exactly one ref name and delete it when the PR closes.** A
-  previous session left 22 stray local branches by minting a new ref prefix per retry.
-- **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
-  `Fixes #X` only when the PR completely resolves the issue (see D35). Issues labeled
-  `epic` must never be referenced in a `Closes` keyword.
-- **PR titles must be Conventional Commits** (`type(scope)?!?: subject`) — CI enforces
-  this (`.github/workflows/pr-title.yml`), because the release workflow derives the
-  version bump from them. `feat` → minor, `fix`/`perf` → patch, `!` or a
-  `BREAKING CHANGE:` footer → minor (this project is pre-1.0; see D18). Every other
-  type (`docs`, `chore`, `test`, `ci`, `refactor`, `style`, `build`, `security`) lands
-  in the changelog without bumping the version.
-- **Do not hand-edit `CHANGELOG.md`.** From `v0.7.0` on it is generated by
-  python-semantic-release on merge to `main`; sections below the `<!-- version list -->`
-  flag are reconstructed history. Write the changelog by writing good commit subjects.
-- Versions live in five manifests and are stamped automatically on release — never bump
-  them by hand.
-- **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
-  gates are complete, commit all intended changes on the feature branch. The worktree must
-  be clean before review starts. Before PR creation, review the committed `main...HEAD`
-  diff against current `main` across all five dimensions in the initial round:**
-  1. **R1 correctness** — correctness, guideline compliance, security, and project rules
-  2. **R2 silent failure** — swallowed errors and failures that look like clean results
-  3. **R3 test validity** — do tests fail when production behavior is wrong, or agree with
-     a fiction?
-  4. **R4 comment accuracy** — do comments and docstrings claim guarantees not provided?
-  5. **R5 type design** — are invariants enforced by types or caller convention?
-
-  (`R<n>` are review dimensions; `D<n>` elsewhere names `docs/DECISIONS.md` entries.)
-  Convergence is tracked **per dimension, not per tool or vendor agent**. Project-local
-  OpenCode agents map to the dimensions as follows: R1 `pr-code-reviewer`, R2
-  `pr-silent-failure-hunter`, R3 `pr-test-analyzer`, R4 `pr-comment-analyzer`, and R5
-  `pr-type-design-analyzer`. Other harnesses may use different reviewers, but must preserve
-  the five separate verdicts and all process rules below. Prefer a reviewer model family
-  different from the implementer's where available.
-
-  **Only the implementer makes lasting repository code, test, documentation, fix, or commit edits. R3 is the sole
-  transient exception and runs ALONE (see D49).** R3 may mutate production code only to
-  prove that a relevant test rejects wrong behavior. Before each mutation it copies the
-  target outside the worktree (for example under `$TMPDIR/opencode/`, or another approved
-  session temp path), then restores the original bytes byte-exactly from that external
-  backup. It never fixes code, stages, commits, pushes, merges, rebases, stashes,
-  resets, cleans, checks out, or uses Git to restore a target. Run the other non-converged
-  dimensions in parallel, then R3 alone against the same commit. The orchestrator must
-  verify `git status --porcelain` is empty and `git rev-parse HEAD` is unchanged before
-  accepting R3; otherwise the pass is inconclusive and non-converged.
-
-  Fix every verifiable actionable finding, including sensible suggestions that can be
-  confirmed in the repo. Send lasting fixes to the implementer, re-run applicable gates,
-  commit them, and repeat only the non-converged dimensions; R3 remains isolated. A
-  dimension converges only after a successful full-diff review explicitly reports no
-  unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
-  not converge. Once a dimension converges, do not run it again in that review cycle.
-
-  Every round reviews a clean worktree and committed diff. Only when explicitly requested may the
-  orchestrator pull its attached current branch with `pdm run agent-git pull-origin <branch>`, push
-  a dedicated non-main branch with `pdm run agent-git push-origin <branch>`, create a PR in the fixed
-  repository with `pdm run agent-github pr-create --title <title> --body-file <tmp/plans/path> --head
-  <branch>`, or update the exact user-supplied PR number and content with `pdm run agent-github pr-edit
-  <number>`. It must fail closed on repository, branch, PR, input, or scope uncertainty and must never
-  directly push main/master, force-push, delete a remote ref, select another remote/repository, or
-  update an unrelated PR. The orchestrator may manage the issue and milestone lifecycle in
-  `hniedner/ontoprism` through the repository-owned `pdm run agent-github` wrapper when the task
-  explicitly requests it: create, edit, comment, label, assign or unassign, set or remove a
-  milestone, close, or reopen issues; and create, edit, close, or reopen milestones. It never
-  deletes issues or milestones or silently rewrites unrelated records. PR merge remains separately
-  restricted to exact current-conversation authorization and the hard checks above.
-  After all five dimensions
-  converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
-  pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
-  GitHub event. PR creation or update occurs only when requested. Run `gh pr merge` only when the user
-  explicitly authorizes the exact PR in the current conversation and every hard merge check
-  passes. This does not prohibit the milestone procedure's
-  local `pdm run agent-git merge-no-ff <branch>` integration of a verified issue branch into its milestone
-  branch. Record any genuinely unverifiable or unactionable exception and its reason.
-- **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
-  Plan-mode plan files and any implementation handover written for a follow-up session go
-  under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
-  the tracked docs (`docs/DECISIONS.md`, `docs/design/`) and GitHub issues. Tracked product
-  code, product documentation, and issues must not depend on ephemeral artifacts there;
-  policy text and executable reproducibility commands may name the location to explain or
-  enforce that rule.
+- PR titles are Conventional Commits; CI enforces it and releases derive versions from
+  them (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18).
+- `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
+- Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
+- Dependabot PRs: fetch into one ref name and delete it when the PR closes.
+- Planning and handover notes go in `tmp/plans/` (gitignored). Tracked code, docs and
+  issues never depend on files there. Durable knowledge goes in `docs/` or an issue.
+- A scratch script for diagnostics goes in `tmp/scratch/` and is run with
+  `pdm run python tmp/scratch/<name>.py`. Scratch scripts read; they do not modify repo
+  data or stores. Do not turn a one-off diagnostic into tested production tooling.

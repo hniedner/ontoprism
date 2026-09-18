@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/m[0-9]*']
   pull_request:
-    branches: [main]
+    # Milestone branches (feat/m<number>-<slug>) receive issue PRs; CI must see them.
+    branches: [main, 'feat/m[0-9]*']
   # On-demand CI for a feature branch that has no pull request yet: workflow_dispatch
   # runs every ordinary job; only Docker and the pinned embedding-model contract remain
   # path-gated.
@@ -73,8 +74,6 @@ jobs:
               - 'scripts/validation/frontend_coverage_hierarchy.py'
               - 'scripts/validation/run_agent_test.py'
               - 'scripts/validation/strict_coverage_gate.py'
-              - 'scripts/validation/validate_opencode_config.py'
-              - 'scripts/validation/validate_opencode_runtime.py'
               - '.github/workflows/ci.yml'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
@@ -106,7 +105,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          # Full history so the fallow hook can resolve origin/main as its audit base.
+          # Full history so the fallow hook can resolve the PR base (GITHUB_BASE_REF) as
+          # its audit base.
           fetch-depth: 0
 
       - name: Set up PDM (cached)
