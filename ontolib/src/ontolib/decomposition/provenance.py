@@ -246,10 +246,24 @@ def _require_completion_publication(
     )
 
 
+_FAILURE_MESSAGE_LIMIT = 1000
+
+
 def _bounded_failure(error: BaseException) -> tuple[str, str]:
+    """Type and message to persist for ``error``, within the column bounds.
+
+    The message carries the exception's notes and its ``__cause__``, which is where a
+    failed failure record and an interrupted one leave their account; when too long,
+    the error's own text is cut first so they survive.
+    """
     error_type = type(error).__name__[:128] or "Exception"
-    message = str(error)[:1000] or error_type
-    return error_type, message
+    account = [*getattr(error, "__notes__", ())]
+    if error.__cause__ is not None:
+        cause = error.__cause__
+        account.append(f"caused by {type(cause).__name__}: {cause}")
+    suffix = "".join(f"\n{line}" for line in account)[-(_FAILURE_MESSAGE_LIMIT - 1) :]
+    own = str(error) or error_type
+    return error_type, own[: _FAILURE_MESSAGE_LIMIT - len(suffix)] + suffix
 
 
 async def _reopen_run(session: AsyncSession, run_id: str) -> None:

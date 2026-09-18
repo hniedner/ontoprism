@@ -1681,3 +1681,42 @@ def test_run_summary_marks_rehearsal_rows() -> None:
     without_column = {k: v for k, v in row(True).items() if k != "rehearsal"}
     with pytest.raises(KeyError, match="rehearsal"):
         ProvenanceStore._row_to_run(without_column)
+
+
+@pytest.mark.unit
+def test_a_stored_failure_keeps_the_notes_added_after_a_double_fault() -> None:
+    """A failure record that also failed leaves its account only as a note."""
+    error = RuntimeError("worker lost")
+    error.add_note("Recording the run failure also failed: OSError: disk full")
+
+    assert provenance_module._bounded_failure(error) == (
+        "RuntimeError",
+        "worker lost\nRecording the run failure also failed: OSError: disk full",
+    )
+
+
+@pytest.mark.unit
+def test_a_stored_cancellation_names_the_failure_it_interrupted() -> None:
+    """A cancellation during a failure record is stored instead of that failure; the
+    failure survives only as its cause."""
+    cancellation = asyncio.CancelledError()
+    cancellation.__cause__ = ValueError("source identity drifted")
+
+    assert provenance_module._bounded_failure(cancellation) == (
+        "CancelledError",
+        "CancelledError\ncaused by ValueError: source identity drifted",
+    )
+
+
+@pytest.mark.unit
+def test_a_long_failure_is_cut_before_its_notes_and_cause() -> None:
+    error = RuntimeError("x" * 2000)
+    error.add_note("Run failure was NOT recorded")
+    error.__cause__ = KeyError("C1")
+
+    error_type, message = provenance_module._bounded_failure(error)
+
+    assert error_type == "RuntimeError"
+    assert len(message) == 1000
+    assert message.startswith("xxx")
+    assert message.endswith("\nRun failure was NOT recorded\ncaused by KeyError: 'C1'")
