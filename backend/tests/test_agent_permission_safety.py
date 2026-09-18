@@ -285,9 +285,10 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
 ) -> None:
     """Contract with the real tool: the ordered bash, edit and task rules OpenCode
     resolves for an agent equal the file's, so the emulation above operates on the
-    right input. The run is isolated (empty XDG_CONFIG_HOME, ``--pure``), so it pins
-    the repository's contribution only; a global OpenCode config or plugin on the
-    owner's machine can still widen an agent and no test in this suite checks it.
+    right input. The run is isolated (empty XDG_CONFIG_HOME, its own XDG data, state
+    and cache dirs so parallel cases never share one SQLite database, ``--pure``), so
+    it pins the repository's contribution only; a global OpenCode config or plugin on
+    the owner's machine can still widen an agent and no test in this suite checks it.
     Skipped, not passed, where the binary is absent (always in CI); run it locally
     after editing any agent file."""
     binary = _opencode_binary()
@@ -300,13 +301,23 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
     result = subprocess.run(  # noqa: S603 -- argv list, no shell
         [str(binary), "debug", "agent", agent, "--pure"],
         cwd=_ROOT,
-        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
+        env={
+            **os.environ,
+            "XDG_CONFIG_HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "XDG_STATE_HOME": str(tmp_path / "state"),
+            "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        },
         capture_output=True,
         text=True,
         check=False,
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
+    assert (tmp_path / "data" / "opencode").is_dir(), (
+        "the binary must keep its database under the test's own XDG dirs; sharing "
+        "the owner's makes parallel cases fail with 'database is locked'"
+    )
     start = result.stdout.find("{")
     assert start >= 0, result.stdout
     resolved, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
