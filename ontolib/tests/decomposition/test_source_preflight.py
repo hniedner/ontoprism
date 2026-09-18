@@ -208,10 +208,11 @@ async def test_preflight_does_not_recurse_through_direct_fillers() -> None:
 
 
 @pytest.mark.unit
-async def test_an_exhausted_closure_budget_is_refused_as_a_worklist_problem() -> None:
+async def test_an_exceeded_closure_budget_is_refused_as_a_worklist_problem() -> None:
     """The budget is shared by the whole worklist, so no concept is reported as the
     cause, and nothing further is read once a concept needs a dependency beyond it.
-    The position counts every worklist concept reached, readable or not."""
+    The position is the concept's place in the worklist, so unreadable concepts
+    before it count."""
     seen: list[str] = []
 
     async def read(code: str) -> CompleteDefinition:

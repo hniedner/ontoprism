@@ -153,9 +153,11 @@ async def run_source_preflight(
     ``ClosureBudgetExceededError``. ``overflow_codes`` holds only concepts whose own
     complete definition exceeds a reader bound (``DefinitionBoundExceededError``).
     """
-    # A worklist concept carries its 1-based position; a dependency carries 0 and is
-    # read but not expanded.
-    queue = deque((code, position) for position, code in enumerate(worklist, 1))
+    # A worklist concept carries its 1-based position; a dependency carries None and
+    # is read but not expanded.
+    queue: deque[tuple[str, int | None]] = deque(
+        (code, position) for position, code in enumerate(worklist, 1)
+    )
     scheduled = set(worklist)
     supported: set[str] = set()
     unsupported: dict[str, str] = {}
@@ -172,7 +174,7 @@ async def run_source_preflight(
             malformed=malformed,
             overflow=overflow,
         )
-        if definition is None or not position:
+        if definition is None or position is None:
             continue
         dependencies = sorted(_dependencies(definition) - scheduled)
         closure_count += len(dependencies)
@@ -184,7 +186,7 @@ async def run_source_preflight(
                 "shared by the whole worklist: no single concept is at fault."
             )
         scheduled.update(dependencies)
-        queue.extend((dependency, 0) for dependency in dependencies)
+        queue.extend((dependency, None) for dependency in dependencies)
     checked = tuple(sorted(supported | unsupported.keys() | malformed | overflow))
     return SourcePreflightResult(
         source_identity=source_identity,

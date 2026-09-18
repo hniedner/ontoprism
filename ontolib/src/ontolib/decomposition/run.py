@@ -1712,7 +1712,8 @@ async def _source_preflight_result(
     except ClosureBudgetExceededError as exc:
         exc.add_note(
             "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
-            "ontolib/decomposition/run.py: narrow the worklist or raise it."
+            "ontolib/src/ontolib/decomposition/run.py: raise the budget or narrow "
+            "the worklist."
         )
         raise
 
