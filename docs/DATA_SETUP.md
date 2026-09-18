@@ -447,7 +447,8 @@ never reach the curator queue, it cannot be resumed, and it is listed with
 `rehearsal: true` in the runs API. Its output file is deleted after a successful
 preflight and not deleted after a failed one. A preflight failure, or a preflight that
 decomposed nothing, stops the run before hour zero; the error names the sample, whether
-any output was written and where, and `--no-preflight`. The mixed-chain
+this attempt wrote output and where (or that a file there predates it), and
+`--no-preflight`. The mixed-chain
 inventory and the whole-worklist closure checks are bound to the full worklist, so they
 still run at the start of the full run. `--no-preflight` skips the preflight; resumes,
 `--total-limit` and `--sample-manifest` runs never preflight, and a branch without a

@@ -400,6 +400,15 @@ def main(
     typer.echo(_summary_line(metrics))
 
 
+def _file_stamp(path: Path) -> tuple[int, int] | None:
+    """Size and mtime of a file, or None when absent (tells attempts apart)."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
 def _rehearse(
     *,
     source_manifest: Path,
@@ -420,6 +429,7 @@ def _rehearse(
         if out is not None
         else Path(tempfile.gettempdir()) / f"decompose-preflight-{uuid4().hex}.ttl"
     )
+    before = _file_stamp(preflight_out)
     try:
         metrics = asyncio.run(
             _run(
@@ -440,11 +450,16 @@ def _rehearse(
                 f"preflight decomposed no concepts: {_summary_line(metrics)}"
             )
     except BaseException as exc:
-        output = (
-            f"its output is left at {preflight_out}"
-            if preflight_out.exists()
-            else "no output was written"
-        )
+        after = _file_stamp(preflight_out)
+        if after is None:
+            output = "no output was written"
+        elif after == before:
+            output = (
+                f"no output was written; {preflight_out} is left over from an "
+                "earlier preflight"
+            )
+        else:
+            output = f"its output is left at {preflight_out}"
         exc.add_note(
             f"raised by the preflight rehearsal of {sample}; the full run was not "
             f"started; {output}; --no-preflight skips it"

@@ -756,7 +756,8 @@ _NEOPLASM_SAMPLE = decompose.PREFLIGHT_SAMPLES[decompose.DecompositionBranch.NEO
 
 
 class _RunStub:
-    """Stand in for `_run`, recording keyword calls and writing the output file."""
+    """Stand in for `_run`, recording keyword calls; writes the output file unless
+    `writes_output=False`."""
 
     def __init__(
         self,
@@ -864,6 +865,50 @@ def test_a_preflight_that_failed_before_writing_says_so(
 
 
 @pytest.mark.unit
+def test_a_preflight_output_left_by_an_earlier_attempt_is_not_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = tmp_path / "decomposed.ttl.preflight"
+    stale.write_text("# from an earlier preflight\n")
+    stub = _RunStub(fail=RuntimeError("admission refused"), writes_output=False)
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    with pytest.raises(RuntimeError, match="admission refused") as error:
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    (note,) = error.value.__notes__
+    assert f"no output was written; {stale} is left over from an earlier preflight" in (
+        note
+    )
+    assert stale.read_text() == "# from an earlier preflight\n"
+
+
+@pytest.mark.unit
+def test_a_preflight_that_overwrote_an_earlier_output_claims_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = tmp_path / "decomposed.ttl.preflight"
+    stale.write_text("# from an earlier, longer preflight output\n")
+    stub = _RunStub(fail=RuntimeError("decomposed nothing"))
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    with pytest.raises(RuntimeError, match="decomposed nothing") as error:
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    (note,) = error.value.__notes__
+    assert f"its output is left at {stale}" in note
+    assert stale.read_text() == "# ttl\n"
+
+
+@pytest.mark.unit
 def test_a_branch_without_a_tracked_sample_cannot_preflight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -947,19 +992,18 @@ def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
 
 
 @pytest.mark.unit
-async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_inventory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+async def _rehearsal_and_full_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[decompose.RunConfig], list[dict[str, Any]]]:
+    """Drive the real `_run` twice (rehearsal, then full) against a fake pipeline."""
     configs: list[decompose.RunConfig] = []
-    progress_kwargs: list[dict[str, Any]] = []
+    pipeline_kwargs: list[dict[str, Any]] = []
 
     async def pipeline(
         config: decompose.RunConfig, *_args: object, **kwargs: Any
     ) -> decompose.RunMetrics:
         configs.append(config)
-        progress_kwargs.append(kwargs)
+        pipeline_kwargs.append(kwargs)
         return _metrics(1)
 
     _install_run_collaborators(monkeypatch, pipeline)
@@ -985,27 +1029,16 @@ async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_invent
         sample_manifest=None,
         rehearsal=False,
     )
+    return configs, pipeline_kwargs
+
+
+@pytest.mark.unit
+async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs, _ = await _rehearsal_and_full_run(tmp_path, monkeypatch)
 
     rehearsal, full = (vars(config) for config in configs)
-    event = RunProgress(
-        run_id="r",
-        phase="started",
-        concept_code="C1",
-        completed=0,
-        total=20,
-        session_completed=0,
-        elapsed_seconds=0.0,
-    )
-    for kwargs in progress_kwargs:
-        kwargs["progress"](event)
-        kwargs["residual_progress"](0, 1, "C1")
-    stderr = capsys.readouterr().err.splitlines()
-    assert [line.startswith("preflight ") for line in stderr] == [
-        True,
-        True,
-        False,
-        False,
-    ], "only the rehearsal's progress and residual lines carry the prefix"
     assert rehearsal["rehearsal"] is True
     assert full["rehearsal"] is False
     assert rehearsal["sample_manifest"] is not None
@@ -1022,6 +1055,37 @@ async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_invent
         "rehearsal",
         "mixed_chain_inventory_path",
     }
+
+
+@pytest.mark.unit
+async def test_only_the_rehearsal_progress_and_residual_lines_are_prefixed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _, pipeline_kwargs = await _rehearsal_and_full_run(tmp_path, monkeypatch)
+    event = RunProgress(
+        run_id="r",
+        phase="started",
+        concept_code="C1",
+        completed=0,
+        total=20,
+        session_completed=0,
+        elapsed_seconds=0.0,
+    )
+
+    capsys.readouterr()
+    for kwargs in pipeline_kwargs:
+        kwargs["progress"](event)
+        kwargs["residual_progress"](0, 1, "C1")
+
+    stderr = capsys.readouterr().err.splitlines()
+    assert [line.startswith("preflight ") for line in stderr] == [
+        True,
+        True,
+        False,
+        False,
+    ]
 
 
 @pytest.mark.unit
