@@ -98,8 +98,11 @@ _POSTGRES_IMAGE = (
     "pgvector/pgvector@sha256:"
     "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
 )
+# The lookbehind pins the key prefix to the start of its word run. Without it the
+# prefix may start at every character of a long run (a hash, base64), and each start
+# rescans the rest of the run: quadratic on real `docker inspect` output (#369).
 _SECRET_VALUE = re.compile(
-    r"(?i)([\"']?[A-Z0-9_-]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY)"
+    r"(?i)(?<![A-Z0-9_-])([\"']?[A-Z0-9_-]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY)"
     r"[\"']?\s*[:=]\s*[\"']?)([^\s,;\"']+)"
 )
 _URL_CREDENTIALS = re.compile(

@@ -9,6 +9,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
@@ -3927,6 +3928,21 @@ def test_ensure_podman_stack_outlasts_a_guest_shutdown_and_boot(
     assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
 
     assert "machine-action=restarted-stale" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_redaction_is_linear_on_a_long_word_run() -> None:
+    """Real ``docker inspect`` output carries long hashes and base64; a key prefix
+    that may start anywhere rescans such a run from every position (#369: about
+    four seconds per 20 000 characters, on every command)."""
+    text = "x" * 40_000 + " xPASSWORD=hunter2 ok"
+
+    started = time.perf_counter()
+    sanitized = replay._bounded_sanitized(text, limit=None)
+    elapsed = time.perf_counter() - started
+
+    assert sanitized.endswith(" xPASSWORD=[REDACTED] ok")
+    assert elapsed < 2
 
 
 @pytest.mark.unit
