@@ -8,6 +8,7 @@ from pathlib import Path
 
 import asyncpg
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -136,6 +137,58 @@ async def test_rehearsals_with_identical_content_are_each_admitted() -> None:
             )
         finally:
             await connection.close()
+        await dispose_engine(engine)
+
+
+async def _delete_runs(run_ids: list[str]) -> None:
+    connection = await asyncpg.connect(
+        get_settings().database_url.replace("+asyncpg", "")
+    )
+    try:
+        await connection.execute("DELETE FROM decomp_run WHERE id=ANY($1)", run_ids)
+    finally:
+        await connection.close()
+
+
+async def test_a_run_id_that_is_already_taken_is_refused_as_an_active_run() -> None:
+    """The primary key is the second admission authority; asyncpg names the violated
+    constraint only on the wrapped driver error, so this runs against Postgres."""
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    run_id = "admission-same-run-id"
+    first = _execution().model_copy(update={"rehearsal_nonce": "3" * 32})
+    second = _execution().model_copy(update={"rehearsal_nonce": "4" * 32})
+    try:
+        assert isinstance(
+            await store.admit_run(run_id, "26.07d", _fingerprint(first), first),
+            FreshAdmitted,
+        )
+
+        outcome = await store.admit_run(run_id, "26.07d", _fingerprint(second), second)
+
+        assert outcome == Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+    finally:
+        await _delete_runs([run_id])
+        await dispose_engine(engine)
+
+
+async def test_an_integrity_error_that_is_no_admission_conflict_is_raised() -> None:
+    """Reporting every constraint violation as "an active run exists" sent the
+    operator looking for a run that is not there."""
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    run_id = "admission-not-null"
+    execution = _execution().model_copy(update={"rehearsal_nonce": "5" * 32})
+    try:
+        with pytest.raises(IntegrityError, match="ncit_version"):
+            await store.admit_run(
+                run_id,
+                None,  # type: ignore[arg-type] - a NOT NULL violation, not a conflict
+                _fingerprint(execution),
+                execution,
+            )
+    finally:
+        await _delete_runs([run_id])
         await dispose_engine(engine)
 
 

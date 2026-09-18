@@ -103,6 +103,27 @@ def _existing_run_refusal(kind: str) -> RefusalReason:
     return RefusalReason.ACTIVE_RUN_EXISTS
 
 
+# The two uniqueness authorities of admission: one admitted run per execution identity,
+# and the run id itself. Any other constraint violation is a defect, not a conflict.
+_ADMISSION_CONFLICT_CONSTRAINTS = frozenset(
+    {"uq_decomp_run_admitted_execution", "decomp_run_pkey"}
+)
+
+
+def _admission_conflict(error: IntegrityError) -> Refused:
+    """Refuse for one of admission's own uniqueness conflicts; raise anything else.
+
+    SQLAlchemy's asyncpg adapter keeps only the SQLSTATE on its own error; the
+    constraint name lives on the asyncpg exception it was raised from.
+    """
+    constraint = getattr(
+        getattr(error.orig, "__cause__", None), "constraint_name", None
+    )
+    if constraint not in _ADMISSION_CONFLICT_CONSTRAINTS:
+        raise error
+    return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+
+
 class RunStateError(RuntimeError):
     """A requested run/work-item transition is not currently valid."""
 
@@ -1601,8 +1622,8 @@ class ProvenanceStore:
                     execution_identity=execution.identity,
                 )
                 return FreshAdmitted(run_id=run_id)
-        except IntegrityError:
-            return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+        except IntegrityError as exc:
+            return _admission_conflict(exc)
 
     @staticmethod
     async def _admission_candidates(
