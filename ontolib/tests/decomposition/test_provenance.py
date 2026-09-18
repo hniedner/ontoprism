@@ -1624,6 +1624,12 @@ def test_rehearsal_nonce_separates_otherwise_identical_run_identities() -> None:
     assert first.identity != second.identity
     assert first.identity != real.identity
     assert FullRunExecutionIdentity(**_identity_payload()).identity == real.identity
+    fingerprint = RunFingerprint(
+        **_identity_payload(),  # type: ignore[arg-type]
+        rehearsal_nonce="1" * 32,
+        emitted_at=datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+    )
+    assert FullRunExecutionIdentity.from_fingerprint(fingerprint) == first
 
 
 @pytest.mark.unit

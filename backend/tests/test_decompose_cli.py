@@ -7,6 +7,7 @@ import os
 import runpy
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -926,25 +927,24 @@ def test_a_branch_without_a_tracked_sample_cannot_preflight(
 
 
 @pytest.mark.unit
-def test_rehearsal_progress_lines_are_prefixed(
-    capsys: pytest.CaptureFixture[str],
+def test_a_preflight_without_an_output_path_rehearses_into_a_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    progress = RunProgress(
-        run_id="neoplasm-1",
-        phase="started",
-        concept_code="C1",
-        completed=0,
-        total=20,
-        session_completed=0,
-        elapsed_seconds=0.0,
+    stub = _RunStub()
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=None,
     )
 
-    decompose._print_progress(progress, prefix="preflight ")
-    decompose._print_progress(progress)
-
-    lines = capsys.readouterr().err.splitlines()
-    assert lines[0].startswith("preflight run=neoplasm-1 ")
-    assert lines[1].startswith("run=neoplasm-1 ")
+    preflight_out = stub.calls[0]["out"]
+    assert isinstance(preflight_out, Path)
+    assert preflight_out.parent == Path(tempfile.gettempdir())
+    assert preflight_out.name.startswith("decompose-preflight-")
+    assert not preflight_out.exists(), "a successful preflight deletes its temp output"
+    assert stub.calls[1]["out"] is None
 
 
 @pytest.mark.unit

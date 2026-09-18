@@ -2962,15 +2962,23 @@ async def test_a_rehearsal_uses_the_sample_cohort_without_its_source_binding(
             _source_snapshot(),
         )
 
+    rehearsal = RunConfig(
+        branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
+    )
     codes = await run_module._validated_sample_worklist(
-        RunConfig(
-            branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
-        ),
-        client,
-        _source_snapshot(),
+        rehearsal, client, _source_snapshot()
     )
 
     assert codes == ("C1",)
+
+    async def narrower_scope(*_args: object, **_kwargs: object) -> list[str]:
+        return ["C2"]
+
+    monkeypatch.setattr(run_module, "enumerate_in_scope_codes", narrower_scope)
+    with pytest.raises(ValueError, match=r"outside the configured hierarchy scope.*C1"):
+        await run_module._validated_sample_worklist(
+            rehearsal, client, _source_snapshot()
+        )
 
 
 @pytest.mark.unit
