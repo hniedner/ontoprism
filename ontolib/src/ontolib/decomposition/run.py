@@ -1588,15 +1588,12 @@ async def _journal_without_masking(
     """Await a provenance write made on behalf of ``exc`` without letting the
     write's own failure replace ``exc``; that failure becomes a note instead.
 
-    A cancellation that interrupts the write still cancels: it propagates with
-    ``exc`` as its cause so neither is lost. The write itself is not retried or
-    shielded (contrast ``publication._record_failure_without_masking``), so it
-    may never have landed. A work-item, residual-filler or stage claim it may
-    leave behind is reclaimed by the next resume (the publication seal of an
-    already completed run has no resume and may stay claimed). An unwritten
-    ``fail_run`` leaves the run ``running`` for the next resume to reopen; an
-    unwritten ``invalidate_run`` leaves partial results in place, which is why
-    ``_record_pipeline_failure`` adds its own warning.
+    A cancellation that interrupts the write still cancels: it gains a note naming
+    the interrupted record and ``exc``, and propagates with ``exc`` as its cause so
+    neither is lost. The write itself is not retried or shielded (contrast
+    ``publication._record_failure_without_masking``), so it may never have landed.
+    D90 in ``docs/DECISIONS.md`` says which abandoned writes a later resume recovers
+    and which leave only the cancellation's note and its cause.
     """
     try:
         await record
