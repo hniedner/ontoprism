@@ -1198,8 +1198,9 @@ async def test_a_rehearsal_cannot_be_resumed() -> None:
 
 
 async def test_the_completion_recount_is_available_before_publication() -> None:
-    """The recount used to run only inside `finish_run`, after the public graph had
-    been replaced; the metrics stage must be able to ask for it first."""
+    """The store answers the completion recount outside `finish_run`, which runs
+    too late to protect the public graph: unfinished work and drifted counts are
+    refused, the true recount is accepted, and the run stays running."""
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
@@ -1242,8 +1243,11 @@ async def test_the_completion_recount_is_available_before_publication() -> None:
         await store.require_completion_recount(
             run_id, CompletionRunMetrics.model_validate(recounted)
         )
-        with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        with pytest.raises(
+            RunStateError, match="do not match persisted work-item"
+        ) as drift:
             await store.require_completion_recount(run_id, nothing_counted)
+        assert "total_in_scope: supplied 0, persisted 2" in str(drift.value)
         assert (await store.get_run(run_id)).status == "running"  # type: ignore[union-attr]
     finally:
         await _cleanup([run_id])

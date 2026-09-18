@@ -3473,8 +3473,8 @@ async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The recount ran only inside `finish_run`, after the public graph had been
-    replaced; a mismatch must fail the metrics stage instead."""
+    """A recount mismatch fails the metrics stage, before the artifact and
+    publication stages; `finish_run` runs too late to protect the public graph."""
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -3501,9 +3501,49 @@ async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
         )
 
     assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "metrics" not in provenance._test_state["stage_outputs"]
     assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
     publish.assert_not_awaited()
     assert not (tmp_path / "decomposed.ttl").exists()
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_is_recounted_again_before_it_publishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metrics stage sealed by an earlier attempt does not excuse the recount: the
+    persisted rows may have changed since, and publication is still ahead."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance._test_state["stage_outputs"]["metrics"] = ("m" * 64, {})
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
 
 
 @pytest.mark.unit

@@ -1897,6 +1897,8 @@ async def _metrics_stage(
         concept_unknown_codes = await provenance.unknown_outcome_codes(setup.run_id)
         if len(concept_unknown_codes) != completion_metrics.unknown_outcome:
             raise RunStateError("unknown outcome codes do not match completion metrics")
+        # Before the artifact and publication stages: finish_run repeats the recount,
+        # but only after the public graph has been replaced.
         await provenance.require_completion_recount(setup.run_id, completion_metrics)
         persisted_metrics = completion_metrics.model_dump(mode="json")
         metrics_payload: dict[str, object] = {

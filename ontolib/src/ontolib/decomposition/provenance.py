@@ -1005,11 +1005,40 @@ async def _require_finished_work(session: AsyncSession, run_id: str) -> None:
 async def _require_recounted_metrics(
     session: AsyncSession, run_id: str, metrics: CompletionRunMetrics
 ) -> None:
-    """Fail unless ``metrics`` equal what the persisted outcomes recount to."""
+    """Fail unless the outcome counts and the definition and fact counts in
+    ``metrics`` equal a recount of the persisted rows (derived rates are not
+    recounted)."""
     _require_matching_completion_metrics(
         metrics,
         await _persisted_outcome_counts(session, run_id),
         await _persisted_definition_counts(session, run_id),
+    )
+
+
+_OUTCOME_COUNT_FIELDS = (
+    "total_in_scope",
+    "decomposed",
+    "residual",
+    "semantic_excluded",
+    "atomic_noop",
+    "unknown_outcome",
+    "minted_count",
+)
+_DEFINITION_COUNT_FIELDS = (
+    "complete_definition_count",
+    "complete_fact_count",
+    "projected_fact_count",
+    "projection_loss_count",
+)
+
+
+def _count_differences(
+    fields: tuple[str, ...], supplied: tuple[int, ...], persisted: tuple[int, ...]
+) -> str:
+    return "; ".join(
+        f"{field}: supplied {ours}, persisted {theirs}"
+        for field, ours, theirs in zip(fields, supplied, persisted, strict=True)
+        if ours != theirs
     )
 
 
@@ -1018,27 +1047,15 @@ def _require_matching_completion_metrics(
     counts: RunOutcomeCounts,
     definition_counts: tuple[int, int, int],
 ) -> None:
-    persisted_counts = (
-        counts.total_in_scope,
-        counts.decomposed,
-        counts.residual,
-        counts.semantic_excluded,
-        counts.atomic_noop,
-        counts.unknown_outcome,
-        counts.minted_count,
-    )
-    supplied_counts = (
-        metrics.total_in_scope,
-        metrics.decomposed,
-        metrics.residual,
-        metrics.semantic_excluded,
-        metrics.atomic_noop,
-        metrics.unknown_outcome,
-        metrics.minted_count,
-    )
+    persisted_counts = tuple(getattr(counts, field) for field in _OUTCOME_COUNT_FIELDS)
+    supplied_counts = tuple(getattr(metrics, field) for field in _OUTCOME_COUNT_FIELDS)
     if persisted_counts != supplied_counts:
+        differences = _count_differences(
+            _OUTCOME_COUNT_FIELDS, supplied_counts, persisted_counts
+        )
         raise RunStateError(
-            "completion metrics do not match persisted work-item outcomes"
+            "completion metrics do not match persisted work-item outcomes "
+            f"({differences})"
         )
     complete_definition_count, complete_fact_count, projected_fact_count = (
         definition_counts
@@ -1049,15 +1066,18 @@ def _require_matching_completion_metrics(
         projected_fact_count,
         complete_fact_count - projected_fact_count,
     )
-    supplied_definition_metrics = (
-        metrics.complete_definition_count,
-        metrics.complete_fact_count,
-        metrics.projected_fact_count,
-        metrics.projection_loss_count,
+    supplied_definition_metrics = tuple(
+        getattr(metrics, field) for field in _DEFINITION_COUNT_FIELDS
     )
     if persisted_definition_metrics != supplied_definition_metrics:
+        differences = _count_differences(
+            _DEFINITION_COUNT_FIELDS,
+            supplied_definition_metrics,
+            persisted_definition_metrics,
+        )
         raise RunStateError(
-            "completion definition metrics do not match persisted definition rows"
+            "completion definition metrics do not match persisted definition rows "
+            f"({differences})"
         )
 
 
@@ -3127,11 +3147,12 @@ class ProvenanceStore:
     async def require_completion_recount(
         self, run_id: str, metrics: CompletionRunMetrics
     ) -> None:
-        """Fail unless the run's work is finished and ``metrics`` equal the recount.
+        """Fail unless the run's work is finished and the counts in ``metrics`` equal
+        a recount of the persisted rows.
 
-        ``finish_run`` repeats this in its own transaction, but it runs after
-        publication; the metrics stage asks here first, so a mismatch fails the run
-        before the public graph is replaced.
+        ``finish_run`` repeats this in its own transaction, but on the publishing
+        path it runs only after the public graph has been replaced; callers ask here
+        before publication, so a mismatch fails the run first.
         """
         async with self._sf() as session:
             await _require_finished_work(session, run_id)
