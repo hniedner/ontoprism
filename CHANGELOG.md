@@ -19,6 +19,97 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.24.3 (2026-09-18)
+
+### Bug Fixes
+
+- **tooling**: Let the Podman VM recovery finish and keep the VM out of the caller's process group
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Make the Podman VM recovery work and keep the VM out of its starter's process group
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Name an unhashable machine state and the port variable that is not a number
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Poll a stopping machine tolerantly and refuse a malformed port
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Wait out a slow guest shutdown and report only what the recovery observed
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+### Documentation
+
+- Update README code line-count table
+  ([`f44dcd8`](https://github.com/hniedner/ontoprism/commit/f44dcd81b207dde531101858bb6f5f11d1c1619a))
+
+- Update README code line-count table
+  ([`3354d49`](https://github.com/hniedner/ontoprism/commit/3354d49896863e27900637eb932bf9b716dafec6))
+
+- **agents**: Name managed OpenCode config in the contract's caveat
+  ([`712a064`](https://github.com/hniedner/ontoprism/commit/712a064601d092dcc0935f729e1e1e7cc76fbd21))
+
+### Performance Improvements
+
+- **tooling**: Make secret redaction linear on long word runs
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+### Testing
+
+- **agents**: Give each OpenCode contract case its own state directory
+  ([`712a064`](https://github.com/hniedner/ontoprism/commit/712a064601d092dcc0935f729e1e1e7cc76fbd21))
+
+- **agents**: Match any SQLite file under the contract's own data dir
+  ([`712a064`](https://github.com/hniedner/ontoprism/commit/712a064601d092dcc0935f729e1e1e7cc76fbd21))
+
+- **agents**: Pin the OpenCode database file and scrub OPENCODE_* overrides
+  ([`712a064`](https://github.com/hniedner/ontoprism/commit/712a064601d092dcc0935f729e1e1e7cc76fbd21))
+
+- **tooling**: Pin the give-up advice for a state in between and rewrap the Podman docs
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Pin the pid guard, both dev.sh targets and the remaining flush and redaction
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+- **tooling**: Say why the no-lsof PATH holds those tools and which pids report nothing
+  ([`b24a473`](https://github.com/hniedner/ontoprism/commit/b24a473873267e56f5e4ead2a8096a4f8ca72c90))
+
+
+## v0.24.2 (2026-09-18)
+
+### Bug Fixes
+
+- **validation**: Match Coverage.py's pragma pattern and reject unscannable exemptions
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Name the cause when Coverage.py has no pragma pattern
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Own pragmas exactly per file and warn on default shard weights
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Select the pragma pattern by content and report non-UTF-8 surfaces
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Use Coverage.py's own pragma pattern for marker ownership
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+### Chores
+
+- **validation**: Remove checks that fail commits unrelated to their subject
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+### Documentation
+
+- Update README code line-count table
+  ([`a3f8221`](https://github.com/hniedner/ontoprism/commit/a3f8221a40e7b141ae9c671d6c47a545e47f814d))
+
+### Testing
+
+- **validation**: Pin that frontend ignore markers count only inside comments
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+
 ## v0.24.1 (2026-09-18)
 
 ### Bug Fixes
