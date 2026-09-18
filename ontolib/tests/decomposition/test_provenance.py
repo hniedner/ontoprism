@@ -1764,3 +1764,32 @@ def test_a_long_note_keeps_its_label_and_the_error_keeps_its_start() -> None:
     assert message.startswith("worker lost ")
     assert "\nRecording the stage failure also failed: OperationalError" in message
     assert "\ncaused by KeyError: 'C1'" in message
+    assert "\u2026\nRecording the stage failure also failed" in message
+
+
+@pytest.mark.unit
+def test_a_cause_chain_cut_at_its_depth_bound_says_so() -> None:
+    error = RuntimeError("top")
+    link = error
+    for depth in range(7):
+        link.__cause__ = RuntimeError(f"cause {depth}")
+        link = link.__cause__
+
+    _, message = provenance_module._bounded_failure(error)
+
+    assert "\ncaused by RuntimeError: cause 4\n" in message
+    assert "cause 5" not in message
+    assert message.endswith("\n\u2026 (further causes omitted)")
+
+
+@pytest.mark.unit
+def test_an_account_cut_at_the_column_bound_ends_in_an_ellipsis() -> None:
+    error = RuntimeError("stopped")
+    for index in range(6):
+        error.add_note(f"note {index} " + "n" * 300)
+
+    _, message = provenance_module._bounded_failure(error)
+
+    assert len(message) == 1000
+    assert message.startswith("stopped\nnote 0 ")
+    assert message.endswith("\u2026")
