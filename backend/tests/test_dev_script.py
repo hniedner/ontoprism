@@ -64,11 +64,14 @@ def _script_copy(tmp_path: Path, dotenv: str = "") -> Path:
     return tmp_path
 
 
-def _stop_backend(
-    root: Path, environment: dict[str, str]
+_TARGETS = [("backend", "BACKEND_PORT"), ("frontend", "FRONTEND_PORT")]
+
+
+def _stop(
+    root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["/bin/bash", "scripts/dev.sh", "stop", "backend"],
+    return subprocess.run(  # noqa: S603 - fixed shell and a copy of the repo script
+        ["/bin/bash", "scripts/dev.sh", "stop", target],
         cwd=root,
         env=environment,
         check=False,
@@ -92,7 +95,7 @@ def test_stopping_a_port_spares_its_clients(tmp_path: Path) -> None:
     listener = _spawn(_LISTENER, port)
     client = _spawn(_CLIENT, port)
     try:
-        result = _stop_backend(
+        result = _stop(
             _script_copy(tmp_path), {**os.environ, "BACKEND_PORT": str(port)}
         )
 
@@ -105,26 +108,30 @@ def test_stopping_a_port_spares_its_clients(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_a_port_given_in_the_environment_wins_over_dotenv(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("target", "variable"), _TARGETS)
+def test_a_port_given_in_the_environment_wins_over_dotenv(
+    target: str, variable: str, tmp_path: Path
+) -> None:
     """``.env`` used to overwrite the caller's port, so a command aimed at one port
     signalled whatever listened on the other."""
     asked = in_dotenv = _free_port()
     while in_dotenv == asked:
         in_dotenv = _free_port()
-    target = _spawn(_LISTENER, asked, "idle")
+    aimed_at = _spawn(_LISTENER, asked, "idle")
     bystander = _spawn(_LISTENER, in_dotenv, "idle")
     try:
-        result = _stop_backend(
-            _script_copy(tmp_path, f"BACKEND_PORT={in_dotenv}\n"),
-            {**os.environ, "BACKEND_PORT": str(asked)},
+        result = _stop(
+            _script_copy(tmp_path, f"{variable}={in_dotenv}\n"),
+            {**os.environ, variable: str(asked)},
+            target,
         )
 
         assert result.returncode == 0, result.stderr
-        assert target.wait(timeout=10) != 0
+        assert aimed_at.wait(timeout=10) != 0
         time.sleep(0.5)
         assert bystander.poll() is None
     finally:
-        _reap(target, bystander)
+        _reap(aimed_at, bystander)
 
 
 @pytest.mark.unit
@@ -133,10 +140,14 @@ def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
 ) -> None:
     """With lsof missing every lookup came back empty and ``stop`` printed "was not
     running" beside a live server."""
-    empty_path = tmp_path / "bin"
-    empty_path.mkdir()
+    without_lsof = tmp_path / "bin"
+    without_lsof.mkdir()
+    for tool in ("dirname", "mkdir", "sleep", "xargs"):
+        found = shutil.which(tool)
+        assert found is not None
+        (without_lsof / tool).symlink_to(found)
 
-    result = _stop_backend(_script_copy(tmp_path), {"PATH": str(empty_path)})
+    result = _stop(_script_copy(tmp_path), {"PATH": str(without_lsof)})
 
     assert result.returncode != 0
     assert "lsof" in result.stderr
@@ -144,14 +155,15 @@ def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
 
 
 @pytest.mark.unit
-def test_a_port_that_is_not_a_number_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("target", "variable"), _TARGETS)
+def test_a_port_that_is_not_a_number_is_refused(
+    target: str, variable: str, tmp_path: Path
+) -> None:
     """lsof exits 1 for a malformed port exactly as it does for "no listener", so
     ``stop`` used to print "was not running" whatever was running."""
-    result = _stop_backend(
-        _script_copy(tmp_path), {**os.environ, "BACKEND_PORT": "80l1"}
-    )
+    result = _stop(_script_copy(tmp_path), {**os.environ, variable: "80l1"}, target)
 
     assert result.returncode != 0
-    assert "BACKEND_PORT" in result.stderr
+    assert variable in result.stderr
     assert "80l1" in result.stderr
     assert "not running" not in result.stdout

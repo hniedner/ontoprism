@@ -3773,6 +3773,7 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
         self.stop_outlives_timeout = stop_outlives_timeout
         self.inspections_until_stopped = inspections_until_stopped
         self.before_machine_stop: Callable[[], None] | None = None
+        self.before_sleep: Callable[[], None] | None = None
         self.state_after_stop_timeout: str | None = None
         self.inspect_fails_after_stop_timeout = False
         self.machine_name = "ontoprism-vm"
@@ -3784,6 +3785,8 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
         self, arguments: list[str], **kwargs: object
     ) -> _Result:
         self.calls.append((arguments, kwargs))
+        if arguments[:1] == ["/bin/sleep"] and self.before_sleep is not None:
+            self.before_sleep()
         if arguments == [
             "/opt/homebrew/bin/podman",
             "machine",
@@ -3980,6 +3983,7 @@ def test_a_quoted_key_after_a_word_character_is_still_redacted() -> None:
     assert replay._bounded_sanitized('x"PASSWORD":"hunter2"') == (
         'x"PASSWORD":"[REDACTED]"'
     )
+    assert replay._bounded_sanitized("x'SECRET'='hunter2'") == "x'SECRET'='[REDACTED]'"
 
 
 @pytest.mark.unit
@@ -4017,6 +4021,8 @@ def _exited_process_id() -> int:
         (os.getpid, False),
         (lambda: 0, False),
         (lambda: -1, False),
+        (lambda: -_exited_process_id(), False),
+        (lambda: 1, False),
         (lambda: 10**30, False),
         (lambda: "not-a-pid", False),
         (None, False),
@@ -4104,6 +4110,55 @@ def test_a_stop_that_outlives_its_timeout_is_waited_out(
     output = capsys.readouterr().out
     assert "machine-stop-outlived-timeout=300s" in output
     assert "machine-action=restarted-stale" in output
+
+
+@pytest.mark.unit
+def test_the_outlived_stop_is_announced_before_the_wait_begins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Up to 300 s of waiting follows; a harness that ends the run in that window
+    must already have been told why the run was waiting."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, write_through=False))
+    written_before_sleep: list[str] = []
+    runner = _PodmanRecoveryRunner(
+        socket_path,
+        stale=True,
+        stop_outlives_timeout=True,
+        inspections_until_stopped=2,
+    )
+    runner.before_sleep = lambda: written_before_sleep.append(raw.getvalue().decode())
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert "machine-stop-outlived-timeout=300s" in written_before_sleep[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stop_outlives_timeout", [False, True])
+def test_a_reported_machine_state_is_redacted_like_any_other_output(
+    stop_outlives_timeout: bool, tmp_path: Path
+) -> None:
+    """The state is unvalidated JSON from the machine; both messages that quote it
+    (the entry refusal and the stop wait giving up) must not leak what it holds."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(
+        socket_path, stale=True, stop_outlives_timeout=stop_outlives_timeout
+    )
+    if stop_outlives_timeout:
+        runner.state_after_stop_timeout = "TOKEN=abc123"
+    else:
+        runner.machine_state = "TOKEN=abc123"
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    assert "abc123" not in str(raised.value)
+    assert "TOKEN=[REDACTED]" in str(raised.value)
 
 
 @pytest.mark.unit
