@@ -114,6 +114,7 @@ from ontolib.decomposition.publication import (
 )
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import (
+    ClosureBudgetExceededError,
     SourcePreflightResult,
     run_source_preflight,
 )
@@ -1696,17 +1697,24 @@ async def _source_preflight_result(
         if inventory_identity is not None
         else {}
     )
-    return await run_source_preflight(
-        worklist,
-        read_definition=read_definition,
-        source_identity=source_identity,
-        reader_identity=routing_identity,
-        query_identity=routing_identity,
-        tool_identity=await client.version() or "missing-version",
-        walker_max_depth=config.walker_max_depth,
-        max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
-        **kwargs,
-    )
+    try:
+        return await run_source_preflight(
+            worklist,
+            read_definition=read_definition,
+            source_identity=source_identity,
+            reader_identity=routing_identity,
+            query_identity=routing_identity,
+            tool_identity=await client.version() or "missing-version",
+            walker_max_depth=config.walker_max_depth,
+            max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
+            **kwargs,
+        )
+    except ClosureBudgetExceededError as exc:
+        exc.add_note(
+            "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
+            "ontolib/decomposition/run.py: narrow the worklist or raise it."
+        )
+        raise
 
 
 def _required_mixed_chain_inventory_identity(

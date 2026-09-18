@@ -210,16 +210,21 @@ async def test_preflight_does_not_recurse_through_direct_fillers() -> None:
 @pytest.mark.unit
 async def test_an_exhausted_closure_budget_is_refused_as_a_worklist_problem() -> None:
     """The budget is shared by the whole worklist, so no concept is reported as the
-    cause, and nothing further is read once it is spent."""
+    cause, and nothing further is read once a concept needs a dependency beyond it.
+    The position counts every worklist concept reached, readable or not."""
     seen: list[str] = []
 
     async def read(code: str) -> CompleteDefinition:
         seen.append(code)
+        if code == "C0":
+            raise UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
         return _definition(code, f"{code}1", f"{code}2")
 
     with pytest.raises(ClosureBudgetExceededError) as refusal:
         await run_source_preflight(
-            ("C1", "C2", "C3"),
+            ("C0", "C1", "C2", "C3"),
             read_definition=read,
             source_identity="a" * 64,
             reader_identity="b" * 64,
@@ -231,7 +236,7 @@ async def test_an_exhausted_closure_budget_is_refused_as_a_worklist_problem() ->
 
     assert str(refusal.value) == (
         "source preflight closure needs more than its budget of 3 dependency "
-        "concepts; it was spent after 2 of 3 worklist concepts. The budget is shared "
-        "by the whole worklist: no single concept is at fault."
+        "concepts; it ran out while expanding worklist concept 3 of 4. The budget is "
+        "shared by the whole worklist: no single concept is at fault."
     )
-    assert seen == ["C1", "C2"]
+    assert seen == ["C0", "C1", "C2"]

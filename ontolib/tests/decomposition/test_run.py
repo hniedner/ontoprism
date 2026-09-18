@@ -4001,4 +4001,8 @@ async def test_a_spent_closure_budget_refuses_the_run_without_blaming_a_concept(
         )
 
     assert "C6135" not in str(refusal.value)
+    assert refusal.value.__notes__ == [
+        "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
+        "ontolib/decomposition/run.py: narrow the worklist or raise it."
+    ]
     provenance.admit_run.assert_not_awaited()

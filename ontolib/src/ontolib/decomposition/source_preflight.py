@@ -148,20 +148,22 @@ async def run_source_preflight(
 ) -> SourcePreflightResult:
     """Census exact roots plus conservative defined-genus and filler closure.
 
-    ``max_nodes`` bounds the dependency concepts of the whole worklist; when it is
-    spent the census stops with ``ClosureBudgetExceededError``. ``overflow_codes``
-    holds only concepts whose own definition exceeds a reader bound.
+    ``max_nodes`` bounds the dependency concepts outside the worklist, shared by the
+    whole worklist; when the worklist needs more, the census stops with
+    ``ClosureBudgetExceededError``. ``overflow_codes`` holds only concepts whose own
+    complete definition exceeds a reader bound (``DefinitionBoundExceededError``).
     """
-    queue = deque((code, True) for code in worklist)
+    # A worklist concept carries its 1-based position; a dependency carries 0 and is
+    # read but not expanded.
+    queue = deque((code, position) for position, code in enumerate(worklist, 1))
     scheduled = set(worklist)
     supported: set[str] = set()
     unsupported: dict[str, str] = {}
     malformed: set[str] = set()
     overflow: set[str] = set()
     closure_count = 0
-    expanded = 0
     while queue:
-        code, expand_dependencies = queue.popleft()
+        code, position = queue.popleft()
         definition = await _read_classified_definition(
             code,
             read_definition,
@@ -170,22 +172,19 @@ async def run_source_preflight(
             malformed=malformed,
             overflow=overflow,
         )
-        if definition is None:
+        if definition is None or not position:
             continue
-        if not expand_dependencies:
-            continue
-        expanded += 1
-        for dependency in sorted(_dependencies(definition) - scheduled):
-            if closure_count >= max_nodes:
-                raise ClosureBudgetExceededError(
-                    "source preflight closure needs more than its budget of "
-                    f"{max_nodes} dependency concepts; it was spent after {expanded} "
-                    f"of {len(worklist)} worklist concepts. The budget is shared by "
-                    "the whole worklist: no single concept is at fault."
-                )
-            scheduled.add(dependency)
-            queue.append((dependency, False))
-            closure_count += 1
+        dependencies = sorted(_dependencies(definition) - scheduled)
+        closure_count += len(dependencies)
+        if closure_count > max_nodes:
+            raise ClosureBudgetExceededError(
+                "source preflight closure needs more than its budget of "
+                f"{max_nodes} dependency concepts; it ran out while expanding "
+                f"worklist concept {position} of {len(worklist)}. The budget is "
+                "shared by the whole worklist: no single concept is at fault."
+            )
+        scheduled.update(dependencies)
+        queue.extend((dependency, 0) for dependency in dependencies)
     checked = tuple(sorted(supported | unsupported.keys() | malformed | overflow))
     return SourcePreflightResult(
         source_identity=source_identity,
