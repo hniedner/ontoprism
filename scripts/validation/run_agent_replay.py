@@ -64,7 +64,8 @@ _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 # every time.
 _PODMAN_MACHINE_TIMEOUT_SECONDS = 300
 # Killing the `machine stop` CLI at its timeout does not stop the guest's shutdown; this
-# many ten-second looks at the machine state follow before the recovery gives up.
+# many looks at the machine state, ten seconds apart, follow before the recovery gives
+# up.
 _PODMAN_STOP_WAIT_ATTEMPTS = 30
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
 _MIN_SPECIFICITY_FILLERS = 2
@@ -3723,7 +3724,10 @@ class PodmanMachine:
     ssh_port: int
 
 
-def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
+def _inspected_podman_machine(
+    root: Path, runner: CommandRunner
+) -> tuple[object, Path, int]:
+    """Our machine's reported state, API socket and SSH port, whatever the state is."""
     output = _capture_required(
         [_PODMAN, "machine", "inspect", _PODMAN_MACHINE], root, runner
     )
@@ -3735,13 +3739,6 @@ def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
         ssh_port = ssh["Port"]
     except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise AgentReplayInputError("invalid Podman machine contract") from exc
-    if machine.get("State") not in {"running", "stopped"}:
-        raise AgentReplayInputError(
-            "invalid Podman machine contract: state "
-            f"{_bounded_sanitized(repr(machine.get('State')))} is neither 'running' "
-            "nor 'stopped'; an interrupted start or stop can leave it in between, so "
-            "rerun once it settles"
-        )
     if (
         len(payload) != 1
         or machine.get("Name") != _PODMAN_MACHINE
@@ -3755,10 +3752,20 @@ def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
         or socket_path.parent.name != "podman"
     ):
         raise AgentReplayInputError("invalid Podman machine contract")
+    return machine.get("State"), socket_path, ssh_port
+
+
+def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
+    state, socket_path, ssh_port = _inspected_podman_machine(root, runner)
+    if state not in {"running", "stopped"}:
+        raise AgentReplayInputError(
+            "invalid Podman machine contract: state "
+            f"{_bounded_sanitized(repr(state))} is neither 'running' nor 'stopped'. "
+            "'starting' is what an interrupted `podman machine start` can leave; if "
+            "a rerun reports the same state, inspect the machine (docs/DATA_SETUP.md)"
+        )
     return PodmanMachine(
-        cast("Literal['running', 'stopped']", machine["State"]),
-        socket_path,
-        ssh_port,
+        cast("Literal['running', 'stopped']", state), socket_path, ssh_port
     )
 
 
@@ -4499,7 +4506,8 @@ def _dead_gvproxy_cause(machine: PodmanMachine) -> str | None:
         os.kill(pid, 0)
     except ProcessLookupError:
         return (
-            f"gvproxy pid {pid} from {pid_path} names no process while the VM runs; "
+            f"gvproxy pid {pid} from {pid_path} names no process while the machine "
+            "reports running; "
             "the usual cause is a signal (a kill by port on 5433/7888/7889, or one to "
             "the process group that started the machine); see docs/DATA_SETUP.md"
         )
@@ -4540,14 +4548,22 @@ def _stop_podman_machine(root: Path, runner: CommandRunner) -> None:
             f"machine-stop-outlived-timeout={_PODMAN_MACHINE_TIMEOUT_SECONDS}s",
             flush=True,
         )
-        for _attempt in range(_PODMAN_STOP_WAIT_ATTEMPTS):
-            if _podman_machine(root, runner).state == "stopped":
-                return
-            _capture_required(["/bin/sleep", "10"], root, runner)
+        state: object = "running"
+        try:
+            # A machine polled mid-shutdown is in transition by construction: any state
+            # but `stopped` means "not yet". The strict contract guards the entry check.
+            for _attempt in range(_PODMAN_STOP_WAIT_ATTEMPTS):
+                _capture_required(["/bin/sleep", "10"], root, runner)
+                state, _socket_path, _ssh_port = _inspected_podman_machine(root, runner)
+                if state == "stopped":
+                    return
+        except AgentReplayInputError as waiting:
+            waiting.add_note(f"while waiting for the machine to stop after: {slow}")
+            raise
         raise AgentReplayInputError(
-            f"{slow}; {_PODMAN_STOP_WAIT_ATTEMPTS * 10}s later the machine still "
-            "reports 'running'. The guest may still be shutting down: rerun "
-            "ensure-podman-stack, which is safe to repeat"
+            f"{slow}; {_PODMAN_STOP_WAIT_ATTEMPTS * 10}s later the machine reports "
+            f"{_bounded_sanitized(repr(state))}. The guest may still be shutting down: "
+            "rerun ensure-podman-stack, which is safe to repeat"
         ) from slow
 
 

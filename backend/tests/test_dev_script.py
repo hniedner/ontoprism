@@ -2,7 +2,8 @@
 ``stop-*`` and ``restart-*``.
 
 Every test runs a copy of the script in its own directory: the script sources the
-``.env`` beside it, and the repository's must never decide what a test signals.
+``.env`` of the directory above it, and the repository's must never decide what a
+test signals.
 """
 
 from __future__ import annotations
@@ -107,7 +108,8 @@ def test_stopping_a_port_spares_its_clients(tmp_path: Path) -> None:
 def test_a_port_given_in_the_environment_wins_over_dotenv(tmp_path: Path) -> None:
     """``.env`` used to overwrite the caller's port, so a command aimed at one port
     signalled whatever listened on the other."""
-    asked, in_dotenv = _free_port(), _free_port()
+    asked = _free_port()
+    in_dotenv = next(port for port in iter(_free_port, None) if port != asked)
     target = _spawn(_LISTENER, asked, "idle")
     bystander = _spawn(_LISTENER, in_dotenv, "idle")
     try:
@@ -137,4 +139,17 @@ def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
 
     assert result.returncode != 0
     assert "lsof" in result.stderr
+    assert "not running" not in result.stdout
+
+
+@pytest.mark.unit
+def test_a_port_that_is_not_a_number_is_refused(tmp_path: Path) -> None:
+    """lsof exits 1 for a malformed port exactly as it does for "no listener", so
+    ``stop`` used to print "was not running" whatever was running."""
+    result = _stop_backend(
+        _script_copy(tmp_path), {**os.environ, "BACKEND_PORT": "80l1"}
+    )
+
+    assert result.returncode != 0
+    assert "80l1" in result.stderr
     assert "not running" not in result.stdout

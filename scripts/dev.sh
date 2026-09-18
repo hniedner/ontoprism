@@ -2,7 +2,7 @@
 # ontoprism dev process manager — start/stop/restart the backend + frontend.
 # Invoked via `pdm run start-all|stop-all|restart-all|start-backend|...`.
 set -euo pipefail
-# Every lookup below is an lsof call; without it each one would come back empty and
+# Every port lookup below is an lsof call; without it each one would come back empty and
 # `stop` would report "was not running" beside a live server.
 command -v lsof >/dev/null || { echo "dev.sh needs lsof on PATH" >&2; exit 1; }
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,6 +21,12 @@ fi
 
 BACKEND_PORT="${requested_backend_port:-${BACKEND_PORT:-8011}}"     # 8001 is the sibling fairdata backend
 FRONTEND_PORT="${requested_frontend_port:-${FRONTEND_PORT:-5175}}"  # 5173 is the sibling fairdata frontend
+# lsof exits 1 for a malformed port exactly as it does for "no listener".
+for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+  case "$port" in
+    '' | *[!0-9]*) echo "dev.sh: port '$port' is not a number" >&2; exit 1 ;;
+  esac
+done
 export ONTOPRISM_FASTAPI_ORIGIN="${ONTOPRISM_FASTAPI_ORIGIN:-http://127.0.0.1:$BACKEND_PORT}"
 export ONTOPRISM_FASTAPI_TIMEOUT_MS="${ONTOPRISM_FASTAPI_TIMEOUT_MS:-5000}"
 LOG_DIR=".dev-logs"

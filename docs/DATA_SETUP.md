@@ -183,7 +183,8 @@ pdm run verify
 Podman integration/full-store wrappers. It accepts no arguments. It inspects the exact rootless
 `ontoprism-vm`, its SSH connection, forwarded socket, and Docker-compatible API. A stopped machine
 is started. A machine that claims `running` while any of those probes fail receives exactly one
-normal stop/start recovery, followed by three bounded readiness attempts; there is no reset,
+normal stop/start recovery (a stop that outlives its timeout is waited out, bounded; see below),
+followed by three bounded readiness attempts; there is no reset,
 recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
 and selects only `ontoprism-podman`. It validates every existing stack resource's owner, mount, and
 loopback port before reconciling an absent, stopped, or partial stack, and refuses uncertain
@@ -209,8 +210,8 @@ still reports `running` and `podman machine ssh` gets "connection refused". Two 
   session; prefer it to a bare `podman machine start`.
 
 `ensure-podman-stack` attempts the repair with one stop/start. Each command is allowed 300 s, and
-a stop that outlives that is followed by up to 300 s of waiting for the machine to report
-`stopped`, because killing the stop command does not stop the guest's shutdown. On 2026-09-18 the
+a stop that outlives that is followed by 30 looks at the machine state, ten seconds apart (about
+300 s), waiting for it to report `stopped`, because killing the stop command does not stop the guest's shutdown. On 2026-09-18 the
 shutdown of a half-dead VM took on the order of a minute; a healthy one stopped in 13 s. When
 gvproxy's pid file names no process, the run prints `stale-machine-cause=gvproxy pid ... names no
 process`. To look yourself:
