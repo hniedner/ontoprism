@@ -61,6 +61,12 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 )
 
 
+# A full run takes about fifteen hours. Before one starts, the same pipeline runs on
+# this many concepts, through the same reporting, so an input, environment or
+# reporting defect surfaces in minutes instead of at the end.
+PREFLIGHT_LIMIT = 50
+
+
 def _make_label_lookup(index: NcitSearchIndex):  # type: ignore[no-untyped-def]
     """Resolve an NLP surface form to an existing concept via an exact label match."""
 
@@ -310,6 +316,16 @@ def main(
             ),
         ),
     ] = None,
+    preflight: Annotated[
+        bool,
+        typer.Option(
+            "--preflight/--no-preflight",
+            help=(
+                f"Before a full run, run the first {PREFLIGHT_LIMIT} concepts through "
+                "the whole pipeline (never loading the graph) and stop if that fails."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if emit_equivalence:
@@ -330,6 +346,25 @@ def main(
             raise typer.BadParameter(
                 "--sample-manifest and --total-limit are mutually exclusive"
             )
+    is_full_run = resume is None and total_limit is None and sample_manifest is None
+    if preflight and is_full_run:
+        preflight_out = out.with_name(f"{out.name}.preflight") if out else None
+        preflight_metrics = asyncio.run(
+            _run(
+                source_manifest,
+                branch,
+                preflight_out,
+                False,
+                emit_equivalence,
+                None,
+                PREFLIGHT_LIMIT,
+                walker_max_depth,
+                None,
+            )
+        )
+        typer.echo(f"preflight: {_summary_line(preflight_metrics)}")
+        if preflight_out is not None:
+            preflight_out.unlink(missing_ok=True)
     metrics = asyncio.run(
         _run(
             source_manifest,
@@ -343,6 +378,10 @@ def main(
             sample_manifest,
         )
     )
+    typer.echo(_summary_line(metrics))
+
+
+def _summary_line(metrics: RunMetrics) -> str:
     residual_rate = metrics.residual_precoordination
     residual_summary = (
         f"{residual_rate:.2%} "
@@ -350,7 +389,7 @@ def main(
         if residual_rate is not None
         else f"unavailable (unknown={metrics.residual_precoordination_unknown_count})"
     )
-    typer.echo(
+    return (
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
         f"residual={metrics.residual} "
         f"semantic_excluded={metrics.semantic_excluded} "

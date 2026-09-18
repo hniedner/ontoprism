@@ -739,6 +739,103 @@ def test_main_prints_metrics_and_forwards_resume_options(
     )
 
 
+def _metrics(total: int) -> decompose.RunMetrics:
+    return decompose.RunMetrics(
+        total_in_scope=total,
+        decomposed=total,
+        residual=0,
+        semantic_excluded=0,
+        atomic_noop=0,
+        minted_count=0,
+        residual_precoordinated_count=0,
+    )
+
+
+@pytest.mark.unit
+def test_full_run_is_preceded_by_a_bounded_preflight_of_the_same_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def run_command(*args: object) -> decompose.RunMetrics:
+        calls.append(args)
+        return _metrics(len(calls))
+
+    monkeypatch.setattr(decompose, "_run", run_command)
+    output = tmp_path / "decomposed.ttl"
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=output,
+        load=True,
+    )
+
+    preflight, full = calls
+    assert preflight[2] == tmp_path / "decomposed.ttl.preflight"
+    assert preflight[3] is False, "the preflight never loads the graph"
+    assert preflight[6] == decompose.PREFLIGHT_LIMIT
+    assert full[2:7] == (output, True, False, None, None)
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("preflight: in_scope=1 ")
+    assert lines[1].startswith("in_scope=2 ")
+
+
+@pytest.mark.unit
+def test_a_failing_preflight_stops_the_full_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def run_command(*args: object) -> decompose.RunMetrics:
+        calls.append(args)
+        raise RuntimeError("unsupported constructor at concept 7")
+
+    monkeypatch.setattr(decompose, "_run", run_command)
+
+    with pytest.raises(RuntimeError, match="concept 7"):
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    assert len(calls) == 1
+    assert calls[0][6] == decompose.PREFLIGHT_LIMIT
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"resume": "neoplasm-run-1"},
+        {"total_limit": 10},
+        {"preflight": False},
+    ],
+)
+def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict[str, object]
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def run_command(*args: object) -> decompose.RunMetrics:
+        calls.append(args)
+        return _metrics(1)
+
+    monkeypatch.setattr(decompose, "_run", run_command)
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=tmp_path / "decomposed.ttl",
+        **options,  # type: ignore[arg-type]
+    )
+
+    assert len(calls) == 1
+
+
 @pytest.mark.unit
 def test_main_prints_unavailable_residual_rate_with_unknown_count(
     tmp_path: Path,
