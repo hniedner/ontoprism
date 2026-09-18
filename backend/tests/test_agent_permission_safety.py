@@ -289,9 +289,9 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
     XDG_CONFIG_HOME, its own XDG data dir so parallel cases never share one SQLite
     database, its own state and cache dirs so nothing is written into the owner's,
     no ``OPENCODE_*`` override from the shell, no models catalogue fetch, and
-    ``--pure``. It pins the repository's contribution only; a global OpenCode config
-    or plugin on the owner's machine can still widen an agent and no test in this
-    suite checks it.
+    ``--pure``. It pins the repository's contribution only; a global or managed
+    OpenCode config or plugin on the owner's machine can still widen an agent and no
+    test in this suite checks it.
     Skipped, not passed, where the binary is absent (always in CI); run it locally
     after editing any agent file."""
     binary = _opencode_binary()
