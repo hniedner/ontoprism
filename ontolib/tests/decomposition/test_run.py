@@ -1746,6 +1746,29 @@ async def test_completed_preflight_rejects_stale_mixed_chain_inventory(
 
 
 @pytest.mark.unit
+def test_an_inventory_bound_to_another_source_is_rejected_as_a_preflight_problem() -> (
+    None
+):
+    """The packaged neoplasm inventory is bound to the real NCIt source and worklist, so
+    a run on any other source must be refused, not crash on the inventory's error."""
+    with pytest.raises(
+        SourcePreflightRejectedError,
+        match=r"rejected mixed-chain inventory: .*source identity differs",
+    ):
+        run_module._required_mixed_chain_inventory_identity(
+            RunConfig(
+                branch="neoplasm",
+                mixed_chain_inventory_path=Path(
+                    "ontolib/src/ontolib/decomposition/data/"
+                    "neoplasm_mixed_chain_inventory.json"
+                ),
+            ),
+            source_identity="a" * 64,
+            worklist=("C1",),
+        )
+
+
+@pytest.mark.unit
 async def test_completed_preflight_rejects_a_restored_disallowed_result() -> None:
     allowed = await run_source_preflight(
         (),
