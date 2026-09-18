@@ -36,7 +36,7 @@ from four plain criteria into a corpus-wide acceptance contract.
   dimensions (D49) and `ontology-analyst`; the planning chain (architect, plan-adversary,
   ontology-engineer, ontology-validator, implementer) is retired. All five review
   dimensions still run on every PR, to convergence: every verified finding and every
-  reasonable suggestion is addressed, a converged dimension drops out of later rounds,
+  reasonable suggestion is addressed, a converged dimension drops out of later rounds
   (re-armed when a later fix touches what it reviews), and there is no round ceiling.
   PR size is set when work is planned, one issue or one
   coherent change per PR, balancing granularity against review and CI cost.

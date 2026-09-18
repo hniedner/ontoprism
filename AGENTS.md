@@ -124,7 +124,7 @@ aggregate coverage above 90%. What changed is *when* each lane runs.
 | On commit | pre-commit hooks | automatic |
 | Before PR, once | everything CI runs | `pdm run verify` |
 | Gate of record | CI on the PR | `gh pr checks <n>` |
-| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass, set `ONTOPRISM_OPENCODE_BIN` | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
+| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass. The binary is auto-discovered on the owner's machine; elsewhere the owner exports `ONTOPRISM_OPENCODE_BIN` before launching (an inline prefix is prompted or denied for an agent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
 | When the change touches a real store contract | read-only contracts on configured corpora | `pdm run agent-test --full-store <node> -v` |
 
 Other lanes: `pdm run test` (grouped hermetic suites), `pdm run test-integration`
