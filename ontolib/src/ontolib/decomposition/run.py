@@ -1632,8 +1632,8 @@ async def _preflight_stage(
 ) -> str:
     """Seal ``preflight`` (computed before admission) as the run's preflight stage. If
     an earlier attempt already sealed the stage, use that stored result instead and
-    ignore ``preflight``. Either result must still pass the preflight gate and the
-    mixed-chain inventory check."""
+    ignore ``preflight``. Either result must still pass the preflight gate and, when
+    the config names a mixed-chain inventory, match that inventory's identity."""
     input_identity = setup.fingerprint.identity
     claim = await provenance.claim_stage(setup.run_id, "preflight", input_identity)
     if claim is None:

@@ -1750,7 +1750,8 @@ def test_an_inventory_bound_to_another_source_is_rejected_as_a_preflight_problem
     None
 ):
     """The packaged neoplasm inventory is bound to the real NCIt source and worklist, so
-    a run on any other source must be refused, not crash on the inventory's error."""
+    a run on any other source must be refused as a SourcePreflightRejectedError, not
+    escape as the inventory's bare ValueError."""
     with pytest.raises(
         SourcePreflightRejectedError,
         match=r"rejected mixed-chain inventory: .*source identity differs",
