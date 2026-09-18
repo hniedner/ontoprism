@@ -1686,10 +1686,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
     )
 
     identity = await run_module._preflight_stage(
-        _checkpoint_setup(),
-        RunConfig(branch="disease"),
-        MagicMock(),
-        provenance,
+        _checkpoint_setup(), RunConfig(branch="disease"), provenance, result
     )
 
     assert identity == result.identity
@@ -1733,8 +1730,8 @@ async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None
                     "neoplasm_mixed_chain_inventory.json"
                 ),
             ),
-            MagicMock(),
             provenance,
+            result,
         )
 
 
