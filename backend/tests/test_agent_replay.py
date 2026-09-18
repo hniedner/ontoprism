@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 import os
 import socket
 import subprocess
+import sys
+import time
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -3751,12 +3755,29 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
         stale: bool = False,
         stack_state: str = "healthy",
         restart_succeeds: bool = True,
+        machine_command_seconds: int = 0,
+        stop_outlives_timeout: bool = False,
+        inspections_until_stopped: int | None = None,
     ) -> None:
         super().__init__(socket_path)
-        self.machine_state = machine_state
+        # `State` is unvalidated JSON to the script, so the fake may hold anything.
+        self.machine_state: object = machine_state
         self.stale = stale
         self.stack_state = stack_state
         self.restart_succeeds = restart_succeeds
+        # How long `podman machine stop/start` runs; the caller's timeout must cover it.
+        self.machine_command_seconds = machine_command_seconds
+        # The CLI is killed at its timeout while the guest keeps powering off; the
+        # machine reports `stopped` on this many-th inspection, counting the entry
+        # check (or never).
+        self.stop_outlives_timeout = stop_outlives_timeout
+        self.inspections_until_stopped = inspections_until_stopped
+        self.before_machine_stop: Callable[[], None] | None = None
+        self.before_sleep: Callable[[], None] | None = None
+        self.state_after_stop_timeout: str | None = None
+        self.inspect_fails_after_stop_timeout = False
+        self.machine_name = "ontoprism-vm"
+        self._stop_timed_out = False
         self.contexts = ("default", "ontoprism-podman")
         self.current = "ontoprism-podman"
 
@@ -3764,18 +3785,27 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
         self, arguments: list[str], **kwargs: object
     ) -> _Result:
         self.calls.append((arguments, kwargs))
+        if arguments[:1] == ["/bin/sleep"] and self.before_sleep is not None:
+            self.before_sleep()
         if arguments == [
             "/opt/homebrew/bin/podman",
             "machine",
             "inspect",
             "ontoprism-vm",
         ]:
+            if self._stop_timed_out and self.inspect_fails_after_stop_timeout:
+                return _Result(125, stderr="machine inspect: connection lost")
+            if self.inspections_until_stopped is not None:
+                self.inspections_until_stopped -= 1
+                if self.inspections_until_stopped <= 0:
+                    self.machine_state = "stopped"
+                    self.inspections_until_stopped = None
             return _Result(
                 0,
                 stdout=json.dumps(
                     [
                         {
-                            "Name": "ontoprism-vm",
+                            "Name": self.machine_name,
                             "State": self.machine_state,
                             "Rootful": False,
                             "SSHConfig": {
@@ -3819,9 +3849,18 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
                 ),
             )
         if arguments[-3:] == ["machine", "stop", "ontoprism-vm"]:
+            if self.before_machine_stop is not None:
+                self.before_machine_stop()
+            if self.stop_outlives_timeout:
+                self._stop_timed_out = True
+                if self.state_after_stop_timeout is not None:
+                    self.machine_state = self.state_after_stop_timeout
+                raise subprocess.TimeoutExpired(arguments, 300)
+            self._run_machine_command(arguments, kwargs)
             self.machine_state = "stopped"
             return _Result(0)
         if arguments[-3:] == ["machine", "start", "ontoprism-vm"]:
+            self._run_machine_command(arguments, kwargs)
             if not self.restart_succeeds:
                 return _Result(1, stderr="start failed TOKEN=abc123")
             self.machine_state = "running"
@@ -3894,6 +3933,384 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
             return _Result(0)
         self.calls.pop()
         return super().__call__(arguments, **kwargs)
+
+    def _run_machine_command(
+        self, arguments: list[str], kwargs: dict[str, object]
+    ) -> None:
+        timeout = kwargs["timeout"]
+        assert isinstance(timeout, (int, float))
+        if timeout < self.machine_command_seconds:
+            raise subprocess.TimeoutExpired(arguments, timeout)
+
+
+@pytest.mark.unit
+def test_ensure_podman_stack_outlasts_a_guest_shutdown_and_boot(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """On 2026-09-18 a half-dead VM (gvproxy gone, vfkit alive) needed well over
+    the 20 s diagnostic timeout to power off, so the one sanctioned recovery failed."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, machine_command_seconds=90)
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert "machine-action=restarted-stale" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_redaction_is_linear_on_a_long_word_run() -> None:
+    """Real ``docker inspect`` output carries long hashes and base64; a key prefix
+    that may start anywhere rescans such a run from every position (#369; before the
+    fix one 40 000-character run took 22 s, quadratic, on every command)."""
+    text = "x" * 200_000 + " xPASSWORD=hunter2 ok"
+
+    started = time.perf_counter()
+    sanitized = replay._bounded_sanitized(text, limit=None)
+    elapsed = time.perf_counter() - started
+
+    assert sanitized.endswith(" xPASSWORD=[REDACTED] ok")
+    assert elapsed < 2
+
+
+@pytest.mark.unit
+def test_a_quoted_key_after_a_word_character_is_still_redacted() -> None:
+    """The match may not start inside a word run; it must still start at the quote
+    that follows one, or `x"PASSWORD":"v"` leaks."""
+    assert replay._bounded_sanitized('x"PASSWORD":"hunter2"') == (
+        'x"PASSWORD":"[REDACTED]"'
+    )
+    assert replay._bounded_sanitized("x'SECRET'='hunter2'") == "x'SECRET'='[REDACTED]'"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("new_session", [True, False])
+def test_the_real_runner_gives_a_command_its_own_session_on_request(
+    new_session: bool, tmp_path: Path
+) -> None:
+    """The recovery double accepts any option; the runner that reaches the real
+    ``podman`` must actually detach the machine's processes from the caller."""
+    result = replay._subprocess_runner(
+        [sys.executable, "-c", "import os; print(os.getsid(0) == os.getpid())"],
+        cwd=tmp_path,
+        shell=False,
+        check=False,
+        timeout=30,
+        capture_output=True,
+        text=True,
+        start_new_session=new_session,
+    )
+
+    assert result.stdout.strip() == str(new_session)
+
+
+def _exited_process_id() -> int:
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("pid_file", "observed"),
+    [
+        (_exited_process_id, True),
+        (os.getpid, False),
+        (lambda: 0, False),
+        (lambda: -1, False),
+        (lambda: -_exited_process_id(), False),
+        (lambda: 1, False),
+        (lambda: 10**30, False),
+        (lambda: "not-a-pid", False),
+        (None, False),
+    ],
+)
+def test_ensure_podman_stack_reports_a_dead_gvproxy_only_when_it_saw_one(
+    pid_file: Callable[[], object] | None,
+    observed: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The recurring stale state is gvproxy gone while vfkit runs on. The line states
+    what was seen (a pid that names no process); a missing or unreadable pid file,
+    a pid that is not a positive process id, or a live pid, is no observation and
+    says nothing."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    pid_path = socket_path.parent / "gvproxy.pid"
+    content = None if pid_file is None else pid_file()
+    if content is not None:
+        pid_path.write_text(f"{content}\n")
+    runner = _PodmanRecoveryRunner(socket_path, stale=True)
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    output = capsys.readouterr().out
+    expected = (
+        f"stale-machine-cause=gvproxy pid {content} from {pid_path} names no process"
+    )
+    assert (expected in output) is observed
+    assert ("stale-machine-cause=" in output) is observed
+    assert "machine-action=restarted-stale" in output
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("gvproxy_died", [True, False])
+def test_the_stale_diagnosis_is_visible_before_the_machine_stop_blocks(
+    gvproxy_died: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stop may block for minutes under a harness that kills the run at its own
+    timeout; a diagnosis still sitting in a block buffer is lost with the process.
+    The case without a dead gvproxy pins the diagnostic's own flush: there the cause
+    line, whose flush would carry the diagnostic out with it, is never printed."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    if gvproxy_died:
+        (socket_path.parent / "gvproxy.pid").write_text(f"{_exited_process_id()}\n")
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, write_through=False))
+    written_before_stop: list[str] = []
+    runner = _PodmanRecoveryRunner(socket_path, stale=True)
+    runner.before_machine_stop = lambda: written_before_stop.append(
+        raw.getvalue().decode()
+    )
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    (written,) = written_before_stop
+    assert "stale-machine-diagnostic=" in written
+    assert ("stale-machine-cause=" in written) is gvproxy_died
+
+
+@pytest.mark.unit
+def test_a_stop_that_outlives_its_timeout_is_waited_out(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Killing the `machine stop` CLI does not stop the guest's shutdown (seen on
+    2026-09-18); recovery waits for `stopped` instead of failing."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(
+        socket_path,
+        stale=True,
+        stop_outlives_timeout=True,
+        inspections_until_stopped=3,
+    )
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    output = capsys.readouterr().out
+    assert "machine-stop-outlived-timeout=300s" in output
+    assert "machine-action=restarted-stale" in output
+
+
+@pytest.mark.unit
+def test_the_outlived_stop_is_announced_before_the_wait_begins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Up to 300 s of waiting follows; a harness that ends the run in that window
+    must already have been told why the run was waiting."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, write_through=False))
+    written_before_sleep: list[str] = []
+    runner = _PodmanRecoveryRunner(
+        socket_path,
+        stale=True,
+        stop_outlives_timeout=True,
+        inspections_until_stopped=2,
+    )
+    runner.before_sleep = lambda: written_before_sleep.append(raw.getvalue().decode())
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert "machine-stop-outlived-timeout=300s" in written_before_sleep[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stop_outlives_timeout", [False, True])
+def test_a_reported_machine_state_is_redacted_like_any_other_output(
+    stop_outlives_timeout: bool, tmp_path: Path
+) -> None:
+    """The state is unvalidated JSON from the machine; both messages that quote it
+    (the entry refusal and the stop wait giving up) must not leak what it holds."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(
+        socket_path, stale=True, stop_outlives_timeout=stop_outlives_timeout
+    )
+    if stop_outlives_timeout:
+        runner.state_after_stop_timeout = "TOKEN=abc123"
+    else:
+        runner.machine_state = "TOKEN=abc123"
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    assert "abc123" not in str(raised.value)
+    assert "TOKEN=[REDACTED]" in str(raised.value)
+
+
+@pytest.mark.unit
+def test_a_machine_that_never_stops_fails_after_a_bounded_wait(tmp_path: Path) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, stop_outlives_timeout=True)
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    commands = [command for command, _options in runner.calls]
+    inspect = ["/opt/homebrew/bin/podman", "machine", "inspect", "ontoprism-vm"]
+    start = ["/opt/homebrew/bin/podman", "machine", "start", "ontoprism-vm"]
+    stop = ["/opt/homebrew/bin/podman", "machine", "stop", "ontoprism-vm"]
+    assert "about 300s later the machine reports 'running'" in str(raised.value)
+    assert "may still be shutting down" in str(raised.value)
+    assert "rerun" in str(raised.value)
+    assert commands[commands.index(stop) + 1] == ["/bin/sleep", "10"]
+    assert commands.count(["/bin/sleep", "10"]) == 30
+    assert commands.count(inspect) == 31
+    assert start not in commands
+
+
+@pytest.mark.unit
+def test_giving_up_on_a_state_in_between_does_not_blame_a_slow_shutdown(
+    tmp_path: Path,
+) -> None:
+    """The slow-shutdown advice is for a machine that still reports `running`; for
+    any other state the rerun's own refusal says what to check."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, stop_outlives_timeout=True)
+    runner.state_after_stop_timeout = "unknown"
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    message = str(raised.value)
+    assert "about 300s later the machine reports 'unknown'" in message
+    assert "shutting down" not in message
+    assert "says what to check" in message
+
+
+@pytest.mark.unit
+def test_the_wait_for_a_stop_tolerates_a_state_in_between(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A machine being polled mid-shutdown is in transition by construction; every
+    other look keeps the strict running-or-stopped contract, this poll does not."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(
+        socket_path,
+        stale=True,
+        stop_outlives_timeout=True,
+        inspections_until_stopped=3,
+    )
+    runner.state_after_stop_timeout = "unknown"
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert "machine-action=restarted-stale" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_a_failure_while_waiting_for_the_stop_says_what_it_waited_for(
+    tmp_path: Path,
+) -> None:
+    """The wait can end on an inspect error; alone, that error hides that the
+    machine stop had already timed out and the guest may still be shutting down."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, stop_outlives_timeout=True)
+    runner.inspect_fails_after_stop_timeout = True
+
+    with pytest.raises(AgentReplayInputError, match="machine inspect") as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    assert any(
+        "machine stop ontoprism-vm" in note and "timed out after 300s" in note
+        for note in raised.value.__notes__
+    )
+
+
+@pytest.mark.unit
+def test_a_wrong_machine_is_not_reported_as_a_state_problem(tmp_path: Path) -> None:
+    """Rerunning cannot fix a payload that is not our machine; the named-state
+    refusal is for our machine in an unexpected state only."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, machine_state="starting")
+    runner.machine_name = "someone-elses-vm"
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    assert str(raised.value) == "invalid Podman machine contract"
+
+
+@pytest.mark.unit
+def test_a_state_that_is_not_even_a_string_is_named_too(tmp_path: Path) -> None:
+    """The inspected state is unvalidated JSON; a list must reach the refusal that
+    names it, not die as an unhashable set member."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path)
+    runner.machine_state = ["running"]
+
+    with pytest.raises(AgentReplayInputError, match=r"state \['running'\]"):
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+
+@pytest.mark.unit
+def test_an_unexpected_machine_state_is_named(tmp_path: Path) -> None:
+    """An interrupted `machine start` can leave a transitional state; the refusal
+    must say which, not only that the contract is invalid."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, machine_state="starting")
+
+    with pytest.raises(AgentReplayInputError, match="state 'starting'"):
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("machine_state", ["stopped", "running"])
+def test_ensure_podman_stack_starts_the_machine_in_its_own_session(
+    machine_state: str, tmp_path: Path
+) -> None:
+    """vfkit and gvproxy keep the process group of whatever ran `machine start`;
+    a new session keeps a harness or terminal signal away from the VM. The machine
+    timeout belongs to `machine stop`/`start` and to nothing else."""
+    _write_compose_inputs(tmp_path)
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+    runner = _PodmanRecoveryRunner(
+        socket_path, machine_state=machine_state, stale=machine_state == "running"
+    )
+
+    assert run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner) == 0
+
+    assert [
+        command for command, options in runner.calls if options.get("start_new_session")
+    ] == [["/opt/homebrew/bin/podman", "machine", "start", "ontoprism-vm"]]
+    assert {
+        tuple(command[1:3])
+        for command, options in runner.calls
+        if options["timeout"] == 300
+    } == (
+        {("machine", "stop"), ("machine", "start")}
+        if machine_state == "running"
+        else {("machine", "start")}
+    )
 
 
 @pytest.mark.unit

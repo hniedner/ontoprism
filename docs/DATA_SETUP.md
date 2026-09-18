@@ -183,15 +183,59 @@ pdm run verify
 Podman integration/full-store wrappers. It accepts no arguments. It inspects the exact rootless
 `ontoprism-vm`, its SSH connection, forwarded socket, and Docker-compatible API. A stopped machine
 is started. A machine that claims `running` while any of those probes fail receives exactly one
-normal stop/start recovery, followed by three bounded readiness attempts; there is no reset,
-recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
-and selects only `ontoprism-podman`. It validates every existing stack resource's owner, mount, and
-loopback port before reconciling an absent, stopped, or partial stack, and refuses uncertain
-ownership, storage identity, or port use. Success is reported only after `check-podman-api` and
-`podman-compose-check` pass, with machine/stack actions and the final endpoint/context/health.
-Agents are authorized to invoke this fixed recovery without prompting when local health requires
-it; this is not authority for arbitrary Podman or Docker commands. GitHub CI continues to use its
-existing Docker service path and does not execute this local preflight.
+normal stop/start recovery (a stop that outlives its timeout is waited out, bounded; see below),
+followed by three bounded readiness attempts. A machine that reports any other state is refused
+with the state named (see "The machine reports neither `running` nor `stopped`" below). There is
+no reset, recreation, deletion, or indefinite polling. Once the API is healthy, the operation
+safely updates and selects only `ontoprism-podman`. It validates every existing stack resource's
+owner, mount, and loopback port before reconciling an absent, stopped, or partial stack, and
+refuses uncertain ownership, storage identity, or port use. Success is reported only after
+`check-podman-api` and `podman-compose-check` pass, with machine/stack actions and the final
+endpoint/context/health. Agents are authorized to invoke this fixed recovery without prompting
+when local health requires it; this is not authority for arbitrary Podman or Docker commands.
+GitHub CI continues to use its existing Docker service path and does not execute this local
+preflight.
+
+#### The VM says `running` but nothing can reach it
+
+The machine is two host processes: `vfkit` (the VM) and `gvproxy` (all of its networking: the
+SSH port, the forwarded API socket, and the published ports 5433, 7888 and 7889). gvproxy exits
+on a terminating signal (SIGTERM, SIGINT, SIGHUP). While vfkit runs on, `podman machine inspect`
+still reports `running` and `podman machine ssh` gets "connection refused". Two things signal it:
+
+- A kill by port (`lsof -ti :PORT | xargs kill`, or a sweep over a port range) hits gvproxy,
+  because it is the listener on the stack's ports. This is what happened on 2026-09-18: another
+  project's test runner swept ports 7000-9999. Never clear those ports that way.
+- vfkit and gvproxy keep the process group of whatever ran `podman machine start`, so a harness
+  ending a tool call, Ctrl-C, or a closed terminal reaches both; whenever vfkit survives it, the
+  result is the same state. `ensure-podman-stack` therefore starts the machine in its own
+  session; prefer it to a bare `podman machine start`.
+
+`ensure-podman-stack` attempts the repair with one stop/start. Each command is allowed 300 s, and
+a stop that outlives that is followed by 30 looks at the machine state, ten seconds apart (about
+300 s), waiting for it to report `stopped`, because killing the stop command does not stop the
+guest's shutdown. On 2026-09-18 the shutdown of a half-dead VM took on the order of a minute; a
+healthy one stopped in 13 s. When gvproxy's pid file names no process, the run prints
+`stale-machine-cause=gvproxy pid ... names no process`. To look yourself:
+
+- `tail "$TMPDIR/podman/gvproxy.log"` (truncated at the next start, so read it before restarting);
+- `ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`;
+- `/usr/bin/log show --start "<date time>" --end "<date time>" --predicate 'process == "launchd"
+  AND eventMessage CONTAINS "sent by"'`. gvproxy is not a launchd job and is never listed; look
+  for a launchd service (Control Center listens on 5000 and 7000) killed by the same sender at
+  the moment `gvproxy.log` stops.
+
+Upgrading the Podman client changed none of this (checked 6.1.1 -> 6.1.2).
+
+#### The machine reports neither `running` nor `stopped`
+
+Apart from the bounded wait for a stop described above, `ensure-podman-stack` acts only on
+`running` and `stopped` and refuses anything else, naming the state it saw. Podman's other states
+are `starting`, which an interrupted `podman machine start` can leave behind, and `unknown`. Rerun
+once; if the same state comes back, look at `podman machine inspect ontoprism-vm` and at whether
+vfkit and gvproxy exist (`ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`). What to do next (a
+manual `podman machine stop`, or more) is the owner's decision: `ensure-podman-stack` never
+resets, recreates or removes the machine.
 
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
