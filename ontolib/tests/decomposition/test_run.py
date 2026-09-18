@@ -3514,9 +3514,8 @@ async def test_a_resumed_run_is_recounted_again_before_it_publishes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A metrics stage sealed by an earlier attempt does not excuse the recount: it
-    runs before the sealed payload is compared, so a mismatch still fails the run
-    before the artifact and publication stages."""
+    """A metrics stage sealed by an earlier attempt does not excuse the recount: a
+    mismatch still fails the run before the artifact and publication stages."""
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
