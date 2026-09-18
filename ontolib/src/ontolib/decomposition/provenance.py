@@ -246,23 +246,51 @@ def _require_completion_publication(
     )
 
 
+# The error_type and error_message columns check these lengths (migrations 0008, 0011
+# and 0024).
+_FAILURE_TYPE_LIMIT = 128
 _FAILURE_MESSAGE_LIMIT = 1000
+_FAILURE_LINE_LIMIT = 200
+_FAILURE_OWN_FLOOR = 300
+_FAILURE_CAUSE_DEPTH = 5
+
+
+def _cut(line: str) -> str:
+    if len(line) <= _FAILURE_LINE_LIMIT:
+        return line
+    return line[: _FAILURE_LINE_LIMIT - 1] + "\u2026"
+
+
+def _failure_account(error: BaseException) -> list[str]:
+    """The error's notes, then each link of its ``__cause__`` chain with that link's
+    notes: where a failed or interrupted failure record leaves its account."""
+    account = [*getattr(error, "__notes__", ())]
+    seen = {id(error)}
+    cause = error.__cause__
+    while (
+        cause is not None
+        and id(cause) not in seen
+        and len(seen) <= _FAILURE_CAUSE_DEPTH
+    ):
+        seen.add(id(cause))
+        account.append(f"caused by {type(cause).__name__}: {cause}")
+        account.extend(getattr(cause, "__notes__", ()))
+        cause = cause.__cause__
+    return account
 
 
 def _bounded_failure(error: BaseException) -> tuple[str, str]:
     """Type and message to persist for ``error``, within the column bounds.
 
-    The message carries the exception's notes and its ``__cause__``, which is where a
-    failed failure record and an interrupted one leave their account; when too long,
-    the error's own text is cut first so they survive.
+    The message is the error's own text, then its account (see ``_failure_account``),
+    one line each. Each account line keeps its first 200 characters, so its label
+    survives; the error's own text is cut next, down to 300 characters; only then is
+    the account cut from its end.
     """
-    error_type = type(error).__name__[:128] or "Exception"
-    account = [*getattr(error, "__notes__", ())]
-    if error.__cause__ is not None:
-        cause = error.__cause__
-        account.append(f"caused by {type(cause).__name__}: {cause}")
-    suffix = "".join(f"\n{line}" for line in account)[-(_FAILURE_MESSAGE_LIMIT - 1) :]
+    error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
     own = str(error) or error_type
+    suffix = "".join(f"\n{_cut(line)}" for line in _failure_account(error))
+    suffix = suffix[: _FAILURE_MESSAGE_LIMIT - min(len(own), _FAILURE_OWN_FLOOR)]
     return error_type, own[: _FAILURE_MESSAGE_LIMIT - len(suffix)] + suffix
 
 

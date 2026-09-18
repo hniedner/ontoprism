@@ -1696,27 +1696,71 @@ def test_a_stored_failure_keeps_the_notes_added_after_a_double_fault() -> None:
 
 
 @pytest.mark.unit
-def test_a_stored_cancellation_names_the_failure_it_interrupted() -> None:
+def test_a_stored_cancellation_keeps_the_account_of_the_failure_it_interrupted() -> (
+    None
+):
     """A cancellation during a failure record is stored instead of that failure; the
-    failure survives only as its cause."""
+    interrupted failure and the notes on it are stored through the cause."""
+    failure = ValueError("source identity drifted")
+    failure.add_note("Recording the work-item failure also failed: OSError: disk full")
     cancellation = asyncio.CancelledError()
-    cancellation.__cause__ = ValueError("source identity drifted")
+    cancellation.add_note(
+        "Cancelled while recording the run failure: ValueError: source identity drifted"
+    )
+    cancellation.__cause__ = failure
 
     assert provenance_module._bounded_failure(cancellation) == (
         "CancelledError",
-        "CancelledError\ncaused by ValueError: source identity drifted",
+        "CancelledError"
+        "\nCancelled while recording the run failure: ValueError: source identity "
+        "drifted"
+        "\ncaused by ValueError: source identity drifted"
+        "\nRecording the work-item failure also failed: OSError: disk full",
     )
 
 
 @pytest.mark.unit
-def test_a_long_failure_is_cut_before_its_notes_and_cause() -> None:
-    error = RuntimeError("x" * 2000)
-    error.add_note("Run failure was NOT recorded")
+def test_a_second_cancellation_still_names_the_original_failure() -> None:
+    failure = ValueError("source identity drifted")
+    first = asyncio.CancelledError()
+    first.__cause__ = failure
+    second = asyncio.CancelledError()
+    second.__cause__ = first
+
+    _, message = provenance_module._bounded_failure(second)
+
+    assert message.endswith(
+        "\ncaused by CancelledError: \ncaused by ValueError: source identity drifted"
+    )
+
+
+@pytest.mark.unit
+def test_a_cause_chain_that_loops_is_rendered_once() -> None:
+    error = RuntimeError("a")
+    other = RuntimeError("b")
+    error.__cause__ = other
+    other.__cause__ = error
+
+    assert provenance_module._bounded_failure(error) == (
+        "RuntimeError",
+        "a\ncaused by RuntimeError: b",
+    )
+
+
+@pytest.mark.unit
+def test_a_long_note_keeps_its_label_and_the_error_keeps_its_start() -> None:
+    """A database error's text can run past the whole column; its label and the
+    error's own start are what an operator reads."""
+    error = RuntimeError("worker lost " + "y" * 2000)
+    error.add_note(
+        "Recording the stage failure also failed: OperationalError " + "z" * 1100
+    )
     error.__cause__ = KeyError("C1")
 
     error_type, message = provenance_module._bounded_failure(error)
 
     assert error_type == "RuntimeError"
-    assert len(message) == 1000
-    assert message.startswith("xxx")
-    assert message.endswith("\nRun failure was NOT recorded\ncaused by KeyError: 'C1'")
+    assert len(message) <= 1000
+    assert message.startswith("worker lost ")
+    assert "\nRecording the stage failure also failed: OperationalError" in message
+    assert "\ncaused by KeyError: 'C1'" in message
