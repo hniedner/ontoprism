@@ -19,6 +19,41 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.24.2 (2026-09-18)
+
+### Bug Fixes
+
+- **validation**: Match Coverage.py's pragma pattern and reject unscannable exemptions
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Name the cause when Coverage.py has no pragma pattern
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Own pragmas exactly per file and warn on default shard weights
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Select the pragma pattern by content and report non-UTF-8 surfaces
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+- **validation**: Use Coverage.py's own pragma pattern for marker ownership
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+### Chores
+
+- **validation**: Remove checks that fail commits unrelated to their subject
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+### Documentation
+
+- Update README code line-count table
+  ([`a3f8221`](https://github.com/hniedner/ontoprism/commit/a3f8221a40e7b141ae9c671d6c47a545e47f814d))
+
+### Testing
+
+- **validation**: Pin that frontend ignore markers count only inside comments
+  ([`03e4b45`](https://github.com/hniedner/ontoprism/commit/03e4b45d763f9676fc20c1a3e56a5a2105e250a0))
+
+
 ## v0.24.1 (2026-09-18)
 
 ### Bug Fixes
