@@ -37,7 +37,8 @@ from four plain criteria into a corpus-wide acceptance contract.
   ontology-engineer, ontology-validator, implementer) is retired. All five review
   dimensions still run on every PR, to convergence: every verified finding and every
   reasonable suggestion is addressed, a converged dimension drops out of later rounds,
-  and there is no round ceiling. PR size is set when work is planned, one issue or one
+  (re-armed when a later fix touches what it reviews), and there is no round ceiling.
+  PR size is set when work is planned, one issue or one
   coherent change per PR, balancing granularity against review and CI cost.
 - The OpenCode config validators and their tests are deleted, and the tests that assert
   documentation wording are removed here and in #339.
@@ -49,8 +50,8 @@ from four plain criteria into a corpus-wide acceptance contract.
 - D85's requirement that pushes and PR creation happen only on an explicit request is
   superseded in part: the primary may push its issue branch, open its issue PR into the
   milestone branch, and merge that PR when CI is green and all five review dimensions
-  have converged. Merges
-  into `main` still need the owner's authorization of the exact PR number. D85's
+  have converged. Merges into `main` still need the owner's authorization of the exact
+  PR number. D85's
   `validate-opencode-*` commands and their tests no longer exist.
 - The SPARQL inventory snapshot is regenerated one last time in this change because it
   is still enforced; #339 removes it.

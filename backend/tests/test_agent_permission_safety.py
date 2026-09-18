@@ -223,6 +223,10 @@ _LOCAL_CONFIGS = (
 
 
 def _load_jsonc(text: str) -> dict[str, Any]:
+    """Strip block comments and whole-line ``//`` comments, then parse as JSON.
+
+    OpenCode's parser also accepts end-of-line comments and trailing commas; such a
+    file fails here loudly rather than being skipped."""
     without_block_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     without_line_comments = re.sub(r"^\s*//.*$", "", without_block_comments, flags=re.M)
     return json.loads(without_line_comments)
@@ -262,14 +266,14 @@ def _opencode_binary() -> Path | None:
 
 
 @pytest.mark.parametrize("agent", _AGENTS)
-def test_opencode_resolves_the_same_bash_rules_as_the_agent_file(
+def test_opencode_resolves_the_same_rules_as_the_agent_file(
     agent: str, tmp_path: Path
 ) -> None:
     """Contract with the real tool: the ordered bash, edit and task rules OpenCode
     resolves for an agent equal the file's, so the emulation above operates on the
     right input. The run is isolated (empty XDG_CONFIG_HOME, ``--pure``), so it pins
-    the repository's contribution; a global config or plugin on the owner's machine is
-    outside this contract and is guarded only by the local-config test above.
+    the repository's contribution only; a global OpenCode config or plugin on the
+    owner's machine can still widen an agent and no test in this suite checks it.
     Skipped, not passed, where the binary is absent (always in CI); run it locally
     after editing any agent file."""
     binary = _opencode_binary()
@@ -303,6 +307,6 @@ def test_opencode_resolves_the_same_bash_rules_as_the_agent_file(
     permission = _frontmatter(agent)["permission"]
     assert resolved_rules("bash") == list(_bash_rules(agent).items())
     assert resolved_rules("edit") == [("*", permission["edit"])]
-    task = permission.get("task", "deny")
+    task = permission["task"]
     expected_task = list(task.items()) if isinstance(task, dict) else [("*", task)]
     assert resolved_rules("task") == expected_task

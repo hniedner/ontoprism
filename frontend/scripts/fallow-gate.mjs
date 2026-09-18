@@ -22,8 +22,9 @@ function tryGit(args) {
 
 // The base is the branch the PR targets: GITHUB_BASE_REF in a pull-request job, or
 // FALLOW_BASE locally (set it to the milestone branch on an issue branch). If neither
-// is set, or the named ref is not fetched, origin/main; the chosen base is printed. Findings between origin/main and a milestone branch belong to
-// the issue PRs already merged there, not to the one under review.
+// is set, or the named ref is not fetched, origin/main. The chosen base is printed.
+// Findings between origin/main and a milestone branch belong to the issue PRs already
+// merged there, not to the one under review.
 function resolveBase() {
 	const candidates = [];
 	for (const name of [process.env.GITHUB_BASE_REF, process.env.FALLOW_BASE]) {

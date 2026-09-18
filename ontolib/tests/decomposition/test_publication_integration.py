@@ -282,6 +282,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
 
         async with ncit_sparql_client(isolated_qlever_url) as client:
             stated_triples_before = await _count_graph(client, STATED_GRAPH_IRI)
+            assert stated_triples_before > 1, "the seeded stated corpus must be present"
             with pytest.raises(OSError, match="directory"):
                 await publish_artifact(
                     run_id=_RUN_ID,

@@ -124,7 +124,7 @@ aggregate coverage above 90%. What changed is *when* each lane runs.
 | On commit | pre-commit hooks | automatic |
 | Before PR, once | everything CI runs | `pdm run verify` |
 | Gate of record | CI on the PR | `gh pr checks <n>` |
-| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary (skips where absent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
+| After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass, set `ONTOPRISM_OPENCODE_BIN` | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
 | When the change touches a real store contract | read-only contracts on configured corpora | `pdm run agent-test --full-store <node> -v` |
 
 Other lanes: `pdm run test` (grouped hermetic suites), `pdm run test-integration`
@@ -257,9 +257,9 @@ If it fails, report it; do not work around it.
 Lint and format: `pdm run lint` (ruff + basedpyright), `pdm run fmt`. Frontend, from
 `frontend/`: `npx eslint src/ --max-warnings=0`, `npm run check`, `npm run fallow`. The
 fallow gate reports only findings new against the PR base: in CI that is the real base;
-locally it is `origin/main` unless `FALLOW_BASE=<milestone branch>` is set, so a local
-run on an issue branch may show findings from sibling issue PRs (over-strict, never
-silent; CI is the gate of record).
+locally it is `origin/main` unless `FALLOW_BASE=<milestone branch>` is set (for an agent
+that prefix is a prompted command), so a local run on an issue branch may show findings
+from sibling issue PRs (over-strict, never silent; CI is the gate of record).
 Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D30/D31).
 
 ## Review
