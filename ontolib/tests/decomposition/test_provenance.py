@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.decomposition import provenance as provenance_module
 from ontolib.decomposition.models import (
@@ -27,6 +28,7 @@ from ontolib.decomposition.provenance import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    FullRunExecutionIdentity,
     RunFingerprint,
     WorkItemOutcome,
 )
@@ -906,6 +908,7 @@ async def test_finish_run_commit_reconciliation_requires_exact_marker(
         "status": "complete",
         "source_identity": "a" * 64,
         "metrics": {"total_in_scope": 1},
+        "rehearsal": False,
         "publication_state": "not_requested",
         "representation_identity": None,
     }
@@ -958,6 +961,7 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
             '"complete_fact_count":12,"projected_fact_count":9,'
             '"projection_loss_count":3,"projection_loss_rate":0.25,'
             '"pct_decomposed":0.6,"roundtrip_fidelity":0.95}',
+            "rehearsal": False,
         },
     ]
     store = ProvenanceStore(sf)
@@ -1003,6 +1007,7 @@ async def test_completed_zero_output_run_derives_an_honest_zero_residual_rate() 
                 "decomposed": 0,
                 "residual_precoordinated_count": 0,
             },
+            "rehearsal": False,
         }
     ]
 
@@ -1062,6 +1067,7 @@ async def test_invalid_persisted_metrics_fail_closed(metrics: object) -> None:
             "ncit_version": "26.07d",
             "started_at": datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC),
             "metrics": metrics,
+            "rehearsal": False,
         }
     ]
 
@@ -1118,6 +1124,7 @@ async def test_historical_cosmetic_branch_run_remains_readable() -> None:
             "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
             "finished_at": datetime.datetime(2026, 7, 12, 1, tzinfo=datetime.UTC),
             "metrics": {"decomposed": 0},
+            "rehearsal": False,
         }
     ]
 
@@ -1139,6 +1146,7 @@ async def test_list_runs_metrics_none_when_null() -> None:
             "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
             "finished_at": None,
             "metrics": None,
+            "rehearsal": False,
         },
     ]
     store = ProvenanceStore(sf)
@@ -1168,6 +1176,7 @@ async def test_list_runs_corrupt_metrics_fails_closed() -> None:
             "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
             "finished_at": None,
             "metrics": "not valid json",
+            "rehearsal": False,
         },
     ]
     store = ProvenanceStore(sf)
@@ -1189,6 +1198,7 @@ async def test_list_runs_rejects_falsy_non_object_metrics(metrics: object) -> No
             "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
             "finished_at": None,
             "metrics": metrics,
+            "rehearsal": False,
         },
     ]
 
@@ -1218,6 +1228,7 @@ async def test_get_run_found() -> None:
         "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
         "finished_at": None,
         "metrics": None,
+        "rehearsal": False,
     }
     store = ProvenanceStore(sf)
     run = await store.get_run("run-1")
@@ -1248,6 +1259,7 @@ async def test_get_run_decodes_jsonb_publication_predecessor() -> None:
             "built_at": "2026-07-11T12:00:00Z",
         },
         "metrics": None,
+        "rehearsal": False,
     }
 
     run = await ProvenanceStore(sf).get_run("run-1")
@@ -1283,6 +1295,7 @@ async def test_malformed_persisted_predecessor_fails_closed() -> None:
         "publication_predecessor_captured": True,
         "publication_predecessor": {"unexpected": 1},
         "metrics": None,
+        "rehearsal": False,
     }
 
     with pytest.raises(
@@ -1580,3 +1593,91 @@ async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
     assert sf().execute.call_count == 3
     for call in sf().execute.call_args_list:
         assert call.args[1] == {"run_id": "run-1", "codes": ["C1"]}
+
+
+def _identity_payload() -> dict[str, object]:
+    return {
+        "source_identity": "a" * 64,
+        "worklist": ("C1",),
+        "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
+        "semantic_types": ("Neoplastic Process",),
+        "algorithm_version": "decomposition-v3",
+        "config_version": "nested-definition-v2",
+        "walker_max_depth": 5,
+        "routing_implementation_identity": "b" * 64,
+        "collapse_policy_identity": "c" * 64,
+        "mixed_chain_inventory_identity": "d" * 64,
+        "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
+        "output_mode": "file",
+        "load_mode": "none",
+    }
+
+
+@pytest.mark.unit
+def test_rehearsal_nonce_separates_otherwise_identical_run_identities() -> None:
+    first = FullRunExecutionIdentity(**_identity_payload(), rehearsal_nonce="1" * 32)
+    second = FullRunExecutionIdentity(**_identity_payload(), rehearsal_nonce="2" * 32)
+    real = FullRunExecutionIdentity(**_identity_payload())
+
+    assert first.identity != second.identity
+    assert first.identity != real.identity
+    assert FullRunExecutionIdentity(**_identity_payload()).identity == real.identity
+    fingerprint = RunFingerprint(
+        **_identity_payload(),  # type: ignore[arg-type]
+        rehearsal_nonce="1" * 32,
+        emitted_at=datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+    )
+    assert FullRunExecutionIdentity.from_fingerprint(fingerprint) == first
+
+
+@pytest.mark.unit
+def test_identities_of_real_runs_are_unchanged_by_the_rehearsal_field() -> None:
+    """Pinned on the milestone branch before `rehearsal_nonce` existed: persisted
+    `fingerprint_sha256` and `execution_identity` values must keep matching."""
+    fingerprint = RunFingerprint(
+        **_identity_payload(),  # type: ignore[arg-type]
+        emitted_at=datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+    )
+
+    assert fingerprint.identity == (
+        "01801f7cb09b760aab49f2f571cdfe5063bb233d5f1de5a62d9b453bb98ff49e"
+    )
+    assert FullRunExecutionIdentity.from_fingerprint(fingerprint).identity == (
+        "f07e39a44382a1a27fdf8131835493cb6daf19ba1761dfdc792483601a522bca"
+    )
+
+
+@pytest.mark.unit
+def test_a_rehearsal_never_publishes_to_the_store() -> None:
+    published = {**_identity_payload(), "load_mode": "named-graph"}
+    with pytest.raises(ValidationError, match="a rehearsal never publishes"):
+        FullRunExecutionIdentity(**published, rehearsal_nonce="1" * 32)
+    with pytest.raises(ValidationError, match="a rehearsal never publishes"):
+        RunFingerprint(
+            **published,  # type: ignore[arg-type]
+            rehearsal_nonce="1" * 32,
+            emitted_at=datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+        )
+
+
+@pytest.mark.unit
+def test_run_summary_marks_rehearsal_rows() -> None:
+    def row(rehearsal: bool) -> dict[str, object]:
+        return {
+            "id": "neoplasm-1",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.07d",
+            "started_at": datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
+            "finished_at": None,
+            "metrics": None,
+            "rehearsal": rehearsal,
+        }
+
+    assert ProvenanceStore._row_to_run(row(True)).rehearsal is True
+    assert ProvenanceStore._row_to_run(row(False)).rehearsal is False
+    without_column = {k: v for k, v in row(True).items() if k != "rehearsal"}
+    with pytest.raises(KeyError, match="rehearsal"):
+        ProvenanceStore._row_to_run(without_column)

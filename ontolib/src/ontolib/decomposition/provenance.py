@@ -229,6 +229,32 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     return error_type, message
 
 
+async def _promote_mint_proposals(
+    session: AsyncSession, run_id: str, fingerprint: RunFingerprint
+) -> None:
+    """Copy a completed run's mint proposals into the global curator queue.
+
+    A rehearsal mints the same deterministic proposal ids the real run will mint;
+    promoting them would make the throwaway run their owner, so it never promotes.
+    """
+    if fingerprint.rehearsal_nonce is not None:
+        return
+    await session.execute(
+        text(
+            "INSERT INTO minted_concept "
+            "(id, run_id, axis, label, source_signal, status) "
+            "SELECT proposal_id, run_id, axis, label, source_signal, status "
+            "FROM decomp_minted_proposal WHERE run_id = :id "
+            # Insert-or-ignore, never insert-or-update: a rerun re-mints the same
+            # deterministic proposal id with status='proposed', and promotion must
+            # never clobber a curator's earlier approve or reject decision (design
+            # section 7.2).
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        {"id": run_id},
+    )
+
+
 def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
     """Classify known historical schemas without laundering arbitrary corruption."""
     if not isinstance(raw, dict):
@@ -2126,6 +2152,11 @@ class ProvenanceStore:
             fingerprint = self._validated_fingerprint(
                 row["fingerprint"], row["fingerprint_sha256"]
             )
+            if fingerprint.rehearsal_nonce is not None:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is a rehearsal; rehearsals are "
+                    "throwaway runs and cannot be resumed"
+                )
             await self._require_materialized_worklist(session, run_id, fingerprint)
             self.require_resume_identity(fingerprint, expected, run_id)
             await session.execute(
@@ -2937,7 +2968,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run ORDER BY started_at DESC LIMIT :limit OFFSET :offset"
         )
         async with self._sf() as s:
@@ -2953,7 +2985,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run WHERE id = :run_id"
         )
         async with self._sf() as s:
@@ -3007,6 +3040,7 @@ class ProvenanceStore:
             id=row["id"],
             branch=row["branch"],
             status=row["status"],
+            rehearsal=row["rehearsal"],
             ncit_version=row["ncit_version"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
@@ -3106,21 +3140,7 @@ class ProvenanceStore:
                     await _persisted_definition_counts(session, run_id),
                 )
                 metrics = completion_metrics.model_dump()
-                await session.execute(
-                    text(
-                        "INSERT INTO minted_concept "
-                        "(id, run_id, axis, label, source_signal, status) "
-                        "SELECT proposal_id, run_id, axis, label, source_signal, "
-                        "status "
-                        "FROM decomp_minted_proposal WHERE run_id = :id "
-                        # Insert-or-ignore, never insert-or-update: a rerun re-mints the
-                        # same deterministic proposal id with status='proposed', and
-                        # promotion must never clobber a curator's earlier approve or
-                        # reject decision (design section 7.2).
-                        "ON CONFLICT (id) DO NOTHING"
-                    ),
-                    {"id": run_id},
-                )
+                await _promote_mint_proposals(session, run_id, fingerprint)
                 result = await session.execute(
                     text(
                         "UPDATE decomp_run SET status = 'complete', "

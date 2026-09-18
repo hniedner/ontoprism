@@ -187,6 +187,15 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
+def _validate_rehearsal_config(config: RunConfig) -> None:
+    if not config.rehearsal:
+        return
+    if config.load_to_store:
+        raise ValueError("a rehearsal never publishes to the store")
+    if config.resume_from is not None:
+        raise ValueError("a rehearsal is a throwaway run and cannot be resumed")
+
+
 def _validate_sample_config(config: RunConfig) -> None:
     sample = config.sample_manifest
     if sample is None:
@@ -228,6 +237,7 @@ class RunConfig:
         walker_max_depth: int = 5,
         sample_manifest: DecompositionSampleManifest | None = None,
         mixed_chain_inventory_path: Path | None = None,
+        rehearsal: bool = False,
     ) -> None:
         self.branch = parse_branch(branch)
         self.out = out
@@ -237,6 +247,10 @@ class RunConfig:
         self.walker_max_depth = walker_max_depth
         self.sample_manifest = sample_manifest
         self.mixed_chain_inventory_path = mixed_chain_inventory_path
+        # A rehearsal runs the pipeline as a throwaway: it is admitted afresh every
+        # time, never publishes, never promotes its mint proposals, never resumes.
+        self.rehearsal = rehearsal
+        _validate_rehearsal_config(self)
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -929,6 +943,7 @@ def _requested_fingerprint(
 ) -> RunFingerprint:
     return RunFingerprint(
         schema_version=5 if config.sample_manifest is not None else 4,
+        rehearsal_nonce=uuid4().hex if config.rehearsal else None,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
@@ -1012,11 +1027,15 @@ async def _validated_sample_worklist(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
 ) -> tuple[str, ...] | None:
-    """Validate a review manifest against the live source and complete branch scope."""
+    """Validate a review manifest against the complete branch scope, and (except for
+    a rehearsal) against the live source."""
     sample = config.sample_manifest
     if sample is None:
         return None
-    _require_sample_source(sample, snapshot)
+    # A rehearsal borrows only the cohort's codes; their live-scope check below is
+    # what matters, not the source the sample was reviewed against.
+    if not config.rehearsal:
+        _require_sample_source(sample, snapshot)
     scope_codes = await enumerate_in_scope_codes(client, config.scope_root)
     _require_sample_scope(sample, scope_codes)
     return sample.codes
@@ -2071,6 +2090,11 @@ async def _resume_preflight(
     if config.resume_from is None:
         raise RuntimeError("resume preflight requires an explicit run id")
     persisted = await provenance.fingerprint_for_run(config.resume_from)
+    if persisted.rehearsal_nonce is not None:
+        raise RunStateError(
+            f"decomposition run {config.resume_from!r} is a rehearsal; rehearsals "
+            "are throwaway runs and cannot be resumed"
+        )
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if sample_worklist is not None and sample_worklist != persisted.worklist:
         raise SourcePreflightRejectedError(

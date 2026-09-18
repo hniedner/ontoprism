@@ -115,6 +115,18 @@ class FullRunExecutionIdentity(BaseModel):
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
+    # A rehearsal (the CLI preflight) is a throwaway run of the pipeline; the nonce
+    # keeps it admissible on unchanged input instead of colliding with itself. An
+    # absent nonce is not serialised, so identities and persisted documents of real
+    # runs are exactly what they were before the field existed.
+    rehearsal_nonce: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$", exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _rehearsal_never_publishes(self) -> Self:
+        _require_rehearsal_unpublished(self.rehearsal_nonce, self.load_mode)
+        return self
 
     @field_validator("semantic_types")
     @classmethod
@@ -146,18 +158,27 @@ class FullRunExecutionIdentity(BaseModel):
 
     @property
     def identity(self) -> str:
-        encoded = json.dumps(
-            self.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return canonical_json_identity(self.model_dump(mode="json"))
 
     @classmethod
     def from_fingerprint(cls, fingerprint: RunFingerprint) -> FullRunExecutionIdentity:
         payload = fingerprint.model_dump(exclude={"schema_version", "emitted_at"})
         return cls.model_validate(payload)
+
+
+def canonical_json_identity(payload: object) -> str:
+    """SHA-256 over the canonical JSON encoding shared by writers and inspectors."""
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _require_rehearsal_unpublished(
+    rehearsal_nonce: str | None, load_mode: Literal["none", "named-graph"]
+) -> None:
+    if rehearsal_nonce is not None and load_mode != "none":
+        raise ValueError("a rehearsal never publishes to the store")
 
 
 def _require_matching_scope_root(
@@ -179,10 +200,7 @@ def _require_matching_output_load(
 
 def stage_output_identity(payload: dict[str, object]) -> str:
     """Identify one stage output from canonical JSON only."""
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_json_identity(payload)
 
 
 class NcitSourceSnapshot(BaseModel):
@@ -238,11 +256,15 @@ class RunFingerprint(BaseModel):
     walker_max_depth: int = Field(gt=0)
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
+    rehearsal_nonce: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$", exclude_if=lambda value: value is None
+    )
     emitted_at: AwareDatetime
 
     @model_validator(mode="after")
     def _scope_root_matches_branch(self) -> Self:
         _require_matching_scope_root(self.branch, self.scope_root)
+        _require_rehearsal_unpublished(self.rehearsal_nonce, self.load_mode)
         _require_matching_sample_schema(
             self.schema_version,
             self.sample_manifest_identity,
@@ -274,14 +296,7 @@ class RunFingerprint(BaseModel):
     @property
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
-        payload = self.model_dump(mode="json")
-        encoded = json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return canonical_json_identity(self.model_dump(mode="json"))
 
 
 class CompletedRunForEvidence(BaseModel):
@@ -853,6 +868,7 @@ class RunSummary(BaseModel):
     publication_attempt_count: int = Field(default=0, ge=0)
     representation_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     publication_artifact_path: str | None = None
+    rehearsal: bool = False
     publication_built_at: AwareDatetime | None = None
     publication_started_at: AwareDatetime | None = None
     publication_finished_at: AwareDatetime | None = None
