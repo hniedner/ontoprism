@@ -519,8 +519,9 @@ def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
     )
     (tmp_path / "src" / "latin.py").write_bytes(b"# caf\xe9\nx = 1\n")
 
-    with pytest.raises(ValueError, match=r"src/latin\.py is not UTF-8"):
-        validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["src/latin.py is not UTF-8"]
 
 
 def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:

@@ -40,8 +40,13 @@ _EXEMPTION_KINDS = {
     "coverage-partial-regex",
 }
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
-# Coverage.py's own `pragma: no cover` pattern, searched per raw source line.
-_PYTHON_MARKER = re.compile(DEFAULT_EXCLUDE[0])
+# Coverage.py's own pragma pattern, searched per raw source line. The probe is
+# assembled so this module does not itself carry a marker.
+_PYTHON_MARKER = next(
+    re.compile(pattern)
+    for pattern in DEFAULT_EXCLUDE
+    if re.search(pattern, "# " + "pragma: no cover")
+)
 _IGNORE_MARKERS = ("istanbul ignore", "v8 ignore", "c8 ignore")
 _MARKER_SUFFIXES = (".py", ".js", ".mjs", ".ts", ".svelte")
 MetricKind = Literal["lines", "branches"]
@@ -545,10 +550,7 @@ def _ignore_marker_count(path: Path) -> int:
     Python lines are matched with Coverage.py's own pragma pattern; other languages
     are approximated by a line that carries both a marker and a comment prefix.
     """
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"{path} is not UTF-8: {exc}") from exc
+    lines = path.read_text(encoding="utf-8").splitlines()
     if path.suffix == ".py":
         return sum(_PYTHON_MARKER.search(line) is not None for line in lines)
     return sum(
@@ -577,7 +579,11 @@ def _pragma_ownership_errors(
             continue
         if not path.is_file():
             continue
-        markers = _ignore_marker_count(path)
+        try:
+            markers = _ignore_marker_count(path)
+        except UnicodeDecodeError:
+            errors.append(f"{relative} is not UTF-8")
+            continue
         counts = f"({markers} markers, {owned[relative]} owned)"
         if markers > owned[relative]:
             errors.append(f"unowned pragma/ignore marker: {relative} {counts}")
