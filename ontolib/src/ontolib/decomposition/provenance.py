@@ -107,7 +107,7 @@ def _existing_run_refusal(kind: str) -> RefusalReason:
 # (migration 0027). Any other constraint violation is a defect, not a conflict; that
 # includes `decomp_run_pkey`, Postgres's implicit name for the run id's primary key,
 # because run ids are `<branch>-<uuid4>` and a row holding the same id belongs to
-# another execution.
+# another execution (admission has already looked for a run with this identity).
 _ADMISSION_CONFLICT_CONSTRAINT = "uq_decomp_run_admitted_execution"
 
 
