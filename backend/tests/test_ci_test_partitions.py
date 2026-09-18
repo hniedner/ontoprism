@@ -167,12 +167,10 @@ default_weight_seconds = 5.0
         "backend/tests/test_medium.py",
     )
 
-    with pytest.warns(UserWarning, match="backend/tests/test_new.py"):
-        first = partitions.assign_integration_modules(records, weights, shard_index=0)
-    with pytest.warns(UserWarning, match="backend/tests/test_new.py"):
-        second = partitions.assign_integration_modules(
-            tuple(reversed(records)), weights, shard_index=1
-        )
+    first = partitions.assign_integration_modules(records, weights, shard_index=0)
+    second = partitions.assign_integration_modules(
+        tuple(reversed(records)), weights, shard_index=1
+    )
 
     assert first.selected_files == (
         "backend/tests/test_heavy.py",
@@ -223,18 +221,10 @@ default_weight_seconds = 5.0
         "backend/tests/test_new_b.py",
     )
 
-    shards = []
-    for index in range(partitions.SHARD_COUNT):
-        with pytest.warns(
-            UserWarning,
-            match=r"2 integration files take the default weight 5\.0s: "
-            r"backend/tests/test_new_a\.py, backend/tests/test_new_b\.py",
-        ):
-            shards.append(
-                partitions.assign_integration_modules(
-                    records, weights, shard_index=index
-                )
-            )
+    shards = [
+        partitions.assign_integration_modules(records, weights, shard_index=index)
+        for index in range(partitions.SHARD_COUNT)
+    ]
 
     assert shards[0].selected_files == ("backend/tests/test_current.py",)
     assert shards[1].selected_files == (
@@ -250,6 +240,50 @@ default_weight_seconds = 5.0
             "backend/tests/test_new_a.py",
             "backend/tests/test_new_b.py",
         )
+    )
+
+
+def test_selection_warns_which_integration_files_took_the_default_weight(
+    tmp_path: Path,
+) -> None:
+    support = tmp_path / "test_support"
+    support.mkdir()
+    (support / "integration_mutators.toml").write_text(
+        '[[mutator]]\npath = "backend/tests/test_current.py"\n'
+        'fixtures = ["isolated_qlever_settings"]\n'
+    )
+    (support / "ci_partition_weights.toml").write_text(
+        """
+schema_version = 1
+measured_commit = "ee654e792b31789933a757092a47214a1226ff40"
+measurement_date = "2026-09-05"
+measurement_worktree_dirty = false
+selected_count = 1
+module_count = 1
+measurement_command = "pdm run ci-test-measure-integration --output tmp/t.toml"
+default_weight_seconds = 5.0
+
+[weights]
+"backend/tests/test_current.py" = 12.0
+""".lstrip()
+    )
+    records = _records(
+        "backend/tests/test_current.py",
+        "backend/tests/test_new_a.py",
+        "backend/tests/test_new_b.py",
+    )
+
+    with pytest.warns(
+        UserWarning,
+        match=r"^integration files without a measured weight take the default "
+        r"5\.0s: backend/tests/test_new_a\.py, backend/tests/test_new_b\.py$",
+    ):
+        selection = partitions._selection(records, "integration", "1", tmp_path)
+
+    assert selection.weight_evidence is not None
+    assert selection.weight_evidence.unweighted_files == (
+        "backend/tests/test_new_a.py",
+        "backend/tests/test_new_b.py",
     )
 
 

@@ -11,11 +11,11 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import tokenize
 import tomllib
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -39,7 +39,9 @@ _EXEMPTION_KINDS = {
     "coverage-partial-regex",
 }
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
-_IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignore")
+# Coverage.py's default exclusion pattern, matched over raw source as the tool does.
+_PYTHON_MARKER = re.compile(r"#\s*pragma[:\s]?\s*no\s*cover", re.IGNORECASE)
+_IGNORE_MARKERS = ("istanbul ignore", "v8 ignore", "c8 ignore")
 MetricKind = Literal["lines", "branches"]
 SupportedCoverageTool = Literal["coverage.py", "vitest"]
 SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
@@ -536,18 +538,18 @@ def _validate_exemption(
 
 
 def _ignore_marker_count(path: Path) -> int:
-    """Count inline coverage-ignore comments; markers inside strings do not count."""
+    """Count coverage-ignore markers the way the measuring tool matches them.
+
+    Python lines are matched with Coverage.py's pragma pattern over raw source; other
+    languages count a line that carries both a marker and a comment prefix.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
     if path.suffix == ".py":
-        with path.open("rb") as stream:
-            return sum(
-                any(marker in token.string.lower() for marker in _IGNORE_MARKERS)
-                for token in tokenize.tokenize(stream.readline)
-                if token.type == tokenize.COMMENT
-            )
+        return sum(_PYTHON_MARKER.search(line) is not None for line in lines)
     return sum(
         any(marker in line.lower() for marker in _IGNORE_MARKERS)
         and any(prefix in line for prefix in ("//", "/*", "<!--"))
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in lines
     )
 
 
@@ -562,6 +564,11 @@ def _pragma_ownership_errors(
     for relative in sorted({surface.path for surface in surfaces} | set(owned)):
         path = root / relative
         if path.suffix not in {".py", ".js", ".mjs", ".ts", ".svelte"}:
+            if relative in owned:
+                errors.append(
+                    f"pragma exemption {relative} names a file that cannot carry "
+                    "a marker"
+                )
             continue
         if not path.is_file():
             continue

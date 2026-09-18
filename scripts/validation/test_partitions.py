@@ -327,7 +327,8 @@ class IntegrationClassification(_Document):
 
 
 class IntegrationPartition(_Document):
-    """One greedy-LPT shard; `unweighted_files` fell back to the default weight."""
+    """One greedy-LPT shard; `unweighted_files` is every inventory file, in any
+    shard, that took the default weight."""
 
     selected_files: tuple[str, ...]
     total_weight_seconds: Annotated[float, Field(gt=0)]
@@ -387,12 +388,6 @@ def assign_integration_modules(
     # Weights only balance the shards: a new file takes the default weight and a weight
     # for a deleted file is ignored, so adding or removing tests needs no re-measure.
     unweighted = tuple(sorted(inventory - set(raw_weights)))
-    if unweighted:
-        warnings.warn(
-            f"{len(unweighted)} integration files take the default weight "
-            f"{default}s: {', '.join(unweighted)}",
-            stacklevel=2,
-        )
     effective = {path: float(raw_weights.get(path, default)) for path in inventory}
     bins: list[list[str]] = [[] for _ in range(SHARD_COUNT)]
     totals = [0.0] * SHARD_COUNT
@@ -681,6 +676,13 @@ def _selection(
         root / "test_support/ci_partition_weights.toml",
         shard_index=spec.shard_index,
     )
+    if assignment.unweighted_files:
+        warnings.warn(
+            "integration files without a measured weight take the default "
+            f"{assignment.default_weight_seconds}s: "
+            f"{', '.join(assignment.unweighted_files)}",
+            stacklevel=2,
+        )
     paths = set(assignment.selected_files)
     selected = tuple(record for record in eligible if record.path in paths)
     if not selected:

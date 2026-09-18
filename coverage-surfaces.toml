@@ -327,9 +327,10 @@ group = "release-yaml"
 pattern = ".github/workflows/update-readme-code-stats.yml"
 group = "release-yaml"
 
-# An exemption is owned by file path: a file carries exactly as many inline ignore
-# markers as it has `pragma-no-cover` exemptions. `review_issue` names the issue that
-# reviewed the exemption (it may be closed); `review_after` is when it is re-reviewed.
+# A `pragma-no-cover` exemption is keyed by file path: a file carries exactly as many
+# inline ignore markers as it has such exemptions. `review_issue` names the issue that
+# reviewed the exemption (it may be closed); `review_after` is the date by which it must
+# be re-reviewed, and the validator rejects an expired date.
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"

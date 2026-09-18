@@ -9,9 +9,11 @@ from pathlib import Path
 
 import coverage
 import pytest
+from coverage.config import DEFAULT_EXCLUDE
 from pydantic import ValidationError
 from scripts.validation import coverage_hierarchy
 from scripts.validation.coverage_hierarchy import (
+    _PYTHON_MARKER,
     ArtifactIdentity,
     Metric,
     build_frontend_report,
@@ -402,9 +404,7 @@ def test_an_exemption_whose_pragma_was_removed_is_reported(tmp_path: Path) -> No
     assert errors == ["stale pragma exemption: src/module.py (1 markers, 2 owned)"]
 
 
-def test_a_pragma_inside_a_string_literal_does_not_satisfy_an_exemption(
-    tmp_path: Path,
-) -> None:
+def test_pragma_text_without_a_comment_hash_is_not_a_marker(tmp_path: Path) -> None:
     manifest_path = _pragma_repo(
         tmp_path,
         'MARKER = "pragma: no cover"\n\n\ndef value() -> int:\n    return 1\n',
@@ -452,11 +452,52 @@ def test_two_exemptions_with_the_same_rationale_are_rejected(tmp_path: Path) -> 
         "def value() -> int:  # pragma: no cover\n    return 1\n\n\n"
         "def other() -> int:  # pragma: no cover\n    return 2\n",
     )
-    manifest_path.write_text(manifest_path.read_text() + _PATH_OWNED_PRAGMA)
+    second = _PATH_OWNED_PRAGMA.replace('owner = "test-owner"', 'owner = "other-owner"')
+    manifest_path.write_text(manifest_path.read_text() + second)
 
     errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
     assert errors == ["exemptions must be unique"]
+
+
+def test_a_pragma_exemption_on_a_file_that_cannot_carry_a_marker_is_rejected(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "run.sh").write_text("#!/bin/sh\n# pragma: no cover\n")
+    manifest_path.write_text(
+        manifest_path.read_text().replace(
+            'path = "src/module.py"', 'path = "src/run.sh"'
+        )
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert "pragma exemption src/run.sh names a file that cannot carry a marker" in (
+        errors
+    )
+    assert "unowned pragma/ignore marker: src/module.py (1 markers, 0 owned)" in errors
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "x = 1  # pragma: no cover",
+        "x = 1  #pragma:no cover",
+        "x = 1  # PRAGMA NO COVER",
+        'x = "# pragma: no cover"',
+        'x = "pragma: no cover"',
+        "# pragma: nocover",
+        "x = 1  # pragma: no-cover",
+    ],
+)
+def test_python_marker_regex_matches_what_coverage_py_excludes(line: str) -> None:
+    """Contract: the ownership scan honours exactly the lines Coverage.py excludes."""
+    coverage_pragma = re.compile(DEFAULT_EXCLUDE[0])
+
+    assert bool(_PYTHON_MARKER.search(line)) is bool(coverage_pragma.search(line))
 
 
 def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
