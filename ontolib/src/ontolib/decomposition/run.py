@@ -2130,12 +2130,58 @@ async def _active_collapse_policy(
     return policy
 
 
+async def _policy_codes_still_to_do(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    provenance: ProvenanceStore,
+    worklist: tuple[str, ...],
+) -> list[str]:
+    bound = [code for code in worklist if code in policy.by_code]
+    if not bound or config.resume_from is None:
+        return bound
+    pending = set(await provenance.pending_codes(config.resume_from))
+    return [code for code in bound if code in pending]
+
+
+async def _qualify_group_policy(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    worklist: tuple[str, ...],
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    get_labels: GetLabels | None,
+    label_lookup: LabelLookup,
+) -> None:
+    """Decompose each policy-bound concept the run still has to do, persisting nothing,
+    before any run state is written: a policy row that no longer matches its concept
+    fails here, not when the worklist reaches it."""
+    bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
+    labels = await _fetch_labels(get_labels, bound)
+    for code in bound:
+        await _decompose_one(
+            code,
+            client,
+            label=labels.get(code),
+            label_lookup=label_lookup,
+            source_identity=source_identity,
+            collapse_policy=collapse_policy,
+            diagnostic_source=diagnostic_source,
+            detector_identity=routing_implementation_identity(),
+            walker_max_depth=config.walker_max_depth,
+            normalized_group_policy=policy,
+        )
+
+
 async def _fresh_preflight(
     config: RunConfig,
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
-) -> tuple[tuple[str, ...] | None, SourcePreflightResult | None]:
+) -> tuple[tuple[str, ...], SourcePreflightResult | None]:
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
         tuple(await _standard_worklist(config, client, total_limit))
@@ -2259,6 +2305,21 @@ async def run_pipeline(
         fresh_worklist, fresh_preflight = await _resume_preflight(
             config, client, provenance, snapshot
         )
+    diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
+        client, snapshot.source_identity
+    )
+    await _qualify_group_policy(
+        active_group_policy,
+        config,
+        client,
+        provenance,
+        worklist=fresh_worklist,
+        source_identity=snapshot.source_identity,
+        collapse_policy=active_collapse_policy,
+        diagnostic_source=diagnostic_source,
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -2269,9 +2330,7 @@ async def run_pipeline(
         snapshot=snapshot,
         collapse_policy=active_collapse_policy,
         fresh_worklist=fresh_worklist,
-        diagnostic_source=await axis_diagnostics.read_axis_diagnostic_source(
-            client, snapshot.source_identity
-        ),
+        diagnostic_source=diagnostic_source,
         normalized_group_policy=active_group_policy,
     )
 

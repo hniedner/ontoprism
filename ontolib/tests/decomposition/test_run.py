@@ -28,6 +28,7 @@ from ontolib.decomposition.complete_definition import (
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -3790,3 +3791,115 @@ async def test_unclaimable_work_item_marks_run_failed() -> None:
     )
     assert "could not be claimed" in provenance._test_state["failed"][2]
     provenance.finish_run.assert_not_awaited()
+
+
+def _staged_site_client(*worklist: str) -> _FakeClient:
+    return _FakeClient(
+        pages=[list(worklist)],
+        semantic_types={"C6135": ["Neoplastic Process"]},
+        roles={
+            "C6135": [
+                _role("R88", "Has_Stage", "C27970"),
+                _role("R101", "Has_Primary_Site", "C12400"),
+            ]
+        },
+    )
+
+
+def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
+    """A packaged policy row re-pointed at ``code``, whose pairs it cannot match."""
+    packaged = load_packaged_normalized_group_policy()
+    row = packaged.rows[0].model_copy(update={"concept_code": code})
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
+async def _run_with_group_policy(
+    config: RunConfig,
+    client: _FakeClient,
+    provenance: Any,
+    policy: ActiveNormalizedGroupPolicy,
+) -> RunMetrics:
+    return await _run_pipeline_impl(
+        config,
+        cast("Any", client),
+        provenance,
+        get_source_snapshot=_stable_source_snapshot,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        normalized_group_policy=policy,
+    )
+
+
+@pytest.mark.unit
+async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> None:
+    """The policy was only applied when the worklist reached the concept, hours into a
+    run that a corrected policy file can no longer resume."""
+    provenance = _mock_provenance()
+
+    with pytest.raises(ValueError, match="pair set differs for C6135"):
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+    assert provenance._test_state["fingerprint"] is None
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission() -> (
+    None
+):
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C6135",), pending=["C6135"])
+
+    with pytest.raises(ValueError, match="pair set differs for C6135"):
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_a_finished_policy_concept_does_not_block_a_resume() -> None:
+    """Its result is persisted; label state that moved since must not strand the rest
+    of the run."""
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C1", "C6135"), pending=["C1"])
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+        _staged_site_client("C1", "C6135"),
+        provenance,
+        _group_policy_bound_to("C6135"),
+    )
+
+    assert metrics.total_in_scope == 2
+
+
+@pytest.mark.unit
+async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
+    """A full worklist is tens of thousands of concepts; the dry run covers none of the
+    ones the policy does not name."""
+    client = _staged_site_client("C6135")
+
+    await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        client,
+        _mock_provenance(),
+        _group_policy_bound_to("C424242"),
+    )
+
+    # Only a decomposition asks for one concept's semantic types; the preflight
+    # never does.
+    semantic_type_reads = [
+        query
+        for query in client.queries
+        if "P106" in query and "VALUES" not in query and "C6135>" in query
+    ]
+    assert len(semantic_type_reads) == 1
