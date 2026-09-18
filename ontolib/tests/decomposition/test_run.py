@@ -3805,7 +3805,8 @@ def _group_policy_accepting(
     decomposition: Decomposition,
 ) -> ActiveNormalizedGroupPolicy:
     """A one-row policy, built like ``_group_policy_bound_to``, that groups exactly the
-    constituents of ``decomposition`` into one block and so accepts nothing else."""
+    constituents of ``decomposition`` into one block, so for that concept it refuses any
+    other pair set and any other cited source evidence."""
     packaged = load_packaged_normalized_group_policy()
     template = packaged.rows[0]
     pairs = tuple(
@@ -3941,8 +3942,9 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
 async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce() -> (
     None
 ):
-    """The label and the label lookup add constituents, so they decide the policy's
-    verdict: a dry run without them would refuse a run whose work item passes."""
+    """The label adds constituents and the label lookup decides their filler codes, so
+    both decide the policy's verdict: a dry run without either would refuse a run whose
+    work item passes."""
 
     async def get_labels(codes: list[str]) -> dict[str, str]:
         return dict.fromkeys(codes, "Left Breast Carcinoma")
