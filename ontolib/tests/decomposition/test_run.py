@@ -823,23 +823,6 @@ async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> No
 
 
 @pytest.mark.unit
-async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
-    with pytest.raises(RuntimeError, match="run worklist was not preflighted"):
-        await _prepare_run(
-            RunConfig(branch="neoplasm"),
-            cast("Any", _FakeClient()),
-            _mock_provenance(),
-            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
-            get_labels=None,
-            total_limit=None,
-            snapshot=_source_snapshot(),
-            collapse_policy=NO_COLLAPSE_VETO_POLICY,
-            fresh_worklist=None,
-            diagnostic_source=_diagnostic_source(),
-        )
-
-
-@pytest.mark.unit
 async def test_pipeline_reports_typed_database_admission_refusal() -> None:
     provenance = _mock_provenance()
     provenance.admit_run = AsyncMock(

@@ -1077,7 +1077,7 @@ async def _prepare_run(
     total_limit: int | None,
     snapshot: NcitSourceSnapshot,
     collapse_policy: CollapseVetoPolicy,
-    fresh_worklist: tuple[str, ...] | None,
+    fresh_worklist: tuple[str, ...],
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
 ) -> _RunSetup:
@@ -1085,8 +1085,6 @@ async def _prepare_run(
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
     semantic_types = config.semantic_types
-    if fresh_worklist is None:
-        raise RuntimeError("run worklist was not preflighted")
     fingerprint = _requested_fingerprint(
         config,
         snapshot,
