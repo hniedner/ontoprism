@@ -1793,3 +1793,19 @@ def test_an_account_cut_at_the_column_bound_ends_in_an_ellipsis() -> None:
     assert len(message) == 1000
     assert message.startswith("stopped\nnote 0 ")
     assert message.endswith("\u2026")
+
+
+@pytest.mark.unit
+def test_a_crowded_failure_keeps_300_characters_of_itself_and_200_per_line() -> None:
+    error = RuntimeError("o" * 2000)
+    for index in range(4):
+        error.add_note(f"note {index} " + "n" * 300)
+
+    _, message = provenance_module._bounded_failure(error)
+    own, *account = message.split("\n")
+
+    assert len(message) == 1000
+    assert len(own) == 300
+    assert own.endswith("\u2026")
+    assert [len(line) for line in account[:3]] == [200, 200, 200]
+    assert all(line.endswith("\u2026") for line in account)
