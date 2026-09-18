@@ -103,23 +103,25 @@ def _existing_run_refusal(kind: str) -> RefusalReason:
     return RefusalReason.ACTIVE_RUN_EXISTS
 
 
-# The two uniqueness authorities of admission: one admitted run per execution identity,
-# and the run id itself. Any other constraint violation is a defect, not a conflict.
-_ADMISSION_CONFLICT_CONSTRAINTS = frozenset(
-    {"uq_decomp_run_admitted_execution", "decomp_run_pkey"}
-)
+# Admission's uniqueness authority: one admitted run per execution identity
+# (migration 0027). Any other constraint violation is a defect, not a conflict; that
+# includes `decomp_run_pkey`, Postgres's implicit name for the run id's primary key,
+# because run ids are `<branch>-<uuid4>` and a row holding the same id belongs to
+# another execution.
+_ADMISSION_CONFLICT_CONSTRAINT = "uq_decomp_run_admitted_execution"
 
 
-def _admission_conflict(error: IntegrityError) -> Refused:
-    """Refuse for one of admission's own uniqueness conflicts; raise anything else.
+def _refusal_for_admission_conflict(error: IntegrityError) -> Refused:
+    """Refuse for admission's own uniqueness conflict; raise anything else.
 
-    SQLAlchemy's asyncpg adapter keeps only the SQLSTATE on its own error; the
-    constraint name lives on the asyncpg exception it was raised from.
+    SQLAlchemy's asyncpg adapter copies only the SQLSTATE as a field onto its own
+    error (the rest survives only as message text); the constraint name lives on the
+    asyncpg exception it was raised from.
     """
     constraint = getattr(
         getattr(error.orig, "__cause__", None), "constraint_name", None
     )
-    if constraint not in _ADMISSION_CONFLICT_CONSTRAINTS:
+    if constraint != _ADMISSION_CONFLICT_CONSTRAINT:
         raise error
     return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
 
@@ -1623,7 +1625,7 @@ class ProvenanceStore:
                 )
                 return FreshAdmitted(run_id=run_id)
         except IntegrityError as exc:
-            return _admission_conflict(exc)
+            return _refusal_for_admission_conflict(exc)
 
     @staticmethod
     async def _admission_candidates(
