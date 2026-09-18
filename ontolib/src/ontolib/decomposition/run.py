@@ -2099,7 +2099,8 @@ async def _qualify_collapse_policy(
     source_identity: str,
     walker_max_depth: int,
 ) -> None:
-    """Qualify each distinct policy concept once before any run state is written."""
+    """Qualify each distinct policy concept once, before this invocation writes any run
+    state."""
     occurrences = []
     for concept_code in sorted({entry.concept_code for entry in policy.entries}):
         _result, _roles, _morphology, definition, _types = await _detect_concept(
@@ -2165,7 +2166,7 @@ async def _qualify_group_policy(
     untouched = (
         "no run state was written"
         if config.resume_from is None
-        else f"run {config.resume_from!r} is unchanged and can still be resumed"
+        else f"run {config.resume_from!r} was not modified"
     )
     for code in bound:
         try:

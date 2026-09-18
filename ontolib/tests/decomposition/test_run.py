@@ -2638,6 +2638,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
     provenance.resume_run = AsyncMock(return_value=fingerprint)
+    # Exactly two reads: a worklist without policy concepts must not cost a third.
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
     provenance.complete_work_item = AsyncMock()
@@ -3791,8 +3792,9 @@ def _staged_site_client(*worklist: str) -> _FakeClient:
 
 def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
     """A one-row policy: the first packaged row re-pointed at ``code``. Built with
-    ``model_copy``, so the policy's own validators do not run; the row's pairs are not
-    the ones ``_staged_site_client`` yields for C6135."""
+    ``model_copy``, so neither the field constraints (15 rows) nor the policy's
+    validators run; the row's pairs are not the ones ``_staged_site_client`` yields for
+    C6135."""
     packaged = load_packaged_normalized_group_policy()
     row = packaged.rows[0].model_copy(update={"concept_code": code})
     return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
@@ -3855,7 +3857,7 @@ async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission
     provenance.admit_run.assert_not_awaited()
     assert mismatch.value.__notes__ == [
         "Raised by the group-policy dry run of 'C6135', before admission: "
-        "run 'neoplasm-run-1' is unchanged and can still be resumed."
+        "run 'neoplasm-run-1' was not modified."
     ]
 
 
