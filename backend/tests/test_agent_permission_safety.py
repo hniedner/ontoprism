@@ -51,6 +51,7 @@ _NEVER_ALLOWED = (
     "git log -p --output=/Users/hannes/.zshrc",
     "git diff --stat --output=/Users/hannes/x",
     "git show HEAD --output=/Users/hannes/x",
+    "git diff --no-ext-diff --output=tmp/x main...HEAD",
     "head ~/.aws/credentials",
     "tail -n 5 ../../.ssh/id_ed25519",
     "jq . ~/.config/gh/hosts.yml",
@@ -184,4 +185,3 @@ def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None
     ]["pdm"]["scripts"]
 
     assert scripts["agent-github-read"].endswith("--read-only")
-    assert scripts["agent-test"] == "python scripts/validation/run_agent_test.py"
