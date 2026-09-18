@@ -1693,7 +1693,12 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
 
 
 @pytest.mark.unit
-async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None:
+async def test_completed_preflight_rejects_stale_mixed_chain_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_module, "require_mixed_chain_preflight", lambda *_, **__: None
+    )
     result = await run_source_preflight(
         (),
         read_definition=AsyncMock(),
@@ -1720,18 +1725,57 @@ async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None
         )
     )
 
-    with pytest.raises(SourcePreflightRejectedError, match="mixed-chain inventory"):
+    inventory_path = Path(
+        "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+    )
+    current = result.model_copy(
+        update={
+            "mixed_chain_inventory_identity": run_module.load_mixed_chain_inventory(
+                inventory_path
+            ).identity
+        }
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="stale mixed-chain"):
         await run_module._preflight_stage(
             _checkpoint_setup(),
-            RunConfig(
-                branch="neoplasm",
-                mixed_chain_inventory_path=Path(
-                    "ontolib/src/ontolib/decomposition/data/"
-                    "neoplasm_mixed_chain_inventory.json"
+            RunConfig(branch="neoplasm", mixed_chain_inventory_path=inventory_path),
+            provenance,
+            current,
+        )
+
+
+@pytest.mark.unit
+async def test_completed_preflight_rejects_a_restored_disallowed_result() -> None:
+    allowed = await run_source_preflight(
+        (),
+        read_definition=AsyncMock(),
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=10,
+    )
+    sealed = allowed.model_copy(update={"malformed_codes": ("C1",)})
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="preflight",
+                state="complete",
+                output_identity=sealed.identity,
+                output_payload=sealed.model_dump(
+                    mode="json", exclude_computed_fields=True
                 ),
             ),
-            provenance,
-            result,
+        )
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="malformed=C1"):
+        await run_module._preflight_stage(
+            _checkpoint_setup(), RunConfig(branch="disease"), provenance, allowed
         )
 
 
