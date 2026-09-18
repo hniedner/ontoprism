@@ -108,8 +108,9 @@ def test_stopping_a_port_spares_its_clients(tmp_path: Path) -> None:
 def test_a_port_given_in_the_environment_wins_over_dotenv(tmp_path: Path) -> None:
     """``.env`` used to overwrite the caller's port, so a command aimed at one port
     signalled whatever listened on the other."""
-    asked = _free_port()
-    in_dotenv = next(port for port in iter(_free_port, None) if port != asked)
+    asked = in_dotenv = _free_port()
+    while in_dotenv == asked:
+        in_dotenv = _free_port()
     target = _spawn(_LISTENER, asked, "idle")
     bystander = _spawn(_LISTENER, in_dotenv, "idle")
     try:
@@ -151,5 +152,6 @@ def test_a_port_that_is_not_a_number_is_refused(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
+    assert "BACKEND_PORT" in result.stderr
     assert "80l1" in result.stderr
     assert "not running" not in result.stdout

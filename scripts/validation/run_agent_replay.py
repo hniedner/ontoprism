@@ -3757,7 +3757,7 @@ def _inspected_podman_machine(
 
 def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
     state, socket_path, ssh_port = _inspected_podman_machine(root, runner)
-    if state not in {"running", "stopped"}:
+    if state not in ("running", "stopped"):  # a tuple: the state may be unhashable
         raise AgentReplayInputError(
             "invalid Podman machine contract: state "
             f"{_bounded_sanitized(repr(state))} is neither 'running' nor 'stopped'. "
@@ -4551,7 +4551,8 @@ def _stop_podman_machine(root: Path, runner: CommandRunner) -> None:
         state: object = "running"
         try:
             # A machine polled mid-shutdown is in transition by construction: any state
-            # but `stopped` means "not yet". The strict contract guards the entry check.
+            # but `stopped` means "not yet". Every other look (`_podman_machine`) keeps
+            # the strict contract; only this poll tolerates a state in between.
             for _attempt in range(_PODMAN_STOP_WAIT_ATTEMPTS):
                 _capture_required(["/bin/sleep", "10"], root, runner)
                 state, _socket_path, _ssh_port = _inspected_podman_machine(root, runner)
@@ -4560,10 +4561,16 @@ def _stop_podman_machine(root: Path, runner: CommandRunner) -> None:
         except AgentReplayInputError as waiting:
             waiting.add_note(f"while waiting for the machine to stop after: {slow}")
             raise
+        advice = (
+            "The guest may still be shutting down: rerun ensure-podman-stack, which "
+            "is safe to repeat"
+            if state == "running"
+            else "Rerun ensure-podman-stack, which is safe to repeat and says what "
+            "to check for a state that is neither 'running' nor 'stopped'"
+        )
         raise AgentReplayInputError(
-            f"{slow}; {_PODMAN_STOP_WAIT_ATTEMPTS * 10}s later the machine reports "
-            f"{_bounded_sanitized(repr(state))}. The guest may still be shutting down: "
-            "rerun ensure-podman-stack, which is safe to repeat"
+            f"{slow}; about {_PODMAN_STOP_WAIT_ATTEMPTS * 10}s later the machine "
+            f"reports {_bounded_sanitized(repr(state))}. {advice}"
         ) from slow
 
 

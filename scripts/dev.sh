@@ -21,10 +21,10 @@ fi
 
 BACKEND_PORT="${requested_backend_port:-${BACKEND_PORT:-8011}}"     # 8001 is the sibling fairdata backend
 FRONTEND_PORT="${requested_frontend_port:-${FRONTEND_PORT:-5175}}"  # 5173 is the sibling fairdata frontend
-# lsof exits 1 for a malformed port exactly as it does for "no listener".
-for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
-  case "$port" in
-    '' | *[!0-9]*) echo "dev.sh: port '$port' is not a number" >&2; exit 1 ;;
+# lsof exits 1 for a port that is not a number exactly as it does for "no listener".
+for name in BACKEND_PORT FRONTEND_PORT; do
+  case "${!name}" in
+    *[!0-9]*) echo "dev.sh: $name='${!name}' is not a number (environment or .env)" >&2; exit 1 ;;
   esac
 done
 export ONTOPRISM_FASTAPI_ORIGIN="${ONTOPRISM_FASTAPI_ORIGIN:-http://127.0.0.1:$BACKEND_PORT}"

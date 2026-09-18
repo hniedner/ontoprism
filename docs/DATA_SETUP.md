@@ -184,8 +184,9 @@ Podman integration/full-store wrappers. It accepts no arguments. It inspects the
 `ontoprism-vm`, its SSH connection, forwarded socket, and Docker-compatible API. A stopped machine
 is started. A machine that claims `running` while any of those probes fail receives exactly one
 normal stop/start recovery (a stop that outlives its timeout is waited out, bounded; see below),
-followed by three bounded readiness attempts; there is no reset,
-recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
+followed by three bounded readiness attempts. A machine that reports any other state is refused
+with the state named (see "The machine reports neither `running` nor `stopped`" below). There is
+no reset, recreation, deletion, or indefinite polling. Once the API is healthy, the operation safely updates
 and selects only `ontoprism-podman`. It validates every existing stack resource's owner, mount, and
 loopback port before reconciling an absent, stopped, or partial stack, and refuses uncertain
 ownership, storage identity, or port use. Success is reported only after `check-podman-api` and
@@ -210,8 +211,8 @@ still reports `running` and `podman machine ssh` gets "connection refused". Two 
   session; prefer it to a bare `podman machine start`.
 
 `ensure-podman-stack` attempts the repair with one stop/start. Each command is allowed 300 s, and
-a stop that outlives that is followed by 30 looks at the machine state, ten seconds apart (about
-300 s), waiting for it to report `stopped`, because killing the stop command does not stop the guest's shutdown. On 2026-09-18 the
+a stop that outlives that is followed by 30 looks at the machine state, ten seconds apart
+(about 300 s), waiting for it to report `stopped`, because killing the stop command does not stop the guest's shutdown. On 2026-09-18 the
 shutdown of a half-dead VM took on the order of a minute; a healthy one stopped in 13 s. When
 gvproxy's pid file names no process, the run prints `stale-machine-cause=gvproxy pid ... names no
 process`. To look yourself:
@@ -224,6 +225,16 @@ process`. To look yourself:
   the moment `gvproxy.log` stops.
 
 Upgrading the Podman client changed none of this (checked 6.1.1 -> 6.1.2).
+
+#### The machine reports neither `running` nor `stopped`
+
+`ensure-podman-stack` acts only on `running` and `stopped` and refuses anything else, naming the
+state it saw. Podman's other states are `starting`, which an interrupted `podman machine start`
+can leave behind, and `unknown`. Rerun once; if the same state comes back, look at
+`podman machine inspect ontoprism-vm` and at whether vfkit and gvproxy exist
+(`ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`). What to do next (a manual
+`podman machine stop`, or more) is the owner's decision: `ensure-podman-stack` never resets,
+recreates or removes the machine.
 
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
