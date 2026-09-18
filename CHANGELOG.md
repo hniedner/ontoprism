@@ -19,6 +19,169 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.24.0 (2026-09-18)
+
+### Bug Fixes
+
+- **artifacts**: Close retention safety gaps
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **artifacts**: Complete bounded retention cleanup
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **artifacts**: Complete retention reconciliation
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Acquire complete stated disjointness
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Activate normalized relationship groups
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Activate projection guard
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Admit exact bounded replay resume
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Bind C2860 specificity review
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Bind current evidence contracts
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Bind historical mixed-chain evidence
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Bind policy promotion to detector
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Bind R103 readiness evidence
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Certify complete comparator evidence
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Classify raw-role axes and scope the subsite override
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Close completion metric invariant
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Collapse mixed specificity chains
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Compare complete run controls
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Correct normalized group provenance
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Enforce database run admission
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Enforce projection validity
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Fail closed on unproven R101 deltas
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Harden immutable artifact publication
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Honor reviewed grouping disagreements
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Inspect R101 report rows strictly
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Isolate candidate preflight outputs
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Isolate diagnostic reduction
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Keep the staging artifact until the run is completed
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Preserve normalized group review semantics
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Preserve R103 evidence on selection
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Promote reviewed normalized groups
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Qualify R101 conservation evidence
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Record corrected mixed-chain projection
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Remove impossible completed replay resume
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Remove superseded group review replay
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Retain immutable run artifacts
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Route R101 before R82 collapse
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Transcribe C2860 specificity decision
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Verify R103 historical bindings
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **dev**: Recover stale Podman stack autonomously
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **test-support**: Serve decomposition through the production response model
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **validation**: Bind R101 readiness planes
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+### Chores
+
+- **decomposition**: Checkpoint issue 274 refactor
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+### Documentation
+
+- Update README code line-count table
+  ([`022eb3c`](https://github.com/hniedner/ontoprism/commit/022eb3c83413843799d4944c8a82a6d2d89bc0ea))
+
+- **decomposition**: Describe C2860 review resolution
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+### Features
+
+- **decomposition**: Apply R103 evidence contracts
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Enforce M1.6 release gates
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Govern proposal lifecycle evidence
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **decomposition**: Land M1.6 engine correctness integration
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+### Testing
+
+- **decomposition**: Cover the multi-source-group read merge
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+- **validation**: Cover ensured verify context
+  ([`7c96c0d`](https://github.com/hniedner/ontoprism/commit/7c96c0d1068c7bf925b9582797415d88a2ff6cdd))
+
+
 ## v0.23.0 (2026-09-06)
 
 ### Bug Fixes
