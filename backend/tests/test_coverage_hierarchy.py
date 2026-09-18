@@ -505,12 +505,19 @@ def test_only_pragma_spellings_coverage_py_excludes_count_as_markers(
     manifest_path = _pragma_repo(
         tmp_path, f"def value() -> int:  {pragma}\n    return 1\n"
     )
-    coverage_pragma = re.compile(DEFAULT_EXCLUDE[0])
+    coverage_pragma = re.compile(next(p for p in DEFAULT_EXCLUDE if "pragma" in p))
     assert bool(coverage_pragma.search(pragma)) is (expected == [])
 
     errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
     assert errors == expected
+
+
+def test_a_coverage_release_without_a_pragma_pattern_is_rejected_by_name() -> None:
+    with pytest.raises(
+        RuntimeError, match=r"no Coverage\.py default exclude pattern matches"
+    ):
+        coverage_hierarchy._coverage_pragma_pattern(["if TYPE_CHECKING:"])
 
 
 def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
@@ -521,7 +528,7 @@ def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
 
     errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
 
-    assert errors == ["src/latin.py is not UTF-8"]
+    assert errors == ["src/latin.py is not UTF-8 (invalid continuation byte at byte 5)"]
 
 
 def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
