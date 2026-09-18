@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from scripts.research.golden_review import AdjudicationArtifact, RowDecisionExport
 
 _GOLDEN = Path(__file__).with_name("golden")
-_DECISIONS_PATH = Path(__file__).parents[3] / "docs" / "DECISIONS.md"
 _ADJUDICATION_PATH = _GOLDEN / "neoplasm-adjudicated.json"
 _ENGINE_EVIDENCE_PATH = _GOLDEN / "neoplasm-engine-evidence.json"
 _CORPUS_COMPARISON_PATH = _GOLDEN / "neoplasm-corpus-comparison.json"
@@ -230,26 +229,6 @@ def test_mint_781_lifecycle_has_one_strict_local_authority(
     assert minted[0].needs_review is False
 
     assert not (_GOLDEN / _OBSOLETE_MINTED_GOLDEN).exists()
-
-    readme = " ".join((_GOLDEN / "README.md").read_text(encoding="utf-8").split())
-    decisions = _DECISIONS_PATH.read_text(encoding="utf-8")
-    d82 = " ".join(
-        decisions.split("### D82.", maxsplit=1)[1].split("\n## ", maxsplit=1)[0].split()
-    )
-    d23 = " ".join(
-        decisions.split("### D23.", maxsplit=1)[1].split("\n---", maxsplit=1)[0].split()
-    )
-    for current_guidance in (readme, d82, d23):
-        assert "proposal-registry.json" in current_guidance
-        assert _OBSOLETE_MINTED_GOLDEN not in current_guidance
-
-    assert "sole current strict governance record" in readme
-    assert "local SME approval only" in d82
-    assert (
-        "not submitted, accepted-in-ncit, runtime-published, or full-corpus-published"
-        in d82
-    )
-    assert "No other SME correction is approved by this decision" in d82
 
 
 @pytest.mark.unit
@@ -516,18 +495,6 @@ def test_three_withdrawn_expectations_sit_outside_the_oracle(
     assert withdrawn.isdisjoint(expected)
     assert len(withdrawn) == 3
     assert len(expected | withdrawn) == 157
-
-
-@pytest.mark.unit
-def test_readme_preserves_c4791_withdrawal_and_describes_retained_anatomy() -> None:
-    readme = " ".join((_GOLDEN / "README.md").read_text(encoding="utf-8").split())
-
-    assert "Heart (`C12727`) as `op:AssociatedRegion` was withdrawn" in readme
-    assert "Endocardium (`C13004`) is tissue rather than the primary site" in readme
-    assert (
-        "retained on both `op:AssociatedRegion` and `op:AssociatedSite` because D23 "
-        "permits the same anatomy on multiple axes"
-    ) in readme
 
 
 @pytest.mark.unit

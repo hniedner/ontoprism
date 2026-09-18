@@ -3576,26 +3576,6 @@ def _verify_enhanced_ncit_showcase(
     return _run_showcase_operator(root, runner, activate=False)
 
 
-def _refresh_sparql_inventory(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if values:
-        raise AgentReplayInputError("refresh-sparql-inventory accepts no arguments")
-    script = _require_files(root, ("scripts/validation/write_sparql_inventory.py",))[0]
-    return _run(
-        [
-            sys.executable,
-            script,
-            "--root",
-            str(root),
-            "--output",
-            str(root / "scripts/validation/sparql-inventory.json"),
-        ],
-        root,
-        runner,
-    )
-
-
 def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("inspect-podman accepts no arguments")
@@ -4931,7 +4911,6 @@ _OPERATIONS: dict[str, Operation] = {
     "report-r101-current-reuse": _report_r101_current_reuse,
     "audit-primary-sites": _audit_primary_sites,
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
-    "refresh-sparql-inventory": _refresh_sparql_inventory,
     "inspect-podman": _inspect_podman,
     "ensure-podman-stack": _ensure_podman_stack,
     "inspect-decomposition-runs": _inspect_decomposition_runs,

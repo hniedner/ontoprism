@@ -4,7 +4,7 @@ limitations = [
   "Coverage.py 7.15 native function/class regions are authoritative for Python ownership; zero-branch scopes are rendered as N/A instead of Coverage.py's synthetic 100%.",
   "Vitest's native Istanbul map is authoritative for frontend module denominators. Production-bundle Playwright maps attribute to original Svelte sources but cannot be merged with Vitest without duplicate regions, so browser coverage is behavioral evidence only.",
   "Executable production surfaces absent from their trusted measurement layer report 0% unmeasured. YAML, shell, browser-only routes, and excluded rendering shells are never silently omitted.",
-  "The hierarchy is report-only in #170. Strict independent line and branch aggregate gates for ontolib/src, backend/src, and frontend/src/lib are the blocking gates for those two metrics; Vitest's own thresholds (lines/functions/branches/statements >= 90) additionally block frontend/src/lib. No other coverage gate blocks until #169.",
+  "The hierarchy is report-only in #170. Strict independent line and branch aggregate gates for ontolib/src, backend/src, and frontend/src/lib are the blocking gates for those two metrics; Vitest's own thresholds (lines/functions/branches/statements >= 90) additionally block frontend/src/lib. No other coverage gate blocks.",
 ]
 required_production_paths = [
   "ontolib/src/ontolib/decomposition/stated_queries.py",
@@ -327,9 +327,13 @@ group = "release-yaml"
 pattern = ".github/workflows/update-readme-code-stats.yml"
 group = "release-yaml"
 
+# A `pragma-no-cover` exemption is keyed by file path: a file carries exactly as many
+# inline ignore markers as it has such exemptions. `review_issue` names the issue that
+# reviewed the exemption (it may be closed); `review_after` is the date by which it must
+# be re-reviewed, and the validator rejects an expired date.
+
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 48
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "max_attempts is validated as positive and every loop path returns or raises, so this defensive assertion is structurally unreachable."
@@ -339,7 +343,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "if TYPE_CHECKING:"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "TYPE_CHECKING blocks are static typing imports and do not execute in production."
@@ -350,7 +353,6 @@ configured_in = "pyproject.toml"
 
 [[exemption]]
 path = "raise NotImplementedError"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "Abstract-interface sentinel branches are not executable implementation behavior; the manifest validator detects drift in this exclusion."
@@ -361,7 +363,6 @@ configured_in = "pyproject.toml"
 
 [[exemption]]
 path = "ontolib/src/ontolib/common/error_handling.py"
-line = 65
 kind = "pragma-no-cover"
 owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
@@ -371,7 +372,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/dev/update_readme_code_stats.py"
-line = 156
 kind = "pragma-no-cover"
 owner = "release automation maintainers"
 rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
@@ -381,7 +381,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/adjudication.py"
-line = 1272
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "The PDM script calls the module guard; CLI import and evaluation behavior are tested through main()."
@@ -391,7 +390,6 @@ review_after = "2027-07-31"
 
 [[exemption]]
 path = "scripts/research/differentia_extractor.py"
-line = 130
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to the tested async main function."
@@ -401,7 +399,6 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "frontend/src/lib/components/GraphExplorer.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "frontend maintainers"
 rationale = "The imperative Sigma/WebGL shell cannot mount faithfully in jsdom; pure graph logic is unit tested and its toolbar controls are asserted to render in Chromium."
@@ -412,7 +409,6 @@ configured_in = "frontend/vite.config.ts"
 
 [[exemption]]
 path = "frontend/src/lib/components/GraphMinimap.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "frontend maintainers"
 rationale = "The imperative canvas shell cannot mount faithfully in jsdom; projection logic is unit tested and its toggle control is asserted to render in Chromium."

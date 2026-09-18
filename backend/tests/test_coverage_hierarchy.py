@@ -9,6 +9,7 @@ from pathlib import Path
 
 import coverage
 import pytest
+from coverage.config import DEFAULT_EXCLUDE
 from pydantic import ValidationError
 from scripts.validation import coverage_hierarchy
 from scripts.validation.coverage_hierarchy import (
@@ -73,6 +74,7 @@ def _write_manifest(
     required_path: str = "",
     assignment: str = "",
     exemption: str = "",
+    extensions: str = '".py"',
 ) -> Path:
     pyproject = root / "pyproject.toml"
     if not pyproject.exists():
@@ -109,7 +111,7 @@ executable = true
 
 [[inventory]]
 root = "src"
-extensions = [".py"]
+extensions = [{extensions}]
 default_group = "{default_group}"
 
 {assignment}
@@ -300,7 +302,6 @@ def test_manifest_rejects_broad_and_unowned_exemptions(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/**"
-line = 1
 kind = "pragma-no-cover"
 owner = ""
 rationale = ""
@@ -329,7 +330,6 @@ def test_manifest_accepts_owned_pragma_with_behavioral_test(tmp_path: Path) -> N
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma-no-cover"
 owner = "test-owner"
 rationale = "The excluded guard is structurally unreachable in normal execution."
@@ -340,6 +340,227 @@ review_after = "2099-01-01"
     manifest = load_manifest(_write_manifest(tmp_path, exemption=exemption), tmp_path)
 
     assert validate_manifest(manifest, tmp_path) == []
+
+
+_PATH_OWNED_PRAGMA = """
+[[exemption]]
+path = "src/module.py"
+kind = "pragma-no-cover"
+owner = "test-owner"
+rationale = "The excluded guard is structurally unreachable in normal execution."
+behavioral_test = "tests/test_module.py"
+review_issue = 170
+review_after = "2099-01-01"
+"""
+
+
+def _pragma_repo(tmp_path: Path, source_text: str) -> Path:
+    source = tmp_path / "src" / "module.py"
+    test_file = tmp_path / "tests" / "test_module.py"
+    source.parent.mkdir()
+    test_file.parent.mkdir()
+    source.write_text(source_text)
+    test_file.write_text("def test_value() -> None:\n    assert value() == 1\n")
+    return _write_manifest(tmp_path, exemption=_PATH_OWNED_PRAGMA)
+
+
+def test_pragma_exemption_survives_edits_that_move_the_pragma(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "import os\n\n\ndef value() -> int:  # pragma: no cover\n    return 1\n",
+    )
+
+    manifest = load_manifest(manifest_path, tmp_path)
+
+    assert validate_manifest(manifest, tmp_path) == []
+
+
+def test_a_second_pragma_in_an_exempted_file_is_still_unowned(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n\n\n"
+        "def other() -> int:  # pragma: no cover\n    return 2\n",
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == [
+        "unowned pragma/ignore marker: src/module.py (2 markers, 1 owned)"
+    ]
+
+
+def test_an_exemption_whose_pragma_was_removed_is_reported(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n",
+    )
+    second = _PATH_OWNED_PRAGMA.replace(
+        "structurally unreachable", "unreachable in the async loop"
+    )
+    manifest_path.write_text(manifest_path.read_text() + second)
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["stale pragma exemption: src/module.py (1 markers, 2 owned)"]
+
+
+def test_pragma_text_without_a_comment_hash_is_not_a_marker(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        'MARKER = "pragma: no cover"\n\n\ndef value() -> int:\n    return 1\n',
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["stale pragma exemption: src/module.py (0 markers, 1 owned)"]
+
+
+def test_a_measurement_exclusion_does_not_own_an_ignore_marker(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.coverage.report]\nexclude_also = []\npartial_also = []\n"
+        '[tool.coverage.run]\nomit = ["src/shell.py"]\n',
+        encoding="utf-8",
+    )
+    source = tmp_path / "src" / "shell.py"
+    source.parent.mkdir()
+    source.write_text("def shell() -> int:  # pragma: no cover\n    return 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_shell.py").write_text("def test_shell() -> None:\n")
+    exemption = """
+[[exemption]]
+path = "src/shell.py"
+kind = "measurement-exclusion"
+owner = "test-owner"
+rationale = "The shell cannot be measured by the unit layer."
+behavioral_test = "tests/test_shell.py"
+review_issue = 170
+review_after = "2099-01-01"
+configured_in = "pyproject.toml"
+"""
+    manifest = load_manifest(_write_manifest(tmp_path, exemption=exemption), tmp_path)
+
+    errors = validate_manifest(manifest, tmp_path)
+
+    assert errors == ["unowned pragma/ignore marker: src/shell.py (1 markers, 0 owned)"]
+
+
+def test_two_exemptions_with_the_same_rationale_are_rejected(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path,
+        "def value() -> int:  # pragma: no cover\n    return 1\n\n\n"
+        "def other() -> int:  # pragma: no cover\n    return 2\n",
+    )
+    second = _PATH_OWNED_PRAGMA.replace('owner = "test-owner"', 'owner = "other-owner"')
+    manifest_path.write_text(manifest_path.read_text() + second)
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["exemptions must be unique"]
+
+
+def test_a_pragma_exemption_on_an_unscanned_file_type_is_rejected(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "run.sh").write_text("#!/bin/sh\n# pragma: no cover\n")
+    manifest_path.write_text(
+        manifest_path.read_text().replace(
+            'path = "src/module.py"', 'path = "src/run.sh"'
+        )
+    )
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert (
+        "pragma exemption src/run.sh names a file the marker scan does not read "
+        "(only .py, .js, .mjs, .ts, .svelte)"
+    ) in errors
+    assert "unowned pragma/ignore marker: src/module.py (1 markers, 0 owned)" in errors
+
+
+@pytest.mark.parametrize(
+    ("pragma", "expected"),
+    [
+        ("# pragma: no cover", []),
+        ("#pragma:no cover", []),
+        ("# PRAGMA NO COVER", []),
+        (
+            "# Pragma: No Cover",
+            ["stale pragma exemption: src/module.py (0 markers, 1 owned)"],
+        ),
+        ("# pragma: nocover", []),
+        (
+            "# pragma: no-cover",
+            ["stale pragma exemption: src/module.py (0 markers, 1 owned)"],
+        ),
+    ],
+)
+def test_only_pragma_spellings_coverage_py_excludes_count_as_markers(
+    tmp_path: Path, pragma: str, expected: list[str]
+) -> None:
+    """Contract with Coverage.py: a spelling it still measures is not a marker."""
+    manifest_path = _pragma_repo(
+        tmp_path, f"def value() -> int:  {pragma}\n    return 1\n"
+    )
+    coverage_pragma = re.compile(next(p for p in DEFAULT_EXCLUDE if "pragma" in p))
+    assert bool(coverage_pragma.search(pragma)) is (expected == [])
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == expected
+
+
+def test_a_coverage_release_without_a_pragma_pattern_is_rejected_by_name() -> None:
+    with pytest.raises(
+        RuntimeError, match=r"no Coverage\.py default exclude pattern matches"
+    ):
+        coverage_hierarchy._coverage_pragma_pattern(["if TYPE_CHECKING:"])
+
+
+def test_a_surface_that_is_not_utf8_is_reported_by_path(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "latin.py").write_bytes(b"# caf\xe9\nx = 1\n")
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == ["src/latin.py is not UTF-8 (invalid continuation byte at byte 5)"]
+
+
+def test_frontend_ignore_markers_count_only_inside_comments(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "shell.ts"
+    source.parent.mkdir()
+    source.write_text(
+        "/* v8 ignore next */\n"
+        'const marker = "v8 ignore next";\n'
+        "export const value = 1;\n"
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "shell.test.ts").write_text("test('value', () => {});\n")
+    exemption = _PATH_OWNED_PRAGMA.replace('"src/module.py"', '"src/shell.ts"').replace(
+        '"tests/test_module.py"', '"tests/shell.test.ts"'
+    )
+    manifest_path = _write_manifest(tmp_path, exemption=exemption, extensions='".ts"')
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert errors == []
+
+
+def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
+    manifest_path = _pragma_repo(
+        tmp_path, "def value() -> int:  # pragma: no cover\n    return 1\n"
+    )
+    (tmp_path / "src" / "module.py").unlink()
+
+    errors = validate_manifest(load_manifest(manifest_path, tmp_path), tmp_path)
+
+    assert "exemption src/module.py source does not exist" in errors
 
 
 def test_repository_coverage_config_exclusions_are_owned() -> None:
@@ -871,7 +1092,6 @@ def test_load_manifest_rejects_unknown_exemption_kind(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma_no_cover"
 owner = "o"
 rationale = "r"
@@ -894,7 +1114,6 @@ def test_manifest_rejects_expired_exemption(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "src/module.py"
-line = 1
 kind = "pragma-no-cover"
 owner = "o"
 rationale = "structurally unreachable"
@@ -922,7 +1141,6 @@ def test_manifest_rejects_misreferenced_measurement_exclusion(tmp_path: Path) ->
     exemption = """
 [[exemption]]
 path = "src/shell.svelte"
-line = 1
 kind = "measurement-exclusion"
 owner = "o"
 rationale = "cannot mount in jsdom"
@@ -943,7 +1161,6 @@ def test_manifest_rejects_config_regex_not_in_pyproject(tmp_path: Path) -> None:
     exemption = """
 [[exemption]]
 path = "raise NotImplementedError"
-line = 1
 kind = "coverage-exclude-regex"
 owner = "o"
 rationale = "abstract sentinel"

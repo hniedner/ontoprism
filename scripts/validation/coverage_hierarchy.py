@@ -11,17 +11,19 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import tokenize
 import tomllib
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Final, Literal, Protocol, Self, cast
 
+from coverage.config import DEFAULT_EXCLUDE
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,7 +40,26 @@ _EXEMPTION_KINDS = {
     "coverage-partial-regex",
 }
 _IGNORE_DIRS = {"__pycache__", ".git", ".svelte-kit", "build", "node_modules"}
-_IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignore")
+
+
+def _coverage_pragma_pattern(patterns: Sequence[str]) -> re.Pattern[str]:
+    """Coverage.py's own pragma pattern, to be searched per raw source line.
+
+    The probe is assembled so this module does not itself carry a marker.
+    """
+    probe = "# " + "pragma: no cover"
+    for pattern in patterns:
+        if re.search(pattern, probe):
+            return re.compile(pattern)
+    raise RuntimeError(
+        "no Coverage.py default exclude pattern matches a no-cover pragma: "
+        f"{patterns!r}"
+    )
+
+
+_PYTHON_MARKER = _coverage_pragma_pattern(DEFAULT_EXCLUDE)
+_IGNORE_MARKERS = ("istanbul ignore", "v8 ignore", "c8 ignore")
+_MARKER_SUFFIXES = (".py", ".js", ".mjs", ".ts", ".svelte")
 MetricKind = Literal["lines", "branches"]
 SupportedCoverageTool = Literal["coverage.py", "vitest"]
 SUPPORTED_COVERAGE_TOOLS = ("coverage.py", "vitest")
@@ -153,7 +174,6 @@ class Assignment(_Document):
 
 class Exemption(_Document):
     path: str
-    line: int
     kind: str
     owner: str
     rationale: str
@@ -363,7 +383,6 @@ def load_manifest(path: Path, root: Path = REPO_ROOT) -> Manifest:
     exemptions = tuple(
         Exemption(
             path=_string(item, "path"),
-            line=_integer(item, "line"),
             kind=_string(item, "kind"),
             owner=_string(item, "owner"),
             rationale=_string(item, "rationale"),
@@ -453,7 +472,7 @@ def _validate_groups(manifest: Manifest) -> list[str]:
 
 def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     errors: list[str] = []
-    label = f"exemption {exemption.path}:{exemption.line}"
+    label = f"exemption {exemption.path}"
     is_config_regex = exemption.kind in {
         "coverage-exclude-regex",
         "coverage-partial-regex",
@@ -463,8 +482,6 @@ def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     source = root / exemption.path
     if not is_config_regex and not source.is_file():
         errors.append(f"{label} source does not exist")
-    if exemption.line < 1:
-        errors.append(f"{label} line must be positive")
     required_text = {
         "owner": exemption.owner,
         "rationale": exemption.rationale,
@@ -490,26 +507,10 @@ def _validate_exemption_metadata(exemption: Exemption, root: Path) -> list[str]:
     return errors
 
 
-def _validate_pragma_exemption(exemption: Exemption, root: Path) -> list[str]:
-    if exemption.kind != "pragma-no-cover":
-        return []
-    source = root / exemption.path
-    if not source.is_file():
-        return []
-    lines = source.read_text(encoding="utf-8").splitlines()
-    line_exists = exemption.line <= len(lines)
-    if line_exists and "pragma: no cover" in lines[exemption.line - 1]:
-        return []
-    return [
-        f"exemption {exemption.path}:{exemption.line} "
-        "does not point at a pragma: no cover"
-    ]
-
-
 def _validate_measurement_exemption(exemption: Exemption, root: Path) -> list[str]:
     if exemption.kind != "measurement-exclusion":
         return []
-    label = f"exemption {exemption.path}:{exemption.line}"
+    label = f"exemption {exemption.path}"
     configured = root / exemption.configured_in
     if not configured.is_file():
         return [f"{label} configured_in must name an existing file"]
@@ -549,47 +550,56 @@ def _validate_exemption(
 ) -> list[str]:
     return [
         *_validate_exemption_metadata(exemption, root),
-        *_validate_pragma_exemption(exemption, root),
         *_validate_measurement_exemption(exemption, root),
         *_validate_config_exemption(exemption, coverage_config, root),
     ]
 
 
-def _unowned_ignore_markers(
+def _ignore_marker_count(path: Path) -> int:
+    """Count coverage-ignore markers per raw source line.
+
+    Python lines are matched with Coverage.py's own pragma pattern; other languages
+    are approximated by a line that carries both a marker and a comment prefix.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if path.suffix == ".py":
+        return sum(_PYTHON_MARKER.search(line) is not None for line in lines)
+    return sum(
+        any(marker in line.lower() for marker in _IGNORE_MARKERS)
+        and any(prefix in line for prefix in ("//", "/*", "<!--"))
+        for line in lines
+    )
+
+
+def _pragma_ownership_errors(
     manifest: Manifest, surfaces: Sequence[Surface], root: Path
 ) -> list[str]:
-    owned = {(item.path, item.line) for item in manifest.exemptions}
+    """Every inline ignore marker has exactly one pragma exemption for its file."""
+    owned = Counter(
+        item.path for item in manifest.exemptions if item.kind == "pragma-no-cover"
+    )
     errors: list[str] = []
-    for surface in surfaces:
-        path = root / surface.path
-        if path.suffix not in {".py", ".js", ".mjs", ".ts", ".svelte"}:
-            continue
-        if path.suffix == ".py":
-            with path.open("rb") as stream:
-                comments = (
-                    (token.start[0], token.string.lower())
-                    for token in tokenize.tokenize(stream.readline)
-                    if token.type == tokenize.COMMENT
-                )
-                markers = tuple(
-                    line_number
-                    for line_number, comment in comments
-                    if any(marker in comment for marker in _IGNORE_MARKERS)
-                )
-        else:
-            markers = tuple(
-                line_number
-                for line_number, line in enumerate(
-                    path.read_text(encoding="utf-8").splitlines(), 1
-                )
-                if any(marker in line.lower() for marker in _IGNORE_MARKERS)
-                and any(prefix in line for prefix in ("//", "/*", "<!--"))
-            )
-        for line_number in markers:
-            if (surface.path, line_number) not in owned:
+    for relative in sorted({surface.path for surface in surfaces} | set(owned)):
+        path = root / relative
+        if path.suffix not in _MARKER_SUFFIXES:
+            if relative in owned:
                 errors.append(
-                    f"unowned pragma/ignore marker: {surface.path}:{line_number}"
+                    f"pragma exemption {relative} names a file the marker scan does "
+                    f"not read (only {', '.join(_MARKER_SUFFIXES)})"
                 )
+            continue
+        if not path.is_file():
+            continue
+        try:
+            markers = _ignore_marker_count(path)
+        except UnicodeDecodeError as exc:
+            errors.append(f"{relative} is not UTF-8 ({exc.reason} at byte {exc.start})")
+            continue
+        counts = f"({markers} markers, {owned[relative]} owned)"
+        if markers > owned[relative]:
+            errors.append(f"unowned pragma/ignore marker: {relative} {counts}")
+        elif markers < owned[relative]:
+            errors.append(f"stale pragma exemption: {relative} {counts}")
     return errors
 
 
@@ -649,7 +659,9 @@ def validate_manifest(manifest: Manifest, root: Path = REPO_ROOT) -> list[str]:
         errors.append(str(exc))
         surfaces = ()
     errors.extend(_validate_required_surfaces(manifest, surfaces))
-    exemption_keys = [(item.path, item.line, item.kind) for item in manifest.exemptions]
+    exemption_keys = [
+        (item.path, item.kind, item.rationale) for item in manifest.exemptions
+    ]
     if len(exemption_keys) != len(set(exemption_keys)):
         errors.append("exemptions must be unique")
     coverage_config = load_coverage_config(root / "pyproject.toml")
@@ -669,7 +681,7 @@ def validate_manifest(manifest: Manifest, root: Path = REPO_ROOT) -> list[str]:
     }
     for kind, expression in sorted(configured_exemptions - owned_config_exemptions):
         errors.append(f"unowned {kind}: {expression}")
-    errors.extend(_unowned_ignore_markers(manifest, surfaces, root))
+    errors.extend(_pragma_ownership_errors(manifest, surfaces, root))
     return sorted(set(errors))
 
 

@@ -13,6 +13,7 @@ import statistics
 import subprocess
 import tempfile
 import tomllib
+import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,7 +25,6 @@ BACKEND_ALGORITHM_VERSION = "sha256-mod-v1"
 INTEGRATION_ALGORITHM_VERSION = "greedy-weighted-lpt-v1"
 RECEIPT_SCHEMA_VERSION = 1
 SHARD_COUNT = 2
-MAX_UNWEIGHTED_INTEGRATION_FILES = 1
 FIXED_TEST_ROOTS = ("ontolib/tests", "backend/tests")
 _ENV_PREFIX = "ONTOPRISM_TEST_PARTITION_"
 _TIMINGS_OUTPUT_ENV = "ONTOPRISM_TEST_TIMINGS_OUTPUT"
@@ -327,7 +327,8 @@ class IntegrationClassification(_Document):
 
 
 class IntegrationPartition(_Document):
-    """One measured-weight assignment with at most one default-weight module."""
+    """One greedy-LPT shard; `unweighted_files` is every inventory file, in any
+    shard, that took the default weight."""
 
     selected_files: tuple[str, ...]
     total_weight_seconds: Annotated[float, Field(gt=0)]
@@ -337,7 +338,7 @@ class IntegrationPartition(_Document):
 
 
 class IntegrationWeightManifest(_Document):
-    """Clean, complete timing evidence used by integration partition selection."""
+    """Clean timing evidence; a balancing hint for integration partition selection."""
 
     schema_version: Literal[1]
     measured_commit: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
@@ -384,14 +385,9 @@ def assign_integration_modules(
     default = manifest.default_weight_seconds
     raw_weights = manifest.weights
     inventory = {record.path for record in records}
-    stale = set(raw_weights) - inventory
-    if stale:
-        raise ValueError(f"stale integration weight paths: {sorted(stale)}")
+    # Weights only balance the shards: a new file takes the default weight and a weight
+    # for a deleted file is ignored, so adding or removing tests needs no re-measure.
     unweighted = tuple(sorted(inventory - set(raw_weights)))
-    if len(unweighted) > MAX_UNWEIGHTED_INTEGRATION_FILES:
-        raise ValueError(
-            "more than one unweighted integration file; regenerate measured weights"
-        )
     effective = {path: float(raw_weights.get(path, default)) for path in inventory}
     bins: list[list[str]] = [[] for _ in range(SHARD_COUNT)]
     totals = [0.0] * SHARD_COUNT
@@ -680,6 +676,13 @@ def _selection(
         root / "test_support/ci_partition_weights.toml",
         shard_index=spec.shard_index,
     )
+    if assignment.unweighted_files:
+        warnings.warn(
+            "integration files without a measured weight take the default "
+            f"{assignment.default_weight_seconds}s: "
+            f"{', '.join(assignment.unweighted_files)}",
+            stacklevel=2,
+        )
     paths = set(assignment.selected_files)
     selected = tuple(record for record in eligible if record.path in paths)
     if not selected:

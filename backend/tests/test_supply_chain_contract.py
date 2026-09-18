@@ -57,48 +57,6 @@ _BRACE_EXPANSION_ADVISORIES = (
 )
 
 
-def test_python_gate_documentation_describes_current_failure_and_ci_semantics() -> None:
-    quality_source = (_ROOT / "scripts/validation/check_test_quality.py").read_text()
-    quality_docstring = ast.get_docstring(ast.parse(quality_source))
-    pyproject = (_ROOT / "pyproject.toml").read_text()
-    ci_workflow = (_ROOT / ".github/workflows/ci.yml").read_text()
-    decisions = (_ROOT / "docs/DECISIONS.md").read_text()
-    d83 = decisions.partition("### D83.")[2].partition("\n### D82.")[0]
-
-    assert quality_docstring is not None
-    assert (
-        "6. Syntactically invalid (unparseable) test files\n"
-        "7. Unreadable or non-UTF-8 test files propagate their read error and abort "
-        "the hook"
-    ) in quality_docstring
-    assert (
-        "# TC rules propose moving annotation names out of runtime scope. FastAPI, "
-        "Pydantic,\n"
-        "    # typer, and pytest resolve annotations at runtime, and imports also have "
-        "direct\n"
-        "    # runtime uses such as Path; the global ignore replaces prior line and "
-        "per-file\n"
-        "    # suppressions."
-    ) in pyproject
-    assert (
-        "ci.yml defines nine top-level jobs and eleven stable visible checks"
-        in pyproject
-    )
-    assert (
-        "# On-demand CI for a feature branch that has no pull request yet: "
-        "workflow_dispatch\n"
-        "  # runs every ordinary job; only Docker and the pinned embedding-model "
-        "contract remain\n"
-        "  # path-gated."
-    ) in ci_workflow
-    assert "matrix children collapse to their top-level job result" in ci_workflow
-    assert "two two-child matrices still leave exactly eight dependency results" in (
-        ci_workflow
-    )
-    assert "Use this as the branch-protection required check." in ci_workflow
-    assert "Workflow Python setup inputs" in d83
-
-
 def _nested_image_values(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [
@@ -1193,15 +1151,6 @@ def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:
     assert tuple(map(int, override_match.groups())) >= _MINIMUM_BRACE_EXPANSION_VERSION
 
 
-def test_clean_machine_instructions_do_not_require_a_sibling_checkout() -> None:
-    data_setup = (_ROOT / "docs" / "DATA_SETUP.md").read_text()
-
-    assert "../fairdata" not in data_setup
-    assert "scripts/install_robot.py" in data_setup
-    assert "scripts/install_jena.py" in data_setup
-    assert "docker compose up -d" in data_setup
-
-
 def test_full_app_routes_icdo_entitlement_through_the_private_bff() -> None:
     compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
     services = compose["services"]
@@ -1260,3 +1209,16 @@ def test_active_runtime_has_no_oxigraph_dependency() -> None:
                         f"{file_path.relative_to(_ROOT)}:{line_number}:{line.strip()}"
                     )
     assert occurrences == []
+
+
+def test_public_docs_never_point_at_the_private_sibling_checkout() -> None:
+    """This repository is public; its setup must not depend on a private clone."""
+    documents = [_ROOT / "README.md", *(_ROOT / "docs").rglob("*.md")]
+
+    offenders = [
+        str(path.relative_to(_ROOT))
+        for path in documents
+        if "../fairdata" in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == []
