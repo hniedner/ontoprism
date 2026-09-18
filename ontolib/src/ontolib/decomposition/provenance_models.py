@@ -154,18 +154,26 @@ class FullRunExecutionIdentity(BaseModel):
 
     @property
     def identity(self) -> str:
-        encoded = json.dumps(
-            self.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return _content_identity(self.model_dump(mode="json"))
 
     @classmethod
     def from_fingerprint(cls, fingerprint: RunFingerprint) -> FullRunExecutionIdentity:
         payload = fingerprint.model_dump(exclude={"schema_version", "emitted_at"})
         return cls.model_validate(payload)
+
+
+def _content_identity(payload: dict[str, object]) -> str:
+    """SHA-256 over the canonical JSON.
+
+    An absent rehearsal nonce is left out, so identities persisted before the field
+    existed keep matching their rows.
+    """
+    if payload.get("rehearsal_nonce") is None:
+        payload = {k: v for k, v in payload.items() if k != "rehearsal_nonce"}
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _require_rehearsal_unpublished(
@@ -291,14 +299,7 @@ class RunFingerprint(BaseModel):
     @property
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
-        payload = self.model_dump(mode="json")
-        encoded = json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return _content_identity(self.model_dump(mode="json"))
 
 
 class CompletedRunForEvidence(BaseModel):

@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -66,17 +67,21 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 )
 
 
-# A full run takes about fifteen hours. Before one starts, the tracked stratified SME
-# sample (the D63 oracle: 20 concepts across every review stratum) is rehearsed through
-# the same pipeline and the same reporting, so an input, environment or reporting
-# defect surfaces well before the full run does the work. The rehearsal is a throwaway
-# run: admitted afresh each time, never published, never promoting its mints. It cannot
-# carry the mixed-chain inventory or the whole-worklist closure checks, which are bound
-# to the full worklist; those still run at hour zero of the full run. This is distinct
-# from the engine's own `preflight` stage, the constructor census every run performs.
-PREFLIGHT_SAMPLE = (
-    Path(__file__).resolve().parents[1] / "samples/ncit-26.07d-m1-sme-review.json"
-)
+# A full run takes about fifteen hours. Before one starts, the branch's tracked
+# stratified SME sample (for neoplasm the D63 oracle cohort: 20 concepts across every
+# review stratum) is rehearsed through the same pipeline and the same reporting, so an
+# input, environment or reporting defect surfaces well before the full run does the
+# work. The rehearsal is a throwaway run: admitted afresh each time, never published,
+# never promoting its mints, never resumable, and it borrows only the sample's codes
+# (not its source binding). It cannot carry the mixed-chain inventory or the
+# whole-worklist closure checks, which are bound to the full worklist; those still run
+# at hour zero of the full run. This is distinct from the engine's own `preflight`
+# stage, the constructor census every run performs.
+PREFLIGHT_SAMPLES = {
+    DecompositionBranch.NEOPLASM: (
+        Path(__file__).resolve().parents[1] / "samples/ncit-26.07d-m1-sme-review.json"
+    ),
+}
 
 
 def _make_label_lookup(index: NcitSearchIndex):  # type: ignore[no-untyped-def]
@@ -123,9 +128,9 @@ def _progress_message(progress: RunProgress) -> str | None:
     )
 
 
-def _print_progress(progress: RunProgress) -> None:
+def _print_progress(progress: RunProgress, *, prefix: str = "") -> None:
     if message := _progress_message(progress):
-        print(message, file=sys.stderr, flush=True)
+        print(prefix + message, file=sys.stderr, flush=True)
 
 
 def _print_residual_progress(completed: int, total: int, filler: str) -> None:
@@ -188,7 +193,7 @@ async def _run(
         sample_manifest=sample,
         rehearsal=rehearsal,
         # The inventory is bound to the whole-corpus worklist identity, so only an
-        # unbounded run can carry it.
+        # unbounded neoplasm run carries it.
         mixed_chain_inventory_path=(
             Path(__file__).resolve().parents[1]
             / "ontolib/src/ontolib/decomposition/data/"
@@ -223,7 +228,10 @@ async def _run(
                             get_labels=store.labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
-                            progress=_print_progress,
+                            progress=partial(
+                                _print_progress,
+                                prefix="preflight " if rehearsal else "",
+                            ),
                             residual_progress=_print_residual_progress,
                         )
                     except BaseException as exc:
@@ -337,8 +345,9 @@ def main(
         typer.Option(
             "--preflight/--no-preflight",
             help=(
-                "Before a full run, rehearse the tracked stratified SME sample through "
-                "the same pipeline (never loading the graph) and stop if that fails."
+                "Before a full run, rehearse the branch's tracked stratified SME "
+                "sample through the same pipeline (never loading the graph) and stop "
+                "if it fails or decomposes nothing."
             ),
         ),
     ] = True,
@@ -396,7 +405,13 @@ def _rehearse(
     emit_equivalence: bool,
     walker_max_depth: int,
 ) -> None:
-    """Run the preflight sample as a rehearsal; a failure keeps its output."""
+    """Run the branch's preflight sample as a rehearsal; a failure keeps its output."""
+    sample = PREFLIGHT_SAMPLES.get(branch)
+    if sample is None:
+        raise typer.BadParameter(
+            f"no preflight sample is tracked for branch {branch.value!r}; "
+            "pass --no-preflight"
+        )
     preflight_out = (
         out.with_name(f"{out.name}.preflight")
         if out is not None
@@ -413,7 +428,7 @@ def _rehearse(
                 resume=None,
                 total_limit=None,
                 walker_max_depth=walker_max_depth,
-                sample_manifest=PREFLIGHT_SAMPLE,
+                sample_manifest=sample,
                 rehearsal=True,
             )
         )
@@ -422,7 +437,10 @@ def _rehearse(
                 f"preflight decomposed no concepts: {_summary_line(metrics)}"
             )
     except BaseException as exc:
-        exc.add_note("raised by the preflight rehearsal; the full run was not started")
+        exc.add_note(
+            f"raised by the preflight rehearsal of {sample}; the full run was not "
+            f"started; its output is kept at {preflight_out}; --no-preflight skips it"
+        )
         raise
     typer.echo(f"preflight: {_summary_line(metrics)}")
     try:

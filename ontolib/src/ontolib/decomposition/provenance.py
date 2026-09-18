@@ -6,7 +6,6 @@ import asyncio
 import datetime
 import json as _json
 import logging
-from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import TYPE_CHECKING, cast
@@ -231,14 +230,14 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
 
 
 async def _promote_mint_proposals(
-    session: AsyncSession, run_id: str, fingerprint: object
+    session: AsyncSession, run_id: str, fingerprint: RunFingerprint
 ) -> None:
-    """Move a completed run's mint proposals into the global curator queue.
+    """Copy a completed run's mint proposals into the global curator queue.
 
     A rehearsal mints the same deterministic proposal ids the real run will mint;
     promoting them would make the throwaway run their owner, so it never promotes.
     """
-    if _is_rehearsal(fingerprint):
+    if fingerprint.rehearsal_nonce is not None:
         return
     await session.execute(
         text(
@@ -253,14 +252,6 @@ async def _promote_mint_proposals(
             "ON CONFLICT (id) DO NOTHING"
         ),
         {"id": run_id},
-    )
-
-
-def _is_rehearsal(fingerprint: object) -> bool:
-    """Whether a persisted fingerprint carries a rehearsal nonce (never for legacy)."""
-    return (
-        isinstance(fingerprint, Mapping)
-        and fingerprint.get("rehearsal_nonce") is not None
     )
 
 
@@ -2161,6 +2152,11 @@ class ProvenanceStore:
             fingerprint = self._validated_fingerprint(
                 row["fingerprint"], row["fingerprint_sha256"]
             )
+            if fingerprint.rehearsal_nonce is not None:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is a rehearsal; rehearsals are "
+                    "throwaway runs and cannot be resumed"
+                )
             await self._require_materialized_worklist(session, run_id, fingerprint)
             self.require_resume_identity(fingerprint, expected, run_id)
             await session.execute(
@@ -2972,7 +2968,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics, fingerprint "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run ORDER BY started_at DESC LIMIT :limit OFFSET :offset"
         )
         async with self._sf() as s:
@@ -2988,7 +2985,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics, fingerprint "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run WHERE id = :run_id"
         )
         async with self._sf() as s:
@@ -3042,7 +3040,7 @@ class ProvenanceStore:
             id=row["id"],
             branch=row["branch"],
             status=row["status"],
-            rehearsal=_is_rehearsal(row.get("fingerprint")),
+            rehearsal=row["rehearsal"],
             ncit_version=row["ncit_version"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
@@ -3142,7 +3140,7 @@ class ProvenanceStore:
                     await _persisted_definition_counts(session, run_id),
                 )
                 metrics = completion_metrics.model_dump()
-                await _promote_mint_proposals(session, run_id, row["fingerprint"])
+                await _promote_mint_proposals(session, run_id, fingerprint)
                 result = await session.execute(
                     text(
                         "UPDATE decomp_run SET status = 'complete', "

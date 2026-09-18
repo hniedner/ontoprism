@@ -752,6 +752,9 @@ def _metrics(total: int, *, decomposed: int | None = None) -> decompose.RunMetri
     )
 
 
+_NEOPLASM_SAMPLE = decompose.PREFLIGHT_SAMPLES[decompose.DecompositionBranch.NEOPLASM]
+
+
 class _RunStub:
     """Stand in for `_run`, recording keyword calls and writing the output file."""
 
@@ -792,14 +795,14 @@ def test_full_run_is_preceded_by_a_stratified_rehearsal_of_the_same_pipeline(
         **full,
         "out": tmp_path / "decomposed.ttl.preflight",
         "load": False,
-        "sample_manifest": decompose.PREFLIGHT_SAMPLE,
+        "sample_manifest": _NEOPLASM_SAMPLE,
         "rehearsal": True,
     }
     assert full["out"] == output
     assert full["load"] is True
     assert full["sample_manifest"] is None
     assert full["rehearsal"] is False
-    assert decompose.PREFLIGHT_SAMPLE.is_file()
+    assert _NEOPLASM_SAMPLE.is_file()
     assert not (tmp_path / "decomposed.ttl.preflight").exists(), (
         "a successful preflight deletes its output"
     )
@@ -824,12 +827,53 @@ def test_a_failing_preflight_stops_the_full_run_and_names_itself(
 
     assert len(stub.calls) == 1
     assert stub.calls[0]["rehearsal"] is True
-    assert error.value.__notes__ == [
-        "raised by the preflight rehearsal; the full run was not started"
-    ]
+    (note,) = error.value.__notes__
+    assert note.startswith("raised by the preflight rehearsal of ")
+    assert "samples/ncit-26.07d-m1-sme-review.json" in note
+    assert f"kept at {tmp_path / 'decomposed.ttl.preflight'}" in note
+    assert "--no-preflight skips it" in note
     assert (tmp_path / "decomposed.ttl.preflight").exists(), (
         "a failed preflight keeps its output for diagnosis"
     )
+
+
+@pytest.mark.unit
+def test_a_branch_without_a_tracked_sample_cannot_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = _RunStub()
+    monkeypatch.setattr(decompose, "_run", stub)
+
+    with pytest.raises(typer.BadParameter, match=r"no preflight sample.*'disease'"):
+        decompose.main(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.DISEASE,
+            out=tmp_path / "decomposed.ttl",
+        )
+
+    assert stub.calls == []
+
+
+@pytest.mark.unit
+def test_rehearsal_progress_lines_are_prefixed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    progress = RunProgress(
+        run_id="neoplasm-1",
+        phase="started",
+        concept_code="C1",
+        completed=0,
+        total=20,
+        session_completed=0,
+        elapsed_seconds=0.0,
+    )
+
+    decompose._print_progress(progress, prefix="preflight ")
+    decompose._print_progress(progress)
+
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0].startswith("preflight run=neoplasm-1 ")
+    assert lines[1].startswith("run=neoplasm-1 ")
 
 
 @pytest.mark.unit
@@ -855,7 +899,7 @@ def test_a_preflight_that_decomposed_nothing_stops_the_full_run(
     [
         {"resume": "neoplasm-run-1"},
         {"total_limit": 10},
-        {"sample_manifest": decompose.PREFLIGHT_SAMPLE},
+        {"sample_manifest": _NEOPLASM_SAMPLE},
         {"preflight": False},
     ],
 )
@@ -877,7 +921,7 @@ def test_resumes_bounded_runs_and_opt_out_skip_the_preflight(
 
 
 @pytest.mark.unit
-async def test_a_rehearsal_run_config_differs_only_in_output_and_identity(
+async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_inventory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configs: list[decompose.RunConfig] = []
@@ -901,7 +945,7 @@ async def test_a_rehearsal_run_config_differs_only_in_output_and_identity(
         **common,
         out=tmp_path / "x.ttl.preflight",
         load=False,
-        sample_manifest=decompose.PREFLIGHT_SAMPLE,
+        sample_manifest=_NEOPLASM_SAMPLE,
         rehearsal=True,
     )
     await decompose._run(

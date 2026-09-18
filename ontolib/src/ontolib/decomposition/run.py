@@ -187,6 +187,15 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
+def _validate_rehearsal_config(config: RunConfig) -> None:
+    if not config.rehearsal:
+        return
+    if config.load_to_store:
+        raise ValueError("a rehearsal never publishes to the store")
+    if config.resume_from is not None:
+        raise ValueError("a rehearsal is a throwaway run and cannot be resumed")
+
+
 def _validate_sample_config(config: RunConfig) -> None:
     sample = config.sample_manifest
     if sample is None:
@@ -239,10 +248,9 @@ class RunConfig:
         self.sample_manifest = sample_manifest
         self.mixed_chain_inventory_path = mixed_chain_inventory_path
         # A rehearsal runs the pipeline as a throwaway: it is admitted afresh every
-        # time, never publishes, and never promotes its mint proposals.
+        # time, never publishes, never promotes its mint proposals, never resumes.
         self.rehearsal = rehearsal
-        if self.rehearsal and self.load_to_store:
-            raise ValueError("a rehearsal never publishes to the store")
+        _validate_rehearsal_config(self)
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -1023,7 +1031,10 @@ async def _validated_sample_worklist(
     sample = config.sample_manifest
     if sample is None:
         return None
-    _require_sample_source(sample, snapshot)
+    # A rehearsal borrows only the cohort's codes; their live-scope check below is
+    # what matters, not the source the sample was reviewed against.
+    if not config.rehearsal:
+        _require_sample_source(sample, snapshot)
     scope_codes = await enumerate_in_scope_codes(client, config.scope_root)
     _require_sample_scope(sample, scope_codes)
     return sample.codes

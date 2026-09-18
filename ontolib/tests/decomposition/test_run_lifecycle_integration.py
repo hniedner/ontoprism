@@ -1154,6 +1154,24 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         await dispose_engine(engine)
 
 
+async def test_a_rehearsal_cannot_be_resumed() -> None:
+    """A failed rehearsal's id is the first one on stderr; resuming it must refuse."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    rehearsal = _fingerprint().model_copy(update={"rehearsal_nonce": "e" * 32})
+    try:
+        await store.create_run(run_id, "26.07d", rehearsal)
+
+        with pytest.raises(RunStateError, match=r"is a rehearsal;.*cannot be resumed"):
+            await store.resume_run(
+                run_id, RunResumeIdentity.from_fingerprint(rehearsal)
+            )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_a_completed_rehearsal_never_reaches_the_curator_queue() -> None:
     """A rehearsal must not claim the deterministic mint ids the real run will mint."""
     run_id = _new_run_id("neoplasm")

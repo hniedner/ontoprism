@@ -2923,6 +2923,65 @@ async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
 
 
 @pytest.mark.unit
+async def test_a_rehearsal_uses_the_sample_cohort_without_its_source_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rehearsal only needs the cohort's codes, still validated against live scope."""
+    sample = _sample_manifest("C1", source_identity="b" * 64, ontology_version="26.99d")
+    client = _FakeClient(pages=[[]])
+
+    async def scope(*_args: object, **_kwargs: object) -> list[str]:
+        return ["C1", "C2"]
+
+    monkeypatch.setattr(run_module, "enumerate_in_scope_codes", scope)
+    with pytest.raises(SourceIdentityChangedError, match="source identity"):
+        await run_module._validated_sample_worklist(
+            RunConfig(branch="neoplasm", sample_manifest=sample, out=Path("x.ttl")),
+            client,
+            _source_snapshot(),
+        )
+
+    codes = await run_module._validated_sample_worklist(
+        RunConfig(
+            branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
+        ),
+        client,
+        _source_snapshot(),
+    )
+
+    assert codes == ("C1",)
+
+
+@pytest.mark.unit
+def test_a_rehearsal_cannot_be_configured_as_a_resume_or_a_publication() -> None:
+    with pytest.raises(ValueError, match=r"rehearsal .* resumed"):
+        RunConfig(branch="neoplasm", rehearsal=True, resume_from="neoplasm-run-1")
+    with pytest.raises(ValueError, match="rehearsal never publishes"):
+        RunConfig(
+            branch="neoplasm", rehearsal=True, out=Path("x.ttl"), load_to_store=True
+        )
+
+
+@pytest.mark.unit
+def test_a_rehearsal_fingerprint_is_fresh_on_every_request() -> None:
+    def fingerprint(*, rehearsal: bool) -> Any:
+        return run_module._requested_fingerprint(
+            RunConfig(branch="neoplasm", rehearsal=rehearsal),
+            _source_snapshot(),
+            semantic_types=("Neoplastic Process",),
+            total_limit=None,
+            worklist=("C1",),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        )
+
+    first, second = fingerprint(rehearsal=True), fingerprint(rehearsal=True)
+
+    assert first.rehearsal_nonce != second.rehearsal_nonce
+    assert first.identity != second.identity
+    assert fingerprint(rehearsal=False).rehearsal_nonce is None
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("sample", "message"),
     [
