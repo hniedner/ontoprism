@@ -52,6 +52,11 @@ _NEVER_ALLOWED = (
     "git diff --stat --output=/Users/hannes/x",
     "git show HEAD --output=/Users/hannes/x",
     "git diff --no-ext-diff --output=tmp/x main...HEAD",
+    "git diff --no-ext-diff --no-index /dev/null /etc/passwd --src-prefix=...HEAD",
+    "wc -l tmp/../../../../Users/hannes/.ssh/id_ed25519",
+    "pdm run python tmp/scratch/../../evil.py",
+    "ls -la /etc",
+    "wc -l /etc/passwd",
     "head ~/.aws/credentials",
     "tail -n 5 ../../.ssh/id_ed25519",
     "jq . ~/.config/gh/hosts.yml",
@@ -126,7 +131,11 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run verify",
         "pdm run python tmp/scratch/inspect_run.py",
         "pdm run agent-replay ensure-podman-stack",
+        "npm --prefix frontend run test:coverage",
+        "npm --prefix frontend run check",
+        "pdm run pre-commit run --all-files",
         "git status --porcelain",
+        "git merge-base main HEAD",
         "git diff --no-ext-diff feat/m1-6-1-provisional-publication...HEAD",
         "git add backend/src/backend/main.py",
         "pdm run agent-git switch-existing feat/m1-6-1-provisional-publication",
@@ -146,9 +155,17 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
     assert _resolve(_PRIMARY, command) == "allow"
 
 
-def test_the_primary_agent_asks_for_anything_not_listed() -> None:
-    assert _resolve(_PRIMARY, "cat README.md") == "ask"
-    assert _resolve(_PRIMARY, "pdm run decompose --branch neoplasm") == "ask"
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat README.md",
+        "pdm run decompose --branch neoplasm",
+        "pdm run agent-git merge-no-ff feat/x",
+        "git fetch origin feat/m1-6-1-provisional-publication",
+    ],
+)
+def test_the_primary_agent_asks_for_anything_not_listed(command: str) -> None:
+    assert _resolve(_PRIMARY, command) == "ask"
 
 
 @pytest.mark.parametrize("agent", [name for name in _AGENTS if name != _PRIMARY])

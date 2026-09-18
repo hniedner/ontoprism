@@ -35,8 +35,9 @@ For each issue:
 
 For the milestone:
 
-11. When all its issues are merged, merge current `main` into the milestone branch, run
-    `pdm run verify` once, and open the milestone PR to `main`. Its review is an
+11. When all its issues are merged, bring current `main` into the milestone branch (a
+    local merge is a prompted command for the agent; the owner approves it or does it),
+    run `pdm run verify` once, and open the milestone PR to `main`. Its review is an
     integration pass: what the issue reviews could not see (interactions between issues,
     migrations in sequence, the combined diff against `main`).
 12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to

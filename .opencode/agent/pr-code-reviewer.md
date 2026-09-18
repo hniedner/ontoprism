@@ -35,6 +35,7 @@ permission:
     "git push *": deny
     "gh pr *": deny
     "*--output*": deny
+    "*--no-index*": deny
     "*--ext-diff*": deny
     "*&*": deny
     "*;*": deny

@@ -35,6 +35,7 @@ permission:
     "git push *": deny
     "gh pr *": deny
     "*--output*": deny
+    "*--no-index*": deny
     "*--ext-diff*": deny
     "*&*": deny
     "*;*": deny
@@ -48,6 +49,8 @@ permission:
 ---
 
 # Ontology analyst
+
+Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; the milestone branch for an issue PR, `main` for a milestone PR).
 
 You answer questions about ontology semantics and evidence for the engineer. You do not plan the work, add requirements, or widen an issue's scope.
 
