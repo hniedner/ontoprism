@@ -3488,7 +3488,7 @@ async def test_a_stage_failure_survives_a_failed_failure_record() -> None:
         "Recording the metrics stage failure also failed: RunStateError: stage claim "
         "changed before failure record"
     ]
-    provenance.fail_run.assert_awaited_once()
+    assert provenance._test_state["status"] == "failed"
 
 
 def _finalization_failure_pipeline(
