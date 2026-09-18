@@ -1248,13 +1248,13 @@ async def test_the_completion_recount_is_available_before_publication() -> None:
         ) as drift:
             await store.require_completion_recount(run_id, nothing_counted)
         assert "total_in_scope: supplied 0, recounted 2" in str(drift.value)
-        uncounted_facts = CompletionRunMetrics.model_validate(
+        overclaimed_facts = CompletionRunMetrics.model_validate(
             recounted | {"complete_fact_count": 1, "projected_fact_count": 1}
         )
         with pytest.raises(
             RunStateError, match="do not match persisted definition rows"
         ) as drift:
-            await store.require_completion_recount(run_id, uncounted_facts)
+            await store.require_completion_recount(run_id, overclaimed_facts)
         assert (
             "complete_fact_count: supplied 1, recounted 0; "
             "projected_fact_count: supplied 1, recounted 0"
