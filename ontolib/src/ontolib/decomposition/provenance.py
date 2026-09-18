@@ -229,6 +229,33 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     return error_type, message
 
 
+async def _reopen_run(session: AsyncSession, run_id: str) -> None:
+    """Reopen a running or failed run for one resuming worker.
+
+    A hard kill (SIGKILL, OOM) leaves the run `running` with claimed items. Nothing
+    distinguishes those from a live worker's claims, so this relies on the operating
+    rule that one explicit resume is the run's only worker: a concurrent resume takes
+    over the live claims and the older worker aborts at its next completion
+    (`_require_owned_claim`).
+    """
+    await session.execute(
+        text(
+            "UPDATE decomp_run SET status='running',error_type=NULL,"
+            "error_message=NULL WHERE id=:id AND status='failed'"
+        ),
+        {"id": run_id},
+    )
+    await session.execute(
+        text(
+            "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
+            "claimed_at=NULL,error_type='InterruptedRun',"
+            "error_message='Prior worker did not finish its claim',"
+            "failed_at=:failed_at WHERE run_id=:id AND state='running'"
+        ),
+        {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
+    )
+
+
 async def _promote_mint_proposals(
     session: AsyncSession, run_id: str, fingerprint: RunFingerprint
 ) -> None:
@@ -1682,25 +1709,7 @@ class ProvenanceStore:
             return Refused(reason=RefusalReason.COMPLETED_RUN_EXISTS)
         if not explicit_resume:
             return Refused(reason=_existing_run_refusal(kind))
-        if status == "failed":
-            await session.execute(
-                text(
-                    "UPDATE decomp_run SET status='running',error_type=NULL,"
-                    "error_message=NULL WHERE id=:id"
-                ),
-                {"id": run_id},
-            )
-        # A hard kill (SIGKILL, OOM) leaves the run `running` with claimed items; an
-        # explicit resume is the only worker, so every leftover claim is orphaned.
-        await session.execute(
-            text(
-                "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
-                "claimed_at=NULL,error_type='InterruptedRun',"
-                "error_message='Prior worker did not finish its claim',"
-                "failed_at=:failed_at WHERE run_id=:id AND state='running'"
-            ),
-            {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
-        )
+        await _reopen_run(session, run_id)
         return ResumeAdmitted(
             run_id=run_id,
             resume_kind=(
@@ -2161,25 +2170,7 @@ class ProvenanceStore:
                 )
             await self._require_materialized_worklist(session, run_id, fingerprint)
             self.require_resume_identity(fingerprint, expected, run_id)
-            await session.execute(
-                text(
-                    "UPDATE decomp_run SET status = 'running', "
-                    "error_type = NULL, error_message = NULL "
-                    "WHERE id = :id"
-                ),
-                {"id": run_id},
-            )
-            await session.execute(
-                text(
-                    "UPDATE decomp_work_item SET state = 'failed', "
-                    "claim_token = NULL, claimed_at = NULL, "
-                    "error_type = 'InterruptedRun', "
-                    "error_message = 'Prior worker did not finish its claim', "
-                    "failed_at = :failed_at "
-                    "WHERE run_id = :id AND state = 'running'"
-                ),
-                {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
-            )
+            await _reopen_run(session, run_id)
             return fingerprint
 
     async def pending_codes(self, run_id: str) -> list[str]:
