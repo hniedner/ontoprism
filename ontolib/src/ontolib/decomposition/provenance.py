@@ -248,7 +248,8 @@ def _require_completion_publication(
 
 # The first two are column checks: error_type/error_message (migrations 0008, 0024)
 # and publication_error_type/publication_error_message (0011) allow 1-128 and 1-1000
-# characters. The rest are our own budget within that message (see _bounded_failure).
+# characters. The rest are our own bounds on that message (see _bounded_failure and
+# _failure_account).
 _FAILURE_TYPE_LIMIT = 128
 _FAILURE_MESSAGE_LIMIT = 1000
 _FAILURE_LINE_LIMIT = 200
@@ -263,9 +264,10 @@ def _clip(text: str, limit: int) -> str:
 
 
 def _failure_account(error: BaseException) -> list[str]:
-    """The error's notes, then up to five links of its ``__cause__`` chain, each with
-    its own notes, stopping early at a link already seen. A failed or interrupted
-    failure record leaves its account in these notes and causes."""
+    """The error's notes, then up to ``_FAILURE_CAUSE_DEPTH`` links of its ``__cause__``
+    chain, each with its own notes, stopping early at a link already seen. If the depth
+    bound cuts the chain short, a final line says further causes were omitted. A failed
+    or interrupted failure record leaves its account in these notes and causes."""
     account = [*getattr(error, "__notes__", ())]
     seen = {id(error)}
     cause = error.__cause__
@@ -290,7 +292,7 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     one line each. Each account line longer than ``_FAILURE_LINE_LIMIT`` is cut to that
     length, ending in an ellipsis, so its label survives. The error's own text is cut
     next, down to ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from
-    its end. Every cut ends in an ellipsis.
+    its end. Every cut of the message's text ends in an ellipsis.
     """
     error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
     own = str(error) or error_type
