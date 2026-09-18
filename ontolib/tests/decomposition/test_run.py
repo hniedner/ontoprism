@@ -29,6 +29,7 @@ from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.normalized_group_policy import (
     ActiveNormalizedGroupPolicy,
+    _constituent_evidence_identity,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -3800,11 +3801,44 @@ def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
     return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
 
 
+def _group_policy_accepting(
+    decomposition: Decomposition,
+) -> ActiveNormalizedGroupPolicy:
+    """A one-row policy, built like ``_group_policy_bound_to``, that groups exactly the
+    constituents of ``decomposition`` into one block and so accepts nothing else."""
+    packaged = load_packaged_normalized_group_policy()
+    template = packaged.rows[0]
+    pairs = tuple(
+        sorted((item.axis, item.filler_code) for item in decomposition.constituents)
+    )
+    row = template.model_copy(
+        update={
+            "concept_code": decomposition.code,
+            "rule_kind": "source-evidence-grouping",
+            "output_partition": (pairs,),
+            "blocks": (
+                template.blocks[0].model_copy(
+                    update={"pairs": pairs, "occurrence_availability": "available"}
+                ),
+            ),
+            "source_pair_evidence": tuple(
+                template.source_pair_evidence[0].model_copy(update={"pair": pair})
+                for pair in pairs
+            ),
+            "input_pair_evidence_identity": _constituent_evidence_identity(
+                tuple(decomposition.constituents)
+            ),
+        }
+    )
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
 async def _run_with_group_policy(
     config: RunConfig,
     client: _FakeClient,
     provenance: Any,
     policy: ActiveNormalizedGroupPolicy,
+    **kwargs: Any,
 ) -> RunMetrics:
     return await _run_pipeline_impl(
         config,
@@ -3813,6 +3847,7 @@ async def _run_with_group_policy(
         get_source_snapshot=_stable_source_snapshot,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         normalized_group_policy=policy,
+        **kwargs,
     )
 
 
@@ -3900,3 +3935,47 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
         if "P106" in query and "VALUES" not in query and "C6135>" in query
     ]
     assert len(semantic_type_reads) == 1
+
+
+@pytest.mark.unit
+async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce() -> (
+    None
+):
+    """The label and the label lookup add constituents, so they decide the policy's
+    verdict: a dry run without them would refuse a run whose work item passes."""
+
+    async def get_labels(codes: list[str]) -> dict[str, str]:
+        return dict.fromkeys(codes, "Left Breast Carcinoma")
+
+    async def label_lookup(_term: str) -> str | None:
+        return "C25229"
+
+    no_rows = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "a" * 64, "rows": ()}
+    )
+    labelled = await run_module._decompose_one(
+        "C6135",
+        cast("Any", _staged_site_client("C6135")),
+        label="Left Breast Carcinoma",
+        label_lookup=label_lookup,
+        source_identity="a" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="1" * 64,
+        normalized_group_policy=no_rows,
+    )
+    assert labelled.decomposition is not None
+    assert "C25229" in [
+        item.filler_code for item in labelled.decomposition.constituents
+    ]
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        _staged_site_client("C6135"),
+        _mock_provenance(),
+        _group_policy_accepting(labelled.decomposition),
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
+
+    assert metrics.decomposed == 1
