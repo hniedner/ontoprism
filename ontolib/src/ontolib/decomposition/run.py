@@ -1077,7 +1077,7 @@ async def _prepare_run(
     total_limit: int | None,
     snapshot: NcitSourceSnapshot,
     collapse_policy: CollapseVetoPolicy,
-    fresh_worklist: tuple[str, ...] | None,
+    fresh_worklist: tuple[str, ...],
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
 ) -> _RunSetup:
@@ -1085,8 +1085,6 @@ async def _prepare_run(
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
     semantic_types = config.semantic_types
-    if fresh_worklist is None:
-        raise RuntimeError("run worklist was not preflighted")
     fingerprint = _requested_fingerprint(
         config,
         snapshot,
@@ -2101,7 +2099,8 @@ async def _qualify_collapse_policy(
     source_identity: str,
     walker_max_depth: int,
 ) -> None:
-    """Qualify each distinct policy concept once before any run state is written."""
+    """Qualify each distinct policy concept once, before this invocation writes any run
+    state."""
     occurrences = []
     for concept_code in sorted({entry.concept_code for entry in policy.entries}):
         _result, _roles, _morphology, definition, _types = await _detect_concept(
@@ -2130,12 +2129,73 @@ async def _active_collapse_policy(
     return policy
 
 
+async def _policy_codes_still_to_do(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    provenance: ProvenanceStore,
+    worklist: tuple[str, ...],
+) -> list[str]:
+    """The worklist's policy-bound concepts; on a resume only the unfinished ones, since
+    a finished concept's result is persisted and must not block the rest of the run."""
+    by_code = policy.by_code
+    bound = [code for code in worklist if code in by_code]
+    if not bound or config.resume_from is None:
+        return bound
+    pending = set(await provenance.pending_codes(config.resume_from))
+    return [code for code in bound if code in pending]
+
+
+async def _qualify_group_policy(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    worklist: tuple[str, ...],
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    get_labels: GetLabels | None,
+    label_lookup: LabelLookup,
+) -> None:
+    """Decompose each policy-bound concept the run still has to do, persisting nothing,
+    before this invocation writes any run state: a decomposition its policy row rejects
+    fails here, not when the worklist reaches the concept."""
+    bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
+    labels = await _fetch_labels(get_labels, bound)
+    untouched = (
+        "no run state was written"
+        if config.resume_from is None
+        else f"run {config.resume_from!r} was not modified"
+    )
+    for code in bound:
+        try:
+            await _decompose_one(
+                code,
+                client,
+                label=labels.get(code),
+                label_lookup=label_lookup,
+                source_identity=source_identity,
+                collapse_policy=collapse_policy,
+                diagnostic_source=diagnostic_source,
+                detector_identity=routing_implementation_identity(),
+                walker_max_depth=config.walker_max_depth,
+                normalized_group_policy=policy,
+            )
+        except BaseException as exc:
+            exc.add_note(
+                f"Raised by the group-policy dry run of {code!r}, before admission: "
+                f"{untouched}."
+            )
+            raise
+
+
 async def _fresh_preflight(
     config: RunConfig,
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
-) -> tuple[tuple[str, ...] | None, SourcePreflightResult | None]:
+) -> tuple[tuple[str, ...], SourcePreflightResult]:
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
         tuple(await _standard_worklist(config, client, total_limit))
@@ -2259,6 +2319,21 @@ async def run_pipeline(
         fresh_worklist, fresh_preflight = await _resume_preflight(
             config, client, provenance, snapshot
         )
+    diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
+        client, snapshot.source_identity
+    )
+    await _qualify_group_policy(
+        active_group_policy,
+        config,
+        client,
+        provenance,
+        worklist=fresh_worklist,
+        source_identity=snapshot.source_identity,
+        collapse_policy=active_collapse_policy,
+        diagnostic_source=diagnostic_source,
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -2269,9 +2344,7 @@ async def run_pipeline(
         snapshot=snapshot,
         collapse_policy=active_collapse_policy,
         fresh_worklist=fresh_worklist,
-        diagnostic_source=await axis_diagnostics.read_axis_diagnostic_source(
-            client, snapshot.source_identity
-        ),
+        diagnostic_source=diagnostic_source,
         normalized_group_policy=active_group_policy,
     )
 

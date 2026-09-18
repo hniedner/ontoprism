@@ -28,6 +28,8 @@ from ontolib.decomposition.complete_definition import (
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
+    _constituent_evidence_identity,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -817,23 +819,6 @@ async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> No
             snapshot=_source_snapshot(),
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             fresh_worklist=("C1",),
-            diagnostic_source=_diagnostic_source(),
-        )
-
-
-@pytest.mark.unit
-async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
-    with pytest.raises(RuntimeError, match="run worklist was not preflighted"):
-        await _prepare_run(
-            RunConfig(branch="neoplasm"),
-            cast("Any", _FakeClient()),
-            _mock_provenance(),
-            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
-            get_labels=None,
-            total_limit=None,
-            snapshot=_source_snapshot(),
-            collapse_policy=NO_COLLAPSE_VETO_POLICY,
-            fresh_worklist=None,
             diagnostic_source=_diagnostic_source(),
         )
 
@@ -2654,6 +2639,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
     provenance.resume_run = AsyncMock(return_value=fingerprint)
+    # Exactly two reads: a worklist without policy concepts must not cost a third.
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
     provenance.complete_work_item = AsyncMock()
@@ -3790,3 +3776,208 @@ async def test_unclaimable_work_item_marks_run_failed() -> None:
     )
     assert "could not be claimed" in provenance._test_state["failed"][2]
     provenance.finish_run.assert_not_awaited()
+
+
+def _staged_site_client(*worklist: str) -> _FakeClient:
+    return _FakeClient(
+        pages=[list(worklist)],
+        semantic_types={"C6135": ["Neoplastic Process"]},
+        roles={
+            "C6135": [
+                _role("R88", "Has_Stage", "C27970"),
+                _role("R101", "Has_Primary_Site", "C12400"),
+            ]
+        },
+    )
+
+
+def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
+    """A one-row policy: the first packaged row re-pointed at ``code``. Built with
+    ``model_copy``, so neither the field constraints (15 rows) nor the policy's
+    validators run; the row's pairs are not the ones ``_staged_site_client`` yields for
+    C6135."""
+    packaged = load_packaged_normalized_group_policy()
+    row = packaged.rows[0].model_copy(update={"concept_code": code})
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
+def _group_policy_accepting(
+    decomposition: Decomposition,
+) -> ActiveNormalizedGroupPolicy:
+    """A one-row policy, built like ``_group_policy_bound_to``, that groups exactly the
+    constituents of ``decomposition`` into one block, so for that concept it refuses any
+    other pair set and any other cited source evidence."""
+    packaged = load_packaged_normalized_group_policy()
+    template = packaged.rows[0]
+    pairs = tuple(
+        sorted((item.axis, item.filler_code) for item in decomposition.constituents)
+    )
+    row = template.model_copy(
+        update={
+            "concept_code": decomposition.code,
+            "rule_kind": "source-evidence-grouping",
+            "output_partition": (pairs,),
+            "blocks": (
+                template.blocks[0].model_copy(
+                    update={"pairs": pairs, "occurrence_availability": "available"}
+                ),
+            ),
+            "source_pair_evidence": tuple(
+                template.source_pair_evidence[0].model_copy(update={"pair": pair})
+                for pair in pairs
+            ),
+            "input_pair_evidence_identity": _constituent_evidence_identity(
+                tuple(decomposition.constituents)
+            ),
+        }
+    )
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
+async def _run_with_group_policy(
+    config: RunConfig,
+    client: _FakeClient,
+    provenance: Any,
+    policy: ActiveNormalizedGroupPolicy,
+    **kwargs: Any,
+) -> RunMetrics:
+    return await _run_pipeline_impl(
+        config,
+        cast("Any", client),
+        provenance,
+        get_source_snapshot=_stable_source_snapshot,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        normalized_group_policy=policy,
+        **kwargs,
+    )
+
+
+@pytest.mark.unit
+async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> None:
+    """A mismatch must surface before admission: found when the worklist reaches the
+    concept, it fails hours into a run that a corrected policy file cannot resume (the
+    policy file is part of the routing identity)."""
+    provenance = _mock_provenance()
+
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+    assert provenance._test_state["fingerprint"] is None
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "no run state was written."
+    ]
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission() -> (
+    None
+):
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C6135",), pending=["C6135"])
+
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "run 'neoplasm-run-1' was not modified."
+    ]
+
+
+@pytest.mark.unit
+async def test_a_finished_policy_concept_does_not_block_a_resume() -> None:
+    """Its result is persisted; label state that moved since must not strand the rest
+    of the run."""
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C1", "C6135"), pending=["C1"])
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+        _staged_site_client("C1", "C6135"),
+        provenance,
+        _group_policy_bound_to("C6135"),
+    )
+
+    assert metrics.total_in_scope == 2
+
+
+@pytest.mark.unit
+async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
+    """A full worklist is tens of thousands of concepts; the dry run covers none of the
+    ones the policy does not name."""
+    client = _staged_site_client("C6135")
+
+    await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        client,
+        _mock_provenance(),
+        _group_policy_bound_to("C424242"),
+    )
+
+    # In this run C6135's single-concept semantic-type read comes only from
+    # _decompose_one: the source preflight reads definitions only, the collapse policy
+    # is empty, and C6135 is nobody's residual filler. One read is one decomposition.
+    semantic_type_reads = [
+        query
+        for query in client.queries
+        if "P106" in query and "VALUES" not in query and "C6135>" in query
+    ]
+    assert len(semantic_type_reads) == 1
+
+
+@pytest.mark.unit
+async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce() -> (
+    None
+):
+    """The label adds constituents and the label lookup decides their filler codes, so
+    both decide the policy's verdict: a dry run without either would refuse a run whose
+    work item passes."""
+
+    async def get_labels(codes: list[str]) -> dict[str, str]:
+        return dict.fromkeys(codes, "Left Breast Carcinoma")
+
+    async def label_lookup(_term: str) -> str | None:
+        return "C25229"
+
+    no_rows = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "a" * 64, "rows": ()}
+    )
+    labelled = await run_module._decompose_one(
+        "C6135",
+        cast("Any", _staged_site_client("C6135")),
+        label="Left Breast Carcinoma",
+        label_lookup=label_lookup,
+        source_identity="a" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="1" * 64,
+        normalized_group_policy=no_rows,
+    )
+    assert labelled.decomposition is not None
+    assert "C25229" in [
+        item.filler_code for item in labelled.decomposition.constituents
+    ]
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        _staged_site_client("C6135"),
+        _mock_provenance(),
+        _group_policy_accepting(labelled.decomposition),
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
+
+    assert metrics.decomposed == 1
