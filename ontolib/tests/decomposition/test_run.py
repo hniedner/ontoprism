@@ -33,6 +33,7 @@ from ontolib.decomposition.normalized_group_policy import (
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletionRunMetrics,
     FreshAdmitted,
     NcitSourceSnapshot,
     RefusalReason,
@@ -2009,6 +2010,7 @@ async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
 @pytest.mark.unit
 async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
     provenance = MagicMock()
+    provenance.require_completion_recount = AsyncMock()
     provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
     provenance.unknown_outcome_codes = AsyncMock(return_value=())
     provenance.complete_stage = AsyncMock(return_value="b" * 64)
@@ -3465,6 +3467,100 @@ async def test_artifact_validation_failure_fails_the_run(
     provenance.fail_run.assert_awaited_once()
     provenance.record_publication_failure.assert_not_awaited()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recount mismatch fails the metrics stage, before the artifact and
+    publication stages; `finish_run` runs too late to protect the public graph."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "metrics" not in provenance._test_state["stage_outputs"]
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_is_recounted_again_before_it_publishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metrics stage sealed by an earlier attempt does not excuse the recount: a
+    mismatch still fails the run before the artifact and publication stages."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    # What the earlier attempt sealed for this empty run, so that only the recount can
+    # stop the resumed one.
+    sealed: dict[str, object] = {
+        "metrics": CompletionRunMetrics.model_validate(
+            run_module._persisted_metrics(
+                RunMetrics(total_in_scope=0, decomposed=0, residual=0, minted_count=0)
+            )
+        ).model_dump(mode="json"),
+        "unknown_policy": "allow-enumerated-valid-unsupported",
+        "concept_unknown_codes": [],
+        "residual_unknown_filler_codes": [],
+        "publication_eligible": True,
+    }
+    provenance._test_state["stage_outputs"]["metrics"] = (
+        stage_output_identity(sealed),
+        sealed,
+    )
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
 
 
 @pytest.mark.unit

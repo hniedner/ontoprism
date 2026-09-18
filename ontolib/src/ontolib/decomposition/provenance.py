@@ -988,51 +988,82 @@ async def _persisted_definition_counts(
     )
 
 
+async def _require_finished_work(session: AsyncSession, run_id: str) -> None:
+    """Fail unless every work item completed with consistent persisted counts."""
+    incomplete = await session.execute(
+        text(
+            "SELECT count(*) FROM decomp_work_item "
+            "WHERE run_id = :id AND state <> 'complete'"
+        ),
+        {"id": run_id},
+    )
+    if incomplete.scalar_one() != 0:
+        raise RunStateError(f"decomposition run {run_id!r} has unfinished work items")
+    await _require_persisted_completion_counts(session, run_id)
+
+
+async def _require_recounted_metrics(
+    session: AsyncSession, run_id: str, metrics: CompletionRunMetrics
+) -> None:
+    """Fail unless the outcome counts and the definition and fact counts in
+    ``metrics`` equal a recount of the persisted rows (the residual-precoordination
+    counts and the derived rates are not recounted)."""
+    _require_matching_completion_metrics(
+        metrics,
+        await _persisted_outcome_counts(session, run_id),
+        await _persisted_definition_counts(session, run_id),
+    )
+
+
+# Count names shared by RunOutcomeCounts and CompletionRunMetrics.
+_OUTCOME_COUNT_FIELDS = (
+    "total_in_scope",
+    "decomposed",
+    "residual",
+    "semantic_excluded",
+    "atomic_noop",
+    "unknown_outcome",
+    "minted_count",
+)
+
+
+def _count_differences(metrics: CompletionRunMetrics, recounted: dict[str, int]) -> str:
+    return "; ".join(
+        f"{field}: supplied {getattr(metrics, field)}, recounted {count}"
+        for field, count in recounted.items()
+        if getattr(metrics, field) != count
+    )
+
+
 def _require_matching_completion_metrics(
     metrics: CompletionRunMetrics,
     counts: RunOutcomeCounts,
     definition_counts: tuple[int, int, int],
 ) -> None:
-    persisted_counts = (
-        counts.total_in_scope,
-        counts.decomposed,
-        counts.residual,
-        counts.semantic_excluded,
-        counts.atomic_noop,
-        counts.unknown_outcome,
-        counts.minted_count,
+    differences = _count_differences(
+        metrics, {field: getattr(counts, field) for field in _OUTCOME_COUNT_FIELDS}
     )
-    supplied_counts = (
-        metrics.total_in_scope,
-        metrics.decomposed,
-        metrics.residual,
-        metrics.semantic_excluded,
-        metrics.atomic_noop,
-        metrics.unknown_outcome,
-        metrics.minted_count,
-    )
-    if persisted_counts != supplied_counts:
+    if differences:
         raise RunStateError(
-            "completion metrics do not match persisted work-item outcomes"
+            "completion metrics do not match persisted work-item outcomes "
+            f"({differences})"
         )
     complete_definition_count, complete_fact_count, projected_fact_count = (
         definition_counts
     )
-    persisted_definition_metrics = (
-        complete_definition_count,
-        complete_fact_count,
-        projected_fact_count,
-        complete_fact_count - projected_fact_count,
+    differences = _count_differences(
+        metrics,
+        {
+            "complete_definition_count": complete_definition_count,
+            "complete_fact_count": complete_fact_count,
+            "projected_fact_count": projected_fact_count,
+            "projection_loss_count": complete_fact_count - projected_fact_count,
+        },
     )
-    supplied_definition_metrics = (
-        metrics.complete_definition_count,
-        metrics.complete_fact_count,
-        metrics.projected_fact_count,
-        metrics.projection_loss_count,
-    )
-    if persisted_definition_metrics != supplied_definition_metrics:
+    if differences:
         raise RunStateError(
-            "completion definition metrics do not match persisted definition rows"
+            "completion definition metrics do not match persisted definition rows "
+            f"({differences})"
         )
 
 
@@ -3099,6 +3130,20 @@ class ProvenanceStore:
             roundtrip_fidelity=metrics.roundtrip_fidelity,
         )
 
+    async def require_completion_recount(
+        self, run_id: str, metrics: CompletionRunMetrics
+    ) -> None:
+        """Fail unless the run's work is finished and the counts in ``metrics`` equal
+        a recount of the persisted rows.
+
+        ``finish_run`` repeats this in its own transaction, but on the publishing
+        path it runs only after the public graph has been replaced; callers ask here
+        before publication, so a mismatch fails the run first.
+        """
+        async with self._sf() as session:
+            await _require_finished_work(session, run_id)
+            await _require_recounted_metrics(session, run_id, metrics)
+
     async def finish_run(
         self,
         run_id: str,
@@ -3136,25 +3181,10 @@ class ProvenanceStore:
                 await self._require_materialized_worklist(session, run_id, fingerprint)
                 if row["status"] != "running":
                     raise RunStateError(f"decomposition run {run_id!r} is not running")
-                incomplete = await session.execute(
-                    text(
-                        "SELECT count(*) FROM decomp_work_item "
-                        "WHERE run_id = :id AND state <> 'complete'"
-                    ),
-                    {"id": run_id},
-                )
-                if incomplete.scalar_one() != 0:
-                    raise RunStateError(
-                        f"decomposition run {run_id!r} has unfinished work items"
-                    )
-                await _require_persisted_completion_counts(session, run_id)
+                await _require_finished_work(session, run_id)
                 _require_completion_publication(row, representation_identity, run_id)
                 completion_metrics = CompletionRunMetrics.model_validate(metrics)
-                _require_matching_completion_metrics(
-                    completion_metrics,
-                    await _persisted_outcome_counts(session, run_id),
-                    await _persisted_definition_counts(session, run_id),
-                )
+                await _require_recounted_metrics(session, run_id, completion_metrics)
                 metrics = completion_metrics.model_dump()
                 await _promote_mint_proposals(session, run_id, fingerprint)
                 result = await session.execute(
