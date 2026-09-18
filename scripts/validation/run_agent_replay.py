@@ -59,9 +59,13 @@ _MAX_INSPECTED_RUNS = 8
 _PARENT_MANIFEST_ARGUMENT_COUNT = 2
 _PROMOTION_MANIFEST_ARGUMENT_COUNT = 4
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
-# A guest shutdown or boot, not a diagnostic: a half-dead VM took about 80 s to
-# power off on 2026-09-18, and the 20 s limit made the recovery fail every time.
+# A guest shutdown or boot, not a diagnostic: on 2026-09-18 a half-dead VM needed well
+# over the 20 s limit (on the order of a minute) to power off, so the recovery failed
+# every time.
 _PODMAN_MACHINE_TIMEOUT_SECONDS = 300
+# Killing the `machine stop` CLI at its timeout does not stop the guest's shutdown; this
+# many ten-second looks at the machine state follow before the recovery gives up.
+_PODMAN_STOP_WAIT_ATTEMPTS = 30
 _EXPECTED_R101_STRUCTURAL_ADDITIONS = 39
 _MIN_SPECIFICITY_FILLERS = 2
 _GATE_TIMEOUT_SECONDS = 3_600
@@ -3640,6 +3644,10 @@ def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int
     return 0
 
 
+class _CommandTimedOutError(AgentReplayInputError):
+    """The command was killed at its timeout; what it started may still be running."""
+
+
 def _capture_required(
     command: list[str],
     root: Path,
@@ -3669,7 +3677,7 @@ def _capture_required(
         labelled = _labelled_streams(
             stdout or "", stderr or "", display_limit=display_limit
         )
-        raise AgentReplayInputError(
+        raise _CommandTimedOutError(
             f"required command timed out after {timeout}s: {rendered_command}"
             f"{f': {labelled}' if labelled else ''}"
         ) from exc
@@ -3727,10 +3735,16 @@ def _podman_machine(root: Path, runner: CommandRunner) -> PodmanMachine:
         ssh_port = ssh["Port"]
     except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise AgentReplayInputError("invalid Podman machine contract") from exc
+    if machine.get("State") not in {"running", "stopped"}:
+        raise AgentReplayInputError(
+            "invalid Podman machine contract: state "
+            f"{_bounded_sanitized(repr(machine.get('State')))} is neither 'running' "
+            "nor 'stopped'; an interrupted start or stop can leave it in between, so "
+            "rerun once it settles"
+        )
     if (
         len(payload) != 1
         or machine.get("Name") != _PODMAN_MACHINE
-        or machine.get("State") not in {"running", "stopped"}
         or machine.get("Rootful") is not False
         or not isinstance(ssh, dict)
         or ssh.get("RemoteUsername") != "core"
@@ -4471,20 +4485,25 @@ def _capture_optional_absent(
 
 
 def _dead_gvproxy_cause(machine: PodmanMachine) -> str | None:
-    """Name the one stale state this script can recognise, or nothing.
+    """Report a gvproxy pid that names no process, or nothing.
 
-    Podman writes gvproxy's pid beside the machine's API socket. A pid that names no
-    process means the VM's networking was signalled away while vfkit kept running.
+    Podman writes gvproxy's pid beside the machine's API socket (one ``gvproxy.pid``
+    for the directory, not per machine). A missing or unreadable file, a pid that is
+    not a positive process id, or a live pid is no observation and reports nothing.
     """
+    pid_path = machine.socket_path.parent / "gvproxy.pid"
     try:
-        os.kill(int((machine.socket_path.parent / "gvproxy.pid").read_text()), 0)
-    except FileNotFoundError, ProcessLookupError, ValueError:
+        pid = int(pid_path.read_text())
+        if pid <= 0:
+            return None
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return (
-            "gvproxy is not running while the VM is: a signal reached it (a kill by "
-            "port on 5433/7888/7889, or a signal to the process group that started "
-            "the machine); see docs/DATA_SETUP.md"
+            f"gvproxy pid {pid} from {pid_path} names no process while the VM runs; "
+            "the usual cause is a signal (a kill by port on 5433/7888/7889, or one to "
+            "the process group that started the machine); see docs/DATA_SETUP.md"
         )
-    except PermissionError:
+    except OSError, ValueError, OverflowError:
         return None
     return None
 
@@ -4494,8 +4513,9 @@ def _start_podman_machine(root: Path, runner: CommandRunner) -> None:
 
     vfkit and gvproxy outlive ``podman machine start`` but keep its process group.
     Started from a harness tool or a terminal, a signal to that group (a tool
-    timeout, Ctrl-C, a closed terminal) stops gvproxy while vfkit runs on: the
-    machine still reports ``running`` and nothing can reach it.
+    timeout, Ctrl-C, a closed terminal) reaches both. gvproxy exits on it, and
+    whenever vfkit survives, the machine still reports ``running`` and nothing can
+    reach it.
     """
     _capture_required(
         [_PODMAN, "machine", "start", _PODMAN_MACHINE],
@@ -4504,6 +4524,31 @@ def _start_podman_machine(root: Path, runner: CommandRunner) -> None:
         timeout=_PODMAN_MACHINE_TIMEOUT_SECONDS,
         new_session=True,
     )
+
+
+def _stop_podman_machine(root: Path, runner: CommandRunner) -> None:
+    """Stop the VM, waiting out a guest shutdown that outlives the stop command."""
+    try:
+        _capture_required(
+            [_PODMAN, "machine", "stop", _PODMAN_MACHINE],
+            root,
+            runner,
+            timeout=_PODMAN_MACHINE_TIMEOUT_SECONDS,
+        )
+    except _CommandTimedOutError as slow:
+        print(
+            f"machine-stop-outlived-timeout={_PODMAN_MACHINE_TIMEOUT_SECONDS}s",
+            flush=True,
+        )
+        for _attempt in range(_PODMAN_STOP_WAIT_ATTEMPTS):
+            if _podman_machine(root, runner).state == "stopped":
+                return
+            _capture_required(["/bin/sleep", "10"], root, runner)
+        raise AgentReplayInputError(
+            f"{slow}; {_PODMAN_STOP_WAIT_ATTEMPTS * 10}s later the machine still "
+            "reports 'running'. The guest may still be shutting down: rerun "
+            "ensure-podman-stack, which is safe to repeat"
+        ) from slow
 
 
 def _ensure_podman_stack(values: list[str], root: Path, runner: CommandRunner) -> int:
@@ -4518,16 +4563,16 @@ def _ensure_podman_stack(values: list[str], root: Path, runner: CommandRunner) -
         try:
             _probe_machine_api(machine, root, runner)
         except AgentReplayInputError as stale:
-            print(f"stale-machine-diagnostic={_bounded_sanitized(str(stale))}")
+            # Flushed: the stop below can block for minutes, and a harness that ends
+            # the run at its own timeout would take a buffered diagnosis with it.
+            print(
+                f"stale-machine-diagnostic={_bounded_sanitized(str(stale))}",
+                flush=True,
+            )
             cause = _dead_gvproxy_cause(machine)
             if cause is not None:
-                print(f"stale-machine-cause={cause}")
-            _capture_required(
-                [_PODMAN, "machine", "stop", _PODMAN_MACHINE],
-                root,
-                runner,
-                timeout=_PODMAN_MACHINE_TIMEOUT_SECONDS,
-            )
+                print(f"stale-machine-cause={cause}", flush=True)
+            _stop_podman_machine(root, runner)
             _start_podman_machine(root, runner)
             machine_action = "restarted-stale"
 

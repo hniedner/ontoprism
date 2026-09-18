@@ -197,21 +197,32 @@ existing Docker service path and does not execute this local preflight.
 
 The machine is two host processes: `vfkit` (the VM) and `gvproxy` (all of its networking: the
 SSH port, the forwarded API socket, and the published ports 5433, 7888 and 7889). gvproxy exits
-on any signal while vfkit runs on, so `podman machine inspect` still reports `running` and
-`podman machine ssh` gets "connection refused". Two things signal it:
+on a terminating signal (SIGTERM, SIGINT, SIGHUP). While vfkit runs on, `podman machine inspect`
+still reports `running` and `podman machine ssh` gets "connection refused". Two things signal it:
 
+- A kill by port (`lsof -ti :PORT | xargs kill`, or a sweep over a port range) hits gvproxy,
+  because it is the listener on the stack's ports. This is what happened on 2026-09-18: another
+  project's test runner swept ports 7000-9999. Never clear those ports that way.
 - vfkit and gvproxy keep the process group of whatever ran `podman machine start`, so a harness
-  ending a tool call, Ctrl-C, or a closed terminal reaches them. `ensure-podman-stack` therefore
-  starts the machine in its own session; prefer it to a bare `podman machine start`.
-- A kill by port (`lsof -ti :PORT | xargs kill`) hits gvproxy, because it is the listener on the
-  stack's ports. Never clear those ports that way.
+  ending a tool call, Ctrl-C, or a closed terminal reaches both; whenever vfkit survives it, the
+  result is the same state. `ensure-podman-stack` therefore starts the machine in its own
+  session; prefer it to a bare `podman machine start`.
 
-`ensure-podman-stack` repairs this state with one stop/start and prints
-`stale-machine-cause=gvproxy is not running ...` when that is what it found. The guest shutdown
-can take a minute or two. To look yourself: `tail "$TMPDIR/podman/gvproxy.log"` (it is
-truncated at the next start), `ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`, and
-`/usr/bin/log show --last 1h --predicate 'process == "launchd" AND eventMessage CONTAINS "sent by"'`.
-Upgrading the Podman client does not change any of this.
+`ensure-podman-stack` attempts the repair with one stop/start. Each command is allowed 300 s, and
+a stop that outlives that is followed by up to 300 s of waiting for the machine to report
+`stopped`, because killing the stop command does not stop the guest's shutdown. On 2026-09-18 the
+shutdown of a half-dead VM took on the order of a minute; a healthy one stopped in 13 s. When
+gvproxy's pid file names no process, the run prints `stale-machine-cause=gvproxy pid ... names no
+process`. To look yourself:
+
+- `tail "$TMPDIR/podman/gvproxy.log"` (truncated at the next start, so read it before restarting);
+- `ps -axo pid,pgid,command | grep -E "vfkit|gvproxy"`;
+- `/usr/bin/log show --start "<date time>" --end "<date time>" --predicate 'process == "launchd"
+  AND eventMessage CONTAINS "sent by"'`. gvproxy is not a launchd job and is never listed; look
+  for a launchd service (Control Center listens on 5000 and 7000) killed by the same sender at
+  the moment `gvproxy.log` stops.
+
+Upgrading the Podman client changed none of this (checked 6.1.1 -> 6.1.2).
 
 `activate-podman-docker-context` reports the prior context, derives the endpoint only from
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
