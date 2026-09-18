@@ -20,8 +20,9 @@ permission:
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
-    "git diff --no-ext-diff main...HEAD": allow
-    "git diff --name-only main...HEAD": allow
+    "git merge-base * HEAD": allow
+    "git diff --no-ext-diff *...HEAD": allow
+    "git diff --name-only *...HEAD": allow
     "pdm run agent-test *": allow
     "pdm run agent-github-read *": allow
     "pdm run agent-test --safe-integration *": deny
@@ -51,6 +52,8 @@ permission:
     "git push --force*": deny
     "gh pr": deny
     "gh pr *": deny
+    "*--output*": deny
+    "*--ext-diff*": deny
     "*&*": deny
     "*;*": deny
     "*|*": deny

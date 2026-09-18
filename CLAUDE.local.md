@@ -1,14 +1,15 @@
 # CLAUDE.local.md — ontoprism project standards
 
-Project-specific testing standards. The workflow (small PRs to `main`, CI as the gate of
-record, one bounded review round, scope discipline, long-run rules) lives in `AGENTS.md`,
+Project-specific testing standards. The workflow (milestone branches with issue PRs, CI
+as the gate of record, five-dimension review capped at two rounds, scope discipline,
+long-run rules) lives in `AGENTS.md`,
 which `CLAUDE.md` imports; this file only deepens the testing rules. These are enforced,
 not aspirational.
 
 ## When each lane runs (2026-09-17)
 
 The standards below say *what* a good test is. They do not mean "run everything after
-every edit" — that reading cost the project twelve days.
+every edit" — that reading is what stalled the project in September 2026.
 
 - Inner loop: the tests for the code being changed (`pdm run agent-test <path>`).
 - On commit: pre-commit. Broad change: `pdm run test-unit` (about 4.5 minutes).

@@ -742,11 +742,28 @@ def _issue_mutation(
     )
 
 
+# Issue PRs target their milestone branch (feat/m<number>-<slug>); milestone PRs and
+# hotfixes target main. Anything else is not a base this repository uses.
+MILESTONE_BRANCH = re.compile(r"feat/m[0-9][0-9A-Za-z.-]*(?:-[0-9A-Za-z.-]+)*")
+
+
+def _pr_base(value: str) -> str:
+    if value == "main":
+        return value
+    if MILESTONE_BRANCH.fullmatch(value) is None or ".." in value:
+        raise AgentGitHubInputError(
+            "base branch must be main or a milestone branch feat/m<number>-<slug>"
+        )
+    return _safe_branch(value, "base branch")
+
+
 def _pr_create(
     arguments: list[str], root: Path, runner: CommandRunner
 ) -> PullMutationResult:
-    options = _flags(arguments, singles=frozenset({"--title", "--body-file", "--head"}))
-    if set(options) != {"--title", "--body-file", "--head"}:
+    options = _flags(
+        arguments, singles=frozenset({"--title", "--body-file", "--head", "--base"})
+    )
+    if not {"--title", "--body-file", "--head"} <= set(options):
         raise AgentGitHubInputError(
             "pr-create requires --title, --body-file, and --head"
         )
@@ -755,6 +772,7 @@ def _pr_create(
     )
     body = _body_file(root, str(options["--body-file"]))
     head = _safe_branch(str(options["--head"]), "head branch")
+    base = _pr_base(str(options.get("--base", "main")))
     existing = _flatten_pages(
         _api(
             "GET",
@@ -777,7 +795,7 @@ def _pr_create(
         f"{API_ROOT}/pulls",
         root,
         runner,
-        payload={"title": title, "body": body, "head": head, "base": "main"},
+        payload={"title": title, "body": body, "head": head, "base": base},
     )
     return _validate_pr_mutation_result(result)
 

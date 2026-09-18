@@ -588,6 +588,84 @@ def test_pr_create_refuses_duplicate_open_pr_for_head(tmp_path: Path) -> None:
         )
 
 
+def test_pr_create_targets_a_milestone_branch_when_asked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = write_body(tmp_path, "pr.md")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, "[]"),
+            Result(
+                0,
+                json.dumps(
+                    {
+                        "number": 43,
+                        "html_url": "https://github.com/hniedner/ontoprism/pull/43",
+                    }
+                ),
+            ),
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            [
+                "pr-create",
+                "--title",
+                "feat(decomposition): preflight full runs",
+                "--body-file",
+                str(body.relative_to(tmp_path)),
+                "--head",
+                "feat/fail-fast-full-runs-344",
+                "--base",
+                "feat/m1-6-1-provisional-publication",
+            ],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+        == 0
+    )
+
+    assert json.loads(str(calls[1][1]["input"]))["base"] == (
+        "feat/m1-6-1-provisional-publication"
+    )
+    assert json.loads(capsys.readouterr().out)["number"] == 43
+
+
+@pytest.mark.parametrize(
+    "base",
+    ["dev", "feat/other-branch", "feat/milestone-x", "feat/m1-6-1/../main", "MAIN"],
+)
+def test_pr_create_rejects_a_base_that_is_not_main_or_a_milestone_branch(
+    tmp_path: Path, base: str
+) -> None:
+    body = write_body(tmp_path, "pr.md")
+
+    def must_not_run(_arguments: list[str], **_kwargs: object) -> Result:
+        raise AssertionError("invalid base must fail before GitHub access")
+
+    with pytest.raises(AgentGitHubInputError, match="base branch"):
+        run_agent_github(
+            [
+                "pr-create",
+                "--title",
+                "feat: x",
+                "--body-file",
+                str(body.relative_to(tmp_path)),
+                "--head",
+                "feat/x",
+                "--base",
+                base,
+            ],
+            tmp_path,
+            read_only=False,
+            runner=must_not_run,
+        )
+
+
 @pytest.mark.parametrize(
     "branch",
     [

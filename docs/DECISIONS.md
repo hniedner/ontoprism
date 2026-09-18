@@ -36,9 +36,20 @@ from four plain criteria into a corpus-wide acceptance contract.
   dimensions (D49) and `ontology-analyst`; the planning chain (architect, plan-adversary,
   ontology-engineer, ontology-validator, implementer) is retired. All five review
   dimensions still run on every PR; the loop is bounded to two rounds.
-- The OpenCode config validators and their tests, and the tests that assert documentation
-  wording, are deleted. `backend/tests/test_agent_permission_safety.py` keeps the part
-  that matters: destructive and bypassing commands resolve to deny for every agent.
+- The OpenCode config validators and their tests are deleted, and the tests that assert
+  documentation wording are removed here and in #339.
+  `backend/tests/test_agent_permission_safety.py` keeps the part that matters: the bash
+  permission layer refuses destructive, bypassing and out-of-repository commands for
+  every agent, the catch-all is pinned, and only the primary can stage, commit or
+  publish. The primary's scratch-script lane (`pdm run python tmp/scratch/*`) is the
+  deliberate escape hatch for diagnostics and is bounded by rule, not by the map.
+- D85's requirement that pushes and PR creation happen only on an explicit request is
+  superseded in part: the primary may push its issue branch, open its issue PR into the
+  milestone branch, and merge that PR when CI is green and no blocker is open. Merges
+  into `main` still need the owner's authorization of the exact PR number. D85's
+  `validate-opencode-*` commands and their tests no longer exist.
+- The SPARQL inventory snapshot is regenerated one last time in this change because it
+  is still enforced; #339 removes it.
 - No content hashes of source files, git HEAD or worktree state inside data or evidence;
   no committed derived file that needs regenerating after an unrelated edit.
 - Acceptance of decomposition output is per assertion and evidence-linked (owner policy,

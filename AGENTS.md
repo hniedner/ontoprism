@@ -61,8 +61,10 @@ Start a new agent session for each issue. Do not carry one context across days o
   force-push, no deletion.
 - **Never merge into `main` without the owner's explicit authorization of that exact PR
   number in the current conversation. Never merge any PR, into `main` or a milestone
-  branch, unless every check in `gh pr checks <n>` is passing (or skipped by a documented
-  path filter).** Squash-merge with the PR's Conventional Commit
+  branch, unless every expected check in `gh pr checks <n>` is present and passing for
+  the current head and base (or skipped by a documented path filter); a check that is
+  absent, or a run made before the PR's base was changed, does not count, so get a
+  fresh run first.** Squash-merge with the PR's Conventional Commit
   title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
   title or base changed since authorization, ask again. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
@@ -165,15 +167,16 @@ Rules for tests:
 
 ## Long-running jobs
 
-A full-corpus decompose takes about 15 hours. In September, 10 of 13 runs were lost to
-short timeouts and errors that a five-minute sample would have shown.
+A full-corpus decompose takes about 15 hours (runs of 891 and 934 minutes in September
+2026). That month most full-run attempts were lost to short timeouts and to errors a
+five-minute sample would have shown (owner's session records, 2026-09-17).
 
 - Run the whole pipeline, including final reporting, on a small sample first.
 - Validate every input before the expensive step, not after it.
 - Set the tool timeout to at least 1.5 times the expected duration, or run the job in
   the background and poll. Use resume where it exists.
 - A long run is never preconditioned on a commit or a clean worktree.
-- Engine changes are judged on the 20-concept SME oracle, which runs in minutes. Schedule
+- Engine changes are judged on the 20-concept SME oracle (D63), not on full runs. Schedule
   a full run after several fixes have accumulated, with the owner's agreement.
 - Keep completed full-run artifacts. Never write over one.
 
@@ -255,8 +258,11 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 
 ## Review
 
-Before the PR is marked ready, review the committed diff against `main` in **all five
-dimensions, every time** — on #73 each one caught a class of defect the others missed:
+Before the PR is marked ready, review the committed diff against the PR's base branch
+(the milestone branch for an issue PR, `main` for a milestone PR:
+`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, every time**. The owner's
+account of the #73 review is that each dimension caught a class of defect the others
+missed; that is why a subset is never acceptable:
 
 1. **Correctness and project rules** (`pr-code-reviewer`)
 2. **Silent failures**: swallowed errors, failures that look like clean results
@@ -269,8 +275,9 @@ dimensions, every time** — on #73 each one caught a class of defect the others
    (`pr-comment-analyzer`)
 5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-Run 1, 2, 4 and 5 in parallel, then 3 alone. Other harnesses use their own reviewers but
-keep the five separate verdicts. What is bounded is the loop, not the coverage: findings
+Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
+is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
+but keep the five separate verdicts. What is bounded is the loop, not the coverage: findings
 are **blockers** or **follow-ups**; fix verified blockers and re-run only the dimensions
 that reported them; follow-ups become issues. Two rounds is the ceiling — if blockers
 remain after that, the PR is too big and should be split. Reviewing each issue PR, rather than the

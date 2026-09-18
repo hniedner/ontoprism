@@ -20,8 +20,9 @@ permission:
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
-    "git diff --no-ext-diff main...HEAD": allow
-    "git diff --check main...HEAD": allow
+    "git merge-base * HEAD": allow
+    "git diff --no-ext-diff *...HEAD": allow
+    "git diff --check *...HEAD": allow
     "git log --oneline -10": allow
     "git show --stat --oneline HEAD": allow
     "pdm run agent-github-read *": allow
@@ -33,6 +34,8 @@ permission:
     "git clean *": deny
     "git push *": deny
     "gh pr *": deny
+    "*--output*": deny
+    "*--ext-diff*": deny
     "*&*": deny
     "*;*": deny
     "*|*": deny
