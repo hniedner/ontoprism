@@ -15,7 +15,10 @@ from ontolib.decomposition.models import (
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
-from ontolib.decomposition.source_preflight import run_source_preflight
+from ontolib.decomposition.source_preflight import (
+    ClosureBudgetExceededError,
+    run_source_preflight,
+)
 
 
 def _definition(code: str, genus: str, filler: str) -> CompleteDefinition:
@@ -205,21 +208,36 @@ async def test_preflight_does_not_recurse_through_direct_fillers() -> None:
 
 
 @pytest.mark.unit
-async def test_preflight_identity_binds_a_fail_closed_closure_overflow() -> None:
+async def test_an_exceeded_closure_budget_is_refused_as_a_worklist_problem() -> None:
+    """The budget is shared by the whole worklist, so no concept is reported as the
+    cause, and nothing further is read once a concept needs a dependency beyond it.
+    The position is the concept's place in the worklist, so unreadable concepts
+    before it count."""
+    seen: list[str] = []
+
     async def read(code: str) -> CompleteDefinition:
-        return _definition(code, "C2", "C3")
+        seen.append(code)
+        if code == "C0":
+            raise UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
+        return _definition(code, f"{code}1", f"{code}2")
 
-    result = await run_source_preflight(
-        ("C1",),
-        read_definition=read,
-        source_identity="a" * 64,
-        reader_identity="b" * 64,
-        query_identity="c" * 64,
-        tool_identity="qlever-v1",
-        walker_max_depth=7,
-        max_nodes=1,
+    with pytest.raises(ClosureBudgetExceededError) as refusal:
+        await run_source_preflight(
+            ("C0", "C1", "C2", "C3"),
+            read_definition=read,
+            source_identity="a" * 64,
+            reader_identity="b" * 64,
+            query_identity="c" * 64,
+            tool_identity="qlever-v1",
+            walker_max_depth=7,
+            max_nodes=3,
+        )
+
+    assert str(refusal.value) == (
+        "source preflight closure needs more than its budget of 3 dependency "
+        "concepts; it ran out while expanding worklist concept 3 of 4. The budget is "
+        "shared by the whole worklist: no single concept is at fault."
     )
-
-    assert result.overflow_codes == ("C1",)
-    assert result.concept_work_allowed is False
-    assert len(result.identity) == 64
+    assert seen == ["C0", "C1", "C2"]

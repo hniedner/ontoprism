@@ -76,7 +76,10 @@ from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     SampleConcept,
 )
-from ontolib.decomposition.source_preflight import run_source_preflight
+from ontolib.decomposition.source_preflight import (
+    ClosureBudgetExceededError,
+    run_source_preflight,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -3981,3 +3984,26 @@ async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce()
     )
 
     assert metrics.decomposed == 1
+
+
+@pytest.mark.unit
+async def test_an_exceeded_closure_budget_refuses_the_run_and_blames_no_concept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_module, "_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES", 1)
+    provenance = _mock_provenance()
+
+    with pytest.raises(
+        ClosureBudgetExceededError, match="budget of 1 dependency concepts"
+    ) as refusal:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"), _staged_site_client("C6135"), provenance
+        )
+
+    assert "C6135" not in str(refusal.value)
+    assert refusal.value.__notes__ == [
+        "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
+        "ontolib/src/ontolib/decomposition/run.py: raise the budget or narrow the "
+        "worklist."
+    ]
+    provenance.admit_run.assert_not_awaited()
