@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -45,7 +46,10 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     stage_output_identity,
 )
-from ontolib.decomposition.publication import PublicationPreflightError
+from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
+    PublicationPreflightError,
+)
 from ontolib.decomposition.run import (
     RunAdmissionRefusedError,
     RunConfig,
@@ -1818,6 +1822,72 @@ async def test_residual_materialization_persists_classifier_failure(
 
 
 @pytest.mark.unit
+async def test_a_residual_filler_failure_survives_a_failed_failure_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recording the filler failure must never replace the failure being recorded."""
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock(
+        side_effect=RunStateError("filler claim changed before failure record")
+    )
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(CompleteDefinitionError, match="malformed") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert error.value.__notes__ == [
+        "Recording the residual filler failure also failed: RunStateError: filler "
+        "claim changed before failure record"
+    ]
+
+
+@pytest.mark.unit
+async def test_a_cancellation_during_the_failure_record_still_cancels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancellation that lands while the failure is being recorded is not
+    downgraded to a note on the failure; it propagates, carrying the failure."""
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock(side_effect=asyncio.CancelledError())
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert isinstance(cancellation.value.__cause__, CompleteDefinitionError)
+    assert cancellation.value.__notes__ == [
+        "Cancelled while recording the residual filler failure: "
+        "CompleteDefinitionError: malformed"
+    ]
+
+
+@pytest.mark.unit
 async def test_unsupported_residual_constructor_is_a_typed_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2840,6 +2910,91 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
+async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
+    """When `invalidate_run` is cancelled (its transaction may not have
+    committed), the drift error must still carry the partial-results warning as
+    it propagates as the cancellation's cause."""
+    client = _FakeClient(pages=[["C0"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(side_effect=asyncio.CancelledError())
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    drift = cancellation.value.__cause__
+    assert isinstance(drift, SourceIdentityChangedError)
+    (note,) = drift.__notes__
+    assert note.startswith("Invalidating run ")
+    assert note.endswith(
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
+    )
+
+
+@pytest.mark.unit
+async def test_a_failed_invalidation_reports_both_the_warning_and_its_cause() -> None:
+    client = _FakeClient(pages=[["C0"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(
+        side_effect=ConnectionError("postgres unreachable")
+    )
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError) as drift:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    warning, recording = drift.value.__notes__
+    assert warning.endswith(
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
+    )
+    assert recording == (
+        "Recording the run failure also failed: ConnectionError: postgres unreachable"
+    )
+
+
+@pytest.mark.unit
 async def test_unrecorded_run_failure_is_reported_on_the_raised_error() -> None:
     """A run in some other terminal state means the failure was never recorded."""
     client = _FakeClient(pages=[["C1"]])
@@ -3310,6 +3465,114 @@ async def test_artifact_validation_failure_fails_the_run(
     provenance.fail_run.assert_awaited_once()
     provenance.record_publication_failure.assert_not_awaited()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_a_stage_failure_survives_a_failed_failure_record() -> None:
+    """Recording the stage failure must never replace the failure being recorded."""
+    provenance = _mock_provenance()
+    provenance._test_state["atomic_noop"] = 1
+    provenance.fail_stage = AsyncMock(
+        side_effect=RunStateError("stage claim changed before failure record")
+    )
+
+    with pytest.raises(ValueError, match="outcome counts do not sum") as error:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert error.value.__notes__ == [
+        "Recording the metrics stage failure also failed: RunStateError: stage claim "
+        "changed before failure record"
+    ]
+    assert provenance._test_state["status"] == "failed"
+
+
+def _finalization_failure_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provenance: Any
+) -> Coroutine[Any, Any, RunSummary]:
+    monkeypatch.setattr(
+        run_module,
+        "publish_artifact",
+        AsyncMock(side_effect=PublicationFinalizationError("lock release failed")),
+    )
+    return run_pipeline(
+        RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+        _FakeClient(pages=[["C0"]]),
+        provenance,
+        get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+    )
+
+
+@pytest.mark.unit
+async def test_a_failed_publication_stage_seal_never_masks_the_finalization_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    complete_stage = provenance.complete_stage
+
+    async def refuse_publication_seal(
+        run_id: str, stage: str, claim: UUID, payload: dict[str, object]
+    ) -> str:
+        if stage == "publication":
+            raise RunStateError("stage claim changed before completion")
+        return await complete_stage(run_id, stage, claim, payload)
+
+    provenance.complete_stage = AsyncMock(side_effect=refuse_publication_seal)
+
+    with pytest.raises(PublicationFinalizationError, match="lock release") as error:
+        await _finalization_failure_pipeline(tmp_path, monkeypatch, provenance)
+
+    assert error.value.__notes__ == [
+        "Recording the publication stage completion also failed: RunStateError: "
+        "stage claim changed before completion"
+    ]
+    provenance.fail_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_publication_finalization_failure_seals_the_completed_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """publish_artifact reports a finalization failure (the run is already
+    published); the stage is sealed complete, nothing is demoted, and the
+    failure still surfaces."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+
+    with pytest.raises(PublicationFinalizationError, match="lock release") as error:
+        await _finalization_failure_pipeline(tmp_path, monkeypatch, provenance)
+
+    assert getattr(error.value, "__notes__", []) == []
+    publication_stage = next(
+        row for row in await provenance.run_stages("run") if row.stage == "publication"
+    )
+    assert publication_stage.state == "complete"
+    assert publication_stage.output_payload == {"publication_state": "published"}
+    assert "publication" not in [
+        call.args[1] for call in provenance.fail_stage.await_args_list
+    ]
+    provenance.fail_run.assert_not_awaited()
 
 
 @pytest.mark.unit

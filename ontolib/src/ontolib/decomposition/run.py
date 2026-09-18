@@ -104,6 +104,7 @@ from ontolib.decomposition.provenance_models import (
     ResidualFillerClassification,
     RunFingerprint,
     RunResumeIdentity,
+    RunStageName,
 )
 from ontolib.decomposition.publication import (
     PublicationFinalizationError,
@@ -1050,18 +1051,20 @@ async def _load_pending_run_data(
         pending = await provenance.pending_codes(run_id)
         return pending, await _fetch_labels(get_labels, pending)
     except BaseException as exc:
-        try:
-            if not await provenance.fail_run(run_id, exc):
-                exc.add_note(
-                    f"Run setup failure was NOT recorded: run {run_id!r} holds a "
-                    "different terminal state, or its row is gone."
-                )
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run setup failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run setup failure", _record_setup_failure(provenance, run_id, exc)
+        )
         raise
+
+
+async def _record_setup_failure(
+    provenance: ProvenanceStore, run_id: str, exc: BaseException
+) -> None:
+    if not await provenance.fail_run(run_id, exc):
+        exc.add_note(
+            f"Run setup failure was NOT recorded: run {run_id!r} holds a "
+            "different terminal state, or its row is gone."
+        )
 
 
 async def _prepare_run(
@@ -1166,13 +1169,11 @@ async def _process_work_item(
             code,
             setup.run_id,
         )
-        try:
-            await provenance.fail_work_item(setup.run_id, code, claim, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the work-item failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc,
+            "work-item failure",
+            provenance.fail_work_item(setup.run_id, code, claim, exc),
+        )
         raise
 
 
@@ -1373,7 +1374,11 @@ async def _materialize_residual_filler(
             unsupported_reason=reason,
         )
     except BaseException as exc:
-        await provenance.fail_residual_filler(setup.run_id, filler, claim, exc)
+        await _journal_without_masking(
+            exc,
+            "residual filler failure",
+            provenance.fail_residual_filler(setup.run_id, filler, claim, exc),
+        )
         raise
 
 
@@ -1578,6 +1583,48 @@ async def _completed_stage_output(
     return row.output_identity, row.output_payload
 
 
+async def _journal_without_masking(
+    exc: BaseException, what: str, record: Awaitable[object]
+) -> None:
+    """Await a provenance write made on behalf of ``exc`` without letting the
+    write's own failure replace ``exc``; that failure becomes a note instead.
+
+    A cancellation that interrupts the write still cancels: it propagates with
+    ``exc`` as its cause so neither is lost. The write itself is not retried or
+    shielded (contrast ``publication._record_failure_without_masking``), so it
+    may never have landed. A work-item, residual-filler or stage claim it may
+    leave behind is reclaimed by the next resume (the publication seal of an
+    already completed run has no resume and may stay claimed). An unwritten
+    ``fail_run`` leaves the run ``running`` for the next resume to reopen; an
+    unwritten ``invalidate_run`` leaves partial results in place, which is why
+    ``_record_pipeline_failure`` adds its own warning.
+    """
+    try:
+        await record
+    except asyncio.CancelledError as cancellation:
+        cancellation.add_note(
+            f"Cancelled while recording the {what}: {type(exc).__name__}: {exc}"
+        )
+        raise cancellation from exc
+    except BaseException as failure_error:
+        exc.add_note(
+            f"Recording the {what} also failed: "
+            f"{type(failure_error).__name__}: {failure_error}"
+        )
+
+
+async def _record_stage_failure(
+    provenance: ProvenanceStore,
+    run_id: str,
+    stage: RunStageName,
+    claim: UUID,
+    exc: BaseException,
+) -> None:
+    await _journal_without_masking(
+        exc, f"{stage} stage failure", provenance.fail_stage(run_id, stage, claim, exc)
+    )
+
+
 async def _preflight_stage(
     setup: _RunSetup,
     config: RunConfig,
@@ -1607,7 +1654,9 @@ async def _preflight_stage(
                 setup.run_id, "preflight", claim, payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "preflight", claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "preflight", claim, exc
+            )
             raise
     _require_preflight_allowed(result)
     required_inventory = _required_mixed_chain_inventory_identity(
@@ -1728,7 +1777,9 @@ async def _concept_workset_stage(
             },
         )
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "concept-workset", claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "concept-workset", claim, exc
+        )
         raise
 
 
@@ -1777,8 +1828,8 @@ async def _residual_classification_stage(
         )
     except BaseException as exc:
         if residual_claim is not None:
-            await provenance.fail_stage(
-                setup.run_id, "residual-classification", residual_claim, exc
+            await _record_stage_failure(
+                provenance, setup.run_id, "residual-classification", residual_claim, exc
             )
         raise
     return metrics, decompositions, residual_identity, unknown
@@ -1868,7 +1919,9 @@ async def _metrics_stage(
                 )
     except BaseException as exc:
         if metrics_claim is not None:
-            await provenance.fail_stage(setup.run_id, "metrics", metrics_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "metrics", metrics_claim, exc
+            )
         raise
     return metrics_identity, persisted_metrics
 
@@ -1892,7 +1945,9 @@ async def _artifact_stage(
                 setup.run_id, "artifact", artifact_claim, artifact_payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "artifact", artifact_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "artifact", artifact_claim, exc
+            )
             raise
     else:
         artifact_identity, artifact_payload = await _completed_stage_output(
@@ -1960,8 +2015,23 @@ async def _publication_stage(
             publication_claim,
             {"publication_state": "published" if publication else "not_requested"},
         )
+    except PublicationFinalizationError as exc:
+        # Raised after the run finished and published; the stage completed too.
+        await _journal_without_masking(
+            exc,
+            "publication stage completion",
+            provenance.complete_stage(
+                setup.run_id,
+                "publication",
+                publication_claim,
+                {"publication_state": "published"},
+            ),
+        )
+        raise
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "publication", publication_claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "publication", publication_claim, exc
+        )
         raise
 
 
@@ -2115,11 +2185,21 @@ async def _record_pipeline_failure(
     provenance: ProvenanceStore, setup: _RunSetup, exc: BaseException
 ) -> None:
     if isinstance(exc, SourceIdentityChangedError):
-        recorded = await provenance.invalidate_run(setup.run_id, exc)
+        advice = (
+            "Inspect the run's decomp_constituent, decomp_minted_proposal, "
+            "decomp_definition_* and decomp_work_item rows before reuse."
+        )
+        try:
+            recorded = await provenance.invalidate_run(setup.run_id, exc)
+        except BaseException:
+            exc.add_note(
+                f"Invalidating run {setup.run_id!r} did not complete; partial "
+                f"results may survive. {advice}"
+            )
+            raise
         message = (
             "Partial results were NOT discarded: run "
-            f"{setup.run_id!r} was no longer 'running'. Inspect "
-            "decomp_constituent/decomp_minted_proposal before reuse."
+            f"{setup.run_id!r} was no longer 'running'. {advice}"
         )
     else:
         recorded = await provenance.fail_run(setup.run_id, exc)
@@ -2224,11 +2304,7 @@ async def run_pipeline(
         # completion. Neither may demote the decomposition run via fail_run.
         raise
     except BaseException as exc:
-        try:
-            await _record_pipeline_failure(provenance, setup, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run failure", _record_pipeline_failure(provenance, setup, exc)
+        )
         raise
