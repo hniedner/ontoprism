@@ -1006,8 +1006,8 @@ async def _require_recounted_metrics(
     session: AsyncSession, run_id: str, metrics: CompletionRunMetrics
 ) -> None:
     """Fail unless the outcome counts and the definition and fact counts in
-    ``metrics`` equal a recount of the persisted rows (derived rates are not
-    recounted)."""
+    ``metrics`` equal a recount of the persisted rows (the residual-precoordination
+    counts and the derived rates are not recounted)."""
     _require_matching_completion_metrics(
         metrics,
         await _persisted_outcome_counts(session, run_id),
@@ -1015,6 +1015,7 @@ async def _require_recounted_metrics(
     )
 
 
+# Count names shared by RunOutcomeCounts and CompletionRunMetrics.
 _OUTCOME_COUNT_FIELDS = (
     "total_in_scope",
     "decomposed",
@@ -1024,21 +1025,13 @@ _OUTCOME_COUNT_FIELDS = (
     "unknown_outcome",
     "minted_count",
 )
-_DEFINITION_COUNT_FIELDS = (
-    "complete_definition_count",
-    "complete_fact_count",
-    "projected_fact_count",
-    "projection_loss_count",
-)
 
 
-def _count_differences(
-    fields: tuple[str, ...], supplied: tuple[int, ...], persisted: tuple[int, ...]
-) -> str:
+def _count_differences(metrics: CompletionRunMetrics, recounted: dict[str, int]) -> str:
     return "; ".join(
-        f"{field}: supplied {ours}, persisted {theirs}"
-        for field, ours, theirs in zip(fields, supplied, persisted, strict=True)
-        if ours != theirs
+        f"{field}: supplied {getattr(metrics, field)}, recounted {count}"
+        for field, count in recounted.items()
+        if getattr(metrics, field) != count
     )
 
 
@@ -1047,12 +1040,10 @@ def _require_matching_completion_metrics(
     counts: RunOutcomeCounts,
     definition_counts: tuple[int, int, int],
 ) -> None:
-    persisted_counts = tuple(getattr(counts, field) for field in _OUTCOME_COUNT_FIELDS)
-    supplied_counts = tuple(getattr(metrics, field) for field in _OUTCOME_COUNT_FIELDS)
-    if persisted_counts != supplied_counts:
-        differences = _count_differences(
-            _OUTCOME_COUNT_FIELDS, supplied_counts, persisted_counts
-        )
+    differences = _count_differences(
+        metrics, {field: getattr(counts, field) for field in _OUTCOME_COUNT_FIELDS}
+    )
+    if differences:
         raise RunStateError(
             "completion metrics do not match persisted work-item outcomes "
             f"({differences})"
@@ -1060,21 +1051,16 @@ def _require_matching_completion_metrics(
     complete_definition_count, complete_fact_count, projected_fact_count = (
         definition_counts
     )
-    persisted_definition_metrics = (
-        complete_definition_count,
-        complete_fact_count,
-        projected_fact_count,
-        complete_fact_count - projected_fact_count,
+    differences = _count_differences(
+        metrics,
+        {
+            "complete_definition_count": complete_definition_count,
+            "complete_fact_count": complete_fact_count,
+            "projected_fact_count": projected_fact_count,
+            "projection_loss_count": complete_fact_count - projected_fact_count,
+        },
     )
-    supplied_definition_metrics = tuple(
-        getattr(metrics, field) for field in _DEFINITION_COUNT_FIELDS
-    )
-    if persisted_definition_metrics != supplied_definition_metrics:
-        differences = _count_differences(
-            _DEFINITION_COUNT_FIELDS,
-            supplied_definition_metrics,
-            persisted_definition_metrics,
-        )
+    if differences:
         raise RunStateError(
             "completion definition metrics do not match persisted definition rows "
             f"({differences})"
