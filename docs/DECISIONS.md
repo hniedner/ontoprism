@@ -14,26 +14,33 @@ projection, source occurrence, partonomy, and relationship group, see the
 **Context.** Two helpers record a failure without letting the recording error replace the
 original one, and they treat a cancellation differently (#366 review, issue #371).
 `publication._record_failure_without_masking` starts the write as a task under
-`asyncio.shield`, lets it finish while the cancellation waits, then re-raises the
-cancellation. `run._journal_without_masking` awaits the write directly, so a cancellation
-abandons it. Shielding keeps the record but lets a stuck database write delay a
-cancellation. Abandoning cancels at once but can lose the record.
+`asyncio.shield`, lets it finish while the first cancellation waits (a second cancellation
+abandons it), then re-raises the cancellation. `run._journal_without_masking` awaits the
+write directly, so a cancellation abandons it. Shielding keeps the record but lets a stuck
+database write delay a cancellation. Abandoning cancels at once but can lose the record.
 
 **Decision.** Keep the split; it follows what each lost record costs.
-- Publication shields. `record_publication_failure` is the only record of a failed
-  publication attempt, and nothing that runs later rebuilds it.
-- The decomposition run abandons. What an abandoned write leaves behind is recovered or
-  flagged elsewhere: the next resume reclaims work-item, residual-filler and stage claims;
-  an unwritten `fail_run` leaves the run `running` for the next resume to reopen; an
-  unwritten `invalidate_run` leaves partial results, and `_record_pipeline_failure` adds a
-  note saying so. The one gap is the publication-stage seal of a run that is already
-  complete: it has no resume and may stay claimed.
+- Publication shields. `record_publication_failure` is the only place a failed
+  publication's error type and message are persisted. Without it the run stays
+  `publishing` with no recorded cause, and nothing that runs later writes one.
+- The decomposition run abandons. For a resumable run, what an abandoned write leaves
+  behind is recovered later: the next resume reclaims work-item, residual-filler and stage
+  claims, and an unwritten `fail_run` leaves the run `running` for the next resume to
+  reopen.
+- Three known gaps, where the only trace is the note on the cancelled exception:
+  - the publication-stage seal of a run that is already complete, which has no resume and
+    may stay claimed;
+  - an unwritten `invalidate_run`: it follows a source change, so the run cannot be
+    resumed and stays `running` with its partial results (#386);
+  - a rehearsal run, which is never resumed, so none of its abandoned writes is recovered.
+    Rehearsals are throwaway runs.
 - A new failure-recording helper chooses by the same test: shield only when nothing later
   recovers the record.
 
-**Why.** Shielding every write would make Ctrl-C wait on the database during a long run.
-Abandoning the publication record would lose the only trace of a failed publication.
-Unifying the helpers would force one of those costs onto the other path.
+**Why.** Shielding every write would make a cancellation (such as Ctrl-C) wait for
+whatever database write is in flight, however long it is stuck. Abandoning the
+publication record would lose the only persisted cause of a failed publication. Unifying
+the helpers would force one of those costs onto the other path.
 
 ## 2026-09-17 — recovery: tiered gates, reviewed issue PRs, no self-certifying machinery
 
