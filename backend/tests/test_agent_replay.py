@@ -3760,7 +3760,8 @@ class _PodmanRecoveryRunner(_ComposeCheckRunner):
         inspections_until_stopped: int | None = None,
     ) -> None:
         super().__init__(socket_path)
-        self.machine_state = machine_state
+        # `State` is unvalidated JSON to the script, so the fake may hold anything.
+        self.machine_state: object = machine_state
         self.stale = stale
         self.stack_state = stack_state
         self.restart_succeeds = restart_succeeds
@@ -4127,6 +4128,25 @@ def test_a_machine_that_never_stops_fails_after_a_bounded_wait(tmp_path: Path) -
 
 
 @pytest.mark.unit
+def test_giving_up_on_a_state_in_between_does_not_blame_a_slow_shutdown(
+    tmp_path: Path,
+) -> None:
+    """The slow-shutdown advice is for a machine that still reports `running`; for
+    any other state the rerun's own refusal says what to check."""
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanRecoveryRunner(socket_path, stale=True, stop_outlives_timeout=True)
+    runner.state_after_stop_timeout = "unknown"
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
+
+    message = str(raised.value)
+    assert "about 300s later the machine reports 'unknown'" in message
+    assert "shutting down" not in message
+    assert "says what to check" in message
+
+
+@pytest.mark.unit
 def test_the_wait_for_a_stop_tolerates_a_state_in_between(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4188,7 +4208,7 @@ def test_a_state_that_is_not_even_a_string_is_named_too(tmp_path: Path) -> None:
     names it, not die as an unhashable set member."""
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _PodmanRecoveryRunner(socket_path)
-    runner.machine_state = ["running"]  # type: ignore[assignment]
+    runner.machine_state = ["running"]
 
     with pytest.raises(AgentReplayInputError, match=r"state \['running'\]"):
         run_agent_replay(["ensure-podman-stack"], tmp_path, runner=runner)
