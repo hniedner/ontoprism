@@ -43,6 +43,8 @@ from ontolib.decomposition.provenance_models import (
     FreshAdmitted,
     FullRunExecutionIdentity,
     NcitSourceSnapshot,
+    ResumeAdmitted,
+    ResumeKind,
     RunAdmission,
     RunFingerprint,
     RunResumeIdentity,
@@ -1383,6 +1385,36 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
         )
     finally:
         await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_first_resume_after_a_hard_kill_reclaims_the_orphaned_work_item() -> None:
+    """SIGKILL/OOM leaves the run `running` with a claimed item; the first `--resume`
+    goes through admission, not `fail_run`, and must reclaim it."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    fingerprint = _fingerprint()
+    execution = FullRunExecutionIdentity.from_fingerprint(fingerprint)
+    try:
+        assert isinstance(
+            await store.admit_run(run_id, "26.07d", fingerprint, execution),
+            FreshAdmitted,
+        )
+        abandoned = await store.claim_work_item(run_id, "C0")
+        assert abandoned is not None
+        assert await store.claim_work_item(run_id, "C0") is None
+
+        resumed = await store.admit_run(
+            "unused", "26.07d", fingerprint, execution, resume_run_id=run_id
+        )
+
+        assert resumed == ResumeAdmitted(run_id=run_id, resume_kind=ResumeKind.SEMANTIC)
+        reclaimed = await store.claim_work_item(run_id, "C0")
+        assert reclaimed is not None
+        assert reclaimed != abandoned
+    finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
 

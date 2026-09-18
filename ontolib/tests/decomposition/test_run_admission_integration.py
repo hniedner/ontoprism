@@ -246,6 +246,9 @@ async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:
         assert failed_resume == ResumeAdmitted(
             run_id=run_ids[0], resume_kind=ResumeKind.SEMANTIC
         )
+        assert await store.claim_work_item(run_ids[0], "C1") is not None, (
+            "a resumed failed run is running again and its work is claimable"
+        )
 
         assert isinstance(
             await store.admit_run(
