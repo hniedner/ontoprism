@@ -26,6 +26,7 @@ from ontolib.decomposition.publication import (
     staging_graph_iri,
 )
 from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,6 +39,7 @@ pytestmark = [
 _PUBLIC = vocab.DECOMPOSED_GRAPH_IRI
 _STAGING = f"{_PUBLIC}/staging/preflight"
 _OLD = '<urn:old> <urn:value> "old" .'
+_STATED_SENTINEL = '<urn:stated-sentinel> <urn:value> "official" .'
 _NEW = '<urn:new> <urn:value> "new" .'
 _MARKER = '<urn:publication> <urn:run> "preflight" .'
 _RUN_ID = "test-decomposition-publication-integration"
@@ -259,6 +261,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
         await conn.execute("DELETE FROM decomp_run WHERE id = $1", _RUN_ID)
         await store.create_run(_RUN_ID, "26.07d", fingerprint)
         await _put_graph(isolated_qlever_url, _PUBLIC, _OLD)
+        await _put_graph(isolated_qlever_url, STATED_GRAPH_IRI, _STATED_SENTINEL)
         await write_ttl([], artifact, run_id=_RUN_ID)
 
         async with ncit_sparql_client(isolated_qlever_url) as client:
@@ -312,6 +315,11 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
             )
             assert not await client.ask(
                 f"ASK {{ GRAPH <{staging_graph_iri(_RUN_ID)}> {{ ?s ?p ?o }} }}"
+            )
+            # Publication is additive: the official stated graph is never touched.
+            assert await client.ask(
+                f"ASK {{ GRAPH <{STATED_GRAPH_IRI}> "
+                '{ <urn:stated-sentinel> <urn:value> "official" } }'
             )
 
         complete = await store.get_run(_RUN_ID)

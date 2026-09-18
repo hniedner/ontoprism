@@ -104,6 +104,15 @@ permission:
     "git pull*": deny
     "git push*": deny
     "git -C *": deny
+    "git --git-dir*": deny
+    "git --work-tree*": deny
+    "git --no-pager *": deny
+    "sudo *": deny
+    "xargs *": deny
+    "nohup *": deny
+    "time *": deny
+    "command *": deny
+    "exec *": deny
     "pdm run pytest *": deny
     "pdm --project *": deny
     "pdm install*": deny
@@ -164,7 +173,7 @@ permission:
 
 You implement ONTOPRISM issues yourself. Read `AGENTS.md` first and follow it; this file only adds what is specific to this harness.
 
-**Work one issue at a time, in a fresh session.** Read the issue body: it is the contract, and only the owner changes it. If the issue is unclear, too large, or written in the old contract style (identity binding, hash evidence, unbounded review "convergence"), propose a plain rewrite (Why / Scope / Done when) and wait for the owner's confirmation before coding.
+**Work one issue at a time, in a fresh session.** Read the issue body: it is the contract, and only the owner changes it. If the issue is unclear, too large, or written in the old contract style (identity binding, hash evidence, reject-branch liveness for every gate), propose a plain rewrite (Why / Scope / Done when) and wait for the owner's confirmation before coding.
 
 **Loop.** Work follows the milestone model in `AGENTS.md`. First check out the milestone branch (`pdm run agent-git switch-existing feat/m<number>-<slug>` then `pdm run agent-git pull-origin feat/m<number>-<slug>`; if the branch exists only on origin, `git fetch origin <branch>:<branch>` is a prompted command, so request it once), then create the issue branch from it with `pdm run agent-git switch-new <branch>`; `switch-new` branches from the current HEAD, so a fresh session that skips the first step branches off the wrong base. Open the issue PR into the milestone branch with `pdm run agent-github pr-create --title <title> --body-file tmp/plans/<name>.md --head <branch> --base feat/m<number>-<slug>` so CI runs on it. Never merge an issue branch into the milestone branch locally. Write the failing behavioural test, run it with `pdm run agent-test <path>::<test> -v`, and see it fail for the intended reason. Make it pass. Keep running only the tests for what you touched. Stage with `git add <paths>` and commit with `pdm run agent-git commit-staged --message "<conventional subject>"`. Run `pdm run verify` once before the PR, not after every edit. CI on the PR is the gate of record: read it with `gh pr checks <n>`.
 
@@ -176,12 +185,12 @@ You implement ONTOPRISM issues yourself. Read `AGENTS.md` first and follow it; t
 
 **Subagents are optional helpers, not a pipeline.**
 - `ontology-analyst`: ask it when a change alters ontology semantics (representation, axes, roles, equivalence, mappings, lifecycle) or when you need source evidence. It reads and reports; it does not plan your work or add requirements.
-- Review, on the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`: the milestone branch for an issue PR, `main` for a milestone PR) before the PR is marked ready: run all five dimensions, never a subset. `pr-code-reviewer`, `pr-silent-failure-hunter`, `pr-comment-analyzer` and `pr-type-design-analyzer` in parallel; then `pr-test-analyzer` alone, because it mutates files temporarily. Fix verified blockers, then re-run only the dimensions that reported blockers. File follow-ups as issues. Two rounds is the ceiling; if blockers remain, the PR is too large.
+- Review, on the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`: the milestone branch for an issue PR, `main` for a milestone PR) before the PR is marked ready: run all five dimensions, never a subset. `pr-code-reviewer`, `pr-silent-failure-hunter`, `pr-comment-analyzer` and `pr-type-design-analyzer` in parallel; then `pr-test-analyzer` alone, because it mutates files temporarily. Address every verified finding and every reasonable suggestion in the PR (defer one to an issue only when the owner agrees it is out of scope), then re-run only the dimensions that have not converged, on the fix range, until all five have converged. There is no round ceiling; PR size is decided when the work is planned, one issue or one coherent change per PR.
 If a review result is missing, timed out or inconclusive (for `pr-test-analyzer`: a dirty worktree or a changed HEAD), that dimension has not converged and the PR is not ready; inspect `git status --porcelain` and `git log --oneline -10` once, then rerun that dimension or report. Never redispatch a writer blindly.
 
-**GitHub.** Push and open or edit PRs only through `pdm run agent-git push-origin <branch>` and `pdm run agent-github pr-create|pr-edit ...`, and only for the issue you are working on. Create issues only for review follow-ups; create or edit anything else in the tracker only when the owner asks. Never delete issues or milestones. Never push to `main`, force-push, or delete a remote ref.
+**GitHub.** Push and open or edit PRs only through `pdm run agent-git push-origin <branch>` and `pdm run agent-github pr-create|pr-edit ...`, and only for the issue you are working on. Create issues only for review suggestions the owner agreed to defer; create or edit anything else in the tracker only when the owner asks. Never delete issues or milestones. Never push to `main`, force-push, or delete a remote ref.
 
-**Merging.** An issue PR into a milestone branch: merge it yourself once every expected check in `gh pr checks <n>` is present and passing for the current head and base and the review has no open blocker; if a check is missing, or the PR's base was changed after its last CI run, push a new commit or ask the owner to re-run the workflow first. A PR into `main`: only after the owner authorizes that exact PR number in this conversation and every check passes. In both cases: `gh pr merge <n> --squash --delete-branch --subject "<PR title>"`. Re-read the PR immediately before; a changed head, title or base voids the authorization. Then watch post-merge workflows with `gh run watch <id> --exit-status`.
+**Merging.** An issue PR into a milestone branch: merge it yourself once every expected check in `gh pr checks <n>` is present and passing for the current head and base and all five review dimensions have converged; if a check is missing, or the PR's base was changed after its last CI run, push a new commit or ask the owner to re-run the workflow first. A PR into `main`: only after the owner authorizes that exact PR number in this conversation and every check passes. In both cases: `gh pr merge <n> --squash --delete-branch --subject "<PR title>"`. Re-read the PR immediately before; a changed head, title or base voids the authorization. Then watch post-merge workflows with `gh run watch <id> --exit-status`.
 
 **Podman.** Run `pdm run agent-replay ensure-podman-stack` without asking when the local stack is needed. It does not authorize VM reset, removal, or volume deletion; if it fails, report.
 

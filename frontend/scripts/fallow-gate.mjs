@@ -7,7 +7,7 @@
 // the three never drift. Two guards:
 //   1. config-loaded guard — fail loudly if fallow silently fell back to built-in
 //      defaults (a renamed/missing .fallowrc.jsonc analyses the wrong file set).
-//   2. base resilience — if origin/main isn't resolvable (a shallow checkout with no
+//   2. base resilience — if no base ref is resolvable (a shallow checkout with no
 //      base), warn and pass rather than block; fallow is a discipline layer, not a
 //      hard dependency. CI uses fetch-depth: 0 so the gate is actually enforced there.
 import { execFileSync } from 'node:child_process';
@@ -20,8 +20,17 @@ function tryGit(args) {
 	}
 }
 
+// The base is the branch the PR targets: GITHUB_BASE_REF in a pull-request job, or
+// FALLOW_BASE locally (set it to the milestone branch on an issue branch). Without
+// either, origin/main. Findings between origin/main and a milestone branch belong to
+// the issue PRs already merged there, not to the one under review.
 function resolveBase() {
-	for (const ref of ['origin/main', 'main']) {
+	const candidates = [];
+	for (const name of [process.env.GITHUB_BASE_REF, process.env.FALLOW_BASE]) {
+		if (name) candidates.push(`origin/${name}`, name);
+	}
+	candidates.push('origin/main', 'main');
+	for (const ref of candidates) {
 		if (tryGit(['rev-parse', '--verify', '--quiet', ref])) return ref;
 	}
 	return '';
@@ -44,10 +53,11 @@ try {
 // Guard 2 — no base ⇒ skip (never block on environment).
 const base = resolveBase();
 if (!base) {
-	console.warn('fallow: no base ref (origin/main) — skipping the new-only gate.');
+	console.warn('fallow: no base ref — skipping the new-only gate.');
 	process.exit(0);
 }
 
+console.log(`fallow: new-only gate against ${base}`);
 try {
 	execFileSync('npx', ['fallow', 'audit', '--changed-since', base], { stdio: 'inherit' });
 } catch (err) {

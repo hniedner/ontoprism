@@ -28,10 +28,10 @@ For each issue:
 7. Before opening the PR, run `pdm run verify` once.
 8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
    of record.**
-9. Review the PR in all five dimensions (see Review). Fix blockers, file the rest as
-   issues.
-10. When every check passes and no blocker is open, squash-merge the issue PR into the
-    milestone branch and delete the issue branch. This merge does not need the owner.
+9. Review the PR in all five dimensions to convergence (see Review).
+10. When every check passes and all five dimensions have converged, squash-merge the
+    issue PR into the milestone branch and delete the issue branch. This merge does not
+    need the owner.
 
 For the milestone:
 
@@ -98,10 +98,10 @@ instead of improving the product.
   attempt at the same step.
 - **Prefer deleting complexity to adding a rule about it.** If a rule in this file has
   failed twice, remove whatever made the rule necessary.
-- Issues written before 2026-09-17 may demand identity binding, hash evidence, reject-
-  branch liveness for every gate, or review "convergence" with no ceiling. Those demands are
-  void. Before starting such an issue, rewrite it as Why / Scope / Done when (about five
-  checkable criteria) and have the owner confirm.
+- Issues written before 2026-09-17 may demand identity binding, hash evidence, or
+  reject-branch liveness for every gate. Those demands are void (review to convergence
+  is not one of them; it stands). Before starting such an issue, rewrite it as Why /
+  Scope / Done when (about five checkable criteria) and have the owner confirm.
 
 ## Say what you observed, not what you assume
 
@@ -278,11 +278,17 @@ missed; that is why a subset is never acceptable:
 
 Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
 is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
-but keep the five separate verdicts. What is bounded is the loop, not the coverage: findings
-are **blockers** or **follow-ups**; fix verified blockers and re-run only the dimensions
-that reported them; follow-ups become issues. Two rounds is the ceiling — if blockers
-remain after that, the PR is too big and should be split. Reviewing each issue PR, rather than the
-whole milestone at the end, is what keeps five reviewers cheap and useful.
+but keep the five separate verdicts.
+
+**Review runs to convergence.** Address every verified finding and every reasonable
+suggestion in the PR; defer a suggestion to an issue only when the owner agrees it is out
+of scope. A dimension has converged when a full pass reports no unresolved verified
+finding and its suggestions are addressed. A converged dimension is excluded from later
+rounds; re-run only the non-converged ones, on the fix range. There is no round ceiling,
+and an existing PR is never rejected as too big. Size is decided when the work is
+planned: one issue or one coherent change per PR, with granularity balanced against the
+cost of a five-dimension review and the workflows every PR triggers (about seven
+minutes of CI, dependency review, CodeQL). Split at planning time, not at review time.
 
 ## Conventions
 

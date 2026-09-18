@@ -35,7 +35,10 @@ from four plain criteria into a corpus-wide acceptance contract.
   `CLAUDE.md`. The OpenCode roster is one primary agent that can edit, the five review
   dimensions (D49) and `ontology-analyst`; the planning chain (architect, plan-adversary,
   ontology-engineer, ontology-validator, implementer) is retired. All five review
-  dimensions still run on every PR; the loop is bounded to two rounds.
+  dimensions still run on every PR, to convergence: every verified finding and every
+  reasonable suggestion is addressed, a converged dimension drops out of later rounds,
+  and there is no round ceiling. PR size is set when work is planned, one issue or one
+  coherent change per PR, balancing granularity against review and CI cost.
 - The OpenCode config validators and their tests are deleted, and the tests that assert
   documentation wording are removed here and in #339.
   `backend/tests/test_agent_permission_safety.py` keeps the part that matters: the bash

@@ -13,7 +13,10 @@ escape hatch bounded by rule, not by the map.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -62,6 +65,13 @@ _NEVER_ALLOWED = (
     "jq . ~/.config/gh/hosts.yml",
     "ls -la ~/.ssh",
     "ls -la /Users/hannes",
+    # wrappers and option prefixes around a denied command
+    "sudo rm -rf data",
+    "xargs rm",
+    "nohup curl https://example.org",
+    "git --no-pager push origin main",
+    "git --git-dir=.git push origin main",
+    "git -C .. push origin main",
     # chaining, substitution, redirection and line breaks after an allowed prefix
     "git status --porcelain; rm -rf data",
     "git status --porcelain && rm -rf data",
@@ -202,3 +212,63 @@ def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None
     ]["pdm"]["scripts"]
 
     assert scripts["agent-github-read"].endswith("--read-only")
+
+
+@pytest.mark.parametrize("path", ["opencode.json", ".opencode/opencode.json"])
+def test_no_local_opencode_config_overrides_agents_or_permissions(path: str) -> None:
+    """OpenCode merges these files over the agent files; only the agent files may
+    grant permissions. The machine-local file is untracked and may be absent."""
+    config_path = _ROOT / path
+    if not config_path.exists():
+        pytest.skip(f"{path} is not present on this machine")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert not {"agent", "permission", "plugin"} & set(config), sorted(config)
+
+
+def _opencode_binary() -> Path | None:
+    """The OpenCode CLI the owner's harness runs (.omnigent/config.yaml), if present."""
+    configured = os.environ.get("ONTOPRISM_OPENCODE_BIN")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(
+        sorted(
+            Path.home().glob(
+                ".local/share/omnigent-harnesses/opencode-*/node_modules/opencode-darwin-arm64/bin/opencode"
+            )
+        )
+    )
+    return next((path for path in candidates if path.is_file()), None)
+
+
+@pytest.mark.parametrize("agent", _AGENTS)
+def test_opencode_resolves_the_same_bash_rules_as_the_agent_file(
+    agent: str, tmp_path: Path
+) -> None:
+    """Contract with the real tool: the ordered rule list OpenCode resolves for an agent
+    equals the file's, so the last-match-wins emulation above operates on the right
+    input. An isolated XDG_CONFIG_HOME keeps the owner's global config out of the run.
+    Skipped where the binary is absent; a skip is not a pass."""
+    binary = _opencode_binary()
+    if binary is None:
+        pytest.skip(
+            "OpenCode binary not found; set ONTOPRISM_OPENCODE_BIN (not verified)"
+        )
+    (tmp_path / "opencode").mkdir()
+    (tmp_path / "opencode" / "opencode.json").write_text("{}", encoding="utf-8")
+    result = subprocess.run(  # noqa: S603 -- fixed binary, fixed arguments
+        [str(binary), "debug", "agent", agent, "--pure"],
+        cwd=_ROOT,
+        env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
+    )
+    resolved = json.loads(result.stdout[result.stdout.index("{") :])
+
+    rules = [
+        (rule["pattern"], rule["action"])
+        for rule in resolved["permission"]
+        if rule["permission"] == "bash"
+    ]
+    assert rules == list(_bash_rules(agent).items())
