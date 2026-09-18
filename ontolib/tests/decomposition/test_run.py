@@ -45,7 +45,10 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     stage_output_identity,
 )
-from ontolib.decomposition.publication import PublicationPreflightError
+from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
+    PublicationPreflightError,
+)
 from ontolib.decomposition.run import (
     RunAdmissionRefusedError,
     RunConfig,
@@ -3310,6 +3313,66 @@ async def test_artifact_validation_failure_fails_the_run(
     provenance.fail_run.assert_awaited_once()
     provenance.record_publication_failure.assert_not_awaited()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_a_stage_failure_survives_a_failed_failure_record() -> None:
+    """Recording the stage failure must never replace the failure being recorded."""
+    provenance = _mock_provenance()
+    provenance._test_state["atomic_noop"] = 1
+    provenance.fail_stage = AsyncMock(
+        side_effect=RunStateError("stage claim changed before failure record")
+    )
+
+    with pytest.raises(ValueError, match="outcome counts do not sum") as error:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert error.value.__notes__ == [
+        "Recording the metrics stage failure also failed: RunStateError: stage claim "
+        "changed before failure record"
+    ]
+    provenance.fail_run.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_publication_finalization_failure_leaves_the_completed_run_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finalization fails after the run completed; no stage or run may be demoted."""
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    monkeypatch.setattr(
+        run_module,
+        "publish_artifact",
+        AsyncMock(side_effect=PublicationFinalizationError("lock release failed")),
+    )
+
+    with pytest.raises(PublicationFinalizationError, match="lock release"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "publication" not in [
+        call.args[1] for call in provenance.fail_stage.await_args_list
+    ]
+    provenance.fail_run.assert_not_awaited()
 
 
 @pytest.mark.unit

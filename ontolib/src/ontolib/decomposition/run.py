@@ -104,6 +104,7 @@ from ontolib.decomposition.provenance_models import (
     ResidualFillerClassification,
     RunFingerprint,
     RunResumeIdentity,
+    RunStageName,
 )
 from ontolib.decomposition.publication import (
     PublicationFinalizationError,
@@ -1578,6 +1579,29 @@ async def _completed_stage_output(
     return row.output_identity, row.output_payload
 
 
+async def _record_stage_failure(
+    provenance: ProvenanceStore,
+    run_id: str,
+    stage: RunStageName,
+    claim: UUID,
+    exc: BaseException,
+) -> None:
+    """Journal a stage failure without letting the journaling replace the failure.
+
+    A finalization error is raised after the run completed, so there is no stage
+    left to fail; any other recording error is attached to the failure as a note.
+    """
+    if isinstance(exc, PublicationFinalizationError):
+        return
+    try:
+        await provenance.fail_stage(run_id, stage, claim, exc)
+    except BaseException as failure_error:
+        exc.add_note(
+            f"Recording the {stage} stage failure also failed: "
+            f"{type(failure_error).__name__}: {failure_error}"
+        )
+
+
 async def _preflight_stage(
     setup: _RunSetup,
     config: RunConfig,
@@ -1607,7 +1631,9 @@ async def _preflight_stage(
                 setup.run_id, "preflight", claim, payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "preflight", claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "preflight", claim, exc
+            )
             raise
     _require_preflight_allowed(result)
     required_inventory = _required_mixed_chain_inventory_identity(
@@ -1728,7 +1754,9 @@ async def _concept_workset_stage(
             },
         )
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "concept-workset", claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "concept-workset", claim, exc
+        )
         raise
 
 
@@ -1777,8 +1805,8 @@ async def _residual_classification_stage(
         )
     except BaseException as exc:
         if residual_claim is not None:
-            await provenance.fail_stage(
-                setup.run_id, "residual-classification", residual_claim, exc
+            await _record_stage_failure(
+                provenance, setup.run_id, "residual-classification", residual_claim, exc
             )
         raise
     return metrics, decompositions, residual_identity, unknown
@@ -1868,7 +1896,9 @@ async def _metrics_stage(
                 )
     except BaseException as exc:
         if metrics_claim is not None:
-            await provenance.fail_stage(setup.run_id, "metrics", metrics_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "metrics", metrics_claim, exc
+            )
         raise
     return metrics_identity, persisted_metrics
 
@@ -1892,7 +1922,9 @@ async def _artifact_stage(
                 setup.run_id, "artifact", artifact_claim, artifact_payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "artifact", artifact_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "artifact", artifact_claim, exc
+            )
             raise
     else:
         artifact_identity, artifact_payload = await _completed_stage_output(
@@ -1961,7 +1993,9 @@ async def _publication_stage(
             {"publication_state": "published" if publication else "not_requested"},
         )
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "publication", publication_claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "publication", publication_claim, exc
+        )
         raise
 
 
