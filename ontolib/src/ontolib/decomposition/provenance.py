@@ -1690,15 +1690,17 @@ class ProvenanceStore:
                 ),
                 {"id": run_id},
             )
-            await session.execute(
-                text(
-                    "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
-                    "claimed_at=NULL,error_type='InterruptedRun',"
-                    "error_message='Prior worker did not finish its claim',"
-                    "failed_at=:failed_at WHERE run_id=:id AND state='running'"
-                ),
-                {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
-            )
+        # A hard kill (SIGKILL, OOM) leaves the run `running` with claimed items; an
+        # explicit resume is the only worker, so every leftover claim is orphaned.
+        await session.execute(
+            text(
+                "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
+                "claimed_at=NULL,error_type='InterruptedRun',"
+                "error_message='Prior worker did not finish its claim',"
+                "failed_at=:failed_at WHERE run_id=:id AND state='running'"
+            ),
+            {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
+        )
         return ResumeAdmitted(
             run_id=run_id,
             resume_kind=(
