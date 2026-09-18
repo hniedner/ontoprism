@@ -234,8 +234,8 @@ async def _reopen_run(session: AsyncSession, run_id: str) -> None:
 
     A hard kill (SIGKILL, OOM) leaves the run `running` with claimed items. Nothing
     distinguishes those from a live worker's claims, so this relies on the operating
-    rule that one explicit resume is the run's only worker: a concurrent resume takes
-    over the live claims and the older worker aborts at its next completion
+    rule that one explicit resume is the run's only worker: a concurrent resume resets
+    the live claims to reclaimable and the older worker aborts at its next completion
     (`_require_owned_claim`).
     """
     await session.execute(
