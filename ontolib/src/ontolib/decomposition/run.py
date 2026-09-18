@@ -1167,13 +1167,11 @@ async def _process_work_item(
             code,
             setup.run_id,
         )
-        try:
-            await provenance.fail_work_item(setup.run_id, code, claim, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the work-item failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc,
+            "work-item failure",
+            provenance.fail_work_item(setup.run_id, code, claim, exc),
+        )
         raise
 
 
@@ -1374,7 +1372,11 @@ async def _materialize_residual_filler(
             unsupported_reason=reason,
         )
     except BaseException as exc:
-        await provenance.fail_residual_filler(setup.run_id, filler, claim, exc)
+        await _journal_without_masking(
+            exc,
+            "residual filler failure",
+            provenance.fail_residual_filler(setup.run_id, filler, claim, exc),
+        )
         raise
 
 
@@ -1579,6 +1581,20 @@ async def _completed_stage_output(
     return row.output_identity, row.output_payload
 
 
+async def _journal_without_masking(
+    exc: BaseException, what: str, record: Awaitable[object]
+) -> None:
+    """Await a provenance write made on behalf of ``exc`` without letting the
+    write's own failure replace ``exc``; that failure becomes a note instead."""
+    try:
+        await record
+    except BaseException as failure_error:
+        exc.add_note(
+            f"Recording the {what} also failed: "
+            f"{type(failure_error).__name__}: {failure_error}"
+        )
+
+
 async def _record_stage_failure(
     provenance: ProvenanceStore,
     run_id: str,
@@ -1586,20 +1602,9 @@ async def _record_stage_failure(
     claim: UUID,
     exc: BaseException,
 ) -> None:
-    """Journal a stage failure without letting the journaling replace the failure.
-
-    A finalization error is raised after the run completed, so there is no stage
-    left to fail; any other recording error is attached to the failure as a note.
-    """
-    if isinstance(exc, PublicationFinalizationError):
-        return
-    try:
-        await provenance.fail_stage(run_id, stage, claim, exc)
-    except BaseException as failure_error:
-        exc.add_note(
-            f"Recording the {stage} stage failure also failed: "
-            f"{type(failure_error).__name__}: {failure_error}"
-        )
+    await _journal_without_masking(
+        exc, f"{stage} stage failure", provenance.fail_stage(run_id, stage, claim, exc)
+    )
 
 
 async def _preflight_stage(
@@ -1992,6 +1997,19 @@ async def _publication_stage(
             publication_claim,
             {"publication_state": "published" if publication else "not_requested"},
         )
+    except PublicationFinalizationError as exc:
+        # Raised after the run finished and published; the stage completed too.
+        await _journal_without_masking(
+            exc,
+            "publication stage completion",
+            provenance.complete_stage(
+                setup.run_id,
+                "publication",
+                publication_claim,
+                {"publication_state": "published"},
+            ),
+        )
+        raise
     except BaseException as exc:
         await _record_stage_failure(
             provenance, setup.run_id, "publication", publication_claim, exc
