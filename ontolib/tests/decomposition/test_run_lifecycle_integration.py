@@ -825,7 +825,7 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         assert dict(row) == {
             "state": "failed",
             "error_type": "RuntimeError",
-            "error_message": "x" * 1000,
+            "error_message": "x" * 999 + "\u2026",
         }
         assert constituent_count == 0
 
