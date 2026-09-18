@@ -3790,7 +3790,9 @@ def _staged_site_client(*worklist: str) -> _FakeClient:
 
 
 def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
-    """A packaged policy row re-pointed at ``code``, whose pairs it cannot match."""
+    """A one-row policy: the first packaged row re-pointed at ``code``. Built with
+    ``model_copy``, so the policy's own validators do not run; the row's pairs are not
+    the ones ``_staged_site_client`` yields for C6135."""
     packaged = load_packaged_normalized_group_policy()
     row = packaged.rows[0].model_copy(update={"concept_code": code})
     return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
@@ -3814,11 +3816,12 @@ async def _run_with_group_policy(
 
 @pytest.mark.unit
 async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> None:
-    """The policy was only applied when the worklist reached the concept, hours into a
-    run that a corrected policy file can no longer resume."""
+    """A mismatch must surface before admission: found when the worklist reaches the
+    concept, it fails hours into a run that a corrected policy file cannot resume (the
+    policy file is part of the routing identity)."""
     provenance = _mock_provenance()
 
-    with pytest.raises(ValueError, match="pair set differs for C6135"):
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
         await _run_with_group_policy(
             RunConfig(branch="neoplasm"),
             _staged_site_client("C6135"),
@@ -3828,6 +3831,10 @@ async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> 
 
     provenance.admit_run.assert_not_awaited()
     assert provenance._test_state["fingerprint"] is None
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "no run state was written."
+    ]
 
 
 @pytest.mark.unit
@@ -3837,7 +3844,7 @@ async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission
     provenance = _mock_provenance()
     _set_resume_worklist(provenance, worklist=("C6135",), pending=["C6135"])
 
-    with pytest.raises(ValueError, match="pair set differs for C6135"):
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
         await _run_with_group_policy(
             RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
             _staged_site_client("C6135"),
@@ -3846,6 +3853,10 @@ async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission
         )
 
     provenance.admit_run.assert_not_awaited()
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "run 'neoplasm-run-1' is unchanged and can still be resumed."
+    ]
 
 
 @pytest.mark.unit
@@ -3878,8 +3889,9 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
         _group_policy_bound_to("C424242"),
     )
 
-    # Only a decomposition asks for one concept's semantic types; the preflight
-    # never does.
+    # In this run C6135's single-concept semantic-type read comes only from
+    # _decompose_one: the source preflight reads definitions only, the collapse policy
+    # is empty, and C6135 is nobody's residual filler. One read is one decomposition.
     semantic_type_reads = [
         query
         for query in client.queries

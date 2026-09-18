@@ -2134,7 +2134,10 @@ async def _policy_codes_still_to_do(
     provenance: ProvenanceStore,
     worklist: tuple[str, ...],
 ) -> list[str]:
-    bound = [code for code in worklist if code in policy.by_code]
+    """The worklist's policy-bound concepts; on a resume only the unfinished ones, since
+    a finished concept's result is persisted and must not block the rest of the run."""
+    by_code = policy.by_code
+    bound = [code for code in worklist if code in by_code]
     if not bound or config.resume_from is None:
         return bound
     pending = set(await provenance.pending_codes(config.resume_from))
@@ -2155,23 +2158,35 @@ async def _qualify_group_policy(
     label_lookup: LabelLookup,
 ) -> None:
     """Decompose each policy-bound concept the run still has to do, persisting nothing,
-    before any run state is written: a policy row that no longer matches its concept
-    fails here, not when the worklist reaches it."""
+    before this invocation writes any run state: a decomposition its policy row rejects
+    fails here, not when the worklist reaches the concept."""
     bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
     labels = await _fetch_labels(get_labels, bound)
+    untouched = (
+        "no run state was written"
+        if config.resume_from is None
+        else f"run {config.resume_from!r} is unchanged and can still be resumed"
+    )
     for code in bound:
-        await _decompose_one(
-            code,
-            client,
-            label=labels.get(code),
-            label_lookup=label_lookup,
-            source_identity=source_identity,
-            collapse_policy=collapse_policy,
-            diagnostic_source=diagnostic_source,
-            detector_identity=routing_implementation_identity(),
-            walker_max_depth=config.walker_max_depth,
-            normalized_group_policy=policy,
-        )
+        try:
+            await _decompose_one(
+                code,
+                client,
+                label=labels.get(code),
+                label_lookup=label_lookup,
+                source_identity=source_identity,
+                collapse_policy=collapse_policy,
+                diagnostic_source=diagnostic_source,
+                detector_identity=routing_implementation_identity(),
+                walker_max_depth=config.walker_max_depth,
+                normalized_group_policy=policy,
+            )
+        except BaseException as exc:
+            exc.add_note(
+                f"Raised by the group-policy dry run of {code!r}, before admission: "
+                f"{untouched}."
+            )
+            raise
 
 
 async def _fresh_preflight(
@@ -2179,7 +2194,7 @@ async def _fresh_preflight(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
-) -> tuple[tuple[str, ...], SourcePreflightResult | None]:
+) -> tuple[tuple[str, ...], SourcePreflightResult]:
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
         tuple(await _standard_worklist(config, client, total_limit))
