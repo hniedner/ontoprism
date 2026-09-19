@@ -470,3 +470,79 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
     task = permission["task"]
     expected_task = list(task.items()) if isinstance(task, dict) else [("*", task)]
     assert resolved_rules("task") == expected_task
+
+
+_GLOB_QUALIFIER = "echo seed(e:'touch executed':)"
+
+
+def _run_under(shell: str, tmp_path: Path) -> bool:
+    """Run the qualifier the way OpenCode's bash tool does (``<shell> -c 'eval ...'``)
+    and report whether the embedded command ran."""
+    (tmp_path / "seed").touch()
+    subprocess.run(  # noqa: S603 -- argv list, fixed command
+        [shell, "-c", f'eval "{_GLOB_QUALIFIER}"'],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    return (tmp_path / "executed").exists()
+
+
+def test_zsh_runs_a_command_hidden_in_a_glob_qualifier(tmp_path: Path) -> None:
+    """Contract with zsh: a word such as ``seed(e:'cmd':)`` runs ``cmd`` when zsh
+    expands it. The string holds none of the characters the maps deny, so every
+    wildcard allow would admit it; the maps cannot stop this, only the shell can."""
+    if not Path("/bin/zsh").is_file():
+        pytest.skip("zsh is not installed here (not verified)")
+    assert _run_under("/bin/zsh", tmp_path)
+
+
+def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
+    tmp_path: Path,
+) -> None:
+    config = json.loads((_ROOT / "opencode.json").read_text(encoding="utf-8"))
+    shell = config.get("shell")
+
+    assert shell == "/bin/bash", "OpenCode would fall back to $SHELL, often zsh"
+    assert not _run_under(shell, tmp_path)
+
+
+def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
+    """Contract with the real tool: OpenCode reads ``shell`` from the tracked
+    ``opencode.json``, so its bash tool does not fall back to ``$SHELL``. Skipped,
+    not passed, where the binary is absent (always in CI)."""
+    binary = _opencode_binary()
+    if binary is None:
+        pytest.skip(
+            "OpenCode binary not found; set ONTOPRISM_OPENCODE_BIN (not verified)"
+        )
+    (tmp_path / "opencode").mkdir()
+    (tmp_path / "opencode" / "opencode.json").write_text("{}", encoding="utf-8")
+    inherited = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("OPENCODE_")
+    }
+    result = subprocess.run(  # noqa: S603 -- argv list, no shell
+        [str(binary), "debug", "config", "--pure"],
+        cwd=_ROOT,
+        env={
+            **inherited,
+            "XDG_CONFIG_HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "XDG_STATE_HOME": str(tmp_path / "state"),
+            "XDG_CACHE_HOME": str(tmp_path / "cache"),
+            "OPENCODE_DISABLE_MODELS_FETCH": "1",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    start = result.stdout.find("{")
+    assert start >= 0, result.stdout
+    resolved, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
+
+    assert resolved.get("shell") == "/bin/bash"
