@@ -35,7 +35,7 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
-# the only merge form the primary may run: squash, pinned to the reviewed head
+# the documented merge form: squash, pinned to the reviewed head (wildcard gaps: #401)
 _MERGE = (
     "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
     "--squash --delete-branch --subject x"
