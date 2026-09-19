@@ -80,6 +80,14 @@ _NEVER_ALLOWED = (
     "ls -la `rm -rf data`",
     "git status --porcelain > out.txt",
     "git status --porcelain\nrm -rf data",
+    # a dropped or cleared stash entry cannot be recovered through the agent's tools
+    "git stash drop",
+    "git stash drop stash@{0}",
+    "git stash clear",
+    # stash inspection keeps the refusals every other inspection form has
+    "git stash show -p --output=tmp/x",
+    "git stash show -p --ext-diff",
+    "git stash list | sh",
 )
 
 
@@ -160,6 +168,9 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run pre-commit run --all-files",
         "git status --porcelain",
         "git merge-base main HEAD",
+        "git stash list",
+        "git stash show --stat",
+        "git stash show -p stash@{0}",
         "git diff --no-ext-diff feat/m1-6-1-provisional-publication...HEAD",
         "git add backend/src/backend/main.py",
         "pdm run agent-git switch-existing feat/m1-6-1-provisional-publication",
@@ -186,6 +197,12 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "pdm run decompose --branch neoplasm",
         "pdm run agent-git merge-no-ff feat/x",
         "git fetch origin feat/m1-6-1-provisional-publication",
+        # a stash write moves work out of or into the worktree: the owner sees it
+        "git stash",
+        "git stash push -m wip",
+        "git stash pop",
+        "git stash apply stash@{0}",
+        "git stash branch rescue stash@{0}",
     ],
 )
 def test_the_primary_agent_asks_for_anything_not_listed(command: str) -> None:
@@ -217,6 +234,51 @@ def test_the_primary_agent_can_edit_and_only_dispatches_existing_subagents() -> 
     }
     assert dispatchable <= set(_AGENTS)
     assert permission["task"]["*"] == "deny"
+
+
+_STEWARD = "issue-steward"
+
+
+def test_the_primary_agent_can_dispatch_the_issue_steward() -> None:
+    assert _frontmatter(_PRIMARY)["permission"]["task"][_STEWARD] == "allow"
+
+
+def test_the_issue_steward_cannot_edit_or_delegate() -> None:
+    permission = _frontmatter(_STEWARD)["permission"]
+
+    assert permission["edit"] == "deny"
+    assert permission["task"] == "deny"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pdm run agent-github-read issue-list --state open",
+        "pdm run agent-github-read issue-view 398",
+        "pdm run agent-github-read milestone-list --state open",
+        "pdm run agent-test backend/tests/test_x.py::test_y -v",
+    ],
+)
+def test_the_issue_steward_can_read_the_tracker_and_reproduce_a_finding(
+    command: str,
+) -> None:
+    assert _resolve(_STEWARD, command) == "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pdm run agent-github issue-create --title x --body-file tmp/plans/x.md",
+        "pdm run agent-github issue-edit 398 --milestone 12",
+        "pdm run agent-github issue-close 398",
+        "pdm run agent-github milestone-edit 16 --title x",
+        "gh issue create --title x",
+        "gh issue edit 398 --milestone x",
+        "gh api -X PATCH repos/hniedner/ontoprism/milestones/16",
+    ],
+)
+def test_the_issue_steward_never_writes_the_tracker(command: str) -> None:
+    assert _resolve(_STEWARD, command) == "deny"
 
 
 def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None:

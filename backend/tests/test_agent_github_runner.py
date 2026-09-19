@@ -467,6 +467,57 @@ def test_read_output_exposes_only_the_documented_issue_fields(
     }
 
 
+def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The order of work lives in the milestone descriptions, and an issue's milestone
+    says where it sits; neither may drag undocumented fields along."""
+    issue = {
+        "number": 7,
+        "title": "Placed",
+        "state": "open",
+        "html_url": "https://example.invalid/7",
+        "milestone": {"number": 16, "title": "R0", "creator": {"token": "no"}},
+        "user": {"token": "must-not-leak"},
+    }
+    milestone = {
+        "number": 16,
+        "title": "R0",
+        "state": "open",
+        "due_on": None,
+        "description": "Order: #389, then #340.",
+        "creator": {"token": "must-not-leak"},
+    }
+
+    for operation, item in (("issue-list", issue), ("milestone-list", milestone)):
+        runner = recording_runner([Result(0, json.dumps([[item]]))], [])
+        assert (
+            run_agent_github([operation], tmp_path, read_only=True, runner=runner) == 0
+        )
+
+    issues, milestones = (
+        json.loads(line) for line in capsys.readouterr().out.splitlines()
+    )
+    assert issues == [
+        {
+            "number": 7,
+            "title": "Placed",
+            "state": "open",
+            "url": "https://example.invalid/7",
+            "milestone": {"number": 16, "title": "R0"},
+        }
+    ]
+    assert milestones == [
+        {
+            "number": 16,
+            "title": "R0",
+            "state": "open",
+            "due_on": None,
+            "description": "Order: #389, then #340.",
+        }
+    ]
+
+
 def test_pr_create_checks_duplicate_head_then_posts_fixed_payload(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

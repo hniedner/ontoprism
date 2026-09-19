@@ -84,8 +84,9 @@ instead of improving the product.
 - **The issue body is the only place acceptance criteria live, and only the owner changes
   them.** Do not post "amendment" comments that alter scope. If you think the criteria
   are wrong, stop and ask.
-- **Newly discovered work becomes a new issue**, not an expansion of the current one. Ask
-  before treating it as a prerequisite.
+- **Newly discovered work never widens the current issue's acceptance criteria.** What it
+  becomes (a fix in the same PR, a line on an existing issue, a new issue) is decided by
+  "What a finding becomes" under Review. Ask before treating it as a prerequisite.
 - **Do not build machinery to certify your own work.** No content hashes of source files,
   git HEAD, or worktree state inside data or evidence files. No committed derived files
   that must be regenerated after an unrelated edit. No tests that assert the wording of
@@ -286,8 +287,8 @@ is a non-converged dimension, not a clean one. Other harnesses use their own rev
 but keep the five separate verdicts.
 
 **Review runs to convergence.** Address every verified finding and every reasonable
-suggestion in the PR; defer a suggestion to an issue only when the owner agrees it is out
-of scope. A dimension has converged when a full pass reports no unresolved verified
+suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
+finding becomes"). A dimension has converged when a full pass reports no unresolved verified
 finding and its suggestions are addressed. A converged dimension is excluded from later
 rounds unless a later fix touches what it reviews (a new test re-arms test validity, a
 new docstring re-arms comment accuracy, a new error path re-arms silent failures);
@@ -296,6 +297,40 @@ and an existing PR is never rejected as too big. Size is decided when the work i
 planned: one issue or one coherent change per PR, with granularity balanced against the
 cost of a five-dimension review and the workflows every PR triggers (about seven
 minutes of CI, dependency review, CodeQL). Split at planning time, not at review time.
+
+### What a finding becomes
+
+Every real finding is recorded and fixed, however small: minor defects compound (owner,
+2026-09-19). There is no severity threshold. What keeps the tracker finite is that a
+finding is real, is fixed where it was found, and is filed at most once:
+
+1. **Verify it first.** A finding counts when it is reproduced, or shown in the code
+   together with the input or state that triggers it. One that cannot be verified is
+   dropped, with a one-line reason in the PR. Never file, fix or "harden against" an
+   unverified finding.
+2. **Fix it in the PR that surfaced it.** That is the normal case, including for
+   findings in code the PR only touches in passing.
+3. **Defer only a major, out-of-scope finding**: one whose fix needs its own design, its
+   own tests and its own review, and does not belong to the issue's contract. Size alone
+   is not a reason, and neither is inconvenience. List every deferral in the PR body
+   with its issue number, so the owner sees it.
+4. **Search before filing.** Read the open issues first. If one covers the same cause or
+   the same code area, add the finding to that issue (a comment; the owner folds it into
+   the body). Findings of one review that share a cause or a code area become one issue,
+   not one each.
+5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
+   the milestone description holds the order. "No milestone" is for epics and for
+   collected low-severity work that blocks nothing.
+6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
+   work planned later, or a milestone has grown past what can land), propose the
+   reorganization to the owner with the reason. Moving issues between milestones,
+   reordering a milestone or changing its goal needs the owner's confirmation.
+
+The `issue-steward` agent applies steps 1 and 3-6 on request and returns a verdict per
+finding (OpenCode: `.opencode/agent/issue-steward.md`; Claude Code:
+`.claude/agents/issue-steward.md`). It is read-only: the engineer makes the fix, writes
+the tracker and asks the owner. Use it when a review produced a finding you want to defer,
+or when the owner asks for a tracker pass; a finding you simply fix needs no steward.
 
 ## Conventions
 

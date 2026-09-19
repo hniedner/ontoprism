@@ -402,19 +402,25 @@ def _selected(value: dict[str, Any], fields: tuple[str, ...]) -> dict[str, objec
     return selected
 
 
+def _with_milestone(
+    selected: dict[str, object], value: dict[str, Any]
+) -> dict[str, object]:
+    milestone = value.get("milestone")
+    if isinstance(milestone, dict):
+        selected["milestone"] = _selected(milestone, ("number", "title"))
+    return selected
+
+
 def _sanitize_list(operation: str, value: Any) -> list[dict[str, object]]:
     if not isinstance(value, list):
         raise AgentGitHubProcessError("GitHub list response is invalid")
-    fields = (
-        ("number", "title", "state")
-        if operation == "issue-list"
-        else ("number", "title", "state", "due_on")
-    )
+    if operation == "milestone-list":
+        fields = ("number", "title", "state", "due_on", "description")
+        return [_selected(item, fields) for item in value if isinstance(item, dict)]
     return [
-        _selected(item, fields)
+        _with_milestone(_selected(item, ("number", "title", "state")), item)
         for item in value
-        if isinstance(item, dict)
-        and (operation != "issue-list" or "pull_request" not in item)
+        if isinstance(item, dict) and "pull_request" not in item
     ]
 
 
@@ -430,10 +436,7 @@ def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
                 for item in source
                 if isinstance(item, dict) and isinstance(item.get(field), str)
             ]
-    milestone = value.get("milestone")
-    if isinstance(milestone, dict):
-        selected["milestone"] = _selected(milestone, ("number", "title"))
-    return selected
+    return _with_milestone(selected, value)
 
 
 def _sanitize_pr(value: dict[str, Any]) -> dict[str, object]:
