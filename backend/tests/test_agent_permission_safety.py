@@ -35,7 +35,7 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
-# the pinned squash form #404 allowed; merges now go through `agent-github pr-merge`
+# the pinned squash form #406 allowed; merges now go through `agent-github pr-merge`
 _MERGE = (
     "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
     "--squash --delete-branch --subject x"
@@ -50,29 +50,25 @@ _NEVER_ALLOWED = (
     "git checkout -- .",
     "git commit -m x --no-verify",
     "gh pr merge 12",
-    # no agent runs gh pr merge in any form; it cannot fence gh's argument parser
+    # a permission pattern cannot fence gh's argument parser, so every gh pr merge form
+    # is denied; these rows guard against a narrower allow coming back
     _MERGE,
     "gh pr merge 12 --squash --delete-branch --subject x --body-file .env",
     "gh pr merge 12 -sdF .env --subject x",
     "gh pr merge 12 --squash --delete-branch --subject x -sdF .env",
     f"{_MERGE} --admin",
     f"{_MERGE} --auto",
-    # a substitution in the subject, which only the $ deny catches
     _MERGE.replace("--subject x", '--subject "a $(id)"'),
-    # an unpinned merge could land a head that moved after the review
     "gh pr merge 12 --squash --delete-branch --subject x",
-    # the squash message is BLANK; a merge body would be parsed for releases
     f'{_MERGE} --body "fix: y"',
     f'{_MERGE} -b "fix: y"',
     f'{_MERGE} -b"fix: y"',
     f"{_MERGE} -b=fix",
     f"{_MERGE} -F notes.md",
-    # an empty pin sends no head check; gh drops an empty --match-head-commit
     'gh pr merge 12 --match-head-commit "" --squash --delete-branch --subject x',
     "gh pr merge 12 --match-head-commit '' --squash --delete-branch --subject x",
     f"{_MERGE} --match-head-commit=",
     f'{_MERGE} --match-head-commit ""',
-    # the standing authorization covers this repository's PRs only
     f"{_MERGE} -R other/repo",
     f"{_MERGE} --repo other/repo",
     "pdm run agent-github issue-delete 12",

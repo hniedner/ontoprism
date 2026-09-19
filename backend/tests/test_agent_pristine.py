@@ -32,7 +32,7 @@ def test_a_saved_file_is_restored_byte_for_byte_after_a_mutation(
     assert run_agent_pristine(["restore", "src/module.py"], root, scratch) == 0
 
     assert target.read_bytes() == b"value = 1\n"
-    assert (scratch / "src" / "module.py").read_bytes() == b"value = 1\n"
+    assert not (scratch / "src" / "module.py").exists()
 
 
 def test_a_file_the_mutation_deleted_is_restored(tmp_path: Path) -> None:
@@ -52,6 +52,7 @@ def test_a_file_the_mutation_deleted_is_restored(tmp_path: Path) -> None:
         "/etc/hosts",
         "~/.ssh/id_ed25519",
         ".git/config",
+        ".GIT/config",
         "src",
         "src/missing.py",
     ],
@@ -112,3 +113,38 @@ def test_the_scratch_directory_must_lie_outside_the_worktree(tmp_path: Path) -> 
 
     with pytest.raises(AgentPristineInputError, match="outside the worktree"):
         run_agent_pristine(["save", "src/module.py"], root, root / "tmp" / "pristine")
+
+
+def test_a_copy_is_restored_once(tmp_path: Path) -> None:
+    root, scratch = _worktree(tmp_path)
+    run_agent_pristine(["save", "src/module.py"], root, scratch)
+    run_agent_pristine(["restore", "src/module.py"], root, scratch)
+
+    with pytest.raises(AgentPristineInputError, match="no saved copy"):
+        run_agent_pristine(["restore", "src/module.py"], root, scratch)
+
+
+def test_a_second_save_cannot_overwrite_the_pristine_copy(tmp_path: Path) -> None:
+    """Saving again after a mutation would make the mutation the copy to restore."""
+    root, scratch = _worktree(tmp_path)
+    run_agent_pristine(["save", "src/module.py"], root, scratch)
+    (root / "src" / "module.py").write_bytes(b"value = 2  # mutation\n")
+
+    with pytest.raises(AgentPristineInputError, match="already saved"):
+        run_agent_pristine(["save", "src/module.py"], root, scratch)
+
+    run_agent_pristine(["restore", "src/module.py"], root, scratch)
+    assert (root / "src" / "module.py").read_bytes() == b"value = 1\n"
+
+
+def test_discard_drops_a_leftover_copy_without_touching_the_file(
+    tmp_path: Path,
+) -> None:
+    root, scratch = _worktree(tmp_path)
+    run_agent_pristine(["save", "src/module.py"], root, scratch)
+    (root / "src" / "module.py").write_bytes(b"value = 3\n")
+
+    assert run_agent_pristine(["discard", "src/module.py"], root, scratch) == 0
+
+    assert (root / "src" / "module.py").read_bytes() == b"value = 3\n"
+    assert run_agent_pristine(["save", "src/module.py"], root, scratch) == 0

@@ -24,17 +24,20 @@ only when the branch was vetted, tested and reviewed under the protocol in `AGEN
 expected check passes for the current head and base under the check rule in `AGENTS.md`.
 If either condition fails, the authorization does not apply. A changed head, title or
 base means the checks and the review run again, not that the owner is asked again; the
-merge pins the reviewed head with `--match-head-commit`. A base change means the PR was
-retargeted; new commits on `main`, such as the release and README bot commits, do not
-void a run; a skew between two PRs shows in the CI run on `main` after the merge, and
-#405 decides whether GitHub should require up-to-date branches. `--admin`, auto-merge
-and merge queues stay forbidden. GitHub does not yet enforce required checks on `main`
-(#405); until it does, the check rule is kept by the agent.
+merge pins the reviewed head (since #401 through the `sha` field of GitHub's merge API,
+not `--match-head-commit`). A base change means the PR was retargeted; new commits on
+`main`, such as the release and README bot commits, do not void a run; a skew between
+two PRs shows in the CI run on `main` after the merge, and #405 decides whether GitHub
+should require up-to-date branches. `--admin`, auto-merge and merge queues stay
+forbidden. GitHub does not yet enforce required checks on `main` (#405); until it does,
+the check rule is kept by the agent.
 
 The repository's squash message was set to `BLANK` on 2026-09-19, so a squash commit's
 body is empty and only the PR title drives releases. Merges pass no body. *(Addendum
 2026-09-19, #401: merges go through `pdm run agent-github pr-merge`, which builds its
-own request, checks the PR's state, head, base and repository, and passes an empty body;
+own request, checks the PR's state, head, base and repository, and passes an empty
+commit message (the body stays empty while the squash message is `BLANK`); the head
+branch is removed once, by GitHub under `delete_branch_on_merge` or else by the wrapper;
 no agent map allows `gh pr merge`, which closes the wildcard gaps a permission pattern
 could not.)* Issue PR titles inside a milestone no longer reach the release, so a
 milestone PR takes the highest-impact type among its issue PR titles. D85's and D89's

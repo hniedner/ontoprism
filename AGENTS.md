@@ -115,11 +115,13 @@ Start a new agent session for each issue. Do not carry one context across days o
   jobs, except under the known quirk below. If one is missing, CI did not run fully.
   Merge only with `pdm run agent-github pr-merge <n> --head <sha> --base <branch>`,
   where `<sha>` is the full reviewed head SHA from `git rev-parse` and `<branch>` the
-  base recorded when the review converged. The wrapper refuses a PR that is not open or
-  whose head or base differ, squash-merges pinned to `<sha>` (GitHub refuses the merge
-  if the head moved) with the subject `<PR title> (#<n>)`, which keeps the PR number in
-  the log, and an empty body, then deletes the head branch. No harness uses `gh pr
-  merge`.
+  base recorded when the review converged. The wrapper refuses a PR that is not open,
+  comes from another repository, or whose head or base differ; squash-merges pinned to
+  `<sha>` (GitHub refuses the merge if the head moved) with the subject `<PR title>
+  (#<n>)`, which keeps the PR number in the log, and an empty body; and prints the merge
+  commit for the post-merge watch. The head branch is removed once: by GitHub, while the
+  repository's `delete_branch_on_merge` setting is on, otherwise by the wrapper. Never
+  run `gh pr merge` in any harness; the OpenCode maps deny it.
   Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
   head, title or base changed after the checks and the review, they run again first.
   Known quirk: PRs touching only dependency manifests or workflows show the aggregate

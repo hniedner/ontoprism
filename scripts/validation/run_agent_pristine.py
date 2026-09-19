@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Save a worktree file to a fixed scratch directory outside the worktree, and restore
-its exact bytes. The test-validity reviewer mutates production code temporarily; this
-is its only copy operation, so it cannot copy anything else anywhere else.
+its exact bytes once. The test-validity reviewer mutates production code temporarily;
+this is the only copy command its bash map allows, and it copies a worktree file only
+into that scratch directory and back.
 """
 
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -24,7 +24,9 @@ def _worktree_file(root: Path, value: str, *, must_exist: bool) -> Path:
         relative = path.resolve().relative_to(root)
     except ValueError as exc:
         raise AgentPristineInputError("path must stay inside the worktree") from exc
-    if relative.parts[:1] == (".git",) or path.is_symlink():
+    # casefold: on a case-insensitive filesystem .GIT is the repository directory
+    in_git_dir = bool(relative.parts) and relative.parts[0].casefold() == ".git"
+    if in_git_dir or path.is_symlink():
         raise AgentPristineInputError("path is not a worktree file")
     if (must_exist or path.exists()) and not path.is_file():
         raise AgentPristineInputError("path is not a worktree file")
@@ -32,34 +34,48 @@ def _worktree_file(root: Path, value: str, *, must_exist: bool) -> Path:
 
 
 def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
-    """``save <path>`` copies a worktree file into ``scratch``; ``restore <path>``
-    writes the saved bytes back."""
+    """``save <path>`` copies a worktree file into ``scratch`` and refuses while a copy
+    exists, so a mutation is never saved over the original; ``restore <path>`` writes
+    the saved bytes back and removes the copy; ``discard <path>`` removes a leftover
+    copy without touching the file."""
     root = root.resolve()
     scratch = scratch.resolve()
     if scratch == root or scratch.is_relative_to(root):
         raise AgentPristineInputError("scratch directory must be outside the worktree")
     match arguments:
-        case ["save" | "restore" as operation, value]:
+        case ["save" | "restore" | "discard" as operation, value]:
             pass
         case _:
-            raise AgentPristineInputError("usage: save <path> | restore <path>")
+            raise AgentPristineInputError(
+                "usage: save <path> | restore <path> | discard <path>"
+            )
     relative = _worktree_file(root, value, must_exist=operation == "save")
     saved = scratch / relative
     if operation == "save":
         saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_bytes((root / relative).read_bytes())
+        try:
+            with saved.open("xb") as copy:
+                copy.write((root / relative).read_bytes())
+        except FileExistsError as exc:
+            raise AgentPristineInputError(
+                f"{relative} is already saved; restore or discard it first"
+            ) from exc
         print(f"saved {relative}")
         return 0
     if not saved.is_file():
         raise AgentPristineInputError(f"no saved copy of {relative}")
-    (root / relative).write_bytes(saved.read_bytes())
-    print(f"restored {relative}")
+    if operation == "restore":
+        (root / relative).write_bytes(saved.read_bytes())
+    saved.unlink()
+    print(f"{'restored' if operation == 'restore' else 'discarded'} {relative}")
     return 0
 
 
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
-    scratch = Path(tempfile.gettempdir()) / f"ontoprism-pristine-{root.name}"
+    # per user, and per checkout: the key is the checkout's full path
+    key = str(root).strip("/").replace("/", "_")
+    scratch = Path.home() / ".cache" / "ontoprism-pristine" / key
     try:
         return run_agent_pristine(sys.argv[1:], root, scratch)
     except (AgentPristineInputError, OSError) as exc:

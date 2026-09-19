@@ -255,9 +255,7 @@ def _api(
     fields: tuple[tuple[str, str], ...] = (),
     paginate: bool = False,
     payload: dict[str, object] | None = None,
-    empty_ok: bool = False,
 ) -> Any:
-    """``empty_ok`` accepts the empty body GitHub sends for a successful DELETE."""
     arguments = ["gh", "api", "--method", method, endpoint]
     for name, value in fields:
         arguments.extend(("-f", f"{name}={value}"))
@@ -271,7 +269,8 @@ def _api(
         runner,
         payload=payload,
         mutating=method != "GET",
-        empty_ok=empty_ok,
+        # a successful DELETE answers with an empty body; nothing else may
+        empty_ok=method == "DELETE",
     )
 
 
@@ -919,19 +918,29 @@ def _reviewed_pull(
     if pull_base["ref"] != base:
         raise AgentGitHubInputError(f"#{number} base is not {base}")
     head_ref = _safe_branch(pull_head["ref"], "head branch")
-    subject = _validate_text(f"{title} (#{number})", "title", maximum=MAX_TITLE_LENGTH)
-    return head_ref, subject
+    title = _validate_text(title, "title", maximum=MAX_TITLE_LENGTH)
+    return head_ref, f"{title} (#{number})"
 
 
 def _pr_merge(
     arguments: list[str], root: Path, runner: CommandRunner
 ) -> dict[str, object]:
     """Squash-merge the reviewed head of an open PR into its expected base, titled
-    ``<PR title> (#<n>)`` with an empty body, then delete the head branch. Every check
-    runs before the first write, and GitHub itself refuses the merge if the head moved
-    after the check."""
+    ``<PR title> (#<n>)`` with an empty body, and remove the head branch once: GitHub
+    does it when the repository deletes merged branches, otherwise the wrapper does.
+    Every check runs before the first write, and GitHub itself refuses the merge if the
+    head moved after the check. Once merged, the result always names the merge
+    commit."""
     number, head, base = _merge_arguments(arguments)
     head_ref, subject = _reviewed_pull(number, head, base, root, runner)
+    repository = _api("GET", API_ROOT, root, runner)
+    github_deletes = (
+        repository.get("delete_branch_on_merge")
+        if isinstance(repository, dict)
+        else None
+    )
+    if type(github_deletes) is not bool:
+        raise AgentGitHubProcessError("GitHub repository response is invalid")
     result = _api(
         "PUT",
         f"{API_ROOT}/pulls/{number}/merge",
@@ -954,14 +963,31 @@ def _pr_merge(
         raise AgentGitHubProcessError(
             f"GitHub did not merge #{number}; inspect the repository before retrying"
         )
-    _api(
-        "DELETE",
-        f"{API_ROOT}/git/refs/heads/{quote(head_ref, safe='/')}",
-        root,
-        runner,
-        empty_ok=True,
-    )
-    return {"number": number, "merge_commit": merge_commit}
+    if github_deletes:
+        # GitHub removes the branch itself, and keeps it while other PRs target it;
+        # a second DELETE would race that and fail on a merge that succeeded
+        return {
+            "number": number,
+            "merge_commit": merge_commit,
+            "branch_deleted_by": "github",
+        }
+    try:
+        _api(
+            "DELETE",
+            f"{API_ROOT}/git/refs/heads/{quote(head_ref, safe='/')}",
+            root,
+            runner,
+        )
+    except AgentGitHubProcessError as exc:
+        raise AgentGitHubProcessError(
+            f"merged #{number} as {merge_commit}; deleting {head_ref} failed, so "
+            "delete it by hand; do not retry the merge"
+        ) from exc
+    return {
+        "number": number,
+        "merge_commit": merge_commit,
+        "branch_deleted_by": "wrapper",
+    }
 
 
 def _validate_pr_mutation_result(
