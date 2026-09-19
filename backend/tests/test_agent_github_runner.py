@@ -1528,23 +1528,27 @@ def test_pr_merge_keeps_the_branch_when_github_did_not_merge(tmp_path: Path) -> 
     assert [call[0][3] for call in calls] == ["GET", "GET", "PUT"]
 
 
+@pytest.mark.parametrize(
+    ("repository", "names_the_branch"), [(_REPO_KEEPS, True), (_REPO_DELETES, False)]
+)
 def test_a_merge_without_a_readable_commit_is_not_called_unmerged(
-    tmp_path: Path,
+    tmp_path: Path, repository: str, *, names_the_branch: bool
 ) -> None:
+    """The branch is named as left behind only when the wrapper, not GitHub, would
+    have deleted it."""
     runner = recording_runner(
         [
             Result(0, json.dumps(_open_pull())),
-            Result(0, _REPO_KEEPS),
+            Result(0, repository),
             Result(0, json.dumps({"merged": True, "sha": "short"})),
         ],
         [],
     )
 
-    # the repository keeps merged branches, so the message says this one is left
-    with pytest.raises(
-        AgentGitHubProcessError, match=r"merged #12, but.*fix/y-12 was not deleted"
-    ):
+    with pytest.raises(AgentGitHubProcessError, match="merged #12, but") as raised:
         run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert ("fix/y-12 was not deleted" in str(raised.value)) is names_the_branch
 
 
 def test_only_a_deletion_may_answer_with_an_empty_body(tmp_path: Path) -> None:
