@@ -663,19 +663,64 @@ def test_a_list_read_asks_github_for_the_requested_state(
     assert f"state={state}" in calls[0][0]
 
 
+@pytest.mark.parametrize("operation", [["issue-list"], ["issue-view", "4"]])
 @pytest.mark.parametrize(
     "labels", ["epic", {"name": "epic"}, ["epic"], [{"color": "x"}]]
 )
 def test_an_issue_whose_labels_are_malformed_is_refused(
-    tmp_path: Path, labels: object
+    tmp_path: Path, labels: object, operation: list[str]
 ) -> None:
     """A dropped label would make an epic look like an ordinary issue to the steward;
-    malformed source data fails closed instead."""
+    malformed source data fails closed instead, naming the issue."""
     issue = {"number": 4, "title": "x", "state": "open", "labels": labels}
-    runner = recording_runner([Result(0, json.dumps([[issue]]))], [])
+    payload = [[issue]] if operation[0] == "issue-list" else issue
+    runner = recording_runner([Result(0, json.dumps(payload))], [])
 
-    with pytest.raises(AgentGitHubProcessError, match="labels"):
-        run_agent_github(["issue-list"], tmp_path, read_only=True, runner=runner)
+    with pytest.raises(AgentGitHubProcessError, match="issue 4 labels are invalid"):
+        run_agent_github(operation, tmp_path, read_only=True, runner=runner)
+
+
+def test_an_edit_never_rewrites_malformed_labels(tmp_path: Path) -> None:
+    """The edit sends the full label list back; a label it could not read would be
+    deleted from the issue, so it refuses before any write."""
+    current = {"number": 8, "labels": [{"name": "epic"}, {"color": "x"}]}
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(current))], calls)
+
+    with pytest.raises(AgentGitHubProcessError, match="issue 8 labels are invalid"):
+        run_agent_github(
+            ["issue-edit", "8", "--remove-label", "epic"],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+def test_an_edit_adds_a_label_to_an_issue_without_a_label_list(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, '{"number":8,"labels":null}'),
+            Result(0, '{"name":"bug"}'),
+            Result(0, '{"html_url":"https://example.invalid/8","number":8}'),
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            ["issue-edit", "8", "--add-label", "bug"],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+        == 0
+    )
+    assert json.loads(str(calls[-1][1]["input"])) == {"labels": ["bug"]}
 
 
 def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:

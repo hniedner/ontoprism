@@ -421,31 +421,33 @@ def _selected_issue(
     epic look like an ordinary issue."""
     milestone = value.get("milestone")
     if milestone is not None and not isinstance(milestone, dict):
-        raise AgentGitHubProcessError("GitHub issue milestone is invalid")
+        raise AgentGitHubProcessError(
+            f"GitHub issue {value.get('number')} milestone is invalid"
+        )
     selected = _selected(value, fields)
     selected["milestone"] = (
         None if milestone is None else _selected(milestone, ("number", "title"))
     )
-    labels = value.get("labels")
+    labels = _label_names(value)
     if labels is not None:
-        if not isinstance(labels, list) or not all(
-            isinstance(label, dict) and isinstance(label.get("name"), str)
-            for label in labels
-        ):
-            raise AgentGitHubProcessError("GitHub issue labels are invalid")
-        selected["labels"] = [label["name"] for label in labels]
+        selected["labels"] = labels
     return selected
 
 
-def _add_names(
-    selected: dict[str, object], target: str, source: object, field: str
-) -> None:
-    if isinstance(source, list):
-        selected[target] = [
-            item[field]
-            for item in source
-            if isinstance(item, dict) and isinstance(item.get(field), str)
-        ]
+def _label_names(value: dict[str, Any]) -> list[str] | None:
+    """The issue's label names, or ``None`` when GitHub sent no label list. Anything
+    else is refused: reads would hide an epic, and an edit would delete the label."""
+    labels = value.get("labels")
+    if labels is None:
+        return None
+    if not isinstance(labels, list) or not all(
+        isinstance(label, dict) and isinstance(label.get("name"), str)
+        for label in labels
+    ):
+        raise AgentGitHubProcessError(
+            f"GitHub issue {value.get('number')} labels are invalid"
+        )
+    return [label["name"] for label in labels]
 
 
 _LIST_FIELDS = {
@@ -464,7 +466,13 @@ def _sanitize_list(
 
 def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
     selected = _selected_issue(value, ("number", "title", "state", "body"))
-    _add_names(selected, "assignees", value.get("assignees"), "login")
+    assignees = value.get("assignees")
+    if isinstance(assignees, list):
+        selected["assignees"] = [
+            item["login"]
+            for item in assignees
+            if isinstance(item, dict) and isinstance(item.get("login"), str)
+        ]
     return selected
 
 
@@ -685,11 +693,7 @@ def _updated_labels(
     root: Path,
     runner: CommandRunner,
 ) -> list[str]:
-    labels = {
-        str(item["name"])
-        for item in current.get("labels", [])
-        if isinstance(item, dict) and isinstance(item.get("name"), str)
-    }
+    labels = set(_label_names(current) or [])
     removals = {
         _validate_text(str(label), "label", maximum=MAX_NAME_LENGTH)
         for label in _multiple(options, "--remove-label")
