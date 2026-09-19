@@ -1,9 +1,13 @@
-"""Safety properties of the OpenCode agent permission files.
+r"""Safety properties of the OpenCode agent permission files.
 
 OpenCode matches a bash command against wildcard patterns (``*`` any run, ``?`` one
 character) and the last matching rule wins (https://opencode.ai/docs/permissions/).
-``_resolve`` emulates that documented rule; it is not OpenCode itself, and whether the
-runtime matches a pipeline as one string or per command is not documented, so the
+``_resolve`` emulates that rule plus two the documentation leaves out, both read from
+the OpenCode binary rather than observed as a verdict: a pattern that ends in a space
+and ``*`` also matches without that last argument (``"git diff * *"`` matches
+``git diff main...HEAD``), and ``\`` becomes ``/`` in both the pattern and the
+command. ``_resolve`` is not OpenCode itself, and whether the runtime matches a
+pipeline as one string or per command is not documented, so the
 metacharacter cases below assert what the files say, not an observed runtime verdict.
 
 These tests describe what the bash permission layer refuses, not everything an agent can
@@ -58,13 +62,41 @@ _NEVER_ALLOWED = (
     "git diff --no-ext-diff --no-index /dev/null /etc/passwd --src-prefix=...HEAD",
     "wc -l tmp/../../../../Users/hannes/.ssh/id_ed25519",
     "pdm run python tmp/scratch/../../evil.py",
-    "ls -la /etc",
-    "wc -l /etc/passwd",
     "head ~/.aws/credentials",
     "tail -n 5 ../../.ssh/id_ed25519",
     "jq . ~/.config/gh/hosts.yml",
     "ls -la ~/.ssh",
     "ls -la /Users/hannes",
+    "ls -la ..",
+    "wc -l ..",
+    "git ls-files --exclude-from=/tmp/x",
+    "git ls-files --exclude-from=/var/x",
+    "git ls-files --exclude-from=..",
+    # each older path deny, caught by that pattern alone after a wildcard git allow
+    "git log --format=%H /Users/x",
+    "git log --format=%H --exclude-from=/Users/x",
+    "git log --format=%H /var/x",
+    "git log --format=%H /tmp/x",
+    "git log --format=%H ../x",
+    "git log --format=%H --x=../x",
+    "git log --format=%H\t../x",
+    # two paths make git diff an implicit --no-index diff that reads outside files
+    "git diff --no-ext-diff /private/tmp/outside.txt x...HEAD",
+    "git diff --check /private/tmp/outside.txt x...HEAD",
+    "git diff --name-only /private/tmp/outside.txt x...HEAD",
+    "git diff --no-ext-diff /private/tmp/outside.txt\tx...HEAD",
+    # git echoes the first line of the pathspec file in its error
+    "git add --pathspec-from-file=/private/tmp/x",
+    "git add --pathspec-fr=/private/tmp/x",
+    "git add --pathspec-from /private/tmp/x",
+    # the shell splits a brace list into several words after the pattern matched one
+    # (a sequence such as x{1..2}...HEAD has no comma and is not refused: every word
+    # it expands to keeps the ...HEAD suffix, so no plain path reaches git diff)
+    "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
+    "git log --format=%H --x=~/y",
+    # OpenCode turns a backslash into / before matching, and bash turns ..\/x into ../x
+    "git log --format=%H ..\\/x",
+    "git log --format=%H --no-index a b",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
     "xargs rm",
@@ -136,11 +168,16 @@ def _bash_rules(agent: str) -> dict[str, str]:
 def _resolve(agent: str, command: str) -> str:
     bash = _bash_rules(agent)
     action = bash["*"]
-    for pattern, rule in bash.items():
+    command = command.replace("\\", "/")
+    for raw_pattern, rule in bash.items():
+        pattern = raw_pattern.replace("\\", "/")
+        optional_tail = pattern.endswith(" *")
         expression = "".join(
             ".*" if char == "*" else "." if char == "?" else re.escape(char)
-            for char in pattern
+            for char in (pattern[:-2] if optional_tail else pattern)
         )
+        if optional_tail:
+            expression += "( .*)?"
         if re.fullmatch(expression, command, flags=re.DOTALL):
             action = rule
     return action
@@ -188,6 +225,10 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "git stash show --stat",
         "git stash show -p stash@{0}",
         "git diff --no-ext-diff feat/m1-6-1-provisional-publication...HEAD",
+        "git diff --check main...HEAD",
+        "git diff --name-only main...HEAD",
+        "git log --oneline",
+        "git rev-parse --abbrev-ref HEAD",
         "git add backend/src/backend/main.py",
         "pdm run agent-git switch-existing feat/m1-6-1-provisional-publication",
         "pdm run agent-git switch-new feat/x-1",
@@ -213,6 +254,14 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "pdm run decompose --branch neoplasm",
         "pdm run agent-git merge-no-ff feat/x",
         "git fetch origin feat/m1-6-1-provisional-publication",
+        # path-taking inspection forms prompt: a pattern list cannot confine their paths
+        "ls -la src",
+        "ls -la .. README.md",
+        "wc -l README.md",
+        "git ls-files --exclude-from=.. x",
+        "ls -la /etc",
+        "wc -l /etc/passwd",
+        "git rev-parse --resolve-git-dir /private/tmp/x/.git",
         # a stash write moves work out of or into the worktree: the owner sees it
         "git stash",
         "git stash push -m wip",
@@ -332,14 +381,28 @@ def test_the_tracked_opencode_config_is_present() -> None:
 @pytest.mark.parametrize("path", _LOCAL_CONFIGS)
 def test_no_local_opencode_config_overrides_agents_or_permissions(path: str) -> None:
     """OpenCode reads all four of these over the agent files; only the agent files may
-    grant permissions. Only the root ``opencode.json`` is tracked; the others are
-    machine-local and absent on most checkouts, hence the skip."""
+    grant permissions, and only the tracked root ``opencode.json`` may set the agent
+    shell (a machine-local ``shell`` would override it). The others are machine-local
+    and absent on most checkouts, hence the skip."""
     config_path = _ROOT / path
     if not config_path.exists():
         pytest.skip(f"{path} is not present on this machine")
     config = _load_jsonc(config_path.read_text(encoding="utf-8"))
 
-    assert not {"agent", "permission", "plugin"} & set(config), sorted(config)
+    assert not _overrides(path, config), sorted(config)
+
+
+def _overrides(path: str, config: dict[str, Any]) -> set[str]:
+    """The keys in ``config`` that this config file must not set."""
+    forbidden = {"agent", "permission", "plugin"}
+    if path != "opencode.json":
+        forbidden.add("shell")
+    return forbidden & set(config)
+
+
+def test_only_the_tracked_config_may_set_the_agent_shell() -> None:
+    assert _overrides(".opencode/opencode.json", {"shell": "/bin/zsh"}) == {"shell"}
+    assert _overrides("opencode.json", {"shell": "/bin/bash"}) == set()
 
 
 def _opencode_binary() -> Path | None:
@@ -423,3 +486,112 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
     task = permission["task"]
     expected_task = list(task.items()) if isinstance(task, dict) else [("*", task)]
     assert resolved_rules("task") == expected_task
+
+
+_GLOB_QUALIFIER = "echo seed(e:'touch executed':)"
+# OpenCode's bash tool runs ``<shell> -c <command>``; its ``!`` user-shell path wraps
+# the command in ``eval``.
+_QUALIFIER_FORMS = {
+    "bash-tool": _GLOB_QUALIFIER,
+    "user-shell": f'eval "{_GLOB_QUALIFIER}"',
+}
+
+
+def _run_under(
+    shell: str, command: str, tmp_path: Path
+) -> tuple[bool, subprocess.CompletedProcess[str]]:
+    """Run one form of the qualifier; report whether the embedded command ran."""
+    (tmp_path / "seed").touch()
+    result = subprocess.run(  # noqa: S603 -- argv list, fixed command
+        [shell, "-c", command],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return (tmp_path / "executed").exists(), result
+
+
+@pytest.mark.parametrize("form", _QUALIFIER_FORMS)
+def test_zsh_runs_a_command_hidden_in_a_glob_qualifier(
+    form: str, tmp_path: Path
+) -> None:
+    """Contract with zsh: a word such as ``seed(e:'cmd':)`` runs ``cmd`` when zsh
+    expands it and a file named ``seed`` exists. The string holds none of the
+    characters the maps deny, so every wildcard allow would admit it; the maps cannot
+    stop this, only the shell can."""
+    if not Path("/bin/zsh").is_file():
+        pytest.skip("zsh is not installed here (not verified)")
+    executed, _ = _run_under("/bin/zsh", _QUALIFIER_FORMS[form], tmp_path)
+
+    assert executed
+
+
+@pytest.mark.parametrize("form", _QUALIFIER_FORMS)
+def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
+    form: str, tmp_path: Path
+) -> None:
+    config = json.loads((_ROOT / "opencode.json").read_text(encoding="utf-8"))
+    shell = config.get("shell")
+
+    assert shell == "/bin/bash", "OpenCode would fall back to $SHELL, often zsh"
+    executed, result = _run_under(shell, _QUALIFIER_FORMS[form], tmp_path)
+
+    assert not executed
+    assert result.returncode != 0
+    assert "syntax error" in result.stderr
+    # bash names where it parsed the command: -c for the tool, eval for the ! path
+    assert ("eval: line" in result.stderr) == (form == "user-shell"), result.stderr
+
+
+def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
+    """Contract with the real tool: OpenCode reads ``shell`` from the tracked
+    ``opencode.json``, so its bash tool does not fall back to ``$SHELL``. It pins the
+    repository's contribution only: ``OPENCODE_CONFIG_CONTENT`` (stripped here) or
+    ``OPENCODE_DISABLE_PROJECT_CONFIG`` can still change the shell at run time.
+    Skipped, not passed, where the binary is absent (always in CI)."""
+    binary = _opencode_binary()
+    if binary is None:
+        pytest.skip(
+            "OpenCode binary not found; set ONTOPRISM_OPENCODE_BIN (not verified)"
+        )
+    (tmp_path / "opencode").mkdir()
+    (tmp_path / "opencode" / "opencode.json").write_text("{}", encoding="utf-8")
+    inherited = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("OPENCODE_")
+    }
+    result = subprocess.run(  # noqa: S603 -- argv list, no shell
+        [str(binary), "debug", "config", "--pure"],
+        cwd=_ROOT,
+        env={
+            **inherited,
+            "XDG_CONFIG_HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "XDG_STATE_HOME": str(tmp_path / "state"),
+            "XDG_CACHE_HOME": str(tmp_path / "cache"),
+            "OPENCODE_DISABLE_MODELS_FETCH": "1",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    start = result.stdout.find("{")
+    assert start >= 0, result.stdout
+    resolved, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
+
+    assert resolved.get("shell") == "/bin/bash"
+
+
+@pytest.mark.parametrize(
+    "command",
+    # known limits of a pattern list: letter case and aliases of /tmp slip past the
+    # path denies, so these may prompt or be refused, but never run unprompted
+    ["ls -la tmp /users/hannes", "ls -la tmp /private/tmp/x"],
+)
+def test_the_primary_agent_never_runs_a_known_path_gap_unprompted(command: str) -> None:
+    assert _resolve(_PRIMARY, command) != "allow"
