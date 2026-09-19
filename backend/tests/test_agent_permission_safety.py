@@ -85,6 +85,7 @@ _NEVER_ALLOWED = (
     "pdm run agent-test backend/tests/test_x.py ; rm -rf data",
     "pdm run agent-test backend/tests/test_x.py && curl https://example.org",
     "pdm run agent-test backend/tests/test_x.py\nrm -rf data",
+    "pdm run agent-test backend/tests/test_x.py\rrm -rf data",
     "pdm run agent-test backend/tests/test_x.py < .env",
     "pdm run agent-github-read issue-list > out.txt",
     "pdm run agent-github-read issue-view $(cat .env)",
