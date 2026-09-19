@@ -471,10 +471,10 @@ def test_read_output_exposes_only_the_documented_issue_fields(
 def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The fixtures copy two traits of GitHub's responses: every object, the nested
-    milestone included, carries ``html_url``, and fields outside the documented set sit
-    beside the documented ones (here made-up credential-shaped values). The output is
-    the documented fields only."""
+    """The fixtures copy two traits of GitHub's responses: every issue and milestone
+    object, the nested milestone included, carries ``html_url``, and fields outside the
+    documented set sit beside the documented ones (here made-up credential-shaped
+    values). The output is the documented fields only."""
     milestone = {
         "number": 16,
         "title": "R0",
@@ -591,7 +591,7 @@ def test_issue_view_refuses_a_pull_request_number(tmp_path: Path) -> None:
         [Result(0, '{"number":390,"title":"x","state":"open","pull_request":{}}')], []
     )
 
-    with pytest.raises(AgentGitHubProcessError, match="issue response is invalid"):
+    with pytest.raises(AgentGitHubInputError, match=r"#390 is a pull request.*pr-view"):
         run_agent_github(["issue-view", "390"], tmp_path, read_only=True, runner=runner)
 
 

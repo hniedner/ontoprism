@@ -280,8 +280,12 @@ def _flatten_pages(value: Any) -> list[dict[str, Any]]:
 
 def _get_issue(number: int, root: Path, runner: CommandRunner) -> dict[str, Any]:
     value = _api("GET", f"{API_ROOT}/issues/{number}", root, runner)
-    if not isinstance(value, dict) or "pull_request" in value:
+    if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub issue response is invalid")
+    if "pull_request" in value:
+        raise AgentGitHubInputError(
+            f"#{number} is a pull request, not an issue; use pr-view"
+        )
     return value
 
 
@@ -488,7 +492,7 @@ def _sanitize_runs(value: dict[str, Any]) -> dict[str, object]:
 
 
 def _sanitize_read(operation: str, value: Any) -> Any:
-    if operation in {"issue-list", "milestone-list", "issue-comments"}:
+    if operation in _LIST_FIELDS:
         return _sanitize_list(operation, value)
     if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub read response is invalid")
@@ -531,8 +535,9 @@ def _run_list_read(
 ) -> list[dict[str, Any]]:
     """Every page of the list; ``--limit`` then keeps that many issues or milestones.
 
-    The limit only shortens a complete list, so it has no upper bound (``run-list``
-    sends its limit to GitHub as the page size and keeps one)."""
+    The limit only shortens a complete list, so it has no upper bound. ``run-list``
+    differs: it sends its limit to GitHub as the page size, so it caps it at
+    ``MAX_LIST_LIMIT``."""
     options = _flags(arguments, singles=frozenset({"--state", "--limit"}))
     state = str(options.get("--state", "open"))
     if state not in {"open", "closed", "all"}:
