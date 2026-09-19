@@ -157,6 +157,7 @@ _NEVER_ALLOWED = (
     "git stash show -p --output=tmp/x",
     "git stash show -p --ext-diff",
     "git stash list | sh",
+    # the exact "sleep 60" allow cannot carry a chained command (the ; deny catches it)
     "sleep 60; rm -rf data",
 )
 
@@ -292,6 +293,9 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "git stash pop",
         "git stash apply stash@{0}",
         "git stash branch rescue stash@{0}",
+        # the post-merge watch may sleep exactly 60 seconds, nothing longer
+        "sleep 600",
+        "sleep 60 60",
     ],
 )
 def test_the_primary_agent_asks_for_anything_not_listed(command: str) -> None:

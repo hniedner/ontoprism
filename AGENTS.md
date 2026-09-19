@@ -57,7 +57,8 @@ For the milestone:
 **Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
 full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
 `gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
-to ten times with `sleep 60` between checks (a short SHA matches nothing; never take the
+to ten times, about a minute apart (the OpenCode primary waits with `sleep 60`; other
+harnesses use their own bounded wait) (a short SHA matches nothing; never take the
 newest run on the branch instead). If no run appears by then, that is a failure. Watch
 the run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh
 run view <id> --json conclusion` says `cancelled` and a newer push run exists on the
@@ -67,7 +68,7 @@ the next issue or milestone, report it to the owner, and fix the cause through a
 PR ("What a finding becomes"). The agent does not judge whether a merge into `main`
 produced a release: the `Release` guard can hand a release to a newer merge, so that
 cannot be read reliably from outside `release.yml`, and making a lost release visible is
-open work in #131.
+tracked in #131.
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
