@@ -306,20 +306,24 @@ finding is real, is fixed where it was found, and is filed at most once:
 
 1. **Verify it first.** A finding counts when it is reproduced, or shown in the code
    together with the input or state that triggers it. One that cannot be verified is
-   dropped, with a one-line reason in the PR. Never file, fix or "harden against" an
+   dropped, with a one-line reason in the PR body. Never file, fix or "harden against" an
    unverified finding.
 2. **Fix it in the PR that surfaced it.** That is the normal case, including for
    findings in code the PR only touches in passing.
 3. **Defer only a major, out-of-scope finding**: one whose fix needs its own design, its
    own tests and its own review, and does not belong to the issue's contract. Size alone
    is not a reason, and neither is inconvenience. List every deferral in the PR body
-   with its issue number, so the owner sees it.
+   with its issue number (for a finding added to an existing issue, the URL of the
+   comment), so the owner sees it.
 4. **Search before filing.** Read the open issues first. If one covers the same cause or
-   the same code area, add the finding to that issue (a comment; the owner folds it into
-   the body). Findings of one review that share a cause or a code area become one issue,
+   the same code area, add the finding to that issue (a comment that records the
+   finding; it changes no acceptance criterion until the owner folds it into the body).
+   Earlier findings are parked the same way, so read an issue's comments, not only its
+   body, before ruling it out. Findings of one review that share a cause or a code area become one issue,
    not one each.
 5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
-   the milestone description holds the order. "No milestone" is for epics and for
+   the order lives in the milestone description, and in a milestone without one the
+   position is stated by dependency (what the issue blocks, what blocks it). "No milestone" is for epics and for
    collected low-severity work that blocks nothing.
 6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
    work planned later, or a milestone has grown past what can land), propose the

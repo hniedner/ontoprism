@@ -80,10 +80,14 @@ _NEVER_ALLOWED = (
     "ls -la `rm -rf data`",
     "git status --porcelain > out.txt",
     "git status --porcelain\nrm -rf data",
-    # a dropped or cleared stash entry cannot be recovered through the agent's tools
+    # a dropped or cleared entry leaves the stash list; recovery needs fsck and is not
+    # routine. The reflog forms destroy the same entries.
     "git stash drop",
     "git stash drop stash@{0}",
     "git stash clear",
+    "git reflog delete refs/stash@{0}",
+    "git reflog expire --expire=now refs/stash",
+    "git update-ref -d refs/stash",
     # stash inspection keeps the refusals every other inspection form has
     "git stash show -p --output=tmp/x",
     "git stash show -p --ext-diff",

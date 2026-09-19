@@ -460,6 +460,7 @@ def test_read_output_exposes_only_the_documented_issue_fields(
 
     assert json.loads(capsys.readouterr().out) == {
         "body": "Public issue body",
+        "milestone": None,
         "number": 4,
         "state": "open",
         "title": "Visible",
@@ -470,27 +471,33 @@ def test_read_output_exposes_only_the_documented_issue_fields(
 def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The order of work lives in the milestone descriptions, and an issue's milestone
-    says where it sits; neither may drag undocumented fields along."""
-    issue = {
-        "number": 7,
-        "title": "Placed",
-        "state": "open",
-        "html_url": "https://example.invalid/7",
-        "milestone": {"number": 16, "title": "R0", "creator": {"token": "no"}},
-        "user": {"token": "must-not-leak"},
-    }
+    """The fixtures carry what GitHub really sends (``html_url`` on every object,
+    credentials-shaped noise beside it); the output is the documented fields only."""
     milestone = {
         "number": 16,
         "title": "R0",
         "state": "open",
         "due_on": None,
         "description": "Order: #389, then #340.",
+        "html_url": "https://example.invalid/milestone/16",
         "creator": {"token": "must-not-leak"},
     }
+    placed = {
+        "number": 7,
+        "title": "Placed",
+        "state": "open",
+        "created_at": "2026-09-01T10:00:00Z",
+        "html_url": "https://example.invalid/7",
+        "milestone": milestone,
+        "user": {"token": "must-not-leak"},
+    }
+    unplaced = {**placed, "number": 9, "title": "Epic", "milestone": None}
 
-    for operation, item in (("issue-list", issue), ("milestone-list", milestone)):
-        runner = recording_runner([Result(0, json.dumps([[item]]))], [])
+    for operation, items in (
+        ("issue-list", [placed, unplaced]),
+        ("milestone-list", [milestone]),
+    ):
+        runner = recording_runner([Result(0, json.dumps([items]))], [])
         assert (
             run_agent_github([operation], tmp_path, read_only=True, runner=runner) == 0
         )
@@ -503,9 +510,22 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
             "number": 7,
             "title": "Placed",
             "state": "open",
+            "created_at": "2026-09-01T10:00:00Z",
             "url": "https://example.invalid/7",
-            "milestone": {"number": 16, "title": "R0"},
-        }
+            "milestone": {
+                "number": 16,
+                "title": "R0",
+                "url": "https://example.invalid/milestone/16",
+            },
+        },
+        {
+            "number": 9,
+            "title": "Epic",
+            "state": "open",
+            "created_at": "2026-09-01T10:00:00Z",
+            "url": "https://example.invalid/7",
+            "milestone": None,
+        },
     ]
     assert milestones == [
         {
@@ -514,8 +534,92 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
             "state": "open",
             "due_on": None,
             "description": "Order: #389, then #340.",
+            "url": "https://example.invalid/milestone/16",
         }
     ]
+
+
+def test_a_list_read_returns_every_page_and_counts_a_limit_in_issues(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A search for an existing issue must see the whole tracker: GitHub pages its
+    lists and mixes pull requests into the issue list."""
+    pull = {"number": 3, "title": "PR", "state": "open", "pull_request": {}}
+    pages = [
+        [pull, {"number": 2, "title": "second", "state": "open"}],
+        [{"number": 1, "title": "first", "state": "open"}],
+    ]
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps(pages)), Result(0, json.dumps(pages))], calls
+    )
+
+    assert (
+        run_agent_github(["issue-list"], tmp_path, read_only=True, runner=runner) == 0
+    )
+    assert (
+        run_agent_github(
+            ["issue-list", "--limit", "1"], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert calls[0][0][-2:] == ["--paginate", "--slurp"]
+    everything, limited = (
+        [item["number"] for item in json.loads(line)]
+        for line in capsys.readouterr().out.splitlines()
+    )
+    assert everything == [2, 1]
+    assert limited == [2]
+
+
+def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:
+    runner = recording_runner(
+        [Result(0, '{"number":4,"title":"x","state":"open","milestone":"R0"}')], []
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="milestone"):
+        run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
+
+
+def test_issue_comments_are_readable_because_findings_are_parked_there(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    comment = {
+        "body": "Also: the seal is not shielded.",
+        "created_at": "2026-09-19T08:00:00Z",
+        "html_url": "https://example.invalid/397#c1",
+        "user": {"login": "someone", "token": "must-not-leak"},
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps([[comment], [comment]]))], calls)
+
+    assert (
+        run_agent_github(
+            ["issue-comments", "397"], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert calls[0][0][:5] == [
+        "gh",
+        "api",
+        "--method",
+        "GET",
+        "repos/hniedner/ontoprism/issues/397/comments",
+    ]
+    assert calls[0][0][-2:] == ["--paginate", "--slurp"]
+    assert (
+        json.loads(capsys.readouterr().out)
+        == [
+            {
+                "body": "Also: the seal is not shielded.",
+                "created_at": "2026-09-19T08:00:00Z",
+                "url": "https://example.invalid/397#c1",
+            }
+        ]
+        * 2
+    )
 
 
 def test_pr_create_checks_duplicate_head_then_posts_fixed_payload(
