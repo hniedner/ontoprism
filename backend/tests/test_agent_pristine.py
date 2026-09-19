@@ -210,7 +210,10 @@ def test_restore_and_discard_stay_inside_the_worktree(
         planted.parent.mkdir(parents=True, exist_ok=True)
         planted.write_text("planted\n")
 
-    with pytest.raises(AgentPristineInputError):
+    # refused for the path itself, not because the planted bytes differ
+    with pytest.raises(
+        AgentPristineInputError, match=r"inside the worktree|not a worktree file"
+    ):
         run_agent_pristine([operation, path], root, scratch)
 
     assert (tmp_path / "outside.txt").read_text() == "secret\n"
