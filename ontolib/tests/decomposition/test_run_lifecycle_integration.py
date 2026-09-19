@@ -1202,7 +1202,6 @@ async def test_a_persisted_run_inspects_as_content_valid() -> None:
 
         assert [item.fingerprint_content_valid for item in inspections] == [True, True]
         assert [item.rehearsal for item in inspections] == [False, True]
-        assert inspections[1].resume_compatible is False
     finally:
         await _cleanup(run_ids)
         await dispose_engine(engine)

@@ -30,10 +30,12 @@ database write delay a cancellation. Abandoning cancels at once but can lose the
   claims, and an unwritten `fail_run` leaves the run `running` for the next resume to
   reopen.
 - Three known gaps, where the only trace is the notes on the propagating cancellation and
-  its cause. Since #388 a later failure record that does land (the stage or run failure
-  written for the same cancellation) persists those notes and the cause chain. Through the
-  CLI a Ctrl-C drops them: `asyncio.run` replaces the cancellation with a bare
-  `KeyboardInterrupt` and nothing is printed or logged (#391).
+  its cause. Since #388 a failure record written later for the same cancellation (the
+  stage or run failure) persists those notes and the cause chain within the column bounds.
+  Of the three, only the rehearsal can get one: `fail_run` does not touch a run that is
+  already complete, and `invalidate_run` is itself the last write. Through the CLI a
+  Ctrl-C drops the trace: `asyncio.run` replaces the cancellation with a bare
+  `KeyboardInterrupt`, typer exits 130, and nothing is printed or logged (#391).
   - the publication-stage seal of a run that is already complete, which has no resume and
     may stay claimed;
   - an unwritten `invalidate_run`: it follows a source change, so the run cannot be

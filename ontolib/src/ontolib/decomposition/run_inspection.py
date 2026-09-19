@@ -171,7 +171,8 @@ def _finalize_summary(
         item["persisted_routing_implementation_identity"], current_routing_identity
     )
     item["stage_state"] = _stage_state(stages, stage_inventory_complete)
-    # A rehearsal is a throwaway run: every resume path refuses it.
+    # A rehearsal is a throwaway run: the run configuration and the resume preflight
+    # both refuse to resume it.
     item["resume_compatible"] = bool(
         item["fingerprint_content_valid"]
         and stage_inventory_complete

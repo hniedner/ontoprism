@@ -96,8 +96,8 @@ def test_inspection_finalization_requires_complete_work_stages_and_identity() ->
 
 @pytest.mark.unit
 def test_a_rehearsal_is_never_reported_resume_compatible() -> None:
-    """Every resume path refuses a rehearsal, so the inspection an operator reads before
-    resuming must not call one resumable."""
+    """The resume preflight refuses a rehearsal, so the inspection an operator reads
+    before resuming must not call one resumable."""
     row = _run_row("run-1")
     fingerprint = {**cast("dict[str, object]", row["fingerprint"])}
     fingerprint["rehearsal_nonce"] = "d" * 32
