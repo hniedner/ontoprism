@@ -113,10 +113,13 @@ Start a new agent session for each issue. Do not carry one context across days o
   summary`, `quality (pre-commit parity)`, `conventional commit subject` and `dependency
   review` are always expected; on a PR into `main`, so are `CodeQL` and its `Analyze`
   jobs, except under the known quirk below. If one is missing, CI did not run fully.
-  Merge with this command, where `<sha>` is the full reviewed head SHA from `git
-  rev-parse` (GitHub refuses the merge if the head moved) and no body is passed:
-  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title> (#<n>)"`
-  The `(#<n>)` suffix keeps the PR number in the log, as GitHub's default subject does.
+  Merge only with `pdm run agent-github pr-merge <n> --head <sha> --base <branch>`,
+  where `<sha>` is the full reviewed head SHA from `git rev-parse` and `<branch>` the
+  base recorded when the review converged. The wrapper refuses a PR that is not open or
+  whose head or base differ, squash-merges pinned to `<sha>` (GitHub refuses the merge
+  if the head moved) with the subject `<PR title> (#<n>)`, which keeps the PR number in
+  the log, and an empty body, then deletes the head branch. No harness uses `gh pr
+  merge`.
   Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
   head, title or base changed after the checks and the review, they run again first.
   Known quirk: PRs touching only dependency manifests or workflows show the aggregate
@@ -407,11 +410,9 @@ steward.
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title with ` (#<n>)` appended, and its body is empty because the
-  repository's squash message is `BLANK` (D91). A `--body` on the merge would be parsed
-  too, so pass none (the OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin
-  and `-R`/`--repo` after its pinned allow row, but its wildcards still admit bundled
-  short flags, a value flag that swallows the pin and a PR URL; the merge wrapper in
-  #401 closes them). Issue PR titles inside a milestone do not reach the release; the
+  repository's squash message is `BLANK` (D91). A merge body would be parsed too;
+  `pdm run agent-github pr-merge` passes none, and no agent map allows `gh pr merge`.
+  Issue PR titles inside a milestone do not reach the release; the
   milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.

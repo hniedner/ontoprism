@@ -16,7 +16,8 @@ permission:
     "*": deny
     "npm *": deny
     "npx *": deny
-    "cp *": allow
+    "pdm run agent-pristine save *": allow
+    "pdm run agent-pristine restore *": allow
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
@@ -76,7 +77,7 @@ Review the committed diff against the PR's base branch (`git diff --no-ext-diff 
 
 You run alone: no other agent works in the repository while you do. Against the committed HEAD, pick the production behaviours the changed tests are supposed to protect and check that a relevant wrong behaviour makes a test fail for the intended reason.
 
-For each target: copy the file outside the worktree (ask for external-directory permission if needed), introduce one small temporary mutation, run the exact relevant test with `pdm run agent-test <path>::<test> -v` (frontend: `pdm run agent-test --frontend <tracked-test-file>`), and record whether it failed. Restore the original bytes from your copy, not through Git. Finish by showing that `git status --porcelain` is empty and `git rev-parse HEAD` is unchanged. If you cannot show that, report the pass as inconclusive.
+For each target: save it with `pdm run agent-pristine save <path>` (the only copy operation you have; it keeps the copy outside the worktree), introduce one small temporary mutation, run the exact relevant test with `pdm run agent-test <path>::<test> -v` (frontend: `pdm run agent-test --frontend <tracked-test-file>`), and record whether it failed. Restore the original bytes with `pdm run agent-pristine restore <path>`, not through Git. Finish by showing that `git status --porcelain` is empty and `git rev-parse HEAD` is unchanged. If you cannot show that, report the pass as inconclusive.
 
 Also report tests that are not regression indicators: execution-only tests, mock choreography, fakes that clone the implementation, fixture self-consistency, assertions on documentation wording or on committed hash snapshots. Recommend deleting or replacing them.
 

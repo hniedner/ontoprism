@@ -116,6 +116,7 @@ agent-test = "python scripts/validation/run_agent_test.py"
 agent-git = "python scripts/validation/run_agent_git.py"
 agent-github = "python scripts/validation/run_agent_github.py"
 agent-github-read = "python scripts/validation/run_agent_github.py --read-only"
+agent-pristine = "python scripts/validation/run_agent_pristine.py"
 agent-replay = "python -m scripts.validation.run_agent_replay"
 artifacts = "python -m scripts.artifacts"
 # Coverage: runs unit tests with line+branch coverage for backend/ontolib and

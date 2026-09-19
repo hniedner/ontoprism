@@ -35,7 +35,7 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
-# the documented merge form: squash, pinned to the reviewed head (wildcard gaps: #401)
+# the pinned squash form #404 allowed; merges now go through `agent-github pr-merge`
 _MERGE = (
     "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
     "--squash --delete-branch --subject x"
@@ -50,6 +50,11 @@ _NEVER_ALLOWED = (
     "git checkout -- .",
     "git commit -m x --no-verify",
     "gh pr merge 12",
+    # no agent runs gh pr merge in any form; it cannot fence gh's argument parser
+    _MERGE,
+    "gh pr merge 12 --squash --delete-branch --subject x --body-file .env",
+    "gh pr merge 12 -sdF .env --subject x",
+    "gh pr merge 12 --squash --delete-branch --subject x -sdF .env",
     f"{_MERGE} --admin",
     f"{_MERGE} --auto",
     # a substitution in the subject, which only the $ deny catches
@@ -263,7 +268,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "--head feat/x-1 --base feat/m1-6-1-provisional-publication",
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
-        _MERGE,
+        "pdm run agent-github pr-merge 12 --head "
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
         "sleep 60",
     ],
 )
@@ -375,6 +381,22 @@ def test_the_issue_steward_can_read_the_tracker_and_reproduce_a_finding(
 )
 def test_the_issue_steward_never_writes_the_tracker(command: str) -> None:
     assert _resolve(_STEWARD, command) == "deny"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("pdm run agent-pristine save backend/src/backend/x.py", "allow"),
+        ("pdm run agent-pristine restore backend/src/backend/x.py", "allow"),
+        ("cp ~/.ssh/id_ed25519 tmp/k", "deny"),
+        ("cp /Users/x/.ssh/id tmp/k", "deny"),
+        ("cp backend/src/backend/x.py /private/tmp/x.py", "deny"),
+    ],
+)
+def test_the_test_analyzer_copies_only_through_the_pristine_wrapper(
+    command: str, expected: str
+) -> None:
+    assert _resolve("pr-test-analyzer", command) == expected
 
 
 def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None:

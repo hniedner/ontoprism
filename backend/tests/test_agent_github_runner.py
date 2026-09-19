@@ -1327,3 +1327,167 @@ def test_pr_mutations_reject_malformed_success_response(
             read_only=False,
             runner=recording_runner(results, []),
         )
+
+
+_HEAD = "3ed4ad7f8367ee96f4fd4ae80299def48979adac"
+
+
+def _open_pull(**changes: object) -> dict[str, object]:
+    pull: dict[str, object] = {
+        "number": 12,
+        "state": "open",
+        "merged": False,
+        "merged_at": None,
+        "title": "fix(x): y",
+        "base": {"ref": "feat/m0-r0", "repo": {"full_name": "hniedner/ontoprism"}},
+        "head": {
+            "ref": "fix/y-12",
+            "sha": _HEAD,
+            "repo": {"full_name": "hniedner/ontoprism"},
+        },
+    }
+    pull.update(changes)
+    return pull
+
+
+_MERGE_ARGUMENTS = ["pr-merge", "12", "--head", _HEAD, "--base", "feat/m0-r0"]
+
+
+def test_pr_merge_squashes_the_reviewed_head_then_deletes_the_branch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The merge is pinned to the reviewed head, titled from GitHub with the PR number,
+    carries no body, and then removes the head branch."""
+    merged = "a" * 40
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, json.dumps({"merged": True, "sha": merged})),
+            Result(0, ""),
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+        == 0
+    )
+
+    assert [call[0][3:5] for call in calls] == [
+        ["GET", "repos/hniedner/ontoprism/pulls/12"],
+        ["PUT", "repos/hniedner/ontoprism/pulls/12/merge"],
+        ["DELETE", "repos/hniedner/ontoprism/git/refs/heads/fix/y-12"],
+    ]
+    assert json.loads(str(calls[1][1]["input"])) == {
+        "merge_method": "squash",
+        "sha": _HEAD,
+        "commit_title": "fix(x): y (#12)",
+        "commit_message": "",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "merge_commit": merged,
+        "number": 12,
+    }
+
+
+@pytest.mark.parametrize(
+    ("pull", "reason"),
+    [
+        (
+            _open_pull(
+                head={
+                    "ref": "fix/y-12",
+                    "sha": "b" * 40,
+                    "repo": {"full_name": "hniedner/ontoprism"},
+                }
+            ),
+            "head moved",
+        ),
+        (
+            _open_pull(
+                base={"ref": "main", "repo": {"full_name": "hniedner/ontoprism"}}
+            ),
+            "base is not",
+        ),
+        (_open_pull(state="closed"), "open pull request"),
+        (
+            _open_pull(state="closed", merged=True, merged_at="2026-09-19T00:00:00Z"),
+            "open pull request",
+        ),
+        (
+            _open_pull(
+                head={
+                    "ref": "fix/y-12",
+                    "sha": _HEAD,
+                    "repo": {"full_name": "fork/ontoprism"},
+                }
+            ),
+            "head branch is not in",
+        ),
+    ],
+)
+def test_pr_merge_refuses_a_pull_request_that_is_not_the_reviewed_one(
+    tmp_path: Path, pull: dict[str, object], reason: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(pull))], calls)
+
+    with pytest.raises(AgentGitHubInputError, match=reason):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [
+            "pr-merge",
+            "https://github.com/other/repo/pull/5",
+            "--head",
+            _HEAD,
+            "--base",
+            "main",
+        ],
+        ["pr-merge", "12x", "--head", _HEAD, "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD[:7], "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD.upper(), "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD],
+        ["pr-merge", "12", "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--admin"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--body", "fix: y"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--repo", "o/r"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "../main"],
+    ],
+)
+def test_pr_merge_rejects_malformed_or_extra_arguments_before_network(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    def must_not_run(_arguments: list[str], **_kwargs: object) -> Result:
+        raise AssertionError("invalid arguments must fail before GitHub access")
+
+    # refused by pr-merge's own argument checks, not as an unknown operation
+    with pytest.raises(AgentGitHubInputError, match=r"^(?!GitHub operation is unsup)"):
+        run_agent_github(arguments, tmp_path, read_only=False, runner=must_not_run)
+
+
+def test_pr_merge_keeps_the_branch_when_github_did_not_merge(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, json.dumps({"merged": False, "message": "not mergeable"})),
+        ],
+        calls,
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="merge"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET", "PUT"]
+
+
+def test_read_only_entrypoint_rejects_pr_merge(tmp_path: Path) -> None:
+    with pytest.raises(AgentGitHubInputError, match="read-only"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=True, runner=None)

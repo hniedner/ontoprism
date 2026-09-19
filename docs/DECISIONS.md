@@ -32,12 +32,13 @@ and merge queues stay forbidden. GitHub does not yet enforce required checks on 
 (#405); until it does, the check rule is kept by the agent.
 
 The repository's squash message was set to `BLANK` on 2026-09-19, so a squash commit's
-body is empty and only the PR title drives releases. Merges pass no `--body`, and the
-OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin and `-R`/`--repo`; its
-wildcards still admit bundled short flags, a value flag that swallows the pin and a PR
-URL, which the merge wrapper in #401 closes. Issue PR titles inside a milestone no
-longer reach the release, so a milestone PR takes the highest-impact type among its
-issue PR titles. D85's and D89's exact-PR-number requirement is superseded.
+body is empty and only the PR title drives releases. Merges pass no body. *(Addendum
+2026-09-19, #401: merges go through `pdm run agent-github pr-merge`, which builds its
+own request, checks the PR's state, head, base and repository, and passes an empty body;
+no agent map allows `gh pr merge`, which closes the wildcard gaps a permission pattern
+could not.)* Issue PR titles inside a milestone no longer reach the release, so a
+milestone PR takes the highest-impact type among its issue PR titles. D85's and D89's
+exact-PR-number requirement is superseded.
 
 **Why.** The protocol is what makes a merge safe; the per-PR question only repeated an
 answer the owner had already given.
