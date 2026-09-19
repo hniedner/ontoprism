@@ -37,7 +37,8 @@ def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
     """``save <path>`` copies a worktree file into ``scratch`` and refuses while a copy
     exists, so a mutation is never saved over the original; ``restore <path>`` writes
     the saved bytes back and removes the copy; ``discard <path>`` removes a copy only
-    while the file still matches it, so it never drops the only way back."""
+    while the file still matches it, so it never drops the only way back. Paths are
+    resolved first, so a symlink acts on its target, and the output names the target."""
     root = root.resolve()
     scratch = scratch.resolve()
     if scratch == root or scratch.is_relative_to(root):

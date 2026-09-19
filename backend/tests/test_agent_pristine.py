@@ -205,6 +205,7 @@ def test_restore_and_discard_stay_inside_the_worktree(
     (root / ".git" / "config").write_text("[core]\n")
     (tmp_path / "outside.txt").write_text("secret\n")
     # where a copy would sit if the path were not checked: scratch/<path as given>
+    # (for .GIT, only on a case-insensitive filesystem; elsewhere only the refusal)
     for planted in (scratch.parent / "outside.txt", scratch / ".git" / "config"):
         planted.parent.mkdir(parents=True, exist_ok=True)
         planted.write_text("planted\n")

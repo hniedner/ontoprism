@@ -1570,7 +1570,9 @@ def test_read_only_entrypoint_rejects_pr_merge(tmp_path: Path) -> None:
 def test_pr_merge_refuses_before_merging_when_the_branch_setting_is_unreadable(
     tmp_path: Path, repository: str
 ) -> None:
-    """Treating an unreadable setting as "keep" would race GitHub's own deletion."""
+    """A guess either way is wrong: taking it as "GitHub keeps the branch" makes the
+    wrapper's DELETE race GitHub's own deletion, and taking it as "GitHub deletes"
+    could leave the branch behind without a word."""
     calls: list[tuple[list[str], dict[str, object]]] = []
     runner = recording_runner(
         [Result(0, json.dumps(_open_pull())), Result(0, repository)], calls
