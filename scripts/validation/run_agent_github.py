@@ -416,7 +416,9 @@ def _selected_issue(
 ) -> dict[str, object]:
     """The output always carries ``milestone``: ``None`` when GitHub reports none (a
     null or absent key); anything but an object or null is refused. Label names come
-    along when GitHub sends a label list, so an epic is visible in a list read."""
+    along when GitHub sends labels, so an epic is visible in a list read; labels that
+    are not a list of named objects are refused, because a dropped label would make an
+    epic look like an ordinary issue."""
     milestone = value.get("milestone")
     if milestone is not None and not isinstance(milestone, dict):
         raise AgentGitHubProcessError("GitHub issue milestone is invalid")
@@ -424,7 +426,14 @@ def _selected_issue(
     selected["milestone"] = (
         None if milestone is None else _selected(milestone, ("number", "title"))
     )
-    _add_names(selected, "labels", value.get("labels"), "name")
+    labels = value.get("labels")
+    if labels is not None:
+        if not isinstance(labels, list) or not all(
+            isinstance(label, dict) and isinstance(label.get("name"), str)
+            for label in labels
+        ):
+            raise AgentGitHubProcessError("GitHub issue labels are invalid")
+        selected["labels"] = [label["name"] for label in labels]
     return selected
 
 

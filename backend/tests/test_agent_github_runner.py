@@ -663,6 +663,21 @@ def test_a_list_read_asks_github_for_the_requested_state(
     assert f"state={state}" in calls[0][0]
 
 
+@pytest.mark.parametrize(
+    "labels", ["epic", {"name": "epic"}, ["epic"], [{"color": "x"}]]
+)
+def test_an_issue_whose_labels_are_malformed_is_refused(
+    tmp_path: Path, labels: object
+) -> None:
+    """A dropped label would make an epic look like an ordinary issue to the steward;
+    malformed source data fails closed instead."""
+    issue = {"number": 4, "title": "x", "state": "open", "labels": labels}
+    runner = recording_runner([Result(0, json.dumps([[issue]]))], [])
+
+    with pytest.raises(AgentGitHubProcessError, match="labels"):
+        run_agent_github(["issue-list"], tmp_path, read_only=True, runner=runner)
+
+
 def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:
     runner = recording_runner(
         [Result(0, '{"number":4,"title":"x","state":"open","milestone":"R0"}')], []

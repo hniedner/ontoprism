@@ -71,8 +71,9 @@ Start a new agent session for each issue. Do not carry one context across days o
   title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
   title or base changed since authorization, ask again. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
-  `Analyze` jobs; that is expected for those PRs only. CodeQL runs only on PRs into
-  `main`, so a milestone PR is the first place it reports on the milestone's code.
+  `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
+  into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
+  it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -358,8 +359,8 @@ steward.
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title, and while the repository's squash message is
   `COMMIT_MESSAGES` every conventional line of its body counts too. Merge a PR whose
-  commits carry `fix:` or `feat:` lines with an explicit prose `--body` unless those
-  lines should cut a release.
+  commits carry `feat:`, `fix:` or `perf:` lines with an explicit prose `--body` unless
+  those lines should cut a release.
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.
