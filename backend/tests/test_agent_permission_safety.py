@@ -94,7 +94,7 @@ _NEVER_ALLOWED = (
     # it expands to keeps the ...HEAD suffix, so no plain path reaches git diff)
     "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
     "git log --format=%H --x=~/y",
-    # OpenCode turns a backslash into /, and bash turns ..\\/x into ../x
+    # OpenCode turns a backslash into / before matching, and bash turns ..\/x into ../x
     "git log --format=%H ..\\/x",
     "git log --format=%H --no-index a b",
     # wrappers and option prefixes around a denied command
