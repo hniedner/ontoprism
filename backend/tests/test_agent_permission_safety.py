@@ -35,6 +35,11 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
+# the only merge form the primary may run: squash, pinned to the reviewed head
+_MERGE = (
+    "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
+    "--squash --delete-branch --subject x"
+)
 
 _NEVER_ALLOWED = (
     "rm -rf data",
@@ -45,12 +50,17 @@ _NEVER_ALLOWED = (
     "git checkout -- .",
     "git commit -m x --no-verify",
     "gh pr merge 12",
-    "gh pr merge 12 --squash --delete-branch --subject x --admin",
-    "gh pr merge 12 --auto --squash --delete-branch --subject x",
-    'gh pr merge 12 --squash --delete-branch --subject x --body "a $(id)"',
+    f"{_MERGE} --admin",
+    f"{_MERGE} --auto",
+    f'{_MERGE} --body "a $(id)"',
+    # an unpinned merge could land a head that moved after the review
+    "gh pr merge 12 --squash --delete-branch --subject x",
     # the squash message is BLANK; a merge body would be parsed for releases
-    'gh pr merge 12 --squash --delete-branch --subject x --body "fix: y"',
-    'gh pr merge 12 --squash --delete-branch --subject x -b "fix: y"',
+    f'{_MERGE} --body "fix: y"',
+    f'{_MERGE} -b "fix: y"',
+    f'{_MERGE} -b"fix: y"',
+    f"{_MERGE} -b=fix",
+    f"{_MERGE} -F notes.md",
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",
@@ -242,9 +252,7 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "--head feat/x-1 --base feat/m1-6-1-provisional-publication",
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
-        "gh pr merge 12 --squash --delete-branch --subject x",
-        "gh pr merge 12 --match-head-commit 3ed4ad7 "
-        "--squash --delete-branch --subject x",
+        _MERGE,
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(

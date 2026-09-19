@@ -86,13 +86,14 @@ permission:
     "gh run view *": allow
     "gh run watch *": allow
     "gh pr merge *": deny
-    "gh pr merge * --squash --delete-branch --subject *": allow
+    "gh pr merge * --match-head-commit * --squash --delete-branch --subject *": allow
     "gh pr merge *--admin*": deny
     "gh pr merge *--auto*": deny
     "gh pr merge *--queue*": deny
     "gh pr merge *--bypass*": deny
     "gh pr merge *--body*": deny
-    "gh pr merge * -b *": deny
+    "gh pr merge * -b*": deny
+    "gh pr merge * -F*": deny
     "git commit*": deny
     "git switch *": deny
     "git checkout*": deny
@@ -209,7 +210,7 @@ If a review result is missing, timed out or inconclusive (for `pr-test-analyzer`
 
 **GitHub.** Push and open or edit PRs only through `pdm run agent-git push-origin <branch>` and `pdm run agent-github pr-create|pr-edit ...`, and only for the issue you are working on. Create an issue, or comment on one, only for a finding that "What a finding becomes" in `AGENTS.md` says to defer, and name it in the PR body; move issues between milestones, reorder a milestone or edit anything else in the tracker only when the owner confirms or asks. Never delete issues or milestones. Never push to `main`, force-push, or delete a remote ref.
 
-**Merging.** An issue PR into a milestone branch: merge it yourself once every expected check in `gh pr checks <n>` is present and passing for the current head and base, all five review dimensions have converged, and the PR body lists the five review verdicts and every dropped and deferred finding; if a check is missing, or the PR's base was changed after its last CI run, push a new commit or ask the owner to re-run the workflow first. A PR into `main` (a milestone PR, or a change that belongs to no milestone): merge it yourself under the owner's standing authorization (`AGENTS.md`, Hard rules, D91), and only when the branch was vetted, tested and reviewed under the protocol (`pdm run verify` passed before the PR was opened, all five review dimensions converged) and every expected check passes under the check rule in `AGENTS.md` (CodeQL included, neutral only under its documented quirk). Its body lists the five review verdicts and every dropped and deferred finding of its own review, and for a milestone PR also the issue PR titles, every deferral collected from the issue PR bodies (blockers first) and every pending milestone edit; its title's type is the highest-impact type among those issue PR titles (`AGENTS.md`, step 11). In both cases: `gh pr merge <n> --match-head-commit <reviewed sha> --squash --delete-branch --subject "<PR title>"`, with no `--body` (the map denies it: the squash message is blank, and a body would be parsed for releases). Re-read the PR immediately before; if its head, title or base changed after the checks and the review, they run again first. Then watch post-merge workflows with `gh run watch <id> --exit-status`.
+**Merging.** An issue PR into a milestone branch: merge it yourself once every expected check in `gh pr checks <n>` is present and passing for the current head and base, all five review dimensions have converged, and the PR body lists the five review verdicts and every dropped and deferred finding; if a check is missing, or the PR's base was changed after its last CI run, push a new commit or ask the owner to re-run the workflow first. A PR into `main` (a milestone PR, or a change that belongs to no milestone): merge it yourself under the owner's standing authorization (`AGENTS.md`, Hard rules, D91), and only when the branch was vetted, tested and reviewed under the protocol (`pdm run verify` passed before the PR was opened, all five review dimensions converged) and every expected check passes under the check rule in `AGENTS.md` (CodeQL included, neutral only under its documented quirk). Its body lists the five review verdicts and every dropped and deferred finding of its own review, and for a milestone PR also the issue PR titles, every deferral collected from the issue PR bodies (blockers first) and every pending milestone edit; its title's type is the highest-impact type among those issue PR titles (`AGENTS.md`, step 11). In both cases: `gh pr merge <n> --match-head-commit <reviewed full sha> --squash --delete-branch --subject "<PR title>"`, the full SHA from `git rev-parse`, with no body (the map allows only this pinned form and denies `--body`, `-b` and `-F`: the squash message is blank, and a body would be parsed for releases). Count only the `pull_request` rows of `gh pr checks <n> --json name,event,bucket`; a base change means the PR was retargeted, not that its base branch got new commits. Re-read the PR immediately before; if its head, title or base changed after the checks and the review, they run again first. Then watch post-merge workflows with `gh run watch <id> --exit-status`.
 
 **Podman.** Run `pdm run agent-replay ensure-podman-stack` without asking when the local stack is needed. It does not authorize VM reset, removal, or volume deletion; if it fails, report.
 
