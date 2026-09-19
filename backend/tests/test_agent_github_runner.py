@@ -693,8 +693,7 @@ def test_an_edit_never_rewrites_a_list_it_could_not_read(
     tmp_path: Path, key: str, listed: object, edit: list[str]
 ) -> None:
     """A label or assignee edit sends the full list back; an entry it could not read,
-    or a null list, would be deleted from the issue, so it refuses
-    before any write."""
+    or a null list, would be deleted from the issue, so it refuses before any write."""
     current = {"number": 8, key: listed}
     calls: list[tuple[list[str], dict[str, object]]] = []
     runner = recording_runner([Result(0, json.dumps(current))], calls)
@@ -727,7 +726,7 @@ def test_an_edit_refuses_to_remove_a_label_the_issue_does_not_have(
 
 
 def test_an_edit_that_changes_no_list_does_not_need_one(tmp_path: Path) -> None:
-    """Only a label or assignee edit reads those lists; a title edit on an issue
+    """Only a label or assignee edit needs those lists; a title edit on an issue
     without them still goes through."""
     calls: list[tuple[list[str], dict[str, object]]] = []
     runner = recording_runner(
