@@ -288,11 +288,12 @@ but keep the five separate verdicts.
 
 **Review runs to convergence.** Address every verified finding and every reasonable
 suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
-finding becomes"). A dimension has converged when a full pass reports no unresolved verified
-finding and its suggestions are addressed. A converged dimension is excluded from later
-rounds unless a later fix touches what it reviews (a new test re-arms test validity, a
-new docstring re-arms comment accuracy, a new error path re-arms silent failures);
-re-run only the non-converged ones, on the fix range. There is no round ceiling,
+finding becomes"). A dimension has converged when a full pass reports no unresolved
+verified finding and its suggestions are addressed; a deferred finding counts as
+resolved only once the PR body lists it (step 3 below). A converged dimension is
+excluded from later rounds unless a later fix touches what it reviews (a new test
+re-arms test validity, a new docstring re-arms comment accuracy, a new error path
+re-arms silent failures); re-run only the non-converged ones, on the fix range. There is no round ceiling,
 and an existing PR is never rejected as too big. Size is decided when the work is
 planned: one issue or one coherent change per PR, with granularity balanced against the
 cost of a five-dimension review and the workflows every PR triggers (about seven
@@ -309,14 +310,16 @@ real, is fixed where it was found, and is filed at most once:
    together with the input or state that triggers it. One that cannot be verified is
    dropped, with a one-line reason in the PR body. Never file, fix or "harden against" an
    unverified finding.
-2. **Fix it in the PR that surfaced it.** That is the normal case, including for
-   findings in code the PR only touches in passing. On a milestone PR the fix still lands
-   through an issue branch and a PR into the milestone branch, never as a direct commit.
-3. **Defer only a major, out-of-scope finding**: one whose fix needs its own design, its
-   own tests and its own review, and does not belong to the issue's contract. Size alone
-   is not a reason, and neither is inconvenience. List every deferral in the PR body
-   with its issue number (for a finding added to an existing issue, the URL of the
-   comment), so the owner sees it.
+2. **Fix it where it was found**: in the issue PR that surfaced it, including for
+   findings in code the PR only touches in passing. A finding on a milestone PR is fixed
+   through an issue branch and a PR into the milestone branch, never as a direct commit;
+   that PR references the issue whose change the finding concerns.
+3. **Defer only a major, out-of-scope finding** (a blocker included): one whose fix needs
+   its own design, its own tests and its own review, and does not belong to the issue's
+   contract. Size alone is not a reason, and neither is inconvenience. List every
+   deferral in the PR body with its issue number (for a finding added to an existing
+   issue, the URL of the comment) and the sentence of the issue body that puts it out of
+   scope. A deferral missing from that list is unresolved.
 4. **Search before filing.** Read the open issues first. If one covers the same cause or
    the same code area, add the finding to that issue (a comment that records the
    finding; it changes no acceptance criterion until the owner folds it into the body).
@@ -326,9 +329,10 @@ real, is fixed where it was found, and is filed at most once:
 5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
    the order lives in the milestone description, and in a milestone without one the
    position is stated by dependency (what the issue blocks, what blocks it). Writing the
-   position into the milestone description is a milestone edit: propose it to the owner
-   with the deferral. "No milestone" is for epics and for collected minor work that
-   blocks nothing.
+   position into the milestone description is a milestone edit the owner confirms, so
+   until then the new issue's body states the proposed position and says it is pending.
+   The milestone PR body lists every such pending milestone edit. "No milestone" is for
+   epics and for collected minor work that blocks nothing.
 6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
    work planned later, or a milestone has grown past what can land), propose the
    reorganization to the owner with the reason. Moving issues between milestones,
@@ -337,8 +341,9 @@ real, is fixed where it was found, and is filed at most once:
 The `issue-steward` agent judges a finding by steps 1-6 on request and returns a verdict
 per finding (OpenCode: `.opencode/agent/issue-steward.md`; Claude Code:
 `.claude/agents/issue-steward.md`). It is read-only: the engineer makes the fix, writes
-the tracker and asks the owner. Use it when a review produced a finding you want to defer,
-or when the owner asks for a tracker pass; a finding you simply fix needs no steward.
+the tracker and asks the owner. Use it when a review produced a finding you want to
+defer, or when the owner asks for a tracker pass; a finding you simply fix needs no
+steward.
 
 ## Conventions
 
