@@ -47,6 +47,7 @@ _NEVER_ALLOWED = (
     "gh pr merge 12",
     "gh pr merge 12 --squash --delete-branch --subject x --admin",
     "gh pr merge 12 --auto --squash --delete-branch --subject x",
+    'gh pr merge 12 --squash --delete-branch --subject x --body "a $(id)"',
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",

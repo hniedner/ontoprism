@@ -507,7 +507,7 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
     unplaced = {
         **placed,
         "number": 9,
-        "title": "Epic",
+        "title": "Unlabelled",
         "milestone": None,
         "labels": None,
     }
@@ -540,7 +540,7 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
         },
         {
             "number": 9,
-            "title": "Epic",
+            "title": "Unlabelled",
             "state": "open",
             "created_at": "2026-09-01T10:00:00Z",
             "url": "https://example.invalid/7",
@@ -748,6 +748,24 @@ def test_an_edit_that_changes_no_list_does_not_need_one(tmp_path: Path) -> None:
         == 0
     )
     assert json.loads(str(calls[-1][1]["input"])) == {"title": "x"}
+
+
+def test_an_issue_view_leaves_out_a_list_github_did_not_send(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    issue = {"number": 4, "title": "x", "state": "open", "labels": None}
+    runner = recording_runner([Result(0, json.dumps(issue | {"assignees": None}))], [])
+
+    assert (
+        run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {
+        "number": 4,
+        "title": "x",
+        "state": "open",
+        "milestone": None,
+    }
 
 
 @pytest.mark.parametrize("assignees", ["a", {"login": "a"}, ["a"], [{"id": 1}]])
