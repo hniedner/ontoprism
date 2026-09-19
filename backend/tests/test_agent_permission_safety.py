@@ -65,6 +65,11 @@ _NEVER_ALLOWED = (
     "jq . ~/.config/gh/hosts.yml",
     "ls -la ~/.ssh",
     "ls -la /Users/hannes",
+    "ls -la ..",
+    "wc -l ..",
+    "git ls-files --exclude-from=/tmp/x",
+    "git ls-files --exclude-from=/var/x",
+    "git ls-files --exclude-from=..",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
     "xargs rm",

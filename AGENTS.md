@@ -29,19 +29,19 @@ For each issue:
 8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
    of record.**
 9. Review the PR in all five dimensions to convergence (see Review).
-10. When every check passes and all five dimensions have converged, squash-merge the
-    issue PR into the milestone branch and delete the issue branch. This merge does not
-    need the owner.
+10. When every check passes, all five dimensions have converged and the PR body lists
+    every dropped and deferred finding, squash-merge the issue PR into the milestone
+    branch and delete the issue branch. This merge does not need the owner.
 
 For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
     local merge is a prompted command for the agent; the owner approves it or does it),
     run `pdm run verify` once, and open the milestone PR to `main`. Its body lists every
-    deferral from the issue PRs (blockers first) and every milestone edit still pending
-    (see "What a finding becomes", step 5). Its review is an integration pass: what the
-    issue reviews could not see (interactions between issues, migrations in sequence,
-    the combined diff against `main`).
+    deferral collected from the issue PR bodies (blockers first) and every pending edit
+    to this milestone's description (see "What a finding becomes", step 5). Its review
+    is an integration pass: what the issue reviews could not see (interactions between
+    issues, migrations in sequence, the combined diff against `main`).
 12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
     completion before starting the next milestone.
 
@@ -295,12 +295,13 @@ verified finding and its suggestions are addressed; a deferred finding counts as
 resolved only once the PR body lists it (step 3 below). A converged dimension is
 excluded from later rounds unless a later fix touches what it reviews (a new test
 re-arms test validity, a new docstring re-arms comment accuracy, a new error path
-re-arms silent failures); re-run only the non-converged ones, on the fix range. There
-is no round ceiling, and an existing PR is never rejected as too big. Size is decided
-when the work is planned: one issue or one coherent change per PR, with granularity
+re-arms silent failures); re-run only the non-converged ones, on the fix range, and
+brief each re-run with its previous findings and the outcome of each. There is no
+round ceiling, and an existing PR is never rejected as too big. Size is decided when
+the work is planned: one issue or one coherent change per PR, with granularity
 balanced against the cost of a five-dimension review and the workflows every PR
-triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning time,
-not at review time.
+triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+time, not at review time.
 
 ### What a finding becomes
 
