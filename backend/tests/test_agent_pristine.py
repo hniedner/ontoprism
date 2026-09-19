@@ -6,6 +6,7 @@ import pytest
 from scripts.validation.run_agent_pristine import (
     AgentPristineInputError,
     run_agent_pristine,
+    scratch_directory,
 )
 
 if TYPE_CHECKING:
@@ -137,14 +138,48 @@ def test_a_second_save_cannot_overwrite_the_pristine_copy(tmp_path: Path) -> Non
     assert (root / "src" / "module.py").read_bytes() == b"value = 1\n"
 
 
-def test_discard_drops_a_leftover_copy_without_touching_the_file(
-    tmp_path: Path,
-) -> None:
+def test_discard_drops_a_copy_that_matches_the_file(tmp_path: Path) -> None:
+    root, scratch = _worktree(tmp_path)
+    run_agent_pristine(["save", "src/module.py"], root, scratch)
+
+    assert run_agent_pristine(["discard", "src/module.py"], root, scratch) == 0
+
+    assert run_agent_pristine(["save", "src/module.py"], root, scratch) == 0
+
+
+def test_discard_keeps_the_only_way_back_to_a_mutated_file(tmp_path: Path) -> None:
     root, scratch = _worktree(tmp_path)
     run_agent_pristine(["save", "src/module.py"], root, scratch)
     (root / "src" / "module.py").write_bytes(b"value = 3\n")
 
-    assert run_agent_pristine(["discard", "src/module.py"], root, scratch) == 0
+    with pytest.raises(AgentPristineInputError, match="differs from the saved copy"):
+        run_agent_pristine(["discard", "src/module.py"], root, scratch)
 
-    assert (root / "src" / "module.py").read_bytes() == b"value = 3\n"
+    run_agent_pristine(["restore", "src/module.py"], root, scratch)
+    assert (root / "src" / "module.py").read_bytes() == b"value = 1\n"
+
+
+def test_a_save_that_cannot_read_the_file_leaves_no_copy(tmp_path: Path) -> None:
+    """An empty copy left behind would later restore as an empty file."""
+    root, scratch = _worktree(tmp_path)
+    target = root / "src" / "module.py"
+    target.chmod(0o000)
+    try:
+        with pytest.raises(PermissionError):
+            run_agent_pristine(["save", "src/module.py"], root, scratch)
+    finally:
+        target.chmod(0o644)
+
+    assert not (scratch / "src" / "module.py").exists()
     assert run_agent_pristine(["save", "src/module.py"], root, scratch) == 0
+
+
+def test_each_checkout_gets_its_own_scratch_directory(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+
+    assert scratch_directory(tmp_path / "a" / "b_c", home) != scratch_directory(
+        tmp_path / "a_b" / "c", home
+    )
+    assert not scratch_directory(tmp_path / "a" / "b_c", home).is_relative_to(
+        tmp_path / "a"
+    )

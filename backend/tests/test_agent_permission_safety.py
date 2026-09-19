@@ -384,6 +384,7 @@ def test_the_issue_steward_never_writes_the_tracker(command: str) -> None:
     [
         ("pdm run agent-pristine save backend/src/backend/x.py", "allow"),
         ("pdm run agent-pristine restore backend/src/backend/x.py", "allow"),
+        ("pdm run agent-pristine discard backend/src/backend/x.py", "allow"),
         ("cp ~/.ssh/id_ed25519 tmp/k", "deny"),
         ("cp /Users/x/.ssh/id tmp/k", "deny"),
         ("cp backend/src/backend/x.py /private/tmp/x.py", "deny"),

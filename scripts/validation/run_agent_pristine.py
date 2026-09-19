@@ -36,8 +36,8 @@ def _worktree_file(root: Path, value: str, *, must_exist: bool) -> Path:
 def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
     """``save <path>`` copies a worktree file into ``scratch`` and refuses while a copy
     exists, so a mutation is never saved over the original; ``restore <path>`` writes
-    the saved bytes back and removes the copy; ``discard <path>`` removes a leftover
-    copy without touching the file."""
+    the saved bytes back and removes the copy; ``discard <path>`` removes a copy only
+    while the file still matches it, so it never drops the only way back."""
     root = root.resolve()
     scratch = scratch.resolve()
     if scratch == root or scratch.is_relative_to(root):
@@ -52,30 +52,46 @@ def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
     relative = _worktree_file(root, value, must_exist=operation == "save")
     saved = scratch / relative
     if operation == "save":
+        # read first: a copy created before a failed read would restore as empty
+        data = (root / relative).read_bytes()
         saved.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with saved.open("xb") as copy:
-                copy.write((root / relative).read_bytes())
+            copy = saved.open("xb")
         except FileExistsError as exc:
             raise AgentPristineInputError(
                 f"{relative} is already saved; restore or discard it first"
             ) from exc
+        try:
+            with copy:
+                copy.write(data)
+        except BaseException:
+            saved.unlink(missing_ok=True)
+            raise
         print(f"saved {relative}")
         return 0
     if not saved.is_file():
         raise AgentPristineInputError(f"no saved copy of {relative}")
+    target = root / relative
     if operation == "restore":
-        (root / relative).write_bytes(saved.read_bytes())
+        target.write_bytes(saved.read_bytes())
+    elif not target.is_file() or target.read_bytes() != saved.read_bytes():
+        raise AgentPristineInputError(
+            f"{relative} differs from the saved copy; restore it, or ask the owner"
+        )
     saved.unlink()
     print(f"{'restored' if operation == 'restore' else 'discarded'} {relative}")
     return 0
 
 
+def scratch_directory(root: Path, home: Path) -> Path:
+    """Per user, and per checkout: the directory mirrors the checkout's full path."""
+    root = root.resolve()
+    return home / ".cache" / "ontoprism-pristine" / root.relative_to(root.anchor)
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
-    # per user, and per checkout: the key is the checkout's full path
-    key = str(root).strip("/").replace("/", "_")
-    scratch = Path.home() / ".cache" / "ontoprism-pristine" / key
+    scratch = scratch_directory(root, Path.home())
     try:
         return run_agent_pristine(sys.argv[1:], root, scratch)
     except (AgentPristineInputError, OSError) as exc:

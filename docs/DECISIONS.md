@@ -37,11 +37,11 @@ body is empty and only the PR title drives releases. Merges pass no body. *(Adde
 2026-09-19, #401: merges go through `pdm run agent-github pr-merge`, which builds its
 own request, checks the PR's state, head, base and repository, and passes an empty
 commit message (the body stays empty while the squash message is `BLANK`); the head
-branch is removed once, by GitHub under `delete_branch_on_merge` or else by the wrapper;
-no agent map allows `gh pr merge`, which closes the wildcard gaps a permission pattern
-could not.)* Issue PR titles inside a milestone no longer reach the release, so a
-milestone PR takes the highest-impact type among its issue PR titles. D85's and D89's
-exact-PR-number requirement is superseded.
+branch is left to GitHub under `delete_branch_on_merge` (unconfirmed) or else deleted by
+the wrapper; no agent map allows `gh pr merge`, which closes the wildcard gaps a
+permission pattern could not.)* Issue PR titles inside a milestone no longer reach the
+release, so a milestone PR takes the highest-impact type among its issue PR titles.
+D85's and D89's exact-PR-number requirement is superseded.
 
 **Why.** The protocol is what makes a merge safe; the per-PR question only repeated an
 answer the owner had already given.

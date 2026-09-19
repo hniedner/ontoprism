@@ -1359,7 +1359,7 @@ _MERGED = "a" * 40
 
 
 @pytest.mark.parametrize(
-    ("repository", "tail", "deleted_by"),
+    ("repository", "tail", "deletion"),
     [
         (_REPO_DELETES, [], "github"),
         (_REPO_KEEPS, [Result(0, "")], "wrapper"),
@@ -1370,7 +1370,7 @@ def test_pr_merge_squashes_the_reviewed_head_and_removes_the_branch_once(
     capsys: pytest.CaptureFixture[str],
     repository: str,
     tail: list[Result],
-    deleted_by: str,
+    deletion: str,
 ) -> None:
     """The merge is pinned to the reviewed head, titled from GitHub with the PR number,
     carries no body, and removes the head branch exactly once: by GitHub when the
@@ -1396,7 +1396,7 @@ def test_pr_merge_squashes_the_reviewed_head_and_removes_the_branch_once(
         ["GET", "repos/hniedner/ontoprism/pulls/12"],
         ["GET", "repos/hniedner/ontoprism"],
         ["PUT", "repos/hniedner/ontoprism/pulls/12/merge"],
-        *(deletes if deleted_by == "wrapper" else []),
+        *(deletes if deletion == "wrapper" else []),
     ]
     assert json.loads(str(calls[2][1]["input"])) == {
         "merge_method": "squash",
@@ -1405,7 +1405,7 @@ def test_pr_merge_squashes_the_reviewed_head_and_removes_the_branch_once(
         "commit_message": "",
     }
     assert json.loads(capsys.readouterr().out) == {
-        "branch_deleted_by": deleted_by,
+        "branch_deletion": deletion,
         "merge_commit": _MERGED,
         "number": 12,
     }
@@ -1526,6 +1526,22 @@ def test_pr_merge_keeps_the_branch_when_github_did_not_merge(tmp_path: Path) -> 
         run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
 
     assert [call[0][3] for call in calls] == ["GET", "GET", "PUT"]
+
+
+def test_a_merge_without_a_readable_commit_is_not_called_unmerged(
+    tmp_path: Path,
+) -> None:
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, _REPO_KEEPS),
+            Result(0, json.dumps({"merged": True, "sha": "short"})),
+        ],
+        [],
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="merged #12, but"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
 
 
 def test_only_a_deletion_may_answer_with_an_empty_body(tmp_path: Path) -> None:

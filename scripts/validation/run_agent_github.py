@@ -926,8 +926,9 @@ def _pr_merge(
     arguments: list[str], root: Path, runner: CommandRunner
 ) -> dict[str, object]:
     """Squash-merge the reviewed head of an open PR into its expected base, titled
-    ``<PR title> (#<n>)`` with an empty body, and remove the head branch once: GitHub
-    does it when the repository deletes merged branches, otherwise the wrapper does.
+    ``<PR title> (#<n>)`` with an empty body. The head branch is left to GitHub when
+    the repository deletes merged branches (the wrapper does not confirm it), and is
+    deleted by the wrapper otherwise.
     Every check runs before the first write, and GitHub itself refuses the merge if the
     head moved after the check. Once merged, the result always names the merge
     commit."""
@@ -953,23 +954,23 @@ def _pr_merge(
             "commit_message": "",
         },
     )
-    merge_commit = result.get("sha") if isinstance(result, dict) else None
-    if (
-        not isinstance(result, dict)
-        or result.get("merged") is not True
-        or not isinstance(merge_commit, str)
-        or FULL_SHA.fullmatch(merge_commit) is None
-    ):
+    if not isinstance(result, dict) or result.get("merged") is not True:
         raise AgentGitHubProcessError(
             f"GitHub did not merge #{number}; inspect the repository before retrying"
         )
+    merge_commit = result.get("sha")
+    if not isinstance(merge_commit, str) or FULL_SHA.fullmatch(merge_commit) is None:
+        raise AgentGitHubProcessError(
+            f"GitHub merged #{number}, but its merge commit is unreadable; do not "
+            "retry the merge, read it with gh pr view"
+        )
     if github_deletes:
-        # GitHub removes the branch itself, and keeps it while other PRs target it;
-        # a second DELETE would race that and fail on a merge that succeeded
+        # GitHub removes the branch itself (unless a protection rule or ruleset stops
+        # it); a second DELETE would race that and fail on a merge that succeeded
         return {
             "number": number,
             "merge_commit": merge_commit,
-            "branch_deleted_by": "github",
+            "branch_deletion": "github",
         }
     try:
         _api(
@@ -980,13 +981,13 @@ def _pr_merge(
         )
     except AgentGitHubProcessError as exc:
         raise AgentGitHubProcessError(
-            f"merged #{number} as {merge_commit}; deleting {head_ref} failed, so "
-            "delete it by hand; do not retry the merge"
+            f"merged #{number} as {merge_commit}; deleting {head_ref} failed, so ask "
+            "the owner to delete it; do not retry the merge"
         ) from exc
     return {
         "number": number,
         "merge_commit": merge_commit,
-        "branch_deleted_by": "wrapper",
+        "branch_deletion": "wrapper",
     }
 
 
