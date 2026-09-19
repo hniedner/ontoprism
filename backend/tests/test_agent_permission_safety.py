@@ -61,6 +61,14 @@ _NEVER_ALLOWED = (
     f'{_MERGE} -b"fix: y"',
     f"{_MERGE} -b=fix",
     f"{_MERGE} -F notes.md",
+    # an empty pin sends no head check; gh drops an empty --match-head-commit
+    'gh pr merge 12 --match-head-commit "" --squash --delete-branch --subject x',
+    "gh pr merge 12 --match-head-commit '' --squash --delete-branch --subject x",
+    f"{_MERGE} --match-head-commit=",
+    f'{_MERGE} --match-head-commit ""',
+    # the standing authorization covers this repository's PRs only
+    f"{_MERGE} -R other/repo",
+    f"{_MERGE} --repo other/repo",
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",

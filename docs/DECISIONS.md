@@ -25,16 +25,17 @@ expected check passes for the current head and base under the check rule in `AGE
 If either condition fails, the authorization does not apply. A changed head, title or
 base means the checks and the review run again, not that the owner is asked again; the
 merge pins the reviewed head with `--match-head-commit`. A base change means the PR was
-retargeted; new commits on `main` (the release and README bot commits) do not void a
-run. `--admin`, auto-merge and merge queues stay forbidden. GitHub does not yet enforce
-required checks on `main` (#405); until it does, the check rule is kept by the agent.
+retargeted; new commits on `main` do not void a run, unless another PR merged into it
+after the run. `--admin`, auto-merge and merge queues stay forbidden. GitHub does not
+yet enforce required checks on `main` (#405); until it does, the check rule is kept by
+the agent.
 
 The repository's squash message was set to `BLANK` on 2026-09-19, so a squash commit's
 body is empty and only the PR title drives releases. Merges pass no `--body`, and the
-OpenCode map denies `--body`, `-b` and `-F` (bundled short flags are #401). Issue PR
-titles inside a milestone no longer reach the release, so a milestone PR takes the
-highest-impact type among its issue PR titles. D85's and D89's exact-PR-number
-requirement is superseded.
+OpenCode map denies `--body`, `-b`, `-F`, an empty pin and `-R`/`--repo` (other wildcard
+gaps are #401). Issue PR titles inside a milestone no longer reach the release, so a
+milestone PR takes the highest-impact type among its issue PR titles. D85's and D89's
+exact-PR-number requirement is superseded.
 
 **Why.** The protocol is what makes a merge safe; the per-PR question only repeated an
 answer the owner had already given.

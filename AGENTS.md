@@ -39,11 +39,13 @@ For the milestone:
 11. When all its issues are merged, bring current `main` into the milestone branch (a
     local merge is a prompted command for the agent, for OpenCode
     `pdm run agent-git merge-no-ff <branch>`, which merges the local branch, so update
-    local `main` first; the owner approves it or does it), run `pdm run verify` once,
+    local `main` first with `git fetch origin main:main`, also prompted; the owner
+    approves it or does it), run `pdm run verify` once,
     and open the milestone PR to `main`. Its title's type is the highest-impact type
-    among its issue PR titles (`feat` > `fix` or `perf` > any other), and a breaking
-    marker (`!` or `BREAKING CHANGE`) on any of them carries over, because only this
-    title reaches the release (see Conventions). Its body
+    among its issue PR titles (`feat` > `fix` or `perf` > any other), and a `!` on any
+    of them carries over (a `BREAKING CHANGE:` footer cannot reach the release, because
+    the squash body is blank), because only this title reaches the release (see
+    Conventions). Its body
     lists the issue PR titles, the five review verdicts, every deferral collected from
     the issue PR bodies (blockers first) and every pending edit to this milestone's
     description (see "What a finding becomes", step 5). Its review
@@ -82,23 +84,26 @@ Start a new agent session for each issue. Do not carry one context across days o
 - **Never merge any PR, into `main` or a milestone branch, unless every expected check
   in `gh pr checks <n>` is present and passing for the current head and base (or skipped
   by a documented path filter); a check that is absent, or a run made before the PR's
-  base was changed, does not count, so get a fresh run first.** A base change means the
-  PR was retargeted to another branch; new commits on the base branch (such as the
-  release and README bot commits on `main`) do not void a run. Count the rows whose
-  event is `pull_request` (`gh pr checks <n> --json name,event,bucket`): a milestone
-  branch also shows `push` rows under the same names. On a PR into `main`, `CI summary`,
-  `quality (pre-commit parity)`, `conventional commit subject`, `dependency review` and
-  `CodeQL` are always expected, and so are CodeQL's `Analyze` jobs except under the
-  known quirk below; if one is missing, CI did not run fully. Merge with `gh pr merge
-  <n> --match-head-commit <reviewed full sha> --squash --delete-branch --subject "<PR
-  title>"` (the full SHA from `git rev-parse`): no `--body`, and GitHub refuses the
-  merge if the head moved. Never `--admin`, auto-merge, or a queue. Re-read the PR just
-  before merging; if its head, title or base changed after the checks and the review,
-  they run again first. Known quirk: PRs touching only dependency manifests or workflows
-  show the aggregate `CodeQL` check as neutral with no `Analyze` jobs; that is expected
-  for those PRs only. CodeQL runs on `main` and on PRs into `main`, not on PRs into a
-  milestone branch, so a milestone PR is the first place it reports on the milestone's
-  code.
+  base was changed, does not count, so get a fresh run first.**
+  A base change means the PR was retargeted to another branch; after a retarget, push a
+  new commit before counting checks. New commits on the base branch do not void a run,
+  with one exception: if another PR merged into the base after the run, bring the base
+  in again (step 11) and get a fresh run. Ignore the rows whose event is `push` (`gh pr
+  checks <n> --json name,event,bucket`): a milestone branch also shows push rows under
+  the same names, while CodeQL's aggregate row has an empty event and its `Analyze` jobs
+  show `dynamic`. On a PR into `main`, `CI summary`, `quality (pre-commit parity)`,
+  `conventional commit subject`, `dependency review` and `CodeQL` are always expected,
+  and so are CodeQL's `Analyze` jobs except under the known quirk below; if one is
+  missing, CI did not run fully. Merge with this command, where `<sha>` is the full
+  reviewed head SHA from `git rev-parse` (GitHub refuses the merge if the head moved)
+  and no body is passed:
+  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title>"`
+  Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
+  head, title or base changed after the checks and the review, they run again first.
+  Known quirk: PRs touching only dependency manifests or workflows show the aggregate
+  `CodeQL` check as neutral with no `Analyze` jobs; that is expected for those PRs only.
+  CodeQL runs on `main` and on PRs into `main`, not on PRs into a milestone branch, so a
+  milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -384,8 +389,9 @@ steward.
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title, and its body is empty because the repository's squash
   message is `BLANK` (D91). A `--body` on the merge would be parsed too, so pass none
-  (the OpenCode map allows only the pinned squash form and denies `--body`, `-b` and
-  `-F`; bundled short flags are #401). Issue PR titles inside a milestone do not reach the
+  (the OpenCode map allows only the pinned squash form and denies `--body`, `-b`, `-F`,
+  an empty pin and `-R`/`--repo`; other wildcard gaps, such as bundled short flags, are
+  #401). Issue PR titles inside a milestone do not reach the
   release; the milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
