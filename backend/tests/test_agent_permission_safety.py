@@ -541,6 +541,8 @@ def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
     assert not executed
     assert result.returncode != 0
     assert "syntax error" in result.stderr
+    # bash names where it parsed the command: -c for the tool, eval for the ! path
+    assert ("eval: line" in result.stderr) == (form == "user-shell"), result.stderr
 
 
 def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
