@@ -19,6 +19,266 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.25.0 (2026-09-19)
+
+### Bug Fixes
+
+- **decomposition**: Claim only that a failed dry run left the resumed run unmodified
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Compare the completion recount by count name
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Drop a tautological assertion; say which D90 gap a later record can cover
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Dry-run the group-policy concepts before a run is admitted
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Guard failure records and seal the publication stage on a finalization error
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Guard the residual-filler record and seal the stage on a finalization error
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Keep run identities stable and make the rehearsal self-describing
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Keep the partial-results warning when invalidation is interrupted
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Let a cancellation during a failure record propagate
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Mark every cut in a stored failure account
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Name the counts a completion recount disagrees on
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Persist the notes and cause of a failure with its message
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Point the closure budget note at the real file
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Raise a run-id collision instead of refusing it as an active run
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Reclaim orphaned work items on the first resume after a hard kill
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Record a stage failure without letting the record replace it
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Recount the completion metrics before the public graph is replaced
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Refuse a spent preflight closure budget as a worklist problem
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Refuse admission only for its own uniqueness conflicts
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Refuse an exceeded preflight closure budget as a worklist problem
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Report a rehearsal as not resumable; bring D90 in line with stored failure
+  accounts ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Say that a dry-run failure left the run untouched
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Serialise the rehearsal nonce only when present
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: State exactly where the closure budget ran out and where it lives
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: State only what an interrupted invalidation can know
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Store the whole cause chain and keep each line's label
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Tell a preflight's own output apart from an earlier attempt's
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+### Build System
+
+- Bump the frontend-minor-patch group across 1 directory with 8 updates
+  ([`b77bf0e`](https://github.com/hniedner/ontoprism/commit/b77bf0ec14b62e224895e934c5c30a481b043498))
+
+### Continuous Integration
+
+- Bump the github-actions group across 1 directory with 3 updates
+  ([`4c8b038`](https://github.com/hniedner/ontoprism/commit/4c8b038e9d135596709bd6ea0411715cb7df86ec))
+
+### Documentation
+
+- Update README code line-count table
+  ([`08d5d1b`](https://github.com/hniedner/ontoprism/commit/08d5d1b999ac5e9230a475927eb411f1804ad716))
+
+- Update README code line-count table
+  ([`1e44b08`](https://github.com/hniedner/ontoprism/commit/1e44b08429ac39ebaa470070c0838c8f3d8047f3))
+
+- **decisions**: Name the records D90 leaves unrecovered
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decisions**: Record why publication shields its failure record and the run does not
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Hedge what an abandoned failure record leaves behind
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Name the note a cancelled failure write leaves
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Name the reset, not a takeover, in the reopen helper
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Point the failure-journal docstring at D90
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Say that a restored preflight stage ignores the new result
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Say the failure account marks a chain cut short
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Say why a run-id collision belongs to another execution
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: The inventory check applies only when the config names one
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+### Features
+
+- **decomposition**: Make full-corpus runs fail early and keep their failure records (M1.6.1, part
+  1) ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Preflight full runs on a bounded sample
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Rehearse the stratified SME sample as a throwaway run
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+### Refactoring
+
+- **decomposition**: A prepared run always has its preflighted worklist
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Reopen a resumed run through one helper
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Seal the preflight computed before admission, with no recompute fallback
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+### Testing
+
+- **ci**: Record the reviewed upload-sarif pin for v4.38.0
+  ([`4c8b038`](https://github.com/hniedner/ontoprism/commit/4c8b038e9d135596709bd6ea0411715cb7df86ec))
+
+- **decomposition**: A work-item failure cut at the column bound ends in an ellipsis
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Assert the run outcome after a failed stage record
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Check the restored preflight, not the one passed in
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Drop the stray unit mark from the run-twice helper
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Name the drifted metrics for what they claim
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Observe that a resumed failed run is claimable again
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Pin the 300-character floor and the 200-character line cap
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Pin the inspected rehearsal flag against persisted fingerprints
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Pin the rehearsal scope check, nonce carry-over and temp output
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Pin the rejection of an inventory bound to another source
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Promise only what the resumed-recount test enforces
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Say what the label and the lookup each contribute
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: Seal a faithful metrics stage in the resumed-recount test
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+- **decomposition**: The dry run judges the labelled decomposition the work item produces
+  ([#390](https://github.com/hniedner/ontoprism/pull/390),
+  [`ea455e9`](https://github.com/hniedner/ontoprism/commit/ea455e9ee38715d20fc7f8b40c7ae64d1470b8a0))
+
+
 ## v0.24.3 (2026-09-18)
 
 ### Bug Fixes
