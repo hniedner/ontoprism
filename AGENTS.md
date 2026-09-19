@@ -55,17 +55,18 @@ For the milestone:
     (post-merge watch, below) before starting the next milestone.
 
 **Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
-full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
-`gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
-to ten times, about a minute apart (the OpenCode primary waits with `sleep 60`; other
-harnesses use their own bounded wait). A short SHA matches nothing; never take the
-newest run on the branch instead. If no run appears by then, that is a failure. Watch
-the run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh
-run view <id> --json conclusion` says `cancelled` and a newer push run exists on the
-branch (`cancel-in-progress` cancels a run when another merge follows); then watch that
-newer run, which tests the combined tree, and repeat. On a failure, stop: do not start
-the next issue or milestone, report it to the owner, and fix the cause through an issue
-PR ("What a finding becomes"). The agent does not judge whether a merge into `main`
+full merge SHA that `pdm run agent-github pr-merge` prints (`merge_commit`), or from `gh
+pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll `gh run list --workflow
+CI --event push --commit <sha> --json databaseId,conclusion` up to ten times, about a
+minute apart (the OpenCode primary waits with `sleep 60`; other harnesses use their own
+bounded wait). A short SHA matches nothing; never take the newest run on the branch
+instead. If no run appears by then, that is a failure. Watch the run with `gh run watch
+<id> --exit-status`. A non-zero exit is a failure unless `gh run view <id> --json
+conclusion` says `cancelled` and a newer push run exists on the branch
+(`cancel-in-progress` cancels a run when another merge follows); then watch that newer
+run, which tests the combined tree, and repeat. On a failure, stop: do not start the
+next issue or milestone, report it to the owner, and fix the cause through an issue PR
+("What a finding becomes"). The agent does not judge whether a merge into `main`
 produced a release: the `Release` guard can hand a release to a newer merge, so that
 cannot be read reliably from outside `release.yml`, and making a lost release visible is
 tracked in #131.
@@ -113,10 +114,17 @@ Start a new agent session for each issue. Do not carry one context across days o
   summary`, `quality (pre-commit parity)`, `conventional commit subject` and `dependency
   review` are always expected; on a PR into `main`, so are `CodeQL` and its `Analyze`
   jobs, except under the known quirk below. If one is missing, CI did not run fully.
-  Merge with this command, where `<sha>` is the full reviewed head SHA from `git
-  rev-parse` (GitHub refuses the merge if the head moved) and no body is passed:
-  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title> (#<n>)"`
-  The `(#<n>)` suffix keeps the PR number in the log, as GitHub's default subject does.
+  Merge only with `pdm run agent-github pr-merge <n> --head <sha> --base <branch>`,
+  where `<sha>` is the full reviewed head SHA from `git rev-parse` and `<branch>` the
+  base recorded when the review converged. The wrapper refuses a PR that is not open,
+  comes from another repository, or whose head or base differ; squash-merges pinned to
+  `<sha>` (GitHub refuses the merge if the head moved) with the subject `<PR title>
+  (#<n>)`, which keeps the PR number in the log, and an empty body; and prints the merge
+  commit for the post-merge watch (after a merge whose branch deletion failed, the merge
+  commit is in the error message). The head branch is left to GitHub while the
+  repository's `delete_branch_on_merge` setting is on (the wrapper does not confirm the
+  deletion), and deleted by the wrapper otherwise. Never run `gh pr merge` in any
+  harness; the OpenCode maps deny it.
   Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
   head, title or base changed after the checks and the review, they run again first.
   Known quirk: PRs touching only dependency manifests or workflows show the aggregate
@@ -407,11 +415,9 @@ steward.
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title with ` (#<n>)` appended, and its body is empty because the
-  repository's squash message is `BLANK` (D91). A `--body` on the merge would be parsed
-  too, so pass none (the OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin
-  and `-R`/`--repo` after its pinned allow row, but its wildcards still admit bundled
-  short flags, a value flag that swallows the pin and a PR URL; the merge wrapper in
-  #401 closes them). Issue PR titles inside a milestone do not reach the release; the
+  repository's squash message is `BLANK` (D91). A merge body would be parsed too;
+  `pdm run agent-github pr-merge` passes none, and no agent map allows `gh pr merge`.
+  Issue PR titles inside a milestone do not reach the release; the
   milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
