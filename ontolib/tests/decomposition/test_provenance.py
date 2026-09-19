@@ -1681,3 +1681,131 @@ def test_run_summary_marks_rehearsal_rows() -> None:
     without_column = {k: v for k, v in row(True).items() if k != "rehearsal"}
     with pytest.raises(KeyError, match="rehearsal"):
         ProvenanceStore._row_to_run(without_column)
+
+
+@pytest.mark.unit
+def test_a_stored_failure_keeps_the_notes_added_after_a_double_fault() -> None:
+    """A failure record that also failed leaves its account only as a note."""
+    error = RuntimeError("worker lost")
+    error.add_note("Recording the run failure also failed: OSError: disk full")
+
+    assert provenance_module._bounded_failure(error) == (
+        "RuntimeError",
+        "worker lost\nRecording the run failure also failed: OSError: disk full",
+    )
+
+
+@pytest.mark.unit
+def test_a_stored_cancellation_keeps_the_account_of_the_failure_it_interrupted() -> (
+    None
+):
+    """A cancellation during a failure record is stored instead of that failure; the
+    interrupted failure and the notes on it are stored through the cause."""
+    failure = ValueError("source identity drifted")
+    failure.add_note("Recording the work-item failure also failed: OSError: disk full")
+    cancellation = asyncio.CancelledError()
+    cancellation.add_note(
+        "Cancelled while recording the run failure: ValueError: source identity drifted"
+    )
+    cancellation.__cause__ = failure
+
+    assert provenance_module._bounded_failure(cancellation) == (
+        "CancelledError",
+        "CancelledError"
+        "\nCancelled while recording the run failure: ValueError: source identity "
+        "drifted"
+        "\ncaused by ValueError: source identity drifted"
+        "\nRecording the work-item failure also failed: OSError: disk full",
+    )
+
+
+@pytest.mark.unit
+def test_a_second_cancellation_still_names_the_original_failure() -> None:
+    failure = ValueError("source identity drifted")
+    first = asyncio.CancelledError()
+    first.__cause__ = failure
+    second = asyncio.CancelledError()
+    second.__cause__ = first
+
+    _, message = provenance_module._bounded_failure(second)
+
+    assert message.endswith(
+        "\ncaused by CancelledError: \ncaused by ValueError: source identity drifted"
+    )
+
+
+@pytest.mark.unit
+def test_a_cause_chain_that_loops_is_rendered_once() -> None:
+    error = RuntimeError("a")
+    other = RuntimeError("b")
+    error.__cause__ = other
+    other.__cause__ = error
+
+    assert provenance_module._bounded_failure(error) == (
+        "RuntimeError",
+        "a\ncaused by RuntimeError: b",
+    )
+
+
+@pytest.mark.unit
+def test_a_long_note_keeps_its_label_and_the_error_keeps_its_start() -> None:
+    """A database error's text can run past the whole column; its label and the
+    error's own start are what an operator reads."""
+    error = RuntimeError("worker lost " + "y" * 2000)
+    error.add_note(
+        "Recording the stage failure also failed: OperationalError " + "z" * 1100
+    )
+    error.__cause__ = KeyError("C1")
+
+    error_type, message = provenance_module._bounded_failure(error)
+
+    assert error_type == "RuntimeError"
+    assert len(message) <= 1000
+    assert message.startswith("worker lost ")
+    assert "\nRecording the stage failure also failed: OperationalError" in message
+    assert "\ncaused by KeyError: 'C1'" in message
+    assert "\u2026\nRecording the stage failure also failed" in message
+
+
+@pytest.mark.unit
+def test_a_cause_chain_cut_at_its_depth_bound_says_so() -> None:
+    error = RuntimeError("top")
+    link = error
+    for depth in range(7):
+        link.__cause__ = RuntimeError(f"cause {depth}")
+        link = link.__cause__
+
+    _, message = provenance_module._bounded_failure(error)
+
+    assert "\ncaused by RuntimeError: cause 4\n" in message
+    assert "cause 5" not in message
+    assert message.endswith("\n\u2026 (further causes omitted)")
+
+
+@pytest.mark.unit
+def test_an_account_cut_at_the_column_bound_ends_in_an_ellipsis() -> None:
+    error = RuntimeError("stopped")
+    for index in range(6):
+        error.add_note(f"note {index} " + "n" * 300)
+
+    _, message = provenance_module._bounded_failure(error)
+
+    assert len(message) == 1000
+    assert message.startswith("stopped\nnote 0 ")
+    assert message.endswith("\u2026")
+
+
+@pytest.mark.unit
+def test_a_crowded_failure_keeps_300_characters_of_itself_and_200_per_line() -> None:
+    error = RuntimeError("o" * 2000)
+    for index in range(4):
+        error.add_note(f"note {index} " + "n" * 300)
+
+    _, message = provenance_module._bounded_failure(error)
+    own, *account = message.split("\n")
+
+    assert len(message) == 1000
+    assert len(own) == 300
+    assert own.endswith("\u2026")
+    assert [len(line) for line in account[:3]] == [200, 200, 200]
+    assert all(line.endswith("\u2026") for line in account)

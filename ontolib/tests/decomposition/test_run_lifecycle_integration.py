@@ -825,7 +825,7 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         assert dict(row) == {
             "state": "failed",
             "error_type": "RuntimeError",
-            "error_message": "x" * 1000,
+            "error_message": "x" * 999 + "\u2026",
         }
         assert constituent_count == 0
 
@@ -1081,6 +1081,33 @@ async def test_finish_and_resume_reject_invalid_run_identity_or_state() -> None:
                 "missing-run",
                 RunResumeIdentity.from_fingerprint(_fingerprint()),
             )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_a_failed_run_keeps_the_account_of_its_failed_failure_record() -> None:
+    """The column check allows 1000 characters; the note and the cause must fit."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    error = RuntimeError("x" * 2000)
+    error.add_note("Recording the stage failure also failed: OSError: disk full")
+    error.__cause__ = ValueError("source identity drifted")
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        assert await store.fail_run(run_id, error) is True
+        conn = await asyncpg.connect(_dsn())
+        try:
+            stored = await conn.fetchval(
+                "SELECT error_message FROM decomp_run WHERE id = $1", run_id
+            )
+        finally:
+            await conn.close()
+        assert stored.endswith(
+            "\nRecording the stage failure also failed: OSError: disk full"
+            "\ncaused by ValueError: source identity drifted"
+        )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
