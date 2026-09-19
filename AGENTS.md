@@ -71,7 +71,9 @@ Start a new agent session for each issue. Do not carry one context across days o
   title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
   title or base changed since authorization, ask again. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
-  `Analyze` jobs; that is expected for those PRs only.
+  `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
+  into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
+  it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -87,8 +89,8 @@ instead of improving the product.
   them.** Do not post "amendment" comments that alter scope. If you think the criteria
   are wrong, stop and ask.
 - **Newly discovered work never widens the current issue's acceptance criteria.** What it
-  becomes (a fix in the same PR, a line on an existing issue, a new issue) is decided by
-  "What a finding becomes" under Review. Ask before treating it as a prerequisite.
+  becomes (a fix in the same PR, a comment on an existing issue, a new issue) is decided
+  by "What a finding becomes" under Review. Ask before treating it as a prerequisite.
 - **Do not build machinery to certify your own work.** No content hashes of source files,
   git HEAD, or worktree state inside data or evidence files. No committed derived files
   that must be regenerated after an unrelated edit. No tests that assert the wording of
@@ -111,7 +113,8 @@ instead of improving the product.
 - A factual claim about state (a count, a status, a digest, "tests pass", "file exists")
   comes from a command you ran in this session. Otherwise say "not verified".
 - Never restate a number or hash from memory or from an earlier document.
-- `tmp/` is gitignored: search it with `rg --no-ignore`, or a present file looks absent.
+- `tmp/` is gitignored: search it with `rg --no-ignore` (the OpenCode primary has no
+  `rg`; read the path directly), or a present file looks absent.
 - A plan step names its inputs, and you have checked each input exists.
 - Dry-run the downstream path before asking a person for a sign-off.
 
@@ -352,8 +355,12 @@ steward.
 
 ## Conventions
 
-- PR titles are Conventional Commits; CI enforces it and releases derive versions from
-  them (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18).
+- PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
+  squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
+  its subject is the PR title, and while the repository's squash message is
+  `COMMIT_MESSAGES` every conventional line of its body counts too. Merge a PR whose
+  commits carry `feat:`, `fix:` or `perf:` lines with an explicit prose `--body` unless
+  those lines should cut a release.
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.

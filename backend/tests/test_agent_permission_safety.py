@@ -47,6 +47,7 @@ _NEVER_ALLOWED = (
     "gh pr merge 12",
     "gh pr merge 12 --squash --delete-branch --subject x --admin",
     "gh pr merge 12 --auto --squash --delete-branch --subject x",
+    'gh pr merge 12 --squash --delete-branch --subject x --body "a $(id)"',
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",
@@ -239,6 +240,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
         "gh pr merge 12 --squash --delete-branch --subject x",
+        'gh pr merge 12 --squash --delete-branch --subject "chore(x): y" '
+        '--body "Lands the R0 work, see the PR."',
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(
@@ -321,6 +324,7 @@ def test_the_issue_steward_cannot_edit_or_delegate() -> None:
     [
         "pdm run agent-github-read issue-list --state open",
         "pdm run agent-github-read issue-view 398",
+        "pdm run agent-github-read issue-comments 398",
         "pdm run agent-github-read milestone-list --state open",
         "pdm run agent-test backend/tests/test_x.py::test_y -v",
     ],

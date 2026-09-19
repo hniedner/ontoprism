@@ -501,9 +501,16 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
         "created_at": "2026-09-01T10:00:00Z",
         "html_url": "https://example.invalid/7",
         "milestone": milestone,
+        "labels": [{"name": "epic", "color": "ededed"}],
         "user": {"token": "must-not-leak"},
     }
-    unplaced = {**placed, "number": 9, "title": "Epic", "milestone": None}
+    unplaced = {
+        **placed,
+        "number": 9,
+        "title": "Unlabelled",
+        "milestone": None,
+        "labels": None,
+    }
 
     for operation, items in (
         ("issue-list", [placed, unplaced]),
@@ -524,6 +531,7 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
             "state": "open",
             "created_at": "2026-09-01T10:00:00Z",
             "url": "https://example.invalid/7",
+            "labels": ["epic"],
             "milestone": {
                 "number": 16,
                 "title": "R0",
@@ -532,7 +540,7 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
         },
         {
             "number": 9,
-            "title": "Epic",
+            "title": "Unlabelled",
             "state": "open",
             "created_at": "2026-09-01T10:00:00Z",
             "url": "https://example.invalid/7",
@@ -653,6 +661,122 @@ def test_a_list_read_asks_github_for_the_requested_state(
     )
 
     assert f"state={state}" in calls[0][0]
+
+
+@pytest.mark.parametrize("operation", [["issue-list"], ["issue-view", "4"]])
+@pytest.mark.parametrize(
+    "labels", ["epic", {"name": "epic"}, ["epic"], [{"color": "x"}]]
+)
+def test_an_issue_whose_labels_are_malformed_is_refused(
+    tmp_path: Path, labels: object, operation: list[str]
+) -> None:
+    """A dropped label would make an epic look like an ordinary issue to the steward;
+    malformed source data fails closed instead, naming the issue."""
+    issue = {"number": 4, "title": "x", "state": "open", "labels": labels}
+    payload = [[issue]] if operation[0] == "issue-list" else issue
+    runner = recording_runner([Result(0, json.dumps(payload))], [])
+
+    with pytest.raises(AgentGitHubProcessError, match="issue 4 labels are invalid"):
+        run_agent_github(operation, tmp_path, read_only=True, runner=runner)
+
+
+@pytest.mark.parametrize(
+    ("key", "listed", "edit"),
+    [
+        ("labels", [{"name": "epic"}, {"color": "x"}], ["--remove-label", "epic"]),
+        ("labels", None, ["--add-label", "bug"]),
+        ("assignees", [{"login": "a"}, {"id": 1}], ["--remove-assignee", "a"]),
+        ("assignees", None, ["--add-assignee", "octocat"]),
+    ],
+)
+def test_an_edit_never_rewrites_a_list_it_could_not_read(
+    tmp_path: Path, key: str, listed: object, edit: list[str]
+) -> None:
+    """A label or assignee edit sends the full list back; an entry it could not read,
+    or a null list, would be deleted from the issue, so it refuses before any write."""
+    current = {"number": 8, key: listed}
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(current))], calls)
+
+    with pytest.raises(AgentGitHubProcessError, match=f"issue 8 {key} are invalid"):
+        run_agent_github(
+            ["issue-edit", "8", *edit], tmp_path, read_only=False, runner=runner
+        )
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+def test_an_edit_refuses_to_remove_a_label_the_issue_does_not_have(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, '{"number":8,"labels":[{"name":"a"}],"assignees":[]}')], calls
+    )
+
+    with pytest.raises(AgentGitHubInputError, match="label absent from the issue"):
+        run_agent_github(
+            ["issue-edit", "8", "--remove-label", "b"],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+def test_an_edit_that_changes_no_list_does_not_need_one(tmp_path: Path) -> None:
+    """Only a label or assignee edit needs those lists; a title edit on an issue
+    without them still goes through."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, '{"number":8,"labels":null,"assignees":null}'),
+            Result(0, "[[]]"),
+            Result(0, '{"html_url":"https://example.invalid/8","number":8}'),
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            ["issue-edit", "8", "--title", "x"],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+        == 0
+    )
+    assert json.loads(str(calls[-1][1]["input"])) == {"title": "x"}
+
+
+def test_an_issue_view_leaves_out_a_list_github_did_not_send(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    issue = {"number": 4, "title": "x", "state": "open", "labels": None}
+    runner = recording_runner([Result(0, json.dumps(issue))], [])
+
+    assert (
+        run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {
+        "number": 4,
+        "title": "x",
+        "state": "open",
+        "milestone": None,
+    }
+
+
+@pytest.mark.parametrize("assignees", ["a", {"login": "a"}, ["a"], [{"id": 1}]])
+def test_an_issue_view_refuses_malformed_assignees(
+    tmp_path: Path, assignees: object
+) -> None:
+    issue = {"number": 4, "title": "x", "state": "open", "assignees": assignees}
+    runner = recording_runner([Result(0, json.dumps(issue))], [])
+
+    with pytest.raises(AgentGitHubProcessError, match="issue 4 assignees are invalid"):
+        run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
 
 
 def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:
