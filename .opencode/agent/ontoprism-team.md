@@ -85,6 +85,7 @@ permission:
     "gh run list *": allow
     "gh run view *": allow
     "gh run watch *": allow
+    "sleep 60": allow
     "gh pr merge *": deny
     "gh pr merge * --match-head-commit * --squash --delete-branch --subject *": allow
     "gh pr merge *--admin*": deny

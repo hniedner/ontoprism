@@ -157,6 +157,7 @@ _NEVER_ALLOWED = (
     "git stash show -p --output=tmp/x",
     "git stash show -p --ext-diff",
     "git stash list | sh",
+    "sleep 60; rm -rf data",
 )
 
 
@@ -261,6 +262,7 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
         _MERGE,
+        "sleep 60",
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(
