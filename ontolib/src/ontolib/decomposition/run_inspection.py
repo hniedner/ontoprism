@@ -63,6 +63,7 @@ class RunInspection(BaseModel):
     fingerprint: dict[str, object]
     fingerprint_sha256: str
     fingerprint_content_valid: bool
+    rehearsal: bool
     persisted_routing_implementation_identity: str | None
     current_routing_implementation_identity: str
     routing_state: Literal["match", "differs", "not-recorded"]
@@ -143,6 +144,7 @@ def _run_summary(row: RowMapping, current_routing_identity: str) -> dict[str, ob
         "fingerprint_content_valid": (
             canonical_json_identity(fingerprint) == values["fingerprint_sha256"]
         ),
+        "rehearsal": fingerprint.get("rehearsal_nonce") is not None,
         "persisted_routing_implementation_identity": fingerprint.get(
             "routing_implementation_identity"
         ),
@@ -169,10 +171,12 @@ def _finalize_summary(
         item["persisted_routing_implementation_identity"], current_routing_identity
     )
     item["stage_state"] = _stage_state(stages, stage_inventory_complete)
+    # A rehearsal is a throwaway run: every resume path refuses it.
     item["resume_compatible"] = bool(
         item["fingerprint_content_valid"]
         and stage_inventory_complete
         and item["routing_state"] == "match"
+        and not item["rehearsal"]
     )
     item["stages"] = tuple(stages)
     return RunInspection.model_validate(item)

@@ -95,6 +95,29 @@ def test_inspection_finalization_requires_complete_work_stages_and_identity() ->
 
 
 @pytest.mark.unit
+def test_a_rehearsal_is_never_reported_resume_compatible() -> None:
+    """Every resume path refuses a rehearsal, so the inspection an operator reads before
+    resuming must not call one resumable."""
+    row = _run_row("run-1")
+    fingerprint = {**cast("dict[str, object]", row["fingerprint"])}
+    fingerprint["rehearsal_nonce"] = "d" * 32
+    row["fingerprint"] = fingerprint
+    row["fingerprint_sha256"] = canonical_json_identity(fingerprint)
+    item = run_inspection._run_summary(cast("Any", row), "a" * 64)
+    item["work_item_states"] = {"failed": 1}
+    item["stages"] = [
+        {"stage": stage, "state": "complete"} for stage in RUN_STAGE_SEQUENCE
+    ]
+
+    inspected = run_inspection._finalize_summary(item, "a" * 64)
+
+    assert inspected.fingerprint_content_valid is True
+    assert inspected.routing_state == "match"
+    assert inspected.rehearsal is True
+    assert inspected.resume_compatible is False
+
+
+@pytest.mark.unit
 def test_inspection_aggregates_work_states_and_serializes_stage_times() -> None:
     rows = (
         _run_row("run-1", work_state=None),
