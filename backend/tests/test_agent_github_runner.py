@@ -584,15 +584,32 @@ def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) ->
         run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
 
 
-def test_issue_view_refuses_a_pull_request_number(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["issue-view", "390"],
+        ["issue-comments", "390"],
+        ["issue-comment", "390", "--body-file", "tmp/plans/body.md"],
+        ["issue-close", "390"],
+        ["issue-edit", "390", "--title", "x"],
+    ],
+)
+def test_issue_operations_refuse_a_pull_request_number_before_any_write(
+    tmp_path: Path, arguments: list[str]
+) -> None:
     """GitHub serves a pull request on the issues endpoint; a mistyped number must not
-    hand an agent a PR as "the issue the PR implements"."""
+    hand an agent a PR as "the issue the PR implements", nor write to one."""
+    write_body(tmp_path)
+    calls: list[tuple[list[str], dict[str, object]]] = []
     runner = recording_runner(
-        [Result(0, '{"number":390,"title":"x","state":"open","pull_request":{}}')], []
+        [Result(0, '{"number":390,"title":"x","state":"open","pull_request":{}}')],
+        calls,
     )
 
-    with pytest.raises(AgentGitHubInputError, match=r"#390 is a pull request.*pr-view"):
-        run_agent_github(["issue-view", "390"], tmp_path, read_only=True, runner=runner)
+    with pytest.raises(AgentGitHubInputError, match="#390 is a pull request"):
+        run_agent_github(arguments, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]
 
 
 def test_issue_comments_are_readable_because_findings_are_parked_there(
@@ -605,7 +622,10 @@ def test_issue_comments_are_readable_because_findings_are_parked_there(
         "user": {"login": "someone", "token": "must-not-leak"},
     }
     calls: list[tuple[list[str], dict[str, object]]] = []
-    runner = recording_runner([Result(0, json.dumps([[comment], [comment]]))], calls)
+    runner = recording_runner(
+        [Result(0, '{"number":397}'), Result(0, json.dumps([[comment], [comment]]))],
+        calls,
+    )
 
     assert (
         run_agent_github(
@@ -614,14 +634,14 @@ def test_issue_comments_are_readable_because_findings_are_parked_there(
         == 0
     )
 
-    assert calls[0][0][:5] == [
+    assert calls[1][0][:5] == [
         "gh",
         "api",
         "--method",
         "GET",
         "repos/hniedner/ontoprism/issues/397/comments",
     ]
-    assert calls[0][0][-2:] == ["--paginate", "--slurp"]
+    assert calls[1][0][-2:] == ["--paginate", "--slurp"]
     assert (
         json.loads(capsys.readouterr().out)
         == [

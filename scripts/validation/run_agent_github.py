@@ -283,9 +283,7 @@ def _get_issue(number: int, root: Path, runner: CommandRunner) -> dict[str, Any]
     if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub issue response is invalid")
     if "pull_request" in value:
-        raise AgentGitHubInputError(
-            f"#{number} is a pull request, not an issue; use pr-view"
-        )
+        raise AgentGitHubInputError(f"#{number} is a pull request, not an issue")
     return value
 
 
@@ -558,6 +556,7 @@ def _run_comments_read(
     if len(arguments) != 1:
         raise AgentGitHubInputError("issue-comments requires exactly one number")
     number = _positive_number(arguments[0], "issue-comments")
+    _get_issue(number, root, runner)
     return _read_pages(f"{API_ROOT}/issues/{number}/comments", root, runner)
 
 
