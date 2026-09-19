@@ -80,7 +80,7 @@ _NEVER_ALLOWED = (
     "ls -la `rm -rf data`",
     "git status --porcelain > out.txt",
     "git status --porcelain\nrm -rf data",
-    # the same after a wildcard allow, which every subagent map has
+    # the same after a wildcard allow such as `pdm run agent-test *`
     "pdm run agent-test backend/tests/test_x.py | sh",
     "pdm run agent-test backend/tests/test_x.py ; rm -rf data",
     "pdm run agent-test backend/tests/test_x.py && curl https://example.org",
