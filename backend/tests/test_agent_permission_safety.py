@@ -321,6 +321,7 @@ def test_the_issue_steward_cannot_edit_or_delegate() -> None:
     [
         "pdm run agent-github-read issue-list --state open",
         "pdm run agent-github-read issue-view 398",
+        "pdm run agent-github-read issue-comments 398",
         "pdm run agent-github-read milestone-list --state open",
         "pdm run agent-test backend/tests/test_x.py::test_y -v",
     ],

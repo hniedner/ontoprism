@@ -415,7 +415,8 @@ def _selected_issue(
     value: dict[str, Any], fields: tuple[str, ...]
 ) -> dict[str, object]:
     """The output always carries ``milestone``: ``None`` when GitHub reports none (a
-    null or absent key); anything but an object or null is refused."""
+    null or absent key); anything but an object or null is refused. Label names come
+    along when GitHub sends a label list, so an epic is visible in a list read."""
     milestone = value.get("milestone")
     if milestone is not None and not isinstance(milestone, dict):
         raise AgentGitHubProcessError("GitHub issue milestone is invalid")
@@ -423,7 +424,19 @@ def _selected_issue(
     selected["milestone"] = (
         None if milestone is None else _selected(milestone, ("number", "title"))
     )
+    _add_names(selected, "labels", value.get("labels"), "name")
     return selected
+
+
+def _add_names(
+    selected: dict[str, object], target: str, source: object, field: str
+) -> None:
+    if isinstance(source, list):
+        selected[target] = [
+            item[field]
+            for item in source
+            if isinstance(item, dict) and isinstance(item.get(field), str)
+        ]
 
 
 _LIST_FIELDS = {
@@ -442,16 +455,7 @@ def _sanitize_list(
 
 def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
     selected = _selected_issue(value, ("number", "title", "state", "body"))
-    for source, target, field in (
-        (value.get("labels"), "labels", "name"),
-        (value.get("assignees"), "assignees", "login"),
-    ):
-        if isinstance(source, list):
-            selected[target] = [
-                item[field]
-                for item in source
-                if isinstance(item, dict) and isinstance(item.get(field), str)
-            ]
+    _add_names(selected, "assignees", value.get("assignees"), "login")
     return selected
 
 

@@ -501,9 +501,16 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
         "created_at": "2026-09-01T10:00:00Z",
         "html_url": "https://example.invalid/7",
         "milestone": milestone,
+        "labels": [{"name": "epic", "color": "ededed"}],
         "user": {"token": "must-not-leak"},
     }
-    unplaced = {**placed, "number": 9, "title": "Epic", "milestone": None}
+    unplaced = {
+        **placed,
+        "number": 9,
+        "title": "Epic",
+        "milestone": None,
+        "labels": None,
+    }
 
     for operation, items in (
         ("issue-list", [placed, unplaced]),
@@ -524,6 +531,7 @@ def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
             "state": "open",
             "created_at": "2026-09-01T10:00:00Z",
             "url": "https://example.invalid/7",
+            "labels": ["epic"],
             "milestone": {
                 "number": 16,
                 "title": "R0",
