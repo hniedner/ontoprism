@@ -319,19 +319,19 @@ finding is real, is fixed where it was found, and is filed at most once:
    the same code area, add the finding to that issue (a comment that records the
    finding; it changes no acceptance criterion until the owner folds it into the body).
    Earlier findings are parked the same way, so read an issue's comments, not only its
-   body, before ruling it out. Findings of one review that share a cause or a code area become one issue,
-   not one each.
+   body, before ruling it out. Findings of one review that share a cause or a code
+   area become one issue, not one each.
 5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
    the order lives in the milestone description, and in a milestone without one the
-   position is stated by dependency (what the issue blocks, what blocks it). "No milestone" is for epics and for
-   collected low-severity work that blocks nothing.
+   position is stated by dependency (what the issue blocks, what blocks it). "No
+   milestone" is for epics and for collected low-severity work that blocks nothing.
 6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
    work planned later, or a milestone has grown past what can land), propose the
    reorganization to the owner with the reason. Moving issues between milestones,
    reordering a milestone or changing its goal needs the owner's confirmation.
 
-The `issue-steward` agent applies steps 1 and 3-6 on request and returns a verdict per
-finding (OpenCode: `.opencode/agent/issue-steward.md`; Claude Code:
+The `issue-steward` agent judges a finding by steps 1-6 on request and returns a verdict
+per finding (OpenCode: `.opencode/agent/issue-steward.md`; Claude Code:
 `.claude/agents/issue-steward.md`). It is read-only: the engineer makes the fix, writes
 the tracker and asks the owner. Use it when a review produced a finding you want to defer,
 or when the owner asks for a tracker pass; a finding you simply fix needs no steward.

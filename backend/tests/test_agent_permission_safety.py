@@ -81,7 +81,8 @@ _NEVER_ALLOWED = (
     "git status --porcelain > out.txt",
     "git status --porcelain\nrm -rf data",
     # a dropped or cleared entry leaves the stash list; recovery needs fsck and is not
-    # routine. The reflog forms destroy the same entries.
+    # routine. `git reflog delete|expire` and `git update-ref -d refs/stash` destroy
+    # the same entries.
     "git stash drop",
     "git stash drop stash@{0}",
     "git stash clear",

@@ -412,7 +412,8 @@ def _selected(value: dict[str, Any], fields: tuple[str, ...]) -> dict[str, objec
 def _selected_issue(
     value: dict[str, Any], fields: tuple[str, ...]
 ) -> dict[str, object]:
-    """An issue always states its milestone: ``None`` means it has none."""
+    """The output always carries ``milestone``: ``None`` when GitHub reports none (a
+    null or absent key); anything but an object or null is refused."""
     milestone = value.get("milestone")
     if milestone is not None and not isinstance(milestone, dict):
         raise AgentGitHubProcessError("GitHub issue milestone is invalid")
@@ -424,6 +425,7 @@ def _selected_issue(
 
 
 _LIST_FIELDS = {
+    "issue-list": ("number", "title", "state", "created_at"),
     "issue-comments": ("body", "created_at"),
     "milestone-list": ("number", "title", "state", "due_on", "description"),
 }
@@ -432,10 +434,8 @@ _LIST_FIELDS = {
 def _sanitize_list(
     operation: str, value: list[dict[str, Any]]
 ) -> list[dict[str, object]]:
-    if operation == "issue-list":
-        fields = ("number", "title", "state", "created_at")
-        return [_selected_issue(item, fields) for item in value]
-    return [_selected(item, _LIST_FIELDS[operation]) for item in value]
+    project = _selected_issue if operation == "issue-list" else _selected
+    return [project(item, _LIST_FIELDS[operation]) for item in value]
 
 
 def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
@@ -521,14 +521,18 @@ def _run_number_read(
     if len(arguments) != 1:
         raise AgentGitHubInputError(f"{operation} requires exactly one number")
     number = _positive_number(arguments[0], operation)
-    endpoint = "issues" if operation == "issue-view" else "pulls"
-    return _api("GET", f"{API_ROOT}/{endpoint}/{number}", root, runner)
+    if operation == "issue-view":
+        return _get_issue(number, root, runner)
+    return _api("GET", f"{API_ROOT}/pulls/{number}", root, runner)
 
 
 def _run_list_read(
     operation: str, arguments: list[str], root: Path, runner: CommandRunner
-) -> Any:
-    """Every page of the list; ``--limit`` then keeps that many issues or milestones."""
+) -> list[dict[str, Any]]:
+    """Every page of the list; ``--limit`` then keeps that many issues or milestones.
+
+    The limit only shortens a complete list, so it has no upper bound (``run-list``
+    sends its limit to GitHub as the page size and keeps one)."""
     options = _flags(arguments, singles=frozenset({"--state", "--limit"}))
     state = str(options.get("--state", "open"))
     if state not in {"open", "closed", "all"}:
@@ -543,7 +547,9 @@ def _run_list_read(
     return [item for item in values if "pull_request" not in item][:limit]
 
 
-def _run_comments_read(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
+def _run_comments_read(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> list[dict[str, Any]]:
     if len(arguments) != 1:
         raise AgentGitHubInputError("issue-comments requires exactly one number")
     number = _positive_number(arguments[0], "issue-comments")
