@@ -34,6 +34,8 @@ permission:
     "git clean *": deny
     "git push *": deny
     "gh pr *": deny
+    "git diff --no-ext-diff * *...HEAD": deny
+    "git diff --check * *...HEAD": deny
     "*--output*": deny
     "*--no-index*": deny
     "*--ext-diff*": deny
@@ -44,7 +46,9 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*{*,*}*": deny
     "*\n*": deny
+    "*\t*": deny
     "*\r*": deny
 ---
 

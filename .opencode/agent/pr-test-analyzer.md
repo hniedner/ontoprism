@@ -52,6 +52,8 @@ permission:
     "git push --force*": deny
     "gh pr": deny
     "gh pr *": deny
+    "git diff --no-ext-diff * *...HEAD": deny
+    "git diff --name-only * *...HEAD": deny
     "*--output*": deny
     "*--no-index*": deny
     "*--ext-diff*": deny
@@ -62,7 +64,9 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*{*,*}*": deny
     "*\n*": deny
+    "*\t*": deny
     "*\r*": deny
 ---
 
@@ -76,4 +80,4 @@ For each target: copy the file outside the worktree (ask for external-directory 
 
 Also report tests that are not regression indicators: execution-only tests, mock choreography, fakes that clone the implementation, fixture self-consistency, assertions on documentation wording or on committed hash snapshots. Recommend deleting or replacing them.
 
-Classify findings as **blocker**, **finding** (must be addressed in this PR) or **suggestion** (addressed unless the owner defers it), and state whether this dimension has converged. A handful of well-chosen mutations is enough; do not mutate everything. Never fix code, leave an edit, stage, commit, or touch a PR.
+Classify findings as **blocker**, **finding** (fixed in this PR unless it is a major out-of-scope finding that the PR body lists as a deferral, see "What a finding becomes" in `AGENTS.md`; if your brief does not show that list, the deferral is unresolved; a blocker follows the same rule) or **suggestion** (addressed in this PR), and state whether this dimension has converged. A handful of well-chosen mutations is enough; do not mutate everything. Never fix code, leave an edit, stage, commit, or touch a PR.

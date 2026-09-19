@@ -34,6 +34,8 @@ permission:
     "git clean *": deny
     "git push *": deny
     "gh pr *": deny
+    "git diff --no-ext-diff * *...HEAD": deny
+    "git diff --check * *...HEAD": deny
     "*--output*": deny
     "*--no-index*": deny
     "*--ext-diff*": deny
@@ -44,7 +46,9 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*{*,*}*": deny
     "*\n*": deny
+    "*\t*": deny
     "*\r*": deny
 ---
 
@@ -52,4 +56,4 @@ permission:
 
 Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; the milestone branch for an issue PR, `main` for a milestone PR).
 
-Compare changed comments, docstrings, user-facing process prose, and TODOs with actual behavior and surrounding implementation. Flag guarantees stronger than the code, stale operational instructions, missing caveats that change meaning, and comments that merely narrate syntax. Cite evidence and issue an independent R4 verdict. Never edit, delegate, or broaden the review into speculative style cleanup. Classify every finding as **blocker** (wrong behaviour, data loss, security, rule violation), **finding** (verified, must be addressed in this PR) or **suggestion** (reasonable improvement, also addressed in this PR unless the owner defers it). No findings is a valid result; do not pad. Do not propose new process, new gates, or wider scope. State whether this dimension has converged.
+Compare changed comments, docstrings, user-facing process prose, and TODOs with actual behavior and surrounding implementation. Flag guarantees stronger than the code, stale operational instructions, missing caveats that change meaning, and comments that merely narrate syntax. Cite evidence and issue an independent R4 verdict. Never edit, delegate, or broaden the review into speculative style cleanup. Classify every finding as **blocker** (wrong behaviour, data loss, security, rule violation), **finding** (verified; fixed in this PR unless it is a major out-of-scope finding that the PR body lists as a deferral, see "What a finding becomes" in `AGENTS.md`; if your brief does not show that list, the deferral is unresolved) or **suggestion** (reasonable improvement, also addressed in this PR). A blocker follows the same rule. No findings is a valid result; do not pad. Do not propose new process, new gates, or wider scope. State whether this dimension has converged.

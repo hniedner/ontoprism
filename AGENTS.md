@@ -29,17 +29,19 @@ For each issue:
 8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
    of record.**
 9. Review the PR in all five dimensions to convergence (see Review).
-10. When every check passes and all five dimensions have converged, squash-merge the
-    issue PR into the milestone branch and delete the issue branch. This merge does not
-    need the owner.
+10. When every check passes, all five dimensions have converged and the PR body lists
+    every dropped and deferred finding, squash-merge the issue PR into the milestone
+    branch and delete the issue branch. This merge does not need the owner.
 
 For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
     local merge is a prompted command for the agent; the owner approves it or does it),
-    run `pdm run verify` once, and open the milestone PR to `main`. Its review is an
-    integration pass: what the issue reviews could not see (interactions between issues,
-    migrations in sequence, the combined diff against `main`).
+    run `pdm run verify` once, and open the milestone PR to `main`. Its body lists every
+    deferral collected from the issue PR bodies (blockers first) and every pending edit
+    to this milestone's description (see "What a finding becomes", step 5). Its review
+    is an integration pass: what the issue reviews could not see (interactions between
+    issues, migrations in sequence, the combined diff against `main`).
 12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
     completion before starting the next milestone.
 
@@ -69,7 +71,9 @@ Start a new agent session for each issue. Do not carry one context across days o
   title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
   title or base changed since authorization, ask again. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
-  `Analyze` jobs; that is expected for those PRs only.
+  `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
+  into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
+  it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -84,8 +88,9 @@ instead of improving the product.
 - **The issue body is the only place acceptance criteria live, and only the owner changes
   them.** Do not post "amendment" comments that alter scope. If you think the criteria
   are wrong, stop and ask.
-- **Newly discovered work becomes a new issue**, not an expansion of the current one. Ask
-  before treating it as a prerequisite.
+- **Newly discovered work never widens the current issue's acceptance criteria.** What it
+  becomes (a fix in the same PR, a comment on an existing issue, a new issue) is decided
+  by "What a finding becomes" under Review. Ask before treating it as a prerequisite.
 - **Do not build machinery to certify your own work.** No content hashes of source files,
   git HEAD, or worktree state inside data or evidence files. No committed derived files
   that must be regenerated after an unrelated edit. No tests that assert the wording of
@@ -108,7 +113,8 @@ instead of improving the product.
 - A factual claim about state (a count, a status, a digest, "tests pass", "file exists")
   comes from a command you ran in this session. Otherwise say "not verified".
 - Never restate a number or hash from memory or from an earlier document.
-- `tmp/` is gitignored: search it with `rg --no-ignore`, or a present file looks absent.
+- `tmp/` is gitignored: search it with `rg --no-ignore` (the OpenCode primary has no
+  `rg`; read the path directly), or a present file looks absent.
 - A plan step names its inputs, and you have checked each input exists.
 - Dry-run the downstream path before asking a person for a sign-off.
 
@@ -286,21 +292,75 @@ is a non-converged dimension, not a clean one. Other harnesses use their own rev
 but keep the five separate verdicts.
 
 **Review runs to convergence.** Address every verified finding and every reasonable
-suggestion in the PR; defer a suggestion to an issue only when the owner agrees it is out
-of scope. A dimension has converged when a full pass reports no unresolved verified
-finding and its suggestions are addressed. A converged dimension is excluded from later
-rounds unless a later fix touches what it reviews (a new test re-arms test validity, a
-new docstring re-arms comment accuracy, a new error path re-arms silent failures);
-re-run only the non-converged ones, on the fix range. There is no round ceiling,
-and an existing PR is never rejected as too big. Size is decided when the work is
-planned: one issue or one coherent change per PR, with granularity balanced against the
-cost of a five-dimension review and the workflows every PR triggers (about seven
-minutes of CI, dependency review, CodeQL). Split at planning time, not at review time.
+suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
+finding becomes"). A dimension has converged when a full pass reports no unresolved
+verified finding and its suggestions are addressed; a deferred finding counts as
+resolved only once the PR body lists it (step 3 below). A converged dimension is
+excluded from later rounds unless a later fix touches what it reviews (a new test
+re-arms test validity, a new docstring re-arms comment accuracy, a new error path
+re-arms silent failures); re-run only the non-converged ones, on the fix range, and
+brief each re-run with its previous findings and the outcome of each. There is no
+round ceiling, and an existing PR is never rejected as too big. Size is decided when
+the work is planned: one issue or one coherent change per PR, with granularity
+balanced against the cost of a five-dimension review and the workflows every PR
+triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+time, not at review time.
+
+### What a finding becomes
+
+Every real finding is fixed, however small: minor defects compound (owner, 2026-09-19).
+There is no severity threshold. A fix is recorded by its commit; a dropped or deferred
+finding is recorded in the PR body. What keeps the tracker finite is that a finding is
+real, is fixed where it was found, and is filed at most once:
+
+1. **Verify it first.** A finding counts when it is reproduced, or shown in the code
+   together with the input or state that triggers it. One that cannot be verified is
+   dropped, with a one-line reason in the PR body. Never file, fix or "harden against" an
+   unverified finding.
+2. **Fix it where it was found**: in the issue PR that surfaced it, including for
+   findings in code the PR only touches in passing. A finding on a milestone PR is fixed
+   through an issue branch and a PR into the milestone branch, never as a direct commit;
+   that PR references the issue whose change the finding concerns.
+3. **Defer only a major, out-of-scope finding** (a blocker included): one whose fix needs
+   its own design, its own tests and its own review, and does not belong to the issue's
+   contract. Size alone is not a reason, and neither is inconvenience. List every
+   deferral in the PR body with its issue number (for a finding added to an existing
+   issue, the URL of the comment) and the sentence of the issue body that puts it out of
+   scope. A deferral missing from that list is unresolved.
+4. **Search before filing.** Read the open issues first. If one covers the same cause or
+   the same code area, add the finding to that issue (a comment that records the
+   finding; it changes no acceptance criterion until the owner folds it into the body).
+   Earlier findings are parked the same way, so read an issue's comments, not only its
+   body, before ruling it out. Findings of one review that share a cause or a code
+   area become one issue, not one each.
+5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
+   the order lives in the milestone description, and in a milestone without one the
+   position is stated by dependency (what the issue blocks, what blocks it). Writing the
+   position into the milestone description is a milestone edit the owner confirms, so
+   until then the new issue's body states the proposed position and says it is pending;
+   the note is removed when the owner decides. The milestone PR of the milestone being
+   edited lists every such pending edit. "No milestone" is for
+   epics and for collected minor work that blocks nothing.
+6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
+   work planned later, or a milestone has grown past what can land), propose the
+   reorganization to the owner with the reason. Moving issues between milestones,
+   reordering a milestone or changing its goal needs the owner's confirmation.
+
+The `issue-steward` agent judges a finding by steps 1-6 on request and returns a verdict
+per finding (OpenCode: `.opencode/agent/issue-steward.md`; Claude Code:
+`.claude/agents/issue-steward.md`). It is read-only: the engineer makes the fix, writes
+the tracker and asks the owner. Use it when a review produced a finding you want to
+defer, or when the owner asks for a tracker pass; a finding you simply fix needs no
+steward.
 
 ## Conventions
 
-- PR titles are Conventional Commits; CI enforces it and releases derive versions from
-  them (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18).
+- PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
+  squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
+  its subject is the PR title, and while the repository's squash message is
+  `COMMIT_MESSAGES` every conventional line of its body counts too. Merge a PR whose
+  commits carry `feat:`, `fix:` or `perf:` lines with an explicit prose `--body` unless
+  those lines should cut a release.
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.
