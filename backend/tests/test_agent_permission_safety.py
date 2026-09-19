@@ -2,8 +2,11 @@
 
 OpenCode matches a bash command against wildcard patterns (``*`` any run, ``?`` one
 character) and the last matching rule wins (https://opencode.ai/docs/permissions/).
-``_resolve`` emulates that documented rule; it is not OpenCode itself, and whether the
-runtime matches a pipeline as one string or per command is not documented, so the
+``_resolve`` emulates that rule plus one the documentation leaves out: a pattern that
+ends in a space and ``*`` also matches without that last argument (``"git diff * *"``
+matches ``git diff main...HEAD``). That rule was read from the OpenCode binary, not
+observed as a verdict. ``_resolve`` is not OpenCode itself, and whether the runtime
+matches a pipeline as one string or per command is not documented, so the
 metacharacter cases below assert what the files say, not an observed runtime verdict.
 
 These tests describe what the bash permission layer refuses, not everything an agent can
@@ -80,6 +83,11 @@ _NEVER_ALLOWED = (
     "git diff --no-ext-diff /private/tmp/outside.txt x...HEAD",
     "git diff --check /private/tmp/outside.txt x...HEAD",
     "git diff --name-only /private/tmp/outside.txt x...HEAD",
+    "git diff --no-ext-diff /private/tmp/outside.txt\tx...HEAD",
+    # git echoes the first line of the pathspec file in its error
+    "git add --pathspec-from-file=/private/tmp/x",
+    "git log --format=%H --x=~/y",
+    "git log --format=%H --no-index a b",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
     "xargs rm",
@@ -152,10 +160,13 @@ def _resolve(agent: str, command: str) -> str:
     bash = _bash_rules(agent)
     action = bash["*"]
     for pattern, rule in bash.items():
+        optional_tail = pattern.endswith(" *")
         expression = "".join(
             ".*" if char == "*" else "." if char == "?" else re.escape(char)
-            for char in pattern
+            for char in (pattern[:-2] if optional_tail else pattern)
         )
+        if optional_tail:
+            expression += "( .*)?"
         if re.fullmatch(expression, command, flags=re.DOTALL):
             action = rule
     return action
@@ -203,6 +214,10 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "git stash show --stat",
         "git stash show -p stash@{0}",
         "git diff --no-ext-diff feat/m1-6-1-provisional-publication...HEAD",
+        "git diff --check main...HEAD",
+        "git diff --name-only main...HEAD",
+        "git log --oneline",
+        "git rev-parse --abbrev-ref HEAD",
         "git add backend/src/backend/main.py",
         "pdm run agent-git switch-existing feat/m1-6-1-provisional-publication",
         "pdm run agent-git switch-new feat/x-1",
