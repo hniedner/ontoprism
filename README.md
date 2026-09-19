@@ -415,9 +415,9 @@ _This table is auto-updated by CI after successful builds on `main`._
 
 | Language | Files | Lines |
 | --- | ---: | ---: |
-| Python | 474 | 209,606 |
+| Python | 474 | 211,755 |
 | JSON | 42 | 112,677 |
-| Markdown | 35 | 14,085 |
+| Markdown | 35 | 14,150 |
 | TypeScript | 127 | 9,975 |
 | Svelte | 78 | 4,589 |
 | CSS | 3 | 1,993 |
@@ -426,7 +426,7 @@ _This table is auto-updated by CI after successful builds on `main`._
 | Shell | 1 | 121 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **779** | **355,627** |
+| **Total** | **779** | **357,841** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
