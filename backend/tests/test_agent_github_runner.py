@@ -726,8 +726,36 @@ def test_an_edit_refuses_to_remove_a_label_the_issue_does_not_have(
     assert [call[0][3] for call in calls] == ["GET"]
 
 
-def test_an_issue_view_refuses_malformed_assignees(tmp_path: Path) -> None:
-    issue = {"number": 4, "title": "x", "state": "open", "assignees": [{"id": 1}]}
+def test_an_edit_that_changes_no_list_does_not_need_one(tmp_path: Path) -> None:
+    """Only a label or assignee edit reads those lists; a title edit on an issue
+    without them still goes through."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, '{"number":8,"labels":null,"assignees":null}'),
+            Result(0, "[[]]"),
+            Result(0, '{"html_url":"https://example.invalid/8","number":8}'),
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            ["issue-edit", "8", "--title", "x"],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+        == 0
+    )
+    assert json.loads(str(calls[-1][1]["input"])) == {"title": "x"}
+
+
+@pytest.mark.parametrize("assignees", ["a", {"login": "a"}, ["a"], [{"id": 1}]])
+def test_an_issue_view_refuses_malformed_assignees(
+    tmp_path: Path, assignees: object
+) -> None:
+    issue = {"number": 4, "title": "x", "state": "open", "assignees": assignees}
     runner = recording_runner([Result(0, json.dumps(issue))], [])
 
     with pytest.raises(AgentGitHubProcessError, match="issue 4 assignees are invalid"):
