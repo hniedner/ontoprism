@@ -20,15 +20,22 @@ write directly, so a cancellation abandons it. Shielding keeps the record but le
 database write delay a cancellation. Abandoning cancels at once but can lose the record.
 
 **Decision.** Keep the split; it follows what each lost record costs.
-- Publication shields. `record_publication_failure` is the only place a failed
-  publication's error type and message are persisted. Without it the run stays
-  `publishing` with no recorded cause, and nothing that runs later writes one.
+- Publication shields. `record_publication_failure` is the only write that moves the run
+  row from `publishing` to `failed` and fills `publication_error_type` and
+  `publication_error_message`. Without it the run row stays `publishing` with no cause.
+  Since #388 the publication stage's failure row also keeps the cause, as a `caused by`
+  line or in the cancellation's note, but that write is itself unshielded.
 - The decomposition run abandons. For a resumable run, what an abandoned write leaves
   behind is recovered later: the next resume reclaims work-item, residual-filler and stage
   claims, and an unwritten `fail_run` leaves the run `running` for the next resume to
   reopen.
 - Three known gaps, where the only trace is the notes on the propagating cancellation and
-  its cause:
+  its cause. Since #388 a failure record written later for the same cancellation (the
+  stage or run failure) persists those notes and the cause chain within the column bounds.
+  Of the three, only the rehearsal can get one: `fail_run` does not touch a run that is
+  already complete, and `invalidate_run` is itself the last write. Through the CLI a
+  Ctrl-C drops the trace: `asyncio.run` replaces the cancellation with a bare
+  `KeyboardInterrupt`, typer exits 130, and nothing is printed or logged (#391).
   - the publication-stage seal of a run that is already complete, which has no resume and
     may stay claimed;
   - an unwritten `invalidate_run`: it follows a source change, so the run cannot be

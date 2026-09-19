@@ -3204,9 +3204,9 @@ class ProvenanceStore:
     ) -> bool:
         """Complete only after exact work and requested publication completed.
 
-        The same transaction promotes the run's mint proposals into the global
-        ``minted_concept`` curator queue (D48: proposals become curator-visible only
-        on success).
+        The same transaction promotes the run's mint proposals (a rehearsal's are never
+        promoted) into the global ``minted_concept`` curator queue (D48: proposals
+        become curator-visible only on success).
         """
         updated = False
         try:

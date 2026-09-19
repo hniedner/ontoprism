@@ -770,17 +770,6 @@ async def run_pipeline(
 
 
 @pytest.mark.unit
-async def test_resume_preflight_requires_an_explicit_run_identity() -> None:
-    with pytest.raises(RuntimeError, match="requires an explicit run id"):
-        await _resume_preflight(
-            RunConfig(branch="neoplasm"),
-            cast("Any", _FakeClient()),
-            _mock_provenance(),
-            _source_snapshot(),
-        )
-
-
-@pytest.mark.unit
 async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) -> None:
     config = RunConfig(
         branch="neoplasm",
@@ -798,6 +787,7 @@ async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) ->
             cast("Any", _FakeClient(pages=[["C1"]])),
             _mock_provenance(),
             _source_snapshot(),
+            "run-1",
         )
 
 

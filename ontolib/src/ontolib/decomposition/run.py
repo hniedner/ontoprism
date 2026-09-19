@@ -1593,7 +1593,8 @@ async def _journal_without_masking(
     neither is lost. The write itself is not retried or shielded (contrast
     ``publication._record_failure_without_masking``), so it may never have landed.
     D90 in ``docs/DECISIONS.md`` says which abandoned writes a later resume recovers
-    and which leave only the cancellation's note and its cause.
+    and which leave only the cancellation's note and its cause, unless a later failure
+    record for the same cancellation lands and persists them.
     """
     try:
         await record
@@ -2221,13 +2222,12 @@ async def _resume_preflight(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
+    run_id: str,
 ) -> tuple[tuple[str, ...], SourcePreflightResult]:
-    if config.resume_from is None:
-        raise RuntimeError("resume preflight requires an explicit run id")
-    persisted = await provenance.fingerprint_for_run(config.resume_from)
+    persisted = await provenance.fingerprint_for_run(run_id)
     if persisted.rehearsal_nonce is not None:
         raise RunStateError(
-            f"decomposition run {config.resume_from!r} is a rehearsal; rehearsals "
+            f"decomposition run {run_id!r} is a rehearsal; rehearsals "
             "are throwaway runs and cannot be resumed"
         )
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
@@ -2319,7 +2319,7 @@ async def run_pipeline(
         )
     else:
         fresh_worklist, fresh_preflight = await _resume_preflight(
-            config, client, provenance, snapshot
+            config, client, provenance, snapshot, config.resume_from
         )
     diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
         client, snapshot.source_identity
