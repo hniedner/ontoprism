@@ -37,20 +37,18 @@ For each issue:
 For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
-    local merge is a prompted command for the agent, for OpenCode
-    `pdm run agent-git merge-no-ff <branch>`, which merges the local branch, so update
-    local `main` first with `git fetch origin main:main`, also prompted; the owner
-    approves it or does it), run `pdm run verify` once,
-    and open the milestone PR to `main`. Its title's type is the highest-impact type
-    among its issue PR titles (`feat` > `fix` or `perf` > any other), and a `!` on any
-    of them carries over (a `BREAKING CHANGE:` footer cannot reach the release, because
-    the squash body is blank), because only this title reaches the release (see
-    Conventions). Its body
-    lists the issue PR titles, the five review verdicts, every deferral collected from
-    the issue PR bodies (blockers first) and every pending edit to this milestone's
-    description (see "What a finding becomes", step 5). Its review
-    is an integration pass: what the issue reviews could not see (interactions between
-    issues, migrations in sequence, the combined diff against `main`).
+    local merge is a prompted command for the agent, for OpenCode `pdm run agent-git
+    merge-no-ff <branch>`, which merges the local branch, so update local `main` first
+    with `git fetch origin main:main`, also prompted; the owner approves it or does it),
+    run `pdm run verify` once, and open the milestone PR to `main`. Only this PR's title
+    reaches the release (see Conventions), so its type is the highest-impact type among
+    its issue PR titles (`feat` > `fix` or `perf` > any other), and a `!` on any of them
+    carries over; a `BREAKING CHANGE:` footer never reaches the release, because the
+    squash body is blank. Its body lists the issue PR titles, the five review verdicts,
+    every deferral collected from the issue PR bodies (blockers first) and every pending
+    edit to this milestone's description (see "What a finding becomes", step 5). Its
+    review is an integration pass: what the issue reviews could not see (interactions
+    between issues, migrations in sequence, the combined diff against `main`).
 12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
     authorization covers it (see Hard rules, D91). After it, watch post-merge workflows
     to completion before starting the next milestone.
@@ -85,19 +83,23 @@ Start a new agent session for each issue. Do not carry one context across days o
   in `gh pr checks <n>` is present and passing for the current head and base (or skipped
   by a documented path filter); a check that is absent, or a run made before the PR's
   base was changed, does not count, so get a fresh run first.**
-  A base change means the PR was retargeted to another branch; after a retarget, push a
-  new commit before counting checks. New commits on the base branch do not void a run,
-  with one exception: if another PR merged into the base after the run, bring the base
-  in again (step 11) and get a fresh run. Ignore the rows whose event is `push` (`gh pr
-  checks <n> --json name,event,bucket`): a milestone branch also shows push rows under
-  the same names, while CodeQL's aggregate row has an empty event and its `Analyze` jobs
-  show `dynamic`. On a PR into `main`, `CI summary`, `quality (pre-commit parity)`,
-  `conventional commit subject`, `dependency review` and `CodeQL` are always expected,
-  and so are CodeQL's `Analyze` jobs except under the known quirk below; if one is
-  missing, CI did not run fully. Merge with this command, where `<sha>` is the full
-  reviewed head SHA from `git rev-parse` (GitHub refuses the merge if the head moved)
-  and no body is passed:
-  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title>"`
+  A base change means the PR was retargeted to another branch: record the base (`gh pr
+  view <n> --json baseRefName`) when the review converges and compare it just before
+  merging; after a retarget, push a new commit (a re-run keeps the old base) before
+  counting checks. New commits on the base branch, such as the release and README bot
+  commits on `main`, do not void a run; a merge skew between two PRs shows up in the CI
+  run on the base branch after the merge, which step 12 watches, and whether GitHub
+  should require up-to-date branches is decided in #405. Ignore the rows whose event is
+  `push` (`gh pr checks <n> --json name,event,bucket`): a PR whose head is a milestone
+  branch also shows push rows under the same names, while CodeQL's aggregate row has an
+  empty event and its `Analyze` jobs show `dynamic`. On every PR, `CI summary`, `quality
+  (pre-commit parity)`, `conventional commit subject` and `dependency review` are always
+  expected; on a PR into `main`, so are `CodeQL` and its `Analyze` jobs, except under
+  the known quirk below. If one is missing, CI did not run fully. Merge with this
+  command, where `<sha>` is the full reviewed head SHA from `git rev-parse` (GitHub
+  refuses the merge if the head moved) and no body is passed:
+  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title> (#<n>)"`
+  The `(#<n>)` suffix keeps the PR number in the log, as GitHub's default subject does.
   Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
   head, title or base changed after the checks and the review, they run again first.
   Known quirk: PRs touching only dependency manifests or workflows show the aggregate
@@ -389,9 +391,9 @@ steward.
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title, and its body is empty because the repository's squash
   message is `BLANK` (D91). A `--body` on the merge would be parsed too, so pass none
-  (the OpenCode map allows only the pinned squash form and denies `--body`, `-b`, `-F`,
-  an empty pin and `-R`/`--repo`; other wildcard gaps, such as bundled short flags, are
-  #401). Issue PR titles inside a milestone do not reach the
+  (the OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin and `-R`/`--repo`
+  after its pinned allow row, but its wildcards still admit bundled short flags, a value
+  flag that swallows the pin and a PR URL; the merge wrapper in #401 closes them). Issue PR titles inside a milestone do not reach the
   release; the milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
