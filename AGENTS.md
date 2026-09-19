@@ -293,11 +293,12 @@ verified finding and its suggestions are addressed; a deferred finding counts as
 resolved only once the PR body lists it (step 3 below). A converged dimension is
 excluded from later rounds unless a later fix touches what it reviews (a new test
 re-arms test validity, a new docstring re-arms comment accuracy, a new error path
-re-arms silent failures); re-run only the non-converged ones, on the fix range. There is no round ceiling,
-and an existing PR is never rejected as too big. Size is decided when the work is
-planned: one issue or one coherent change per PR, with granularity balanced against the
-cost of a five-dimension review and the workflows every PR triggers (about seven
-minutes of CI, dependency review, CodeQL). Split at planning time, not at review time.
+re-arms silent failures); re-run only the non-converged ones, on the fix range. There
+is no round ceiling, and an existing PR is never rejected as too big. Size is decided
+when the work is planned: one issue or one coherent change per PR, with granularity
+balanced against the cost of a five-dimension review and the workflows every PR
+triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning time,
+not at review time.
 
 ### What a finding becomes
 
