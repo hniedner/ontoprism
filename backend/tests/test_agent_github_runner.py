@@ -446,6 +446,12 @@ def test_read_output_exposes_only_the_documented_issue_fields(
                         "body": "Public issue body",
                         "authorization": "must-not-leak",
                         "user": {"token": "must-not-leak"},
+                        "milestone": {
+                            "number": 16,
+                            "title": "R0",
+                            "html_url": "https://example.invalid/milestone/16",
+                            "creator": {"token": "must-not-leak"},
+                        },
                     }
                 ),
             )
@@ -460,7 +466,11 @@ def test_read_output_exposes_only_the_documented_issue_fields(
 
     assert json.loads(capsys.readouterr().out) == {
         "body": "Public issue body",
-        "milestone": None,
+        "milestone": {
+            "number": 16,
+            "title": "R0",
+            "url": "https://example.invalid/milestone/16",
+        },
         "number": 4,
         "state": "open",
         "title": "Visible",
@@ -573,6 +583,76 @@ def test_a_list_read_returns_every_page_and_counts_a_limit_in_issues(
     )
     assert everything == [2, 1]
     assert limited == [2]
+
+
+def test_a_limit_shortens_a_milestone_list_and_has_no_upper_bound(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    milestones = [
+        {"number": n, "title": f"M{n}", "state": "open"} for n in range(1, 151)
+    ]
+    pages = json.dumps([milestones[:100], milestones[100:]])
+    runner = recording_runner([Result(0, pages), Result(0, pages)], [])
+
+    for limit in ("2", "120"):
+        assert (
+            run_agent_github(
+                ["milestone-list", "--limit", limit],
+                tmp_path,
+                read_only=True,
+                runner=runner,
+            )
+            == 0
+        )
+
+    short, long = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert [item["number"] for item in short] == [1, 2]
+    assert len(long) == 120
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["issue-list", "--limit", "0"],
+        ["issue-list", "--limit", "-1"],
+        ["milestone-list", "--limit", "x"],
+        ["issue-list", "--state", "merged"],
+        ["issue-comments"],
+        ["issue-comments", "397", "398"],
+        ["issue-comments", "0"],
+        ["issue-comments", "-3"],
+    ],
+)
+def test_list_and_comment_reads_refuse_invalid_arguments_before_any_call(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    """``issue-list --limit 0`` printing ``[]`` would read as "no matching issue" to a
+    duplicate search."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    with pytest.raises(AgentGitHubInputError):
+        run_agent_github(
+            arguments, tmp_path, read_only=True, runner=recording_runner([], calls)
+        )
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("state", ["open", "closed", "all"])
+def test_a_list_read_asks_github_for_the_requested_state(
+    tmp_path: Path, state: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, "[]")], calls)
+
+    assert (
+        run_agent_github(
+            ["issue-list", "--state", state], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert f"state={state}" in calls[0][0]
 
 
 def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:

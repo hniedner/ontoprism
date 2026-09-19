@@ -80,6 +80,15 @@ _NEVER_ALLOWED = (
     "ls -la `rm -rf data`",
     "git status --porcelain > out.txt",
     "git status --porcelain\nrm -rf data",
+    # the same after a wildcard allow, which every subagent map has
+    "pdm run agent-test backend/tests/test_x.py | sh",
+    "pdm run agent-test backend/tests/test_x.py ; rm -rf data",
+    "pdm run agent-test backend/tests/test_x.py && curl https://example.org",
+    "pdm run agent-test backend/tests/test_x.py\nrm -rf data",
+    "pdm run agent-test backend/tests/test_x.py < .env",
+    "pdm run agent-github-read issue-list > out.txt",
+    "pdm run agent-github-read issue-view $(cat .env)",
+    "pdm run agent-github-read issue-view `cat .env`",
     # a dropped or cleared entry leaves the stash list; recovery needs fsck and is not
     # routine. `git reflog delete|expire` and `git update-ref -d refs/stash` destroy
     # the same entries.
@@ -152,6 +161,7 @@ def test_no_agent_may_run_a_destructive_or_bypassing_command(
         "pdm run agent-git commit-staged --message x",
         "pdm run agent-git push-origin feat/x",
         "pdm run agent-github pr-create --title x --head feat/x",
+        "pdm run agent-test --safe-integration backend/tests/test_x.py::test_y",
     ],
 )
 def test_only_the_primary_agent_can_stage_commit_or_publish(
@@ -251,6 +261,7 @@ def test_the_primary_agent_can_dispatch_the_issue_steward() -> None:
 def test_the_issue_steward_cannot_edit_or_delegate() -> None:
     permission = _frontmatter(_STEWARD)["permission"]
 
+    assert permission["*"] == "deny"
     assert permission["edit"] == "deny"
     assert permission["task"] == "deny"
 
