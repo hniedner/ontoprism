@@ -446,6 +446,12 @@ def test_read_output_exposes_only_the_documented_issue_fields(
                         "body": "Public issue body",
                         "authorization": "must-not-leak",
                         "user": {"token": "must-not-leak"},
+                        "milestone": {
+                            "number": 16,
+                            "title": "R0",
+                            "html_url": "https://example.invalid/milestone/16",
+                            "creator": {"token": "must-not-leak"},
+                        },
                     }
                 ),
             )
@@ -460,11 +466,273 @@ def test_read_output_exposes_only_the_documented_issue_fields(
 
     assert json.loads(capsys.readouterr().out) == {
         "body": "Public issue body",
+        "milestone": {
+            "number": 16,
+            "title": "R0",
+            "url": "https://example.invalid/milestone/16",
+        },
         "number": 4,
         "state": "open",
         "title": "Visible",
         "url": "https://example.invalid/4",
     }
+
+
+def test_list_reads_expose_what_placing_an_issue_in_a_milestone_needs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fixtures copy two traits of GitHub's responses: every issue and milestone
+    object, the nested milestone included, carries ``html_url``, and fields outside the
+    documented set sit beside the documented ones (here made-up credential-shaped
+    values). The output is the documented fields only."""
+    milestone = {
+        "number": 16,
+        "title": "R0",
+        "state": "open",
+        "due_on": None,
+        "description": "Order: #389, then #340.",
+        "html_url": "https://example.invalid/milestone/16",
+        "creator": {"token": "must-not-leak"},
+    }
+    placed = {
+        "number": 7,
+        "title": "Placed",
+        "state": "open",
+        "created_at": "2026-09-01T10:00:00Z",
+        "html_url": "https://example.invalid/7",
+        "milestone": milestone,
+        "user": {"token": "must-not-leak"},
+    }
+    unplaced = {**placed, "number": 9, "title": "Epic", "milestone": None}
+
+    for operation, items in (
+        ("issue-list", [placed, unplaced]),
+        ("milestone-list", [milestone]),
+    ):
+        runner = recording_runner([Result(0, json.dumps([items]))], [])
+        assert (
+            run_agent_github([operation], tmp_path, read_only=True, runner=runner) == 0
+        )
+
+    issues, milestones = (
+        json.loads(line) for line in capsys.readouterr().out.splitlines()
+    )
+    assert issues == [
+        {
+            "number": 7,
+            "title": "Placed",
+            "state": "open",
+            "created_at": "2026-09-01T10:00:00Z",
+            "url": "https://example.invalid/7",
+            "milestone": {
+                "number": 16,
+                "title": "R0",
+                "url": "https://example.invalid/milestone/16",
+            },
+        },
+        {
+            "number": 9,
+            "title": "Epic",
+            "state": "open",
+            "created_at": "2026-09-01T10:00:00Z",
+            "url": "https://example.invalid/7",
+            "milestone": None,
+        },
+    ]
+    assert milestones == [
+        {
+            "number": 16,
+            "title": "R0",
+            "state": "open",
+            "due_on": None,
+            "description": "Order: #389, then #340.",
+            "url": "https://example.invalid/milestone/16",
+        }
+    ]
+
+
+def test_a_list_read_returns_every_page_and_counts_a_limit_in_issues(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A search for an existing issue must see the whole tracker: GitHub pages its
+    lists and mixes pull requests into the issue list."""
+    pull = {"number": 3, "title": "PR", "state": "open", "pull_request": {}}
+    pages = [
+        [pull, {"number": 2, "title": "second", "state": "open"}],
+        [{"number": 1, "title": "first", "state": "open"}],
+    ]
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps(pages)), Result(0, json.dumps(pages))], calls
+    )
+
+    assert (
+        run_agent_github(["issue-list"], tmp_path, read_only=True, runner=runner) == 0
+    )
+    assert (
+        run_agent_github(
+            ["issue-list", "--limit", "1"], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert calls[0][0][-2:] == ["--paginate", "--slurp"]
+    everything, limited = (
+        [item["number"] for item in json.loads(line)]
+        for line in capsys.readouterr().out.splitlines()
+    )
+    assert everything == [2, 1]
+    assert limited == [2]
+
+
+def test_a_limit_shortens_a_milestone_list_and_has_no_upper_bound(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    milestones = [
+        {"number": n, "title": f"M{n}", "state": "open"} for n in range(1, 151)
+    ]
+    pages = json.dumps([milestones[:100], milestones[100:]])
+    runner = recording_runner([Result(0, pages), Result(0, pages)], [])
+
+    for limit in ("2", "120"):
+        assert (
+            run_agent_github(
+                ["milestone-list", "--limit", limit],
+                tmp_path,
+                read_only=True,
+                runner=runner,
+            )
+            == 0
+        )
+
+    short, long = (json.loads(line) for line in capsys.readouterr().out.splitlines())
+    assert [item["number"] for item in short] == [1, 2]
+    assert len(long) == 120
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["issue-list", "--limit", "0"],
+        ["issue-list", "--limit", "-1"],
+        ["milestone-list", "--limit", "x"],
+        ["issue-list", "--state", "merged"],
+        ["issue-comments"],
+        ["issue-comments", "397", "398"],
+        ["issue-comments", "0"],
+        ["issue-comments", "-3"],
+    ],
+)
+def test_list_and_comment_reads_refuse_invalid_arguments_before_any_call(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    """``issue-list --limit 0`` printing ``[]`` would read as "no matching issue" to a
+    duplicate search."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    with pytest.raises(AgentGitHubInputError):
+        run_agent_github(
+            arguments, tmp_path, read_only=True, runner=recording_runner([], calls)
+        )
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("state", ["open", "closed", "all"])
+def test_a_list_read_asks_github_for_the_requested_state(
+    tmp_path: Path, state: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, "[]")], calls)
+
+    assert (
+        run_agent_github(
+            ["issue-list", "--state", state], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert f"state={state}" in calls[0][0]
+
+
+def test_an_issue_whose_milestone_is_not_an_object_is_refused(tmp_path: Path) -> None:
+    runner = recording_runner(
+        [Result(0, '{"number":4,"title":"x","state":"open","milestone":"R0"}')], []
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="milestone"):
+        run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["issue-view", "390"],
+        ["issue-comments", "390"],
+        ["issue-comment", "390", "--body-file", "tmp/plans/body.md"],
+        ["issue-close", "390"],
+        ["issue-edit", "390", "--title", "x"],
+    ],
+)
+def test_issue_operations_refuse_a_pull_request_number_before_any_write(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    """GitHub serves a pull request on the issues endpoint; a mistyped number must not
+    hand an agent a PR as "the issue the PR implements", nor write to one."""
+    write_body(tmp_path)
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, '{"number":390,"title":"x","state":"open","pull_request":{}}')],
+        calls,
+    )
+
+    with pytest.raises(AgentGitHubInputError, match="#390 is a pull request"):
+        run_agent_github(arguments, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+def test_issue_comments_are_readable_because_findings_are_parked_there(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    comment = {
+        "body": "Also: the seal is not shielded.",
+        "created_at": "2026-09-19T08:00:00Z",
+        "html_url": "https://example.invalid/397#c1",
+        "user": {"login": "someone", "token": "must-not-leak"},
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, '{"number":397}'), Result(0, json.dumps([[comment], [comment]]))],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            ["issue-comments", "397"], tmp_path, read_only=True, runner=runner
+        )
+        == 0
+    )
+
+    assert calls[1][0][:5] == [
+        "gh",
+        "api",
+        "--method",
+        "GET",
+        "repos/hniedner/ontoprism/issues/397/comments",
+    ]
+    assert calls[1][0][-2:] == ["--paginate", "--slurp"]
+    assert (
+        json.loads(capsys.readouterr().out)
+        == [
+            {
+                "body": "Also: the seal is not shielded.",
+                "created_at": "2026-09-19T08:00:00Z",
+                "url": "https://example.invalid/397#c1",
+            }
+        ]
+        * 2
+    )
 
 
 def test_pr_create_checks_duplicate_head_then_posts_fixed_payload(

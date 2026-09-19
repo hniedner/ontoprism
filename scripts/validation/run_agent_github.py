@@ -20,7 +20,14 @@ OWNER = REPOSITORY.split("/", maxsplit=1)[0]
 API_ROOT = f"repos/{REPOSITORY}"
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 READ_OPERATIONS = frozenset(
-    {"issue-view", "issue-list", "milestone-list", "pr-view", "run-list"}
+    {
+        "issue-view",
+        "issue-comments",
+        "issue-list",
+        "milestone-list",
+        "pr-view",
+        "run-list",
+    }
 )
 MUTATION_OPERATIONS = frozenset(
     {
@@ -273,8 +280,10 @@ def _flatten_pages(value: Any) -> list[dict[str, Any]]:
 
 def _get_issue(number: int, root: Path, runner: CommandRunner) -> dict[str, Any]:
     value = _api("GET", f"{API_ROOT}/issues/{number}", root, runner)
-    if not isinstance(value, dict) or "pull_request" in value:
+    if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub issue response is invalid")
+    if "pull_request" in value:
+        raise AgentGitHubInputError(f"#{number} is a pull request, not an issue")
     return value
 
 
@@ -347,33 +356,33 @@ def _validate_assignee(login: str, root: Path, runner: CommandRunner) -> str:
     return str(value["login"])
 
 
-def _list_issues(root: Path, runner: CommandRunner) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in _flatten_pages(
-            _api(
-                "GET",
-                f"{API_ROOT}/issues",
-                root,
-                runner,
-                fields=(("state", "all"), ("per_page", "100")),
-                paginate=True,
-            )
-        )
-        if "pull_request" not in item
-    ]
-
-
-def _list_milestones(root: Path, runner: CommandRunner) -> list[dict[str, Any]]:
+def _read_pages(
+    endpoint: str,
+    root: Path,
+    runner: CommandRunner,
+    *,
+    fields: tuple[tuple[str, str], ...] = (),
+) -> list[dict[str, Any]]:
     return _flatten_pages(
         _api(
             "GET",
-            f"{API_ROOT}/milestones",
+            endpoint,
             root,
             runner,
-            fields=(("state", "all"), ("per_page", "100")),
+            fields=(*fields, ("per_page", str(MAX_LIST_LIMIT))),
             paginate=True,
         )
+    )
+
+
+def _list_issues(root: Path, runner: CommandRunner) -> list[dict[str, Any]]:
+    issues = _read_pages(f"{API_ROOT}/issues", root, runner, fields=(("state", "all"),))
+    return [item for item in issues if "pull_request" not in item]
+
+
+def _list_milestones(root: Path, runner: CommandRunner) -> list[dict[str, Any]]:
+    return _read_pages(
+        f"{API_ROOT}/milestones", root, runner, fields=(("state", "all"),)
     )
 
 
@@ -402,24 +411,37 @@ def _selected(value: dict[str, Any], fields: tuple[str, ...]) -> dict[str, objec
     return selected
 
 
-def _sanitize_list(operation: str, value: Any) -> list[dict[str, object]]:
-    if not isinstance(value, list):
-        raise AgentGitHubProcessError("GitHub list response is invalid")
-    fields = (
-        ("number", "title", "state")
-        if operation == "issue-list"
-        else ("number", "title", "state", "due_on")
+def _selected_issue(
+    value: dict[str, Any], fields: tuple[str, ...]
+) -> dict[str, object]:
+    """The output always carries ``milestone``: ``None`` when GitHub reports none (a
+    null or absent key); anything but an object or null is refused."""
+    milestone = value.get("milestone")
+    if milestone is not None and not isinstance(milestone, dict):
+        raise AgentGitHubProcessError("GitHub issue milestone is invalid")
+    selected = _selected(value, fields)
+    selected["milestone"] = (
+        None if milestone is None else _selected(milestone, ("number", "title"))
     )
-    return [
-        _selected(item, fields)
-        for item in value
-        if isinstance(item, dict)
-        and (operation != "issue-list" or "pull_request" not in item)
-    ]
+    return selected
+
+
+_LIST_FIELDS = {
+    "issue-list": ("number", "title", "state", "created_at"),
+    "issue-comments": ("body", "created_at"),
+    "milestone-list": ("number", "title", "state", "due_on", "description"),
+}
+
+
+def _sanitize_list(
+    operation: str, value: list[dict[str, Any]]
+) -> list[dict[str, object]]:
+    project = _selected_issue if operation == "issue-list" else _selected
+    return [project(item, _LIST_FIELDS[operation]) for item in value]
 
 
 def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
-    selected = _selected(value, ("number", "title", "state", "body"))
+    selected = _selected_issue(value, ("number", "title", "state", "body"))
     for source, target, field in (
         (value.get("labels"), "labels", "name"),
         (value.get("assignees"), "assignees", "login"),
@@ -430,9 +452,6 @@ def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
                 for item in source
                 if isinstance(item, dict) and isinstance(item.get(field), str)
             ]
-    milestone = value.get("milestone")
-    if isinstance(milestone, dict):
-        selected["milestone"] = _selected(milestone, ("number", "title"))
     return selected
 
 
@@ -471,7 +490,7 @@ def _sanitize_runs(value: dict[str, Any]) -> dict[str, object]:
 
 
 def _sanitize_read(operation: str, value: Any) -> Any:
-    if operation in {"issue-list", "milestone-list"}:
+    if operation in _LIST_FIELDS:
         return _sanitize_list(operation, value)
     if not isinstance(value, dict):
         raise AgentGitHubProcessError("GitHub read response is invalid")
@@ -504,29 +523,41 @@ def _run_number_read(
     if len(arguments) != 1:
         raise AgentGitHubInputError(f"{operation} requires exactly one number")
     number = _positive_number(arguments[0], operation)
-    endpoint = "issues" if operation == "issue-view" else "pulls"
-    return _api("GET", f"{API_ROOT}/{endpoint}/{number}", root, runner)
+    if operation == "issue-view":
+        return _get_issue(number, root, runner)
+    return _api("GET", f"{API_ROOT}/pulls/{number}", root, runner)
 
 
 def _run_list_read(
     operation: str, arguments: list[str], root: Path, runner: CommandRunner
-) -> Any:
+) -> list[dict[str, Any]]:
+    """Every page of the list; ``--limit`` then keeps that many issues or milestones.
+
+    The limit only shortens a complete list, so it has no upper bound. ``run-list``
+    differs: it sends its limit to GitHub as the page size, so it caps it at
+    ``MAX_LIST_LIMIT``."""
     options = _flags(arguments, singles=frozenset({"--state", "--limit"}))
     state = str(options.get("--state", "open"))
     if state not in {"open", "closed", "all"}:
         raise AgentGitHubInputError("state is invalid")
-    limit = _positive_number(str(options.get("--limit", MAX_LIST_LIMIT)), "limit")
-    if limit > MAX_LIST_LIMIT:
-        raise AgentGitHubInputError("limit is invalid")
+    limit = None
+    if "--limit" in options:
+        limit = _positive_number(str(options["--limit"]), "limit")
     endpoint = "issues" if operation == "issue-list" else "milestones"
-    values = _api(
-        "GET",
-        f"{API_ROOT}/{endpoint}",
-        root,
-        runner,
-        fields=(("state", state), ("per_page", str(limit))),
+    values = _read_pages(
+        f"{API_ROOT}/{endpoint}", root, runner, fields=(("state", state),)
     )
-    return _flatten_pages(values)
+    return [item for item in values if "pull_request" not in item][:limit]
+
+
+def _run_comments_read(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> list[dict[str, Any]]:
+    if len(arguments) != 1:
+        raise AgentGitHubInputError("issue-comments requires exactly one number")
+    number = _positive_number(arguments[0], "issue-comments")
+    _get_issue(number, root, runner)
+    return _read_pages(f"{API_ROOT}/issues/{number}/comments", root, runner)
 
 
 def _run_runs_read(arguments: list[str], root: Path, runner: CommandRunner) -> Any:
@@ -564,6 +595,8 @@ def _run_read(
         return _run_number_read(operation, arguments, root, runner)
     if operation in {"issue-list", "milestone-list"}:
         return _run_list_read(operation, arguments, root, runner)
+    if operation == "issue-comments":
+        return _run_comments_read(arguments, root, runner)
     return _run_runs_read(arguments, root, runner)
 
 
