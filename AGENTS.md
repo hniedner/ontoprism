@@ -32,9 +32,8 @@ For each issue:
 10. When every check passes, all five dimensions have converged and the PR body lists
     the five review verdicts and every dropped and deferred finding, squash-merge the
     issue PR into the milestone branch and delete the issue branch. This merge does not
-    need the owner. Then watch the CI run on the milestone branch with
-    `gh run watch <id> --exit-status`; if it was cancelled because another merge
-    followed, watch the next run on that branch, which tests the combined tree.
+    need the owner. Then watch the CI run on the milestone branch (post-merge watch,
+    below).
 
 For the milestone:
 
@@ -52,9 +51,22 @@ For the milestone:
     review is an integration pass: what the issue reviews could not see (interactions
     between issues, migrations in sequence, the combined diff against `main`).
 12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
-    authorization covers it (see Hard rules, D91). After it, watch post-merge workflows
-    to completion before starting the next milestone, including `Release`, which starts
-    only after CI on `main` succeeds.
+    authorization covers it (see Hard rules, D91). After it, watch the post-merge
+    workflows (below) before starting the next milestone.
+
+**Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
+full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then `gh
+run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` (a
+short SHA matches nothing; wait until the run exists, and never take the newest run on
+the branch instead). Watch it with `gh run watch <id> --exit-status`. A non-zero exit is
+a failure unless `gh run view <id> --json conclusion` says `cancelled` and a newer push
+run exists on the branch (`cancel-in-progress` cancels a run when another merge
+follows); then watch that newer run, which tests the combined tree. On a failure, stop:
+do not start the next issue, report it to the owner, and fix the cause through an issue
+PR ("What a finding becomes"). After a merge into `main`, also watch `Release`: it runs
+after every CI run on `main` but releases only when that run succeeded, and its guard
+can hand the release to a newer commit on `main`. For a `feat` or `fix` title, confirm
+the new version with `gh release list --limit 1` once the `Release` runs have settled.
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
