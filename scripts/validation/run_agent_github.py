@@ -416,9 +416,9 @@ def _selected_issue(
 ) -> dict[str, object]:
     """The output always carries ``milestone``: ``None`` when GitHub reports none (a
     null or absent key); anything but an object or null is refused. Label names come
-    along when GitHub sends labels, so an epic is visible in a list read; labels that
-    are not a list of named objects are refused, because a dropped label would make an
-    epic look like an ordinary issue."""
+    along in a list or view read when GitHub sends labels, so an epic is visible;
+    labels that are not a list of named objects are refused, because a dropped label
+    would make an epic look like an ordinary issue."""
     milestone = value.get("milestone")
     if milestone is not None and not isinstance(milestone, dict):
         raise AgentGitHubProcessError(
@@ -428,26 +428,24 @@ def _selected_issue(
     selected["milestone"] = (
         None if milestone is None else _selected(milestone, ("number", "title"))
     )
-    labels = _label_names(value)
-    if labels is not None:
-        selected["labels"] = labels
+    if value.get("labels") is not None:
+        selected["labels"] = _names(value, "labels", "name")
     return selected
 
 
-def _label_names(value: dict[str, Any]) -> list[str] | None:
-    """The issue's label names, or ``None`` when GitHub sent no label list. Anything
-    else is refused: reads would hide an epic, and an edit would delete the label."""
-    labels = value.get("labels")
-    if labels is None:
-        return None
-    if not isinstance(labels, list) or not all(
-        isinstance(label, dict) and isinstance(label.get("name"), str)
-        for label in labels
+def _names(value: dict[str, Any], key: str, attribute: str) -> list[str]:
+    """The ``attribute`` of each object in the issue's ``key`` list. Anything else,
+    including a null or absent list, is refused: a read would hide an epic, and an
+    edit, which sends the full list back, would delete what it could not read."""
+    items = value.get(key)
+    if not isinstance(items, list) or not all(
+        isinstance(item, dict) and isinstance(item.get(attribute), str)
+        for item in items
     ):
         raise AgentGitHubProcessError(
-            f"GitHub issue {value.get('number')} labels are invalid"
+            f"GitHub issue {value.get('number')} {key} are invalid"
         )
-    return [label["name"] for label in labels]
+    return [item[attribute] for item in items]
 
 
 _LIST_FIELDS = {
@@ -466,13 +464,8 @@ def _sanitize_list(
 
 def _sanitize_issue(value: dict[str, Any]) -> dict[str, object]:
     selected = _selected_issue(value, ("number", "title", "state", "body"))
-    assignees = value.get("assignees")
-    if isinstance(assignees, list):
-        selected["assignees"] = [
-            item["login"]
-            for item in assignees
-            if isinstance(item, dict) and isinstance(item.get("login"), str)
-        ]
+    if value.get("assignees") is not None:
+        selected["assignees"] = _names(value, "assignees", "login")
     return selected
 
 
@@ -693,7 +686,7 @@ def _updated_labels(
     root: Path,
     runner: CommandRunner,
 ) -> list[str]:
-    labels = set(_label_names(current) or [])
+    labels = set(_names(current, "labels", "name"))
     removals = {
         _validate_text(str(label), "label", maximum=MAX_NAME_LENGTH)
         for label in _multiple(options, "--remove-label")
@@ -714,11 +707,7 @@ def _updated_assignees(
     root: Path,
     runner: CommandRunner,
 ) -> list[str]:
-    assignees = {
-        str(item["login"])
-        for item in current.get("assignees", [])
-        if isinstance(item, dict) and isinstance(item.get("login"), str)
-    }
+    assignees = set(_names(current, "assignees", "login"))
     removals = {
         _safe_name(str(login), "assignee")
         for login in _multiple(options, "--remove-assignee")
