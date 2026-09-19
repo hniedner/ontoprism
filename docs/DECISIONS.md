@@ -83,6 +83,11 @@ from four plain criteria into a corpus-wide acceptance contract.
   (re-armed when a later fix touches what it reviews), and there is no round ceiling.
   PR size is set when work is planned, one issue or one
   coherent change per PR, balancing granularity against review and CI cost.
+  *(Addendum 2026-09-19, #398: the roster adds the read-only `issue-steward` subagent, in
+  OpenCode and in Claude Code. There is no severity threshold on findings. A verified
+  finding is fixed in the PR that surfaced it; only a major out-of-scope finding is
+  deferred, without needing the owner's agreement, and it is listed in the PR body. See
+  "What a finding becomes" in `AGENTS.md`.)*
 - The OpenCode config validators and their tests are deleted, and the tests that assert
   documentation wording are removed here and in #339.
   `backend/tests/test_agent_permission_safety.py` keeps the part that matters: the bash

@@ -300,16 +300,18 @@ minutes of CI, dependency review, CodeQL). Split at planning time, not at review
 
 ### What a finding becomes
 
-Every real finding is recorded and fixed, however small: minor defects compound (owner,
-2026-09-19). There is no severity threshold. What keeps the tracker finite is that a
-finding is real, is fixed where it was found, and is filed at most once:
+Every real finding is fixed, however small: minor defects compound (owner, 2026-09-19).
+There is no severity threshold. A fix is recorded by its commit; a dropped or deferred
+finding is recorded in the PR body. What keeps the tracker finite is that a finding is
+real, is fixed where it was found, and is filed at most once:
 
 1. **Verify it first.** A finding counts when it is reproduced, or shown in the code
    together with the input or state that triggers it. One that cannot be verified is
    dropped, with a one-line reason in the PR body. Never file, fix or "harden against" an
    unverified finding.
 2. **Fix it in the PR that surfaced it.** That is the normal case, including for
-   findings in code the PR only touches in passing.
+   findings in code the PR only touches in passing. On a milestone PR the fix still lands
+   through an issue branch and a PR into the milestone branch, never as a direct commit.
 3. **Defer only a major, out-of-scope finding**: one whose fix needs its own design, its
    own tests and its own review, and does not belong to the issue's contract. Size alone
    is not a reason, and neither is inconvenience. List every deferral in the PR body
@@ -323,8 +325,10 @@ finding is real, is fixed where it was found, and is filed at most once:
    area become one issue, not one each.
 5. **Place it.** A new issue gets a milestone and a position in that milestone's order;
    the order lives in the milestone description, and in a milestone without one the
-   position is stated by dependency (what the issue blocks, what blocks it). "No
-   milestone" is for epics and for collected low-severity work that blocks nothing.
+   position is stated by dependency (what the issue blocks, what blocks it). Writing the
+   position into the milestone description is a milestone edit: propose it to the owner
+   with the deferral. "No milestone" is for epics and for collected minor work that
+   blocks nothing.
 6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
    work planned later, or a milestone has grown past what can land), propose the
    reorganization to the owner with the reason. Moving issues between milestones,
