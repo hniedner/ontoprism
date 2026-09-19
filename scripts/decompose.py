@@ -9,6 +9,9 @@
   pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
       --branch neoplasm --resume neoplasm-7bb8b360-a2ec-45d0-b06d-a79ae18c3689
 
+A full run is preceded by a preflight rehearsal of the tracked stratified SME sample
+through the same pipeline and reporting (``--no-preflight`` skips it).
+
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
 QLever client, the Postgres provenance store, and `NcitGraphStore` for the concept
 labels the NLP fallback needs. See ``run.py``'s module docstring for the documented
@@ -20,8 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
+from functools import partial
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 import typer
 
@@ -59,6 +65,23 @@ _PROGRESS_COMPLETION_INTERVAL = 100
 _ADDITIVE_GRAPH_IRIS = frozenset(
     {vocab.DECOMPOSED_GRAPH_IRI, NCIT_UPSTREAM_XREF_GRAPH_IRI}
 )
+
+
+# A full run takes about fifteen hours. Before one starts, the branch's tracked
+# stratified SME sample (for neoplasm the D63 oracle cohort: 20 concepts across every
+# review stratum) is rehearsed through the same pipeline and the same reporting, so an
+# input, environment or reporting defect surfaces well before the full run does the
+# work. The rehearsal is a throwaway run: admitted afresh each time, never published,
+# never promoting its mints, never resumable, and it borrows only the sample's codes
+# (the sample's source binding is recorded, not enforced). It cannot carry the
+# mixed-chain inventory or the whole-worklist closure checks, which are bound to the
+# full worklist; those still run at hour zero of the full run. This is distinct from
+# the engine's own `preflight` stage, the constructor census every run performs.
+PREFLIGHT_SAMPLES = {
+    DecompositionBranch.NEOPLASM: (
+        Path(__file__).resolve().parents[1] / "samples/ncit-26.07d-m1-sme-review.json"
+    ),
+}
 
 
 def _make_label_lookup(index: NcitSearchIndex):  # type: ignore[no-untyped-def]
@@ -105,15 +128,18 @@ def _progress_message(progress: RunProgress) -> str | None:
     )
 
 
-def _print_progress(progress: RunProgress) -> None:
+def _print_progress(progress: RunProgress, *, prefix: str = "") -> None:
     if message := _progress_message(progress):
-        print(message, file=sys.stderr, flush=True)
+        print(prefix + message, file=sys.stderr, flush=True)
 
 
-def _print_residual_progress(completed: int, total: int, filler: str) -> None:
+def _print_residual_progress(
+    completed: int, total: int, filler: str, *, prefix: str = ""
+) -> None:
     if completed in (0, total) or completed % 100 == 0:
         print(
-            f"phase=residual-metric completed={completed}/{total} active={filler}",
+            f"{prefix}phase=residual-metric completed={completed}/{total} "
+            f"active={filler}",
             file=sys.stderr,
             flush=True,
         )
@@ -155,6 +181,7 @@ async def _run(
     total_limit: int | None,
     walker_max_depth: int = 5,
     sample_manifest: Path | None = None,
+    rehearsal: bool = False,
 ) -> RunMetrics:
     sample = (
         load_sample_manifest(sample_manifest) if sample_manifest is not None else None
@@ -167,6 +194,9 @@ async def _run(
         resume_from=resume,
         walker_max_depth=walker_max_depth,
         sample_manifest=sample,
+        rehearsal=rehearsal,
+        # The inventory is bound to the whole-corpus worklist identity, so only an
+        # unbounded neoplasm run carries it.
         mixed_chain_inventory_path=(
             Path(__file__).resolve().parents[1]
             / "ontolib/src/ontolib/decomposition/data/"
@@ -179,6 +209,7 @@ async def _run(
     )
     if sample is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
+    prefix = "preflight " if rehearsal else ""
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
@@ -201,8 +232,10 @@ async def _run(
                             get_labels=store.labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
-                            progress=_print_progress,
-                            residual_progress=_print_residual_progress,
+                            progress=partial(_print_progress, prefix=prefix),
+                            residual_progress=partial(
+                                _print_residual_progress, prefix=prefix
+                            ),
                         )
                     except BaseException as exc:
                         primary_error = exc
@@ -310,6 +343,17 @@ def main(
             ),
         ),
     ] = None,
+    preflight: Annotated[
+        bool,
+        typer.Option(
+            "--preflight/--no-preflight",
+            help=(
+                "Before a full run, rehearse the branch's tracked stratified SME "
+                "sample through the same pipeline (never loading the graph) and stop "
+                "if it fails or decomposes nothing."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if emit_equivalence:
@@ -330,19 +374,105 @@ def main(
             raise typer.BadParameter(
                 "--sample-manifest and --total-limit are mutually exclusive"
             )
+    is_full_run = resume is None and total_limit is None and sample_manifest is None
+    if preflight and is_full_run:
+        _rehearse(
+            source_manifest=source_manifest,
+            branch=branch,
+            out=out,
+            emit_equivalence=emit_equivalence,
+            walker_max_depth=walker_max_depth,
+        )
     metrics = asyncio.run(
         _run(
-            source_manifest,
-            branch,
-            out,
-            load,
-            emit_equivalence,
-            resume,
-            total_limit,
-            walker_max_depth,
-            sample_manifest,
+            source_manifest=source_manifest,
+            branch=branch,
+            out=out,
+            load=load,
+            emit_equivalence=emit_equivalence,
+            resume=resume,
+            total_limit=total_limit,
+            walker_max_depth=walker_max_depth,
+            sample_manifest=sample_manifest,
+            rehearsal=False,
         )
     )
+    typer.echo(_summary_line(metrics))
+
+
+def _file_stamp(path: Path) -> tuple[int, int] | None:
+    """Size and mtime of a file, or None when absent (tells attempts apart)."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
+def _rehearse(
+    *,
+    source_manifest: Path,
+    branch: DecompositionBranch,
+    out: Path | None,
+    emit_equivalence: bool,
+    walker_max_depth: int,
+) -> None:
+    """Run the branch's preflight sample as a rehearsal; a failure deletes nothing."""
+    sample = PREFLIGHT_SAMPLES.get(branch)
+    if sample is None:
+        raise typer.BadParameter(
+            f"no preflight sample is tracked for branch {branch.value!r}; "
+            "pass --no-preflight"
+        )
+    preflight_out = (
+        out.with_name(f"{out.name}.preflight")
+        if out is not None
+        else Path(tempfile.gettempdir()) / f"decompose-preflight-{uuid4().hex}.ttl"
+    )
+    before = _file_stamp(preflight_out)
+    try:
+        metrics = asyncio.run(
+            _run(
+                source_manifest=source_manifest,
+                branch=branch,
+                out=preflight_out,
+                load=False,
+                emit_equivalence=emit_equivalence,
+                resume=None,
+                total_limit=None,
+                walker_max_depth=walker_max_depth,
+                sample_manifest=sample,
+                rehearsal=True,
+            )
+        )
+        if metrics.decomposed == 0:
+            raise RuntimeError(
+                f"preflight decomposed no concepts: {_summary_line(metrics)}"
+            )
+    except BaseException as exc:
+        after = _file_stamp(preflight_out)
+        if after is None:
+            output = "no output was written"
+        elif after == before:
+            output = (
+                f"no output was written; {preflight_out} is left over from an "
+                "earlier preflight"
+            )
+        else:
+            output = f"its output is left at {preflight_out}"
+        exc.add_note(
+            f"raised by the preflight rehearsal of {sample}; the full run was not "
+            f"started; {output}; --no-preflight skips it"
+        )
+        raise
+    typer.echo(f"preflight: {_summary_line(metrics)}")
+    try:
+        preflight_out.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("could not delete preflight output %s: %s", preflight_out, exc)
+
+
+def _summary_line(metrics: RunMetrics) -> str:
     residual_rate = metrics.residual_precoordination
     residual_summary = (
         f"{residual_rate:.2%} "
@@ -350,7 +480,7 @@ def main(
         if residual_rate is not None
         else f"unavailable (unknown={metrics.residual_precoordination_unknown_count})"
     )
-    typer.echo(
+    return (
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
         f"residual={metrics.residual} "
         f"semantic_excluded={metrics.semantic_excluded} "

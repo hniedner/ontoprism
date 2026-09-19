@@ -40,11 +40,15 @@ from ontolib.decomposition.provenance import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletionRunMetrics,
     FreshAdmitted,
     FullRunExecutionIdentity,
     NcitSourceSnapshot,
+    ResumeAdmitted,
+    ResumeKind,
     RunAdmission,
     RunFingerprint,
+    RunOutcomeCounts,
     RunResumeIdentity,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
@@ -821,7 +825,7 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         assert dict(row) == {
             "state": "failed",
             "error_type": "RuntimeError",
-            "error_message": "x" * 1000,
+            "error_message": "x" * 999 + "\u2026",
         }
         assert constituent_count == 0
 
@@ -1082,6 +1086,33 @@ async def test_finish_and_resume_reject_invalid_run_identity_or_state() -> None:
         await dispose_engine(engine)
 
 
+async def test_a_failed_run_keeps_the_account_of_its_failed_failure_record() -> None:
+    """The column check allows 1000 characters; the note and the cause must fit."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    error = RuntimeError("x" * 2000)
+    error.add_note("Recording the stage failure also failed: OSError: disk full")
+    error.__cause__ = ValueError("source identity drifted")
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        assert await store.fail_run(run_id, error) is True
+        conn = await asyncpg.connect(_dsn())
+        try:
+            stored = await conn.fetchval(
+                "SELECT error_message FROM decomp_run WHERE id = $1", run_id
+            )
+        finally:
+            await conn.close()
+        assert stored.endswith(
+            "\nRecording the stage failure also failed: OSError: disk full"
+            "\ncaused by ValueError: source identity drifted"
+        )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
@@ -1150,6 +1181,167 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         )
         assert await store.pending_codes(run_id) == ["C0", "C1"]
     finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_a_persisted_run_inspects_as_content_valid() -> None:
+    """The writer's identity and the inspector's raw-JSON hash must agree."""
+    run_ids = [_new_run_id("neoplasm"), _new_run_id("neoplasm")]
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_ids[0], "26.07d", _fingerprint())
+        await store.create_run(
+            run_ids[1],
+            "26.07d",
+            _fingerprint().model_copy(update={"rehearsal_nonce": "d" * 32}),
+        )
+
+        inspections = await inspect_decomposition_runs(engine, tuple(run_ids))
+
+        assert [item.fingerprint_content_valid for item in inspections] == [True, True]
+        assert [item.rehearsal for item in inspections] == [False, True]
+    finally:
+        await _cleanup(run_ids)
+        await dispose_engine(engine)
+
+
+async def test_a_rehearsal_cannot_be_resumed() -> None:
+    """The id on the `preflight run=` line names a rehearsal; resuming it refuses."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    rehearsal = _fingerprint().model_copy(update={"rehearsal_nonce": "e" * 32})
+    try:
+        await store.create_run(run_id, "26.07d", rehearsal)
+
+        with pytest.raises(RunStateError, match=r"is a rehearsal;.*cannot be resumed"):
+            await store.resume_run(
+                run_id, RunResumeIdentity.from_fingerprint(rehearsal)
+            )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_the_completion_recount_is_available_before_publication() -> None:
+    """The store answers the completion recount outside `finish_run`, which runs
+    too late to protect the public graph: unfinished work and drifted counts are
+    refused, the true recount is accepted, and the run stays running."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        nothing_counted = CompletionRunMetrics.model_validate(
+            {
+                **RunOutcomeCounts(
+                    total_in_scope=0, decomposed=0, residual=0, minted_count=0
+                ).model_dump(),
+                "residual_precoordinated_count": 0,
+                "residual_precoordination_unknown_count": 0,
+                "residual_precoordination": 0.0,
+                "complete_definition_count": 0,
+                "complete_fact_count": 0,
+                "projected_fact_count": 0,
+                "projection_loss_count": 0,
+                "projection_loss_rate": 0.0,
+                "pct_decomposed": 0.0,
+                "roundtrip_fidelity": None,
+            }
+        )
+        for code in ("C0", "C1"):
+            with pytest.raises(RunStateError, match="unfinished work items"):
+                await store.require_completion_recount(run_id, nothing_counted)
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code, semantic_type="Neoplastic Process", constituents=[]
+                ),
+                minted=(),
+                semantic_types=("Neoplastic Process",),
+            )
+        recounted = await _completion_metrics(store, run_id)
+
+        await store.require_completion_recount(
+            run_id, CompletionRunMetrics.model_validate(recounted)
+        )
+        with pytest.raises(
+            RunStateError, match="do not match persisted work-item"
+        ) as drift:
+            await store.require_completion_recount(run_id, nothing_counted)
+        assert "total_in_scope: supplied 0, recounted 2" in str(drift.value)
+        overclaimed_facts = CompletionRunMetrics.model_validate(
+            recounted | {"complete_fact_count": 1, "projected_fact_count": 1}
+        )
+        with pytest.raises(
+            RunStateError, match="do not match persisted definition rows"
+        ) as drift:
+            await store.require_completion_recount(run_id, overclaimed_facts)
+        assert (
+            "complete_fact_count: supplied 1, recounted 0; "
+            "projected_fact_count: supplied 1, recounted 0"
+        ) in str(drift.value)
+        assert (await store.get_run(run_id)).status == "running"  # type: ignore[union-attr]
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_a_completed_rehearsal_never_reaches_the_curator_queue() -> None:
+    """A rehearsal must not claim the deterministic mint ids the real run will mint."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(
+            run_id,
+            "26.07d",
+            _fingerprint().model_copy(update={"rehearsal_nonce": "f" * 32}),
+        )
+        for code in ("C0", "C1"):
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code,
+                    semantic_type="Neoplastic Process",
+                    constituents=[
+                        Constituent(
+                            axis="op:Laterality",
+                            filler_code=_minted_for(code).id,
+                            axis_source="nlp",
+                        )
+                    ],
+                ),
+                minted=(_minted_for(code),),
+                semantic_types=("Neoplastic Process",),
+            )
+
+        assert await store.finish_run(
+            run_id,
+            source_identity="a" * 64,
+            metrics=await _completion_metrics(store, run_id),
+        )
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+        assert (await store.get_run(run_id)).rehearsal is True  # type: ignore[union-attr]
+    finally:
+        await conn.close()
         await _cleanup([run_id])
         await dispose_engine(engine)
 
@@ -1291,6 +1483,36 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
         )
     finally:
         await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_first_resume_after_a_hard_kill_reclaims_the_orphaned_work_item() -> None:
+    """SIGKILL/OOM leaves the run `running` with a claimed item; the first `--resume`
+    goes through admission, not `fail_run`, and must reclaim it."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    fingerprint = _fingerprint()
+    execution = FullRunExecutionIdentity.from_fingerprint(fingerprint)
+    try:
+        assert isinstance(
+            await store.admit_run(run_id, "26.07d", fingerprint, execution),
+            FreshAdmitted,
+        )
+        abandoned = await store.claim_work_item(run_id, "C0")
+        assert abandoned is not None
+        assert await store.claim_work_item(run_id, "C0") is None
+
+        resumed = await store.admit_run(
+            "unused", "26.07d", fingerprint, execution, resume_run_id=run_id
+        )
+
+        assert resumed == ResumeAdmitted(run_id=run_id, resume_kind=ResumeKind.SEMANTIC)
+        reclaimed = await store.claim_work_item(run_id, "C0")
+        assert reclaimed is not None
+        assert reclaimed != abandoned
+    finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
 

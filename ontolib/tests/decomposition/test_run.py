@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -27,11 +28,14 @@ from ontolib.decomposition.complete_definition import (
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
 from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
+    _constituent_evidence_identity,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletionRunMetrics,
     FreshAdmitted,
     NcitSourceSnapshot,
     RefusalReason,
@@ -45,7 +49,10 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     stage_output_identity,
 )
-from ontolib.decomposition.publication import PublicationPreflightError
+from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
+    PublicationPreflightError,
+)
 from ontolib.decomposition.run import (
     RunAdmissionRefusedError,
     RunConfig,
@@ -69,7 +76,10 @@ from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
     SampleConcept,
 )
-from ontolib.decomposition.source_preflight import run_source_preflight
+from ontolib.decomposition.source_preflight import (
+    ClosureBudgetExceededError,
+    run_source_preflight,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -760,17 +770,6 @@ async def run_pipeline(
 
 
 @pytest.mark.unit
-async def test_resume_preflight_requires_an_explicit_run_identity() -> None:
-    with pytest.raises(RuntimeError, match="requires an explicit run id"):
-        await _resume_preflight(
-            RunConfig(branch="neoplasm"),
-            cast("Any", _FakeClient()),
-            _mock_provenance(),
-            _source_snapshot(),
-        )
-
-
-@pytest.mark.unit
 async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) -> None:
     config = RunConfig(
         branch="neoplasm",
@@ -788,6 +787,7 @@ async def test_resume_preflight_rejects_sample_worklist_drift(tmp_path: Path) ->
             cast("Any", _FakeClient(pages=[["C1"]])),
             _mock_provenance(),
             _source_snapshot(),
+            "run-1",
         )
 
 
@@ -812,23 +812,6 @@ async def test_prepare_run_rejects_sample_and_limit_bypass(tmp_path: Path) -> No
             snapshot=_source_snapshot(),
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             fresh_worklist=("C1",),
-            diagnostic_source=_diagnostic_source(),
-        )
-
-
-@pytest.mark.unit
-async def test_prepare_run_rejects_missing_preflight_worklist() -> None:
-    with pytest.raises(RuntimeError, match="run worklist was not preflighted"):
-        await _prepare_run(
-            RunConfig(branch="neoplasm"),
-            cast("Any", _FakeClient()),
-            _mock_provenance(),
-            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
-            get_labels=None,
-            total_limit=None,
-            snapshot=_source_snapshot(),
-            collapse_policy=NO_COLLAPSE_VETO_POLICY,
-            fresh_worklist=None,
             diagnostic_source=_diagnostic_source(),
         )
 
@@ -1693,17 +1676,19 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
     )
 
     identity = await run_module._preflight_stage(
-        _checkpoint_setup(),
-        RunConfig(branch="disease"),
-        MagicMock(),
-        provenance,
+        _checkpoint_setup(), RunConfig(branch="disease"), provenance, result
     )
 
     assert identity == result.identity
 
 
 @pytest.mark.unit
-async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None:
+async def test_completed_preflight_rejects_stale_mixed_chain_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_module, "require_mixed_chain_preflight", lambda *_, **__: None
+    )
     result = await run_source_preflight(
         (),
         read_definition=AsyncMock(),
@@ -1730,9 +1715,38 @@ async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None
         )
     )
 
-    with pytest.raises(SourcePreflightRejectedError, match="mixed-chain inventory"):
+    inventory_path = Path(
+        "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
+    )
+    current = result.model_copy(
+        update={
+            "mixed_chain_inventory_identity": run_module.load_mixed_chain_inventory(
+                inventory_path
+            ).identity
+        }
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="stale mixed-chain"):
         await run_module._preflight_stage(
             _checkpoint_setup(),
+            RunConfig(branch="neoplasm", mixed_chain_inventory_path=inventory_path),
+            provenance,
+            current,
+        )
+
+
+@pytest.mark.unit
+def test_an_inventory_bound_to_another_source_is_rejected_as_a_preflight_problem() -> (
+    None
+):
+    """The packaged neoplasm inventory is bound to the real NCIt source and worklist, so
+    a run on any other source must be refused as a SourcePreflightRejectedError, not
+    escape as the inventory's bare ValueError."""
+    with pytest.raises(
+        SourcePreflightRejectedError,
+        match=r"rejected mixed-chain inventory: .*source identity differs",
+    ):
+        run_module._required_mixed_chain_inventory_identity(
             RunConfig(
                 branch="neoplasm",
                 mixed_chain_inventory_path=Path(
@@ -1740,8 +1754,42 @@ async def test_completed_preflight_rejects_stale_mixed_chain_inventory() -> None
                     "neoplasm_mixed_chain_inventory.json"
                 ),
             ),
-            MagicMock(),
-            provenance,
+            source_identity="a" * 64,
+            worklist=("C1",),
+        )
+
+
+@pytest.mark.unit
+async def test_completed_preflight_rejects_a_restored_disallowed_result() -> None:
+    allowed = await run_source_preflight(
+        (),
+        read_definition=AsyncMock(),
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=10,
+    )
+    sealed = allowed.model_copy(update={"malformed_codes": ("C1",)})
+    provenance = MagicMock()
+    provenance.claim_stage = AsyncMock(return_value=None)
+    provenance.run_stages = AsyncMock(
+        return_value=(
+            MagicMock(
+                stage="preflight",
+                state="complete",
+                output_identity=sealed.identity,
+                output_payload=sealed.model_dump(
+                    mode="json", exclude_computed_fields=True
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(SourcePreflightRejectedError, match="malformed=C1"):
+        await run_module._preflight_stage(
+            _checkpoint_setup(), RunConfig(branch="disease"), provenance, allowed
         )
 
 
@@ -1815,6 +1863,72 @@ async def test_residual_materialization_persists_classifier_failure(
 
     assert str(error.value) == "malformed"
     provenance.fail_residual_filler.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_a_residual_filler_failure_survives_a_failed_failure_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recording the filler failure must never replace the failure being recorded."""
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock(
+        side_effect=RunStateError("filler claim changed before failure record")
+    )
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(CompleteDefinitionError, match="malformed") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert error.value.__notes__ == [
+        "Recording the residual filler failure also failed: RunStateError: filler "
+        "claim changed before failure record"
+    ]
+
+
+@pytest.mark.unit
+async def test_a_cancellation_during_the_failure_record_still_cancels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancellation that lands while the failure is being recorded is not
+    downgraded to a note on the failure; it propagates, carrying the failure."""
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.fail_residual_filler = AsyncMock(side_effect=asyncio.CancelledError())
+    monkeypatch.setattr(
+        run_module,
+        "_classify_residual_filler",
+        AsyncMock(side_effect=CompleteDefinitionError("malformed")),
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C1",
+            label=None,
+            detector_identity="d" * 64,
+        )
+
+    assert isinstance(cancellation.value.__cause__, CompleteDefinitionError)
+    assert cancellation.value.__notes__ == [
+        "Cancelled while recording the residual filler failure: "
+        "CompleteDefinitionError: malformed"
+    ]
 
 
 @pytest.mark.unit
@@ -1939,6 +2053,7 @@ async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
 @pytest.mark.unit
 async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
     provenance = MagicMock()
+    provenance.require_completion_recount = AsyncMock()
     provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
     provenance.unknown_outcome_codes = AsyncMock(return_value=())
     provenance.complete_stage = AsyncMock(return_value="b" * 64)
@@ -2079,6 +2194,27 @@ async def test_run_pipeline_resume_with_no_prior_manifest_is_rejected() -> None:
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     with pytest.raises(RunStateError, match="does not exist"):
         await run_pipeline(config, client, provenance)
+
+
+@pytest.mark.unit
+async def test_run_pipeline_refuses_to_resume_a_rehearsal_by_name() -> None:
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    persisted = run_module._requested_fingerprint(
+        RunConfig(branch="neoplasm", rehearsal=True),
+        _source_snapshot(),
+        semantic_types=("Neoplastic Process",),
+        total_limit=None,
+        worklist=("C1",),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    provenance.fingerprint_for_run = AsyncMock(return_value=persisted)
+    config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
+
+    with pytest.raises(RunStateError, match=r"is a rehearsal;.*cannot be resumed"):
+        await run_pipeline(config, client, provenance)
+
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2561,6 +2697,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
     provenance.resume_run = AsyncMock(return_value=fingerprint)
+    # Exactly two reads: a worklist without policy concepts must not cost a third.
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
     provenance.complete_work_item = AsyncMock()
@@ -2819,6 +2956,91 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
+async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
+    """When `invalidate_run` is cancelled (its transaction may not have
+    committed), the drift error must still carry the partial-results warning as
+    it propagates as the cancellation's cause."""
+    client = _FakeClient(pages=[["C0"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(side_effect=asyncio.CancelledError())
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    drift = cancellation.value.__cause__
+    assert isinstance(drift, SourceIdentityChangedError)
+    (note,) = drift.__notes__
+    assert note.startswith("Invalidating run ")
+    assert note.endswith(
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
+    )
+
+
+@pytest.mark.unit
+async def test_a_failed_invalidation_reports_both_the_warning_and_its_cause() -> None:
+    client = _FakeClient(pages=[["C0"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(
+        side_effect=ConnectionError("postgres unreachable")
+    )
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError) as drift:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    warning, recording = drift.value.__notes__
+    assert warning.endswith(
+        "did not complete; partial results may survive. Inspect the run's "
+        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
+        "decomp_work_item rows before reuse."
+    )
+    assert recording == (
+        "Recording the run failure also failed: ConnectionError: postgres unreachable"
+    )
+
+
+@pytest.mark.unit
 async def test_unrecorded_run_failure_is_reported_on_the_raised_error() -> None:
     """A run in some other terminal state means the failure was never recorded."""
     client = _FakeClient(pages=[["C1"]])
@@ -2920,6 +3142,73 @@ async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
     source.assert_not_awaited()
     provenance.create_run.assert_not_awaited()
     provenance.resume_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_a_rehearsal_uses_the_sample_cohort_without_its_source_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rehearsal only needs the cohort's codes, still validated against live scope."""
+    sample = _sample_manifest("C1", source_identity="b" * 64, ontology_version="26.99d")
+    client = _FakeClient(pages=[[]])
+
+    async def scope(*_args: object, **_kwargs: object) -> list[str]:
+        return ["C1", "C2"]
+
+    monkeypatch.setattr(run_module, "enumerate_in_scope_codes", scope)
+    with pytest.raises(SourceIdentityChangedError, match="source identity"):
+        await run_module._validated_sample_worklist(
+            RunConfig(branch="neoplasm", sample_manifest=sample, out=Path("x.ttl")),
+            client,
+            _source_snapshot(),
+        )
+
+    rehearsal = RunConfig(
+        branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
+    )
+    codes = await run_module._validated_sample_worklist(
+        rehearsal, client, _source_snapshot()
+    )
+
+    assert codes == ("C1",)
+
+    async def narrower_scope(*_args: object, **_kwargs: object) -> list[str]:
+        return ["C2"]
+
+    monkeypatch.setattr(run_module, "enumerate_in_scope_codes", narrower_scope)
+    with pytest.raises(ValueError, match=r"outside the configured hierarchy scope.*C1"):
+        await run_module._validated_sample_worklist(
+            rehearsal, client, _source_snapshot()
+        )
+
+
+@pytest.mark.unit
+def test_a_rehearsal_cannot_be_configured_as_a_resume_or_a_publication() -> None:
+    with pytest.raises(ValueError, match=r"rehearsal .* resumed"):
+        RunConfig(branch="neoplasm", rehearsal=True, resume_from="neoplasm-run-1")
+    with pytest.raises(ValueError, match="rehearsal never publishes"):
+        RunConfig(
+            branch="neoplasm", rehearsal=True, out=Path("x.ttl"), load_to_store=True
+        )
+
+
+@pytest.mark.unit
+def test_a_rehearsal_fingerprint_is_fresh_on_every_request() -> None:
+    def fingerprint(*, rehearsal: bool) -> Any:
+        return run_module._requested_fingerprint(
+            RunConfig(branch="neoplasm", rehearsal=rehearsal),
+            _source_snapshot(),
+            semantic_types=("Neoplastic Process",),
+            total_limit=None,
+            worklist=("C1",),
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        )
+
+    first, second = fingerprint(rehearsal=True), fingerprint(rehearsal=True)
+
+    assert first.rehearsal_nonce != second.rehearsal_nonce
+    assert first.identity != second.identity
+    assert fingerprint(rehearsal=False).rehearsal_nonce is None
 
 
 @pytest.mark.unit
@@ -3225,6 +3514,208 @@ async def test_artifact_validation_failure_fails_the_run(
 
 
 @pytest.mark.unit
+async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recount mismatch fails the metrics stage, before the artifact and
+    publication stages; `finish_run` runs too late to protect the public graph."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "metrics" not in provenance._test_state["stage_outputs"]
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_is_recounted_again_before_it_publishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metrics stage sealed by an earlier attempt does not excuse the recount: a
+    mismatch still fails the run before the artifact and publication stages."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    # What the earlier attempt sealed for this empty run, so that only the recount can
+    # stop the resumed one.
+    sealed: dict[str, object] = {
+        "metrics": CompletionRunMetrics.model_validate(
+            run_module._persisted_metrics(
+                RunMetrics(total_in_scope=0, decomposed=0, residual=0, minted_count=0)
+            )
+        ).model_dump(mode="json"),
+        "unknown_policy": "allow-enumerated-valid-unsupported",
+        "concept_unknown_codes": [],
+        "residual_unknown_filler_codes": [],
+        "publication_eligible": True,
+    }
+    provenance._test_state["stage_outputs"]["metrics"] = (
+        stage_output_identity(sealed),
+        sealed,
+    )
+    provenance.require_completion_recount = AsyncMock(
+        side_effect=RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
+        )
+    )
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="do not match persisted work-item"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_a_stage_failure_survives_a_failed_failure_record() -> None:
+    """Recording the stage failure must never replace the failure being recorded."""
+    provenance = _mock_provenance()
+    provenance._test_state["atomic_noop"] = 1
+    provenance.fail_stage = AsyncMock(
+        side_effect=RunStateError("stage claim changed before failure record")
+    )
+
+    with pytest.raises(ValueError, match="outcome counts do not sum") as error:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert error.value.__notes__ == [
+        "Recording the metrics stage failure also failed: RunStateError: stage claim "
+        "changed before failure record"
+    ]
+    assert provenance._test_state["status"] == "failed"
+
+
+def _finalization_failure_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provenance: Any
+) -> Coroutine[Any, Any, RunSummary]:
+    monkeypatch.setattr(
+        run_module,
+        "publish_artifact",
+        AsyncMock(side_effect=PublicationFinalizationError("lock release failed")),
+    )
+    return run_pipeline(
+        RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+        _FakeClient(pages=[["C0"]]),
+        provenance,
+        get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+    )
+
+
+@pytest.mark.unit
+async def test_a_failed_publication_stage_seal_never_masks_the_finalization_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    complete_stage = provenance.complete_stage
+
+    async def refuse_publication_seal(
+        run_id: str, stage: str, claim: UUID, payload: dict[str, object]
+    ) -> str:
+        if stage == "publication":
+            raise RunStateError("stage claim changed before completion")
+        return await complete_stage(run_id, stage, claim, payload)
+
+    provenance.complete_stage = AsyncMock(side_effect=refuse_publication_seal)
+
+    with pytest.raises(PublicationFinalizationError, match="lock release") as error:
+        await _finalization_failure_pipeline(tmp_path, monkeypatch, provenance)
+
+    assert error.value.__notes__ == [
+        "Recording the publication stage completion also failed: RunStateError: "
+        "stage claim changed before completion"
+    ]
+    provenance.fail_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_publication_finalization_failure_seals_the_completed_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """publish_artifact reports a finalization failure (the run is already
+    published); the stage is sealed complete, nothing is demoted, and the
+    failure still surfaces."""
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+
+    with pytest.raises(PublicationFinalizationError, match="lock release") as error:
+        await _finalization_failure_pipeline(tmp_path, monkeypatch, provenance)
+
+    assert getattr(error.value, "__notes__", []) == []
+    publication_stage = next(
+        row for row in await provenance.run_stages("run") if row.stage == "publication"
+    )
+    assert publication_stage.state == "complete"
+    assert publication_stage.output_payload == {"publication_state": "published"}
+    assert "publication" not in [
+        call.args[1] for call in provenance.fail_stage.await_args_list
+    ]
+    provenance.fail_run.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_publication_cancellation_is_not_wrapped_as_retryable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3343,3 +3834,231 @@ async def test_unclaimable_work_item_marks_run_failed() -> None:
     )
     assert "could not be claimed" in provenance._test_state["failed"][2]
     provenance.finish_run.assert_not_awaited()
+
+
+def _staged_site_client(*worklist: str) -> _FakeClient:
+    return _FakeClient(
+        pages=[list(worklist)],
+        semantic_types={"C6135": ["Neoplastic Process"]},
+        roles={
+            "C6135": [
+                _role("R88", "Has_Stage", "C27970"),
+                _role("R101", "Has_Primary_Site", "C12400"),
+            ]
+        },
+    )
+
+
+def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
+    """A one-row policy: the first packaged row re-pointed at ``code``. Built with
+    ``model_copy``, so neither the field constraints (15 rows) nor the policy's
+    validators run; the row's pairs are not the ones ``_staged_site_client`` yields for
+    C6135."""
+    packaged = load_packaged_normalized_group_policy()
+    row = packaged.rows[0].model_copy(update={"concept_code": code})
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
+def _group_policy_accepting(
+    decomposition: Decomposition,
+) -> ActiveNormalizedGroupPolicy:
+    """A one-row policy, built like ``_group_policy_bound_to``, that groups exactly the
+    constituents of ``decomposition`` into one block, so for that concept it refuses any
+    other pair set and any other cited source evidence."""
+    packaged = load_packaged_normalized_group_policy()
+    template = packaged.rows[0]
+    pairs = tuple(
+        sorted((item.axis, item.filler_code) for item in decomposition.constituents)
+    )
+    row = template.model_copy(
+        update={
+            "concept_code": decomposition.code,
+            "rule_kind": "source-evidence-grouping",
+            "output_partition": (pairs,),
+            "blocks": (
+                template.blocks[0].model_copy(
+                    update={"pairs": pairs, "occurrence_availability": "available"}
+                ),
+            ),
+            "source_pair_evidence": tuple(
+                template.source_pair_evidence[0].model_copy(update={"pair": pair})
+                for pair in pairs
+            ),
+            "input_pair_evidence_identity": _constituent_evidence_identity(
+                tuple(decomposition.constituents)
+            ),
+        }
+    )
+    return packaged.model_copy(update={"source_identity": "a" * 64, "rows": (row,)})
+
+
+async def _run_with_group_policy(
+    config: RunConfig,
+    client: _FakeClient,
+    provenance: Any,
+    policy: ActiveNormalizedGroupPolicy,
+    **kwargs: Any,
+) -> RunMetrics:
+    return await _run_pipeline_impl(
+        config,
+        cast("Any", client),
+        provenance,
+        get_source_snapshot=_stable_source_snapshot,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        normalized_group_policy=policy,
+        **kwargs,
+    )
+
+
+@pytest.mark.unit
+async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> None:
+    """A mismatch must surface before admission: found when the worklist reaches the
+    concept, it fails hours into a run that a corrected policy file cannot resume (the
+    policy file is part of the routing identity)."""
+    provenance = _mock_provenance()
+
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+    assert provenance._test_state["fingerprint"] is None
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "no run state was written."
+    ]
+
+
+@pytest.mark.unit
+async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission() -> (
+    None
+):
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C6135",), pending=["C6135"])
+
+    with pytest.raises(ValueError, match="pair set differs for C6135") as mismatch:
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+            _staged_site_client("C6135"),
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+
+    provenance.admit_run.assert_not_awaited()
+    assert mismatch.value.__notes__ == [
+        "Raised by the group-policy dry run of 'C6135', before admission: "
+        "run 'neoplasm-run-1' was not modified."
+    ]
+
+
+@pytest.mark.unit
+async def test_a_finished_policy_concept_does_not_block_a_resume() -> None:
+    """Its result is persisted; label state that moved since must not strand the rest
+    of the run."""
+    provenance = _mock_provenance()
+    _set_resume_worklist(provenance, worklist=("C1", "C6135"), pending=["C1"])
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm", resume_from="neoplasm-run-1"),
+        _staged_site_client("C1", "C6135"),
+        provenance,
+        _group_policy_bound_to("C6135"),
+    )
+
+    assert metrics.total_in_scope == 2
+
+
+@pytest.mark.unit
+async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
+    """A full worklist is tens of thousands of concepts; the dry run covers none of the
+    ones the policy does not name."""
+    client = _staged_site_client("C6135")
+
+    await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        client,
+        _mock_provenance(),
+        _group_policy_bound_to("C424242"),
+    )
+
+    # In this run C6135's single-concept semantic-type read comes only from
+    # _decompose_one: the source preflight reads definitions only, the collapse policy
+    # is empty, and C6135 is nobody's residual filler. One read is one decomposition.
+    semantic_type_reads = [
+        query
+        for query in client.queries
+        if "P106" in query and "VALUES" not in query and "C6135>" in query
+    ]
+    assert len(semantic_type_reads) == 1
+
+
+@pytest.mark.unit
+async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce() -> (
+    None
+):
+    """The label adds constituents and the label lookup decides their filler codes, so
+    both decide the policy's verdict: a dry run without either would refuse a run whose
+    work item passes."""
+
+    async def get_labels(codes: list[str]) -> dict[str, str]:
+        return dict.fromkeys(codes, "Left Breast Carcinoma")
+
+    async def label_lookup(_term: str) -> str | None:
+        return "C25229"
+
+    no_rows = load_packaged_normalized_group_policy().model_copy(
+        update={"source_identity": "a" * 64, "rows": ()}
+    )
+    labelled = await run_module._decompose_one(
+        "C6135",
+        cast("Any", _staged_site_client("C6135")),
+        label="Left Breast Carcinoma",
+        label_lookup=label_lookup,
+        source_identity="a" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="1" * 64,
+        normalized_group_policy=no_rows,
+    )
+    assert labelled.decomposition is not None
+    assert "C25229" in [
+        item.filler_code for item in labelled.decomposition.constituents
+    ]
+
+    metrics = await _run_with_group_policy(
+        RunConfig(branch="neoplasm"),
+        _staged_site_client("C6135"),
+        _mock_provenance(),
+        _group_policy_accepting(labelled.decomposition),
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
+
+    assert metrics.decomposed == 1
+
+
+@pytest.mark.unit
+async def test_an_exceeded_closure_budget_refuses_the_run_and_blames_no_concept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_module, "_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES", 1)
+    provenance = _mock_provenance()
+
+    with pytest.raises(
+        ClosureBudgetExceededError, match="budget of 1 dependency concepts"
+    ) as refusal:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"), _staged_site_client("C6135"), provenance
+        )
+
+    assert "C6135" not in str(refusal.value)
+    assert refusal.value.__notes__ == [
+        "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
+        "ontolib/src/ontolib/decomposition/run.py: raise the budget or narrow the "
+        "worklist."
+    ]
+    provenance.admit_run.assert_not_awaited()

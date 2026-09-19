@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import RowMapping
 
-from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE,
+    canonical_json_identity,
+)
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 
 if TYPE_CHECKING:
@@ -62,6 +63,7 @@ class RunInspection(BaseModel):
     fingerprint: dict[str, object]
     fingerprint_sha256: str
     fingerprint_content_valid: bool
+    rehearsal: bool
     persisted_routing_implementation_identity: str | None
     current_routing_implementation_identity: str
     routing_state: Literal["match", "differs", "not-recorded"]
@@ -78,13 +80,6 @@ class RunInspection(BaseModel):
     resume_compatible: bool
 
 
-def _json_identity(payload: object) -> str:
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def summarize_fingerprint(fingerprint: dict[str, object]) -> dict[str, object]:
     """Retain exact dimensions while replacing a large worklist with its identity."""
     worklist = fingerprint.get("worklist")
@@ -93,7 +88,7 @@ def summarize_fingerprint(fingerprint: dict[str, object]) -> dict[str, object]:
     return {
         **{key: value for key, value in fingerprint.items() if key != "worklist"},
         "worklist_count": len(worklist),
-        "worklist_identity": _json_identity(worklist),
+        "worklist_identity": canonical_json_identity(worklist),
     }
 
 
@@ -147,8 +142,9 @@ def _run_summary(row: RowMapping, current_routing_identity: str) -> dict[str, ob
         "fingerprint": summarize_fingerprint(fingerprint),
         "fingerprint_sha256": values["fingerprint_sha256"],
         "fingerprint_content_valid": (
-            _json_identity(fingerprint) == values["fingerprint_sha256"]
+            canonical_json_identity(fingerprint) == values["fingerprint_sha256"]
         ),
+        "rehearsal": fingerprint.get("rehearsal_nonce") is not None,
         "persisted_routing_implementation_identity": fingerprint.get(
             "routing_implementation_identity"
         ),
@@ -175,10 +171,13 @@ def _finalize_summary(
         item["persisted_routing_implementation_identity"], current_routing_identity
     )
     item["stage_state"] = _stage_state(stages, stage_inventory_complete)
+    # A rehearsal is a throwaway run: the run configuration and the resume preflight
+    # both refuse to resume it.
     item["resume_compatible"] = bool(
         item["fingerprint_content_valid"]
         and stage_inventory_complete
         and item["routing_state"] == "match"
+        and not item["rehearsal"]
     )
     item["stages"] = tuple(stages)
     return RunInspection.model_validate(item)

@@ -8,9 +8,11 @@ from pathlib import Path
 
 import asyncpg
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition import provenance
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -105,6 +107,123 @@ async def test_concurrent_admission_creates_exactly_one_authoritative_run() -> N
             )
         finally:
             await connection.close()
+        await dispose_engine(engine)
+
+
+async def test_rehearsals_with_identical_content_are_each_admitted() -> None:
+    """A rehearsal (the CLI preflight) must be repeatable on unchanged input."""
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    run_ids = ["admission-rehearsal-1", "admission-rehearsal-2"]
+    first = _execution().model_copy(update={"rehearsal_nonce": "1" * 32})
+    second = _execution().model_copy(update={"rehearsal_nonce": "2" * 32})
+    try:
+        assert isinstance(
+            await store.admit_run(run_ids[0], "26.07d", _fingerprint(first), first),
+            FreshAdmitted,
+        )
+        assert isinstance(
+            await store.admit_run(run_ids[1], "26.07d", _fingerprint(second), second),
+            FreshAdmitted,
+        )
+        summaries = {item.id: item for item in await store.list_runs(limit=10)}
+        assert summaries[run_ids[0]].rehearsal is True
+    finally:
+        connection = await asyncpg.connect(
+            get_settings().database_url.replace("+asyncpg", "")
+        )
+        try:
+            await connection.execute(
+                "DELETE FROM decomp_run WHERE id=ANY($1)", list(run_ids)
+            )
+        finally:
+            await connection.close()
+        await dispose_engine(engine)
+
+
+async def _delete_runs(run_ids: list[str]) -> None:
+    connection = await asyncpg.connect(
+        get_settings().database_url.replace("+asyncpg", "")
+    )
+    try:
+        await connection.execute("DELETE FROM decomp_run WHERE id=ANY($1)", run_ids)
+    finally:
+        await connection.close()
+
+
+async def test_a_run_id_that_is_already_taken_is_raised_not_refused() -> None:
+    """Run ids are `<branch>-<uuid4>`, so a primary-key collision is a defect, and the
+    row that holds the id belongs to another execution: "an active run exists, resume
+    it" would be false advice."""
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    run_id = "admission-same-run-id"
+    first = _execution().model_copy(update={"rehearsal_nonce": "3" * 32})
+    second = _execution().model_copy(update={"rehearsal_nonce": "4" * 32})
+    try:
+        assert isinstance(
+            await store.admit_run(run_id, "26.07d", _fingerprint(first), first),
+            FreshAdmitted,
+        )
+
+        with pytest.raises(IntegrityError, match="decomp_run_pkey"):
+            await store.admit_run(run_id, "26.07d", _fingerprint(second), second)
+    finally:
+        await _delete_runs([run_id])
+        await dispose_engine(engine)
+
+
+async def test_the_admitted_execution_index_is_the_admission_conflict() -> None:
+    """SQLAlchemy's adapter does not carry the constraint name; it is only on the
+    asyncpg error it wraps. The concurrent-admission test reaches this only when the
+    race interleaves, so the real violation is classified here directly."""
+    engine = make_engine(get_settings().database_url)
+    sessions = make_sessionmaker(engine)
+    store = ProvenanceStore(sessions)
+    run_ids = ["admission-index-winner", "admission-index-loser"]
+    execution = _execution().model_copy(update={"rehearsal_nonce": "6" * 32})
+    fingerprint = _fingerprint(execution)
+    try:
+        assert isinstance(
+            await store.admit_run(run_ids[0], "26.07d", fingerprint, execution),
+            FreshAdmitted,
+        )
+
+        with pytest.raises(IntegrityError) as duplicate:
+            async with sessions() as session, session.begin():
+                await store._insert_run(
+                    session,
+                    run_ids[1],
+                    "26.07d",
+                    fingerprint,
+                    execution_identity=execution.identity,
+                )
+
+        assert provenance._refusal_for_admission_conflict(duplicate.value) == Refused(
+            reason=RefusalReason.ACTIVE_RUN_EXISTS
+        )
+    finally:
+        await _delete_runs(run_ids)
+        await dispose_engine(engine)
+
+
+async def test_an_integrity_error_that_is_no_admission_conflict_is_raised() -> None:
+    """A constraint violation that is not an admission conflict (here NOT NULL on
+    ncit_version) is raised, not reported as "an active run exists"."""
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    run_id = "admission-not-null"
+    execution = _execution().model_copy(update={"rehearsal_nonce": "5" * 32})
+    try:
+        with pytest.raises(IntegrityError, match="ncit_version"):
+            await store.admit_run(
+                run_id,
+                None,  # type: ignore[arg-type] - a NOT NULL violation, not a conflict
+                _fingerprint(execution),
+                execution,
+            )
+    finally:
+        await _delete_runs([run_id])
         await dispose_engine(engine)
 
 
@@ -214,6 +333,9 @@ async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:
         )
         assert failed_resume == ResumeAdmitted(
             run_id=run_ids[0], resume_kind=ResumeKind.SEMANTIC
+        )
+        assert await store.claim_work_item(run_ids[0], "C1") is not None, (
+            "a resumed failed run is running again and its work is claimable"
         )
 
         assert isinstance(

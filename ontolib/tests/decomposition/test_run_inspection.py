@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ontolib.decomposition import run_inspection
-from ontolib.decomposition.provenance_models import RUN_STAGE_SEQUENCE
+from ontolib.decomposition.provenance_models import (
+    RUN_STAGE_SEQUENCE,
+    canonical_json_identity,
+)
 from ontolib.decomposition.run_inspection import RunInspection, summarize_fingerprint
 
 
@@ -53,7 +56,7 @@ def _run_row(
         "finished_at": finished_at,
         "source_identity": "b" * 64,
         "fingerprint": fingerprint,
-        "fingerprint_sha256": run_inspection._json_identity(fingerprint),
+        "fingerprint_sha256": canonical_json_identity(fingerprint),
         "publication_state": "published",
         "representation_identity": "c" * 64,
         "publication_artifact_path": "artifact.ttl",
@@ -89,6 +92,29 @@ def test_inspection_finalization_requires_complete_work_stages_and_identity() ->
     assert item["all_work_items_complete"] is False
     assert item["stage_inventory_complete"] is False
     assert item["resume_compatible"] is False
+
+
+@pytest.mark.unit
+def test_a_rehearsal_is_never_reported_resume_compatible() -> None:
+    """The resume preflight refuses a rehearsal, so the inspection an operator reads
+    before resuming must not call one resumable."""
+    row = _run_row("run-1")
+    fingerprint = {**cast("dict[str, object]", row["fingerprint"])}
+    fingerprint["rehearsal_nonce"] = "d" * 32
+    row["fingerprint"] = fingerprint
+    row["fingerprint_sha256"] = canonical_json_identity(fingerprint)
+    item = run_inspection._run_summary(cast("Any", row), "a" * 64)
+    item["work_item_states"] = {"failed": 1}
+    item["stages"] = [
+        {"stage": stage, "state": "complete"} for stage in RUN_STAGE_SEQUENCE
+    ]
+
+    inspected = run_inspection._finalize_summary(item, "a" * 64)
+
+    assert inspected.fingerprint_content_valid is True
+    assert inspected.routing_state == "match"
+    assert inspected.rehearsal is True
+    assert inspected.resume_compatible is False
 
 
 @pytest.mark.unit

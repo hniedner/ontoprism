@@ -103,6 +103,29 @@ def _existing_run_refusal(kind: str) -> RefusalReason:
     return RefusalReason.ACTIVE_RUN_EXISTS
 
 
+# Admission's uniqueness authority: one admitted run per execution identity
+# (migration 0027). Any other constraint violation is a defect, not a conflict; that
+# includes `decomp_run_pkey`, Postgres's implicit name for the run id's primary key,
+# because run ids are `<branch>-<uuid4>` and a row holding the same id belongs to
+# another execution (admission has already looked for a run with this identity).
+_ADMISSION_CONFLICT_CONSTRAINT = "uq_decomp_run_admitted_execution"
+
+
+def _refusal_for_admission_conflict(error: IntegrityError) -> Refused:
+    """Refuse for admission's own uniqueness conflict; raise anything else.
+
+    SQLAlchemy's asyncpg adapter copies only the SQLSTATE as a field onto its own
+    error (the rest survives only as message text); the constraint name lives on the
+    asyncpg exception it was raised from.
+    """
+    constraint = getattr(
+        getattr(error.orig, "__cause__", None), "constraint_name", None
+    )
+    if constraint != _ADMISSION_CONFLICT_CONSTRAINT:
+        raise error
+    return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+
+
 class RunStateError(RuntimeError):
     """A requested run/work-item transition is not currently valid."""
 
@@ -223,10 +246,113 @@ def _require_completion_publication(
     )
 
 
+# The first two are column checks: error_type/error_message (migrations 0008, 0024)
+# and publication_error_type/publication_error_message (0011) allow 1-128 and 1-1000
+# characters. The rest are our own bounds on that message (see _bounded_failure and
+# _failure_account).
+_FAILURE_TYPE_LIMIT = 128
+_FAILURE_MESSAGE_LIMIT = 1000
+_FAILURE_LINE_LIMIT = 200
+_FAILURE_OWN_FLOOR = 300
+_FAILURE_CAUSE_DEPTH = 5
+
+
+def _clip(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "\u2026"
+
+
+def _failure_account(error: BaseException) -> list[str]:
+    """The error's notes, then up to ``_FAILURE_CAUSE_DEPTH`` links of its ``__cause__``
+    chain, each with its own notes, stopping early at a link already seen. If the depth
+    bound cuts the chain short, a final line says further causes were omitted. A failed
+    or interrupted failure record leaves its account in these notes and causes."""
+    account = [*getattr(error, "__notes__", ())]
+    seen = {id(error)}
+    cause = error.__cause__
+    while (
+        cause is not None
+        and id(cause) not in seen
+        and len(seen) <= _FAILURE_CAUSE_DEPTH
+    ):
+        seen.add(id(cause))
+        account.append(f"caused by {type(cause).__name__}: {cause}")
+        account.extend(getattr(cause, "__notes__", ()))
+        cause = cause.__cause__
+    if cause is not None and id(cause) not in seen:
+        account.append("\u2026 (further causes omitted)")
+    return account
+
+
 def _bounded_failure(error: BaseException) -> tuple[str, str]:
-    error_type = type(error).__name__[:128] or "Exception"
-    message = str(error)[:1000] or error_type
-    return error_type, message
+    """Type and message to persist for ``error``, within the column bounds.
+
+    The message is the error's own text, then its account (see ``_failure_account``),
+    one line each. Each account line longer than ``_FAILURE_LINE_LIMIT`` is cut to that
+    length, ending in an ellipsis, so its label survives. The error's own text is cut
+    next, down to ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from
+    its end. Every cut of the message's text ends in an ellipsis.
+    """
+    error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
+    own = str(error) or error_type
+    account = _failure_account(error)
+    suffix = "".join(f"\n{_clip(line, _FAILURE_LINE_LIMIT)}" for line in account)
+    suffix = _clip(suffix, _FAILURE_MESSAGE_LIMIT - min(len(own), _FAILURE_OWN_FLOOR))
+    return error_type, _clip(own, _FAILURE_MESSAGE_LIMIT - len(suffix)) + suffix
+
+
+async def _reopen_run(session: AsyncSession, run_id: str) -> None:
+    """Reopen a running or failed run for one resuming worker.
+
+    A hard kill (SIGKILL, OOM) leaves the run `running` with claimed items. Nothing
+    distinguishes those from a live worker's claims, so this relies on the operating
+    rule that one explicit resume is the run's only worker: a concurrent resume resets
+    the live claims to reclaimable and the older worker aborts at its next completion
+    (`_require_owned_claim`).
+    """
+    await session.execute(
+        text(
+            "UPDATE decomp_run SET status='running',error_type=NULL,"
+            "error_message=NULL WHERE id=:id AND status='failed'"
+        ),
+        {"id": run_id},
+    )
+    await session.execute(
+        text(
+            "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
+            "claimed_at=NULL,error_type='InterruptedRun',"
+            "error_message='Prior worker did not finish its claim',"
+            "failed_at=:failed_at WHERE run_id=:id AND state='running'"
+        ),
+        {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
+    )
+
+
+async def _promote_mint_proposals(
+    session: AsyncSession, run_id: str, fingerprint: RunFingerprint
+) -> None:
+    """Copy a completed run's mint proposals into the global curator queue.
+
+    A rehearsal mints the same deterministic proposal ids the real run will mint;
+    promoting them would make the throwaway run their owner, so it never promotes.
+    """
+    if fingerprint.rehearsal_nonce is not None:
+        return
+    await session.execute(
+        text(
+            "INSERT INTO minted_concept "
+            "(id, run_id, axis, label, source_signal, status) "
+            "SELECT proposal_id, run_id, axis, label, source_signal, status "
+            "FROM decomp_minted_proposal WHERE run_id = :id "
+            # Insert-or-ignore, never insert-or-update: a rerun re-mints the same
+            # deterministic proposal id with status='proposed', and promotion must
+            # never clobber a curator's earlier approve or reject decision (design
+            # section 7.2).
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        {"id": run_id},
+    )
 
 
 def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
@@ -912,51 +1038,82 @@ async def _persisted_definition_counts(
     )
 
 
+async def _require_finished_work(session: AsyncSession, run_id: str) -> None:
+    """Fail unless every work item completed with consistent persisted counts."""
+    incomplete = await session.execute(
+        text(
+            "SELECT count(*) FROM decomp_work_item "
+            "WHERE run_id = :id AND state <> 'complete'"
+        ),
+        {"id": run_id},
+    )
+    if incomplete.scalar_one() != 0:
+        raise RunStateError(f"decomposition run {run_id!r} has unfinished work items")
+    await _require_persisted_completion_counts(session, run_id)
+
+
+async def _require_recounted_metrics(
+    session: AsyncSession, run_id: str, metrics: CompletionRunMetrics
+) -> None:
+    """Fail unless the outcome counts and the definition and fact counts in
+    ``metrics`` equal a recount of the persisted rows (the residual-precoordination
+    counts and the derived rates are not recounted)."""
+    _require_matching_completion_metrics(
+        metrics,
+        await _persisted_outcome_counts(session, run_id),
+        await _persisted_definition_counts(session, run_id),
+    )
+
+
+# Count names shared by RunOutcomeCounts and CompletionRunMetrics.
+_OUTCOME_COUNT_FIELDS = (
+    "total_in_scope",
+    "decomposed",
+    "residual",
+    "semantic_excluded",
+    "atomic_noop",
+    "unknown_outcome",
+    "minted_count",
+)
+
+
+def _count_differences(metrics: CompletionRunMetrics, recounted: dict[str, int]) -> str:
+    return "; ".join(
+        f"{field}: supplied {getattr(metrics, field)}, recounted {count}"
+        for field, count in recounted.items()
+        if getattr(metrics, field) != count
+    )
+
+
 def _require_matching_completion_metrics(
     metrics: CompletionRunMetrics,
     counts: RunOutcomeCounts,
     definition_counts: tuple[int, int, int],
 ) -> None:
-    persisted_counts = (
-        counts.total_in_scope,
-        counts.decomposed,
-        counts.residual,
-        counts.semantic_excluded,
-        counts.atomic_noop,
-        counts.unknown_outcome,
-        counts.minted_count,
+    differences = _count_differences(
+        metrics, {field: getattr(counts, field) for field in _OUTCOME_COUNT_FIELDS}
     )
-    supplied_counts = (
-        metrics.total_in_scope,
-        metrics.decomposed,
-        metrics.residual,
-        metrics.semantic_excluded,
-        metrics.atomic_noop,
-        metrics.unknown_outcome,
-        metrics.minted_count,
-    )
-    if persisted_counts != supplied_counts:
+    if differences:
         raise RunStateError(
-            "completion metrics do not match persisted work-item outcomes"
+            "completion metrics do not match persisted work-item outcomes "
+            f"({differences})"
         )
     complete_definition_count, complete_fact_count, projected_fact_count = (
         definition_counts
     )
-    persisted_definition_metrics = (
-        complete_definition_count,
-        complete_fact_count,
-        projected_fact_count,
-        complete_fact_count - projected_fact_count,
+    differences = _count_differences(
+        metrics,
+        {
+            "complete_definition_count": complete_definition_count,
+            "complete_fact_count": complete_fact_count,
+            "projected_fact_count": projected_fact_count,
+            "projection_loss_count": complete_fact_count - projected_fact_count,
+        },
     )
-    supplied_definition_metrics = (
-        metrics.complete_definition_count,
-        metrics.complete_fact_count,
-        metrics.projected_fact_count,
-        metrics.projection_loss_count,
-    )
-    if persisted_definition_metrics != supplied_definition_metrics:
+    if differences:
         raise RunStateError(
-            "completion definition metrics do not match persisted definition rows"
+            "completion definition metrics do not match persisted definition rows "
+            f"({differences})"
         )
 
 
@@ -1548,8 +1705,8 @@ class ProvenanceStore:
                     execution_identity=execution.identity,
                 )
                 return FreshAdmitted(run_id=run_id)
-        except IntegrityError:
-            return Refused(reason=RefusalReason.ACTIVE_RUN_EXISTS)
+        except IntegrityError as exc:
+            return _refusal_for_admission_conflict(exc)
 
     @staticmethod
     async def _admission_candidates(
@@ -1656,23 +1813,7 @@ class ProvenanceStore:
             return Refused(reason=RefusalReason.COMPLETED_RUN_EXISTS)
         if not explicit_resume:
             return Refused(reason=_existing_run_refusal(kind))
-        if status == "failed":
-            await session.execute(
-                text(
-                    "UPDATE decomp_run SET status='running',error_type=NULL,"
-                    "error_message=NULL WHERE id=:id"
-                ),
-                {"id": run_id},
-            )
-            await session.execute(
-                text(
-                    "UPDATE decomp_work_item SET state='failed',claim_token=NULL,"
-                    "claimed_at=NULL,error_type='InterruptedRun',"
-                    "error_message='Prior worker did not finish its claim',"
-                    "failed_at=:failed_at WHERE run_id=:id AND state='running'"
-                ),
-                {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
-            )
+        await _reopen_run(session, run_id)
         return ResumeAdmitted(
             run_id=run_id,
             resume_kind=(
@@ -2126,27 +2267,14 @@ class ProvenanceStore:
             fingerprint = self._validated_fingerprint(
                 row["fingerprint"], row["fingerprint_sha256"]
             )
+            if fingerprint.rehearsal_nonce is not None:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is a rehearsal; rehearsals are "
+                    "throwaway runs and cannot be resumed"
+                )
             await self._require_materialized_worklist(session, run_id, fingerprint)
             self.require_resume_identity(fingerprint, expected, run_id)
-            await session.execute(
-                text(
-                    "UPDATE decomp_run SET status = 'running', "
-                    "error_type = NULL, error_message = NULL "
-                    "WHERE id = :id"
-                ),
-                {"id": run_id},
-            )
-            await session.execute(
-                text(
-                    "UPDATE decomp_work_item SET state = 'failed', "
-                    "claim_token = NULL, claimed_at = NULL, "
-                    "error_type = 'InterruptedRun', "
-                    "error_message = 'Prior worker did not finish its claim', "
-                    "failed_at = :failed_at "
-                    "WHERE run_id = :id AND state = 'running'"
-                ),
-                {"id": run_id, "failed_at": datetime.datetime.now(datetime.UTC)},
-            )
+            await _reopen_run(session, run_id)
             return fingerprint
 
     async def pending_codes(self, run_id: str) -> list[str]:
@@ -2937,7 +3065,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run ORDER BY started_at DESC LIMIT :limit OFFSET :offset"
         )
         async with self._sf() as s:
@@ -2953,7 +3082,8 @@ class ProvenanceStore:
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
             "publication_error_message, publication_predecessor_captured, "
-            "publication_predecessor, metrics "
+            "publication_predecessor, metrics, "
+            "(fingerprint ->> 'rehearsal_nonce') IS NOT NULL AS rehearsal "
             "FROM decomp_run WHERE id = :run_id"
         )
         async with self._sf() as s:
@@ -3007,6 +3137,7 @@ class ProvenanceStore:
             id=row["id"],
             branch=row["branch"],
             status=row["status"],
+            rehearsal=row["rehearsal"],
             ncit_version=row["ncit_version"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
@@ -3049,6 +3180,20 @@ class ProvenanceStore:
             roundtrip_fidelity=metrics.roundtrip_fidelity,
         )
 
+    async def require_completion_recount(
+        self, run_id: str, metrics: CompletionRunMetrics
+    ) -> None:
+        """Fail unless the run's work is finished and the counts in ``metrics`` equal
+        a recount of the persisted rows.
+
+        ``finish_run`` repeats this in its own transaction, but on the publishing
+        path it runs only after the public graph has been replaced; callers ask here
+        before publication, so a mismatch fails the run first.
+        """
+        async with self._sf() as session:
+            await _require_finished_work(session, run_id)
+            await _require_recounted_metrics(session, run_id, metrics)
+
     async def finish_run(
         self,
         run_id: str,
@@ -3059,9 +3204,9 @@ class ProvenanceStore:
     ) -> bool:
         """Complete only after exact work and requested publication completed.
 
-        The same transaction promotes the run's mint proposals into the global
-        ``minted_concept`` curator queue (D48: proposals become curator-visible only
-        on success).
+        The same transaction promotes the run's mint proposals (a rehearsal's are never
+        promoted) into the global ``minted_concept`` curator queue (D48: proposals
+        become curator-visible only on success).
         """
         updated = False
         try:
@@ -3086,41 +3231,12 @@ class ProvenanceStore:
                 await self._require_materialized_worklist(session, run_id, fingerprint)
                 if row["status"] != "running":
                     raise RunStateError(f"decomposition run {run_id!r} is not running")
-                incomplete = await session.execute(
-                    text(
-                        "SELECT count(*) FROM decomp_work_item "
-                        "WHERE run_id = :id AND state <> 'complete'"
-                    ),
-                    {"id": run_id},
-                )
-                if incomplete.scalar_one() != 0:
-                    raise RunStateError(
-                        f"decomposition run {run_id!r} has unfinished work items"
-                    )
-                await _require_persisted_completion_counts(session, run_id)
+                await _require_finished_work(session, run_id)
                 _require_completion_publication(row, representation_identity, run_id)
                 completion_metrics = CompletionRunMetrics.model_validate(metrics)
-                _require_matching_completion_metrics(
-                    completion_metrics,
-                    await _persisted_outcome_counts(session, run_id),
-                    await _persisted_definition_counts(session, run_id),
-                )
+                await _require_recounted_metrics(session, run_id, completion_metrics)
                 metrics = completion_metrics.model_dump()
-                await session.execute(
-                    text(
-                        "INSERT INTO minted_concept "
-                        "(id, run_id, axis, label, source_signal, status) "
-                        "SELECT proposal_id, run_id, axis, label, source_signal, "
-                        "status "
-                        "FROM decomp_minted_proposal WHERE run_id = :id "
-                        # Insert-or-ignore, never insert-or-update: a rerun re-mints the
-                        # same deterministic proposal id with status='proposed', and
-                        # promotion must never clobber a curator's earlier approve or
-                        # reject decision (design section 7.2).
-                        "ON CONFLICT (id) DO NOTHING"
-                    ),
-                    {"id": run_id},
-                )
+                await _promote_mint_proposals(session, run_id, fingerprint)
                 result = await session.execute(
                     text(
                         "UPDATE decomp_run SET status = 'complete', "

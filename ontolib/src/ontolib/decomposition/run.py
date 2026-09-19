@@ -104,6 +104,7 @@ from ontolib.decomposition.provenance_models import (
     ResidualFillerClassification,
     RunFingerprint,
     RunResumeIdentity,
+    RunStageName,
 )
 from ontolib.decomposition.publication import (
     PublicationFinalizationError,
@@ -113,6 +114,7 @@ from ontolib.decomposition.publication import (
 )
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import (
+    ClosureBudgetExceededError,
     SourcePreflightResult,
     run_source_preflight,
 )
@@ -187,6 +189,15 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
+def _validate_rehearsal_config(config: RunConfig) -> None:
+    if not config.rehearsal:
+        return
+    if config.load_to_store:
+        raise ValueError("a rehearsal never publishes to the store")
+    if config.resume_from is not None:
+        raise ValueError("a rehearsal is a throwaway run and cannot be resumed")
+
+
 def _validate_sample_config(config: RunConfig) -> None:
     sample = config.sample_manifest
     if sample is None:
@@ -228,6 +239,7 @@ class RunConfig:
         walker_max_depth: int = 5,
         sample_manifest: DecompositionSampleManifest | None = None,
         mixed_chain_inventory_path: Path | None = None,
+        rehearsal: bool = False,
     ) -> None:
         self.branch = parse_branch(branch)
         self.out = out
@@ -237,6 +249,10 @@ class RunConfig:
         self.walker_max_depth = walker_max_depth
         self.sample_manifest = sample_manifest
         self.mixed_chain_inventory_path = mixed_chain_inventory_path
+        # A rehearsal runs the pipeline as a throwaway: it is admitted afresh every
+        # time, never publishes, never promotes its mint proposals, never resumes.
+        self.rehearsal = rehearsal
+        _validate_rehearsal_config(self)
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -929,6 +945,7 @@ def _requested_fingerprint(
 ) -> RunFingerprint:
     return RunFingerprint(
         schema_version=5 if config.sample_manifest is not None else 4,
+        rehearsal_nonce=uuid4().hex if config.rehearsal else None,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
@@ -1012,11 +1029,15 @@ async def _validated_sample_worklist(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
 ) -> tuple[str, ...] | None:
-    """Validate a review manifest against the live source and complete branch scope."""
+    """Validate a review manifest against the complete branch scope, and (except for
+    a rehearsal) against the live source."""
     sample = config.sample_manifest
     if sample is None:
         return None
-    _require_sample_source(sample, snapshot)
+    # A rehearsal borrows only the cohort's codes; their live-scope check below is
+    # what matters, not the source the sample was reviewed against.
+    if not config.rehearsal:
+        _require_sample_source(sample, snapshot)
     scope_codes = await enumerate_in_scope_codes(client, config.scope_root)
     _require_sample_scope(sample, scope_codes)
     return sample.codes
@@ -1031,18 +1052,20 @@ async def _load_pending_run_data(
         pending = await provenance.pending_codes(run_id)
         return pending, await _fetch_labels(get_labels, pending)
     except BaseException as exc:
-        try:
-            if not await provenance.fail_run(run_id, exc):
-                exc.add_note(
-                    f"Run setup failure was NOT recorded: run {run_id!r} holds a "
-                    "different terminal state, or its row is gone."
-                )
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run setup failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run setup failure", _record_setup_failure(provenance, run_id, exc)
+        )
         raise
+
+
+async def _record_setup_failure(
+    provenance: ProvenanceStore, run_id: str, exc: BaseException
+) -> None:
+    if not await provenance.fail_run(run_id, exc):
+        exc.add_note(
+            f"Run setup failure was NOT recorded: run {run_id!r} holds a "
+            "different terminal state, or its row is gone."
+        )
 
 
 async def _prepare_run(
@@ -1055,7 +1078,7 @@ async def _prepare_run(
     total_limit: int | None,
     snapshot: NcitSourceSnapshot,
     collapse_policy: CollapseVetoPolicy,
-    fresh_worklist: tuple[str, ...] | None,
+    fresh_worklist: tuple[str, ...],
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
 ) -> _RunSetup:
@@ -1063,8 +1086,6 @@ async def _prepare_run(
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
     semantic_types = config.semantic_types
-    if fresh_worklist is None:
-        raise RuntimeError("run worklist was not preflighted")
     fingerprint = _requested_fingerprint(
         config,
         snapshot,
@@ -1147,13 +1168,11 @@ async def _process_work_item(
             code,
             setup.run_id,
         )
-        try:
-            await provenance.fail_work_item(setup.run_id, code, claim, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the work-item failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc,
+            "work-item failure",
+            provenance.fail_work_item(setup.run_id, code, claim, exc),
+        )
         raise
 
 
@@ -1354,7 +1373,11 @@ async def _materialize_residual_filler(
             unsupported_reason=reason,
         )
     except BaseException as exc:
-        await provenance.fail_residual_filler(setup.run_id, filler, claim, exc)
+        await _journal_without_masking(
+            exc,
+            "residual filler failure",
+            provenance.fail_residual_filler(setup.run_id, filler, claim, exc),
+        )
         raise
 
 
@@ -1559,14 +1582,56 @@ async def _completed_stage_output(
     return row.output_identity, row.output_payload
 
 
+async def _journal_without_masking(
+    exc: BaseException, what: str, record: Awaitable[object]
+) -> None:
+    """Await a provenance write made on behalf of ``exc`` without letting the
+    write's own failure replace ``exc``; that failure becomes a note instead.
+
+    A cancellation that interrupts the write still cancels: it gains a note naming
+    the interrupted record and ``exc``, and propagates with ``exc`` as its cause so
+    neither is lost. The write itself is not retried or shielded (contrast
+    ``publication._record_failure_without_masking``), so it may never have landed.
+    D90 in ``docs/DECISIONS.md`` says which abandoned writes a later resume recovers
+    and which leave only the cancellation's note and its cause, unless a later failure
+    record for the same cancellation lands and persists them.
+    """
+    try:
+        await record
+    except asyncio.CancelledError as cancellation:
+        cancellation.add_note(
+            f"Cancelled while recording the {what}: {type(exc).__name__}: {exc}"
+        )
+        raise cancellation from exc
+    except BaseException as failure_error:
+        exc.add_note(
+            f"Recording the {what} also failed: "
+            f"{type(failure_error).__name__}: {failure_error}"
+        )
+
+
+async def _record_stage_failure(
+    provenance: ProvenanceStore,
+    run_id: str,
+    stage: RunStageName,
+    claim: UUID,
+    exc: BaseException,
+) -> None:
+    await _journal_without_masking(
+        exc, f"{stage} stage failure", provenance.fail_stage(run_id, stage, claim, exc)
+    )
+
+
 async def _preflight_stage(
     setup: _RunSetup,
     config: RunConfig,
-    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
-    *,
-    precomputed: SourcePreflightResult | None = None,
+    preflight: SourcePreflightResult,
 ) -> str:
+    """Seal ``preflight`` (computed before admission) as the run's preflight stage. If
+    an earlier attempt already sealed the stage, use that stored result instead and
+    ignore ``preflight``. Either result must still pass the preflight gate and, when
+    the config names a mixed-chain inventory, match that inventory's identity."""
     input_identity = setup.fingerprint.identity
     claim = await provenance.claim_stage(setup.run_id, "preflight", input_identity)
     if claim is None:
@@ -1576,19 +1641,15 @@ async def _preflight_stage(
         result = SourcePreflightResult.model_validate_json(json.dumps(payload))
     else:
         try:
-            result = precomputed or await _source_preflight_result(
-                config,
-                client,
-                setup.fingerprint.worklist,
-                source_identity=setup.fingerprint.source_identity,
-                routing_identity=setup.fingerprint.routing_implementation_identity,
-            )
+            result = preflight
             payload = result.model_dump(mode="json", exclude_computed_fields=True)
             output_identity = await provenance.complete_stage(
                 setup.run_id, "preflight", claim, payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "preflight", claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "preflight", claim, exc
+            )
             raise
     _require_preflight_allowed(result)
     required_inventory = _required_mixed_chain_inventory_identity(
@@ -1630,17 +1691,25 @@ async def _source_preflight_result(
         if inventory_identity is not None
         else {}
     )
-    return await run_source_preflight(
-        worklist,
-        read_definition=read_definition,
-        source_identity=source_identity,
-        reader_identity=routing_identity,
-        query_identity=routing_identity,
-        tool_identity=await client.version() or "missing-version",
-        walker_max_depth=config.walker_max_depth,
-        max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
-        **kwargs,
-    )
+    try:
+        return await run_source_preflight(
+            worklist,
+            read_definition=read_definition,
+            source_identity=source_identity,
+            reader_identity=routing_identity,
+            query_identity=routing_identity,
+            tool_identity=await client.version() or "missing-version",
+            walker_max_depth=config.walker_max_depth,
+            max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
+            **kwargs,
+        )
+    except ClosureBudgetExceededError as exc:
+        exc.add_note(
+            "The budget is _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES in "
+            "ontolib/src/ontolib/decomposition/run.py: raise the budget or narrow "
+            "the worklist."
+        )
+        raise
 
 
 def _required_mixed_chain_inventory_identity(
@@ -1709,7 +1778,9 @@ async def _concept_workset_stage(
             },
         )
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "concept-workset", claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "concept-workset", claim, exc
+        )
         raise
 
 
@@ -1758,8 +1829,8 @@ async def _residual_classification_stage(
         )
     except BaseException as exc:
         if residual_claim is not None:
-            await provenance.fail_stage(
-                setup.run_id, "residual-classification", residual_claim, exc
+            await _record_stage_failure(
+                provenance, setup.run_id, "residual-classification", residual_claim, exc
             )
         raise
     return metrics, decompositions, residual_identity, unknown
@@ -1827,6 +1898,9 @@ async def _metrics_stage(
         concept_unknown_codes = await provenance.unknown_outcome_codes(setup.run_id)
         if len(concept_unknown_codes) != completion_metrics.unknown_outcome:
             raise RunStateError("unknown outcome codes do not match completion metrics")
+        # Before the artifact and publication stages: finish_run repeats the recount,
+        # but only after the public graph has been replaced.
+        await provenance.require_completion_recount(setup.run_id, completion_metrics)
         persisted_metrics = completion_metrics.model_dump(mode="json")
         metrics_payload: dict[str, object] = {
             "metrics": persisted_metrics,
@@ -1849,7 +1923,9 @@ async def _metrics_stage(
                 )
     except BaseException as exc:
         if metrics_claim is not None:
-            await provenance.fail_stage(setup.run_id, "metrics", metrics_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "metrics", metrics_claim, exc
+            )
         raise
     return metrics_identity, persisted_metrics
 
@@ -1873,7 +1949,9 @@ async def _artifact_stage(
                 setup.run_id, "artifact", artifact_claim, artifact_payload
             )
         except BaseException as exc:
-            await provenance.fail_stage(setup.run_id, "artifact", artifact_claim, exc)
+            await _record_stage_failure(
+                provenance, setup.run_id, "artifact", artifact_claim, exc
+            )
             raise
     else:
         artifact_identity, artifact_payload = await _completed_stage_output(
@@ -1941,8 +2019,23 @@ async def _publication_stage(
             publication_claim,
             {"publication_state": "published" if publication else "not_requested"},
         )
+    except PublicationFinalizationError as exc:
+        # Raised after the run finished and published; the stage completed too.
+        await _journal_without_masking(
+            exc,
+            "publication stage completion",
+            provenance.complete_stage(
+                setup.run_id,
+                "publication",
+                publication_claim,
+                {"publication_state": "published"},
+            ),
+        )
+        raise
     except BaseException as exc:
-        await provenance.fail_stage(setup.run_id, "publication", publication_claim, exc)
+        await _record_stage_failure(
+            provenance, setup.run_id, "publication", publication_claim, exc
+        )
         raise
 
 
@@ -2009,7 +2102,8 @@ async def _qualify_collapse_policy(
     source_identity: str,
     walker_max_depth: int,
 ) -> None:
-    """Qualify each distinct policy concept once before any run state is written."""
+    """Qualify each distinct policy concept once, before this invocation writes any run
+    state."""
     occurrences = []
     for concept_code in sorted({entry.concept_code for entry in policy.entries}):
         _result, _roles, _morphology, definition, _types = await _detect_concept(
@@ -2038,12 +2132,73 @@ async def _active_collapse_policy(
     return policy
 
 
+async def _policy_codes_still_to_do(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    provenance: ProvenanceStore,
+    worklist: tuple[str, ...],
+) -> list[str]:
+    """The worklist's policy-bound concepts; on a resume only the unfinished ones, since
+    a finished concept's result is persisted and must not block the rest of the run."""
+    by_code = policy.by_code
+    bound = [code for code in worklist if code in by_code]
+    if not bound or config.resume_from is None:
+        return bound
+    pending = set(await provenance.pending_codes(config.resume_from))
+    return [code for code in bound if code in pending]
+
+
+async def _qualify_group_policy(
+    policy: ActiveNormalizedGroupPolicy,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    worklist: tuple[str, ...],
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    get_labels: GetLabels | None,
+    label_lookup: LabelLookup,
+) -> None:
+    """Decompose each policy-bound concept the run still has to do, persisting nothing,
+    before this invocation writes any run state: a decomposition its policy row rejects
+    fails here, not when the worklist reaches the concept."""
+    bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
+    labels = await _fetch_labels(get_labels, bound)
+    untouched = (
+        "no run state was written"
+        if config.resume_from is None
+        else f"run {config.resume_from!r} was not modified"
+    )
+    for code in bound:
+        try:
+            await _decompose_one(
+                code,
+                client,
+                label=labels.get(code),
+                label_lookup=label_lookup,
+                source_identity=source_identity,
+                collapse_policy=collapse_policy,
+                diagnostic_source=diagnostic_source,
+                detector_identity=routing_implementation_identity(),
+                walker_max_depth=config.walker_max_depth,
+                normalized_group_policy=policy,
+            )
+        except BaseException as exc:
+            exc.add_note(
+                f"Raised by the group-policy dry run of {code!r}, before admission: "
+                f"{untouched}."
+            )
+            raise
+
+
 async def _fresh_preflight(
     config: RunConfig,
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
-) -> tuple[tuple[str, ...] | None, SourcePreflightResult | None]:
+) -> tuple[tuple[str, ...], SourcePreflightResult]:
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
         tuple(await _standard_worklist(config, client, total_limit))
@@ -2067,10 +2222,14 @@ async def _resume_preflight(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
+    run_id: str,
 ) -> tuple[tuple[str, ...], SourcePreflightResult]:
-    if config.resume_from is None:
-        raise RuntimeError("resume preflight requires an explicit run id")
-    persisted = await provenance.fingerprint_for_run(config.resume_from)
+    persisted = await provenance.fingerprint_for_run(run_id)
+    if persisted.rehearsal_nonce is not None:
+        raise RunStateError(
+            f"decomposition run {run_id!r} is a rehearsal; rehearsals "
+            "are throwaway runs and cannot be resumed"
+        )
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if sample_worklist is not None and sample_worklist != persisted.worklist:
         raise SourcePreflightRejectedError(
@@ -2091,11 +2250,21 @@ async def _record_pipeline_failure(
     provenance: ProvenanceStore, setup: _RunSetup, exc: BaseException
 ) -> None:
     if isinstance(exc, SourceIdentityChangedError):
-        recorded = await provenance.invalidate_run(setup.run_id, exc)
+        advice = (
+            "Inspect the run's decomp_constituent, decomp_minted_proposal, "
+            "decomp_definition_* and decomp_work_item rows before reuse."
+        )
+        try:
+            recorded = await provenance.invalidate_run(setup.run_id, exc)
+        except BaseException:
+            exc.add_note(
+                f"Invalidating run {setup.run_id!r} did not complete; partial "
+                f"results may survive. {advice}"
+            )
+            raise
         message = (
             "Partial results were NOT discarded: run "
-            f"{setup.run_id!r} was no longer 'running'. Inspect "
-            "decomp_constituent/decomp_minted_proposal before reuse."
+            f"{setup.run_id!r} was no longer 'running'. {advice}"
         )
     else:
         recorded = await provenance.fail_run(setup.run_id, exc)
@@ -2150,8 +2319,23 @@ async def run_pipeline(
         )
     else:
         fresh_worklist, fresh_preflight = await _resume_preflight(
-            config, client, provenance, snapshot
+            config, client, provenance, snapshot, config.resume_from
         )
+    diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
+        client, snapshot.source_identity
+    )
+    await _qualify_group_policy(
+        active_group_policy,
+        config,
+        client,
+        provenance,
+        worklist=fresh_worklist,
+        source_identity=snapshot.source_identity,
+        collapse_policy=active_collapse_policy,
+        diagnostic_source=diagnostic_source,
+        get_labels=get_labels,
+        label_lookup=label_lookup,
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -2162,19 +2346,13 @@ async def run_pipeline(
         snapshot=snapshot,
         collapse_policy=active_collapse_policy,
         fresh_worklist=fresh_worklist,
-        diagnostic_source=await axis_diagnostics.read_axis_diagnostic_source(
-            client, snapshot.source_identity
-        ),
+        diagnostic_source=diagnostic_source,
         normalized_group_policy=active_group_policy,
     )
 
     try:
         preflight_identity = await _preflight_stage(
-            setup,
-            config,
-            client,
-            provenance,
-            precomputed=fresh_preflight,
+            setup, config, provenance, fresh_preflight
         )
         concept_identity = await _concept_workset_stage(
             setup,
@@ -2200,11 +2378,7 @@ async def run_pipeline(
         # completion. Neither may demote the decomposition run via fail_run.
         raise
     except BaseException as exc:
-        try:
-            await _record_pipeline_failure(provenance, setup, exc)
-        except BaseException as failure_error:
-            exc.add_note(
-                "Recording the run failure also failed: "
-                f"{type(failure_error).__name__}: {failure_error}"
-            )
+        await _journal_without_masking(
+            exc, "run failure", _record_pipeline_failure(provenance, setup, exc)
+        )
         raise
