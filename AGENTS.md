@@ -56,20 +56,18 @@ For the milestone:
 
 **Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
 full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
-`gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` for
-up to ten minutes (a short SHA matches nothing; never take the newest run on the branch
-instead). If no run appears in that time, that is a failure. Watch the run with `gh run
-watch <id> --exit-status`. A non-zero exit is a failure unless `gh run view <id> --json
-conclusion` says `cancelled` and a newer push run exists on the branch
+`gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
+to ten times, about a minute apart (a short SHA matches nothing; never take the newest
+run on the branch instead). If no run appears by then, that is a failure. Watch the
+run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh run
+view <id> --json conclusion` says `cancelled` and a newer push run exists on the branch
 (`cancel-in-progress` cancels a run when another merge follows); then watch that newer
 run, which tests the combined tree, and repeat. On a failure, stop: do not start the
 next issue or milestone, report it to the owner, and fix the cause through an issue PR
-("What a finding becomes"). After a merge into `main`, report to the owner the latest
-tag before and after the merge (`gh release list --limit 1`) and the conclusion of each
-`Release` run (`gh run list --workflow Release --json createdAt,status,conclusion`),
-without judging whether a release was lost: the `Release` guard can hand a release to a
-newer merge, and detecting a lost release is #131. Recovering one through the workflow's
-manual dispatch is the owner's call.
+("What a finding becomes"). The agent does not judge whether a merge into `main`
+produced a release: the `Release` guard can hand a release to a newer merge, so that
+cannot be read reliably from outside `release.yml`, and #131 makes a lost release
+visible.
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
