@@ -37,9 +37,11 @@ For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
     local merge is a prompted command for the agent; the owner approves it or does it),
-    run `pdm run verify` once, and open the milestone PR to `main`. Its review is an
-    integration pass: what the issue reviews could not see (interactions between issues,
-    migrations in sequence, the combined diff against `main`).
+    run `pdm run verify` once, and open the milestone PR to `main`. Its body lists every
+    deferral from the issue PRs (blockers first) and every milestone edit still pending
+    (see "What a finding becomes", step 5). Its review is an integration pass: what the
+    issue reviews could not see (interactions between issues, migrations in sequence,
+    the combined diff against `main`).
 12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
     completion before starting the next milestone.
 
@@ -331,8 +333,9 @@ real, is fixed where it was found, and is filed at most once:
    the order lives in the milestone description, and in a milestone without one the
    position is stated by dependency (what the issue blocks, what blocks it). Writing the
    position into the milestone description is a milestone edit the owner confirms, so
-   until then the new issue's body states the proposed position and says it is pending.
-   The milestone PR body lists every such pending milestone edit. "No milestone" is for
+   until then the new issue's body states the proposed position and says it is pending;
+   the note is removed when the owner decides. The milestone PR of the milestone being
+   edited lists every such pending edit. "No milestone" is for
    epics and for collected minor work that blocks nothing.
 6. **If placing it shows the milestones no longer fit** (a milestone's goal depends on
    work planned later, or a milestone has grown past what can land), propose the
