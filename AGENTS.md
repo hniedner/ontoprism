@@ -30,20 +30,45 @@ For each issue:
    of record.**
 9. Review the PR in all five dimensions to convergence (see Review).
 10. When every check passes, all five dimensions have converged and the PR body lists
-    every dropped and deferred finding, squash-merge the issue PR into the milestone
-    branch and delete the issue branch. This merge does not need the owner.
+    the five review verdicts and every dropped and deferred finding, squash-merge the
+    issue PR into the milestone branch and delete the issue branch. This merge does not
+    need the owner. Then watch the CI run on the milestone branch (post-merge watch,
+    below).
 
 For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
-    local merge is a prompted command for the agent; the owner approves it or does it),
-    run `pdm run verify` once, and open the milestone PR to `main`. Its body lists every
-    deferral collected from the issue PR bodies (blockers first) and every pending edit
-    to this milestone's description (see "What a finding becomes", step 5). Its review
-    is an integration pass: what the issue reviews could not see (interactions between
-    issues, migrations in sequence, the combined diff against `main`).
-12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
-    completion before starting the next milestone.
+    local merge is a prompted command for the agent, for OpenCode `pdm run agent-git
+    merge-no-ff <branch>`, which merges the local branch, so update local `main` first
+    with `git fetch origin main:main`, also prompted; the owner approves it or does it),
+    run `pdm run verify` once, and open the milestone PR to `main`. Only this PR's title
+    reaches the release (see Conventions), so its type is the highest-impact type among
+    its issue PR titles (`feat` > `fix` or `perf` > any other), and a `!` on any of them
+    carries over; a `BREAKING CHANGE:` footer never reaches the release, because the
+    squash body is blank. Its body lists the issue PR titles, the five review verdicts,
+    every deferral collected from the issue PR bodies (blockers first) and every pending
+    edit to this milestone's description (see "What a finding becomes", step 5). Its
+    review is an integration pass: what the issue reviews could not see (interactions
+    between issues, migrations in sequence, the combined diff against `main`).
+12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
+    authorization covers it (see Hard rules, D91). After it, watch the CI run on `main`
+    (post-merge watch, below) before starting the next milestone.
+
+**Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
+full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
+`gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
+to ten times, about a minute apart (the OpenCode primary waits with `sleep 60`; other
+harnesses use their own bounded wait). A short SHA matches nothing; never take the
+newest run on the branch instead. If no run appears by then, that is a failure. Watch
+the run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh
+run view <id> --json conclusion` says `cancelled` and a newer push run exists on the
+branch (`cancel-in-progress` cancels a run when another merge follows); then watch that
+newer run, which tests the combined tree, and repeat. On a failure, stop: do not start
+the next issue or milestone, report it to the owner, and fix the cause through an issue
+PR ("What a finding becomes"). The agent does not judge whether a merge into `main`
+produced a release: the `Release` guard can hand a release to a newer merge, so that
+cannot be read reliably from outside `release.yml`, and making a lost release visible is
+tracked in #131.
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
@@ -62,18 +87,42 @@ Start a new agent session for each issue. Do not carry one context across days o
 
 - **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
   force-push, no deletion.
-- **Never merge into `main` without the owner's explicit authorization of that exact PR
-  number in the current conversation. Never merge any PR, into `main` or a milestone
-  branch, unless every expected check in `gh pr checks <n>` is present and passing for
-  the current head and base (or skipped by a documented path filter); a check that is
-  absent, or a run made before the PR's base was changed, does not count, so get a
-  fresh run first.** Squash-merge with the PR's Conventional Commit
-  title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
-  title or base changed since authorization, ask again. Known quirk: PRs touching only
-  dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
-  `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
-  into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
-  it reports on the milestone's code.
+- **Merge authorization is standing and contingent on the protocol.** The owner has
+  authorized agents (2026-09-19, D91) to merge a PR into `main` without asking per PR,
+  and only when both hold. First, the branch was vetted, tested and reviewed under the
+  protocol: for a change that belongs to no milestone, steps 1-10 with `main` as base;
+  for a milestone PR, step 11 after every issue PR met steps 1-10. That includes
+  `pdm run verify` before the PR was opened, all five review dimensions converged, and
+  a body as step 10 or 11 describes. Second, every expected check passes under the
+  check rule below. If either fails, do not merge. GitHub does not yet enforce
+  required checks on `main` (#405), so keeping the check rule is the agent's job.
+- **Never merge any PR, into `main` or a milestone branch, unless every expected check
+  in `gh pr checks <n>` is present and passing for the current head and base (or skipped
+  by a documented path filter); a check that is absent, or a run made before the PR's
+  base was changed, does not count, so get a fresh run first.**
+  A base change means the PR was retargeted to another branch: record the base (`gh pr
+  view <n> --json baseRefName`) when the review converges and compare it just before
+  merging; after a retarget, push a new commit (a re-run keeps the old base) before
+  counting checks. New commits on the base branch, such as the release and README bot
+  commits on `main`, do not void a run; a merge skew between two PRs shows up in the CI
+  run on the base branch after the merge, which steps 10 and 12 watch, and whether
+  GitHub should require up-to-date branches is decided in #405. Ignore the rows whose
+  event is `push` (`gh pr checks <n> --json name,event,bucket`): a PR whose head is a
+  milestone branch also shows push rows under the same names, while CodeQL's aggregate
+  row has an empty event and its `Analyze` jobs show `dynamic`. On every PR, `CI
+  summary`, `quality (pre-commit parity)`, `conventional commit subject` and `dependency
+  review` are always expected; on a PR into `main`, so are `CodeQL` and its `Analyze`
+  jobs, except under the known quirk below. If one is missing, CI did not run fully.
+  Merge with this command, where `<sha>` is the full reviewed head SHA from `git
+  rev-parse` (GitHub refuses the merge if the head moved) and no body is passed:
+  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title> (#<n>)"`
+  The `(#<n>)` suffix keeps the PR number in the log, as GitHub's default subject does.
+  Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
+  head, title or base changed after the checks and the review, they run again first.
+  Known quirk: PRs touching only dependency manifests or workflows show the aggregate
+  `CodeQL` check as neutral with no `Analyze` jobs; that is expected for those PRs only.
+  CodeQL runs on `main` and on PRs into `main`, not on PRs into a milestone branch, so a
+  milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -357,10 +406,13 @@ steward.
 
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
-  its subject is the PR title, and while the repository's squash message is
-  `COMMIT_MESSAGES` every conventional line of its body counts too. Merge a PR whose
-  commits carry `feat:`, `fix:` or `perf:` lines with an explicit prose `--body` unless
-  those lines should cut a release.
+  its subject is the PR title with ` (#<n>)` appended, and its body is empty because the
+  repository's squash message is `BLANK` (D91). A `--body` on the merge would be parsed
+  too, so pass none (the OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin
+  and `-R`/`--repo` after its pinned allow row, but its wildcards still admit bundled
+  short flags, a value flag that swallows the pin and a PR URL; the merge wrapper in
+  #401 closes them). Issue PR titles inside a milestone do not reach the release; the
+  milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.

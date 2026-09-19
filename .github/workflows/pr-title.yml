@@ -52,8 +52,9 @@ jobs:
               echo '- `docs: record the most-specific filler policy`'
               echo '- `feat(api)!: drop the deprecated /concepts search shape`'
               echo
-              echo "Bumping types: \`feat\` → minor, \`fix\`/\`perf\` → patch, \`!\` or a"
-              echo "\`BREAKING CHANGE:\` footer → minor while pre-1.0 (see CONTRIBUTING)."
+              echo "Bumping types: \`feat\` → minor, \`fix\`/\`perf\` → patch, \`!\` → minor"
+              echo "while pre-1.0. Only the title counts: the squash body is blank, so a"
+              echo "\`BREAKING CHANGE:\` footer never reaches the release (AGENTS.md, Conventions)."
               echo "All other types land in the changelog without bumping the version."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error title=PR title is not a Conventional Commit::$TITLE"

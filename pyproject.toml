@@ -315,11 +315,12 @@ other_allowed_tags = [
 ]
 # Merge commits carry no semantics of their own — the PR's own commits do. When a
 # PR is squash-merged, the squashed body is unpacked and each line parsed. The
-# conventional PR title (enforced by .github/workflows/pr-title.yml) is the subject,
-# but while the repository's squash message is COMMIT_MESSAGES every conventional
-# line of the body counts too: a `chore` PR with `fix:` commits cuts a patch release
-# (cbbae59 -> v0.24.1). Both are the v10 defaults; pinned here because the whole
-# release scheme depends on them.
+# conventional PR title (enforced by .github/workflows/pr-title.yml) is the subject.
+# The repository's squash message is BLANK (D91), so the body is empty (a --body
+# passed at merge would be parsed the same way);
+# under the earlier COMMIT_MESSAGES setting every conventional commit line counted
+# too, and a `chore` PR with `fix:` commits cut v0.24.1 (cbbae59). Both options are
+# the v10 defaults; pinned here because the whole release scheme depends on them.
 ignore_merge_commits = true
 parse_squash_commits = true
 

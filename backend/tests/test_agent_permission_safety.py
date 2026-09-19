@@ -35,6 +35,11 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
+# the documented merge form: squash, pinned to the reviewed head (wildcard gaps: #401)
+_MERGE = (
+    "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
+    "--squash --delete-branch --subject x"
+)
 
 _NEVER_ALLOWED = (
     "rm -rf data",
@@ -45,9 +50,26 @@ _NEVER_ALLOWED = (
     "git checkout -- .",
     "git commit -m x --no-verify",
     "gh pr merge 12",
-    "gh pr merge 12 --squash --delete-branch --subject x --admin",
-    "gh pr merge 12 --auto --squash --delete-branch --subject x",
-    'gh pr merge 12 --squash --delete-branch --subject x --body "a $(id)"',
+    f"{_MERGE} --admin",
+    f"{_MERGE} --auto",
+    # a substitution in the subject, which only the $ deny catches
+    _MERGE.replace("--subject x", '--subject "a $(id)"'),
+    # an unpinned merge could land a head that moved after the review
+    "gh pr merge 12 --squash --delete-branch --subject x",
+    # the squash message is BLANK; a merge body would be parsed for releases
+    f'{_MERGE} --body "fix: y"',
+    f'{_MERGE} -b "fix: y"',
+    f'{_MERGE} -b"fix: y"',
+    f"{_MERGE} -b=fix",
+    f"{_MERGE} -F notes.md",
+    # an empty pin sends no head check; gh drops an empty --match-head-commit
+    'gh pr merge 12 --match-head-commit "" --squash --delete-branch --subject x',
+    "gh pr merge 12 --match-head-commit '' --squash --delete-branch --subject x",
+    f"{_MERGE} --match-head-commit=",
+    f'{_MERGE} --match-head-commit ""',
+    # the standing authorization covers this repository's PRs only
+    f"{_MERGE} -R other/repo",
+    f"{_MERGE} --repo other/repo",
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",
@@ -136,6 +158,8 @@ _NEVER_ALLOWED = (
     "git stash show -p --output=tmp/x",
     "git stash show -p --ext-diff",
     "git stash list | sh",
+    # the exact "sleep 60" allow cannot carry a chained command (the ; deny catches it)
+    "sleep 60; rm -rf data",
 )
 
 
@@ -239,9 +263,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "--head feat/x-1 --base feat/m1-6-1-provisional-publication",
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
-        "gh pr merge 12 --squash --delete-branch --subject x",
-        'gh pr merge 12 --squash --delete-branch --subject "chore(x): y" '
-        '--body "Lands the R0 work, see the PR."',
+        _MERGE,
+        "sleep 60",
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(
@@ -271,6 +294,9 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "git stash pop",
         "git stash apply stash@{0}",
         "git stash branch rescue stash@{0}",
+        # the post-merge watch may sleep exactly 60 seconds, nothing longer
+        "sleep 600",
+        "sleep 60 60",
     ],
 )
 def test_the_primary_agent_asks_for_anything_not_listed(command: str) -> None:
