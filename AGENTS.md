@@ -54,19 +54,24 @@ For the milestone:
     authorization covers it (see Hard rules, D91). After it, watch the post-merge
     workflows (below) before starting the next milestone.
 
-**Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
-full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then `gh
-run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` (a
-short SHA matches nothing; wait until the run exists, and never take the newest run on
-the branch instead). Watch it with `gh run watch <id> --exit-status`. A non-zero exit is
-a failure unless `gh run view <id> --json conclusion` says `cancelled` and a newer push
-run exists on the branch (`cancel-in-progress` cancels a run when another merge
-follows); then watch that newer run, which tests the combined tree. On a failure, stop:
-do not start the next issue, report it to the owner, and fix the cause through an issue
-PR ("What a finding becomes"). After a merge into `main`, also watch `Release`: it runs
-after every CI run on `main` but releases only when that run succeeded, and its guard
-can hand the release to a newer commit on `main`. For a `feat` or `fix` title, confirm
-the new version with `gh release list --limit 1` once the `Release` runs have settled.
+**Post-merge watch (steps 10 and 12).** Before a merge into `main`, record the latest
+tag (`gh release list --limit 1`). After the merge, find the CI run for the merge
+commit: take the full merge SHA from `gh pr view <n> --json mergeCommit --jq
+.mergeCommit.oid`, then poll `timeout 30 gh run list --workflow CI --event push --commit
+<sha> --json databaseId,conclusion` in the background for up to ten minutes (a short SHA
+matches nothing; never take the newest run on the branch instead). If no run appears,
+that is a failure. Watch the run with `gh run watch <id> --exit-status`. A non-zero exit
+is a failure unless `gh run view <id> --json conclusion` says `cancelled` and a newer
+push run exists on the branch (`cancel-in-progress` cancels a run when another merge
+follows); then watch that newer run, which tests the combined tree, and repeat. After a
+merge into `main` whose title bumps the version (`feat`, `fix`, `perf`, or any type with
+`!`), wait until no `Release` run created after the merge is queued or in progress (`gh
+run list --workflow Release --json status,conclusion,createdAt`); the latest tag must
+then differ from the one recorded. A `Release` run can succeed without releasing,
+because its guard hands the release to a newer commit on `main`, so the tag is what
+counts. On any failure, stop: do not start the next issue or milestone, report it to the
+owner (a lost release is recovered by the owner through the `Release` workflow's manual
+dispatch), and fix the cause through an issue PR ("What a finding becomes").
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:

@@ -261,6 +261,7 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
         _MERGE,
+        "gh release list --limit 1",
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(
