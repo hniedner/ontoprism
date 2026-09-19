@@ -754,7 +754,7 @@ def test_an_issue_view_leaves_out_a_list_github_did_not_send(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     issue = {"number": 4, "title": "x", "state": "open", "labels": None}
-    runner = recording_runner([Result(0, json.dumps(issue | {"assignees": None}))], [])
+    runner = recording_runner([Result(0, json.dumps(issue))], [])
 
     assert (
         run_agent_github(["issue-view", "4"], tmp_path, read_only=True, runner=runner)
