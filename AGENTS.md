@@ -42,8 +42,9 @@ For the milestone:
     to this milestone's description (see "What a finding becomes", step 5). Its review
     is an integration pass: what the issue reviews could not see (interactions between
     issues, migrations in sequence, the combined diff against `main`).
-12. The owner authorizes the merge to `main`. After it, watch post-merge workflows to
-    completion before starting the next milestone.
+12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
+    authorization covers it (see Hard rules, D91). After it, watch post-merge workflows
+    to completion before starting the next milestone.
 
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
@@ -62,14 +63,21 @@ Start a new agent session for each issue. Do not carry one context across days o
 
 - **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
   force-push, no deletion.
-- **Never merge into `main` without the owner's explicit authorization of that exact PR
-  number in the current conversation. Never merge any PR, into `main` or a milestone
-  branch, unless every expected check in `gh pr checks <n>` is present and passing for
-  the current head and base (or skipped by a documented path filter); a check that is
-  absent, or a run made before the PR's base was changed, does not count, so get a
-  fresh run first.** Squash-merge with the PR's Conventional Commit
-  title and delete the branch. Never `--admin`, auto-merge, or a queue. If the PR head,
-  title or base changed since authorization, ask again. Known quirk: PRs touching only
+- **Merge authorization is standing and contingent on the protocol.** The owner has
+  authorized agents (2026-09-19, D91) to merge a PR into `main` (a milestone PR, or a
+  change that belongs to no milestone) without asking per PR, and only when both hold:
+  the branch was vetted, tested and reviewed under the protocol (the steps that apply
+  are done: 1-10, and 11 for a milestone PR, including TDD, `pdm run verify` on the
+  head's tree, all five review dimensions converged and a body that lists every dropped
+  and deferred finding), and every GitHub workflow on the PR is green (the check rule
+  below). If either fails, do not merge. **Never merge any PR, into `main` or a
+  milestone branch, unless every expected check in `gh pr checks <n>` is present and
+  passing for the current head and base (or skipped by a documented path filter); a
+  check that is absent, or a run made before the PR's base was changed, does not
+  count, so get a fresh run first.** Squash-merge with the PR's Conventional Commit
+  title, no `--body`, and delete the branch. Never `--admin`, auto-merge, or a queue.
+  Re-read the PR just before merging; if its head, title or base changed after the
+  checks and the review, they run again first. Known quirk: PRs touching only
   dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
   `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
   into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
@@ -357,10 +365,9 @@ steward.
 
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
-  its subject is the PR title, and while the repository's squash message is
-  `COMMIT_MESSAGES` every conventional line of its body counts too. Merge a PR whose
-  commits carry `feat:`, `fix:` or `perf:` lines with an explicit prose `--body` unless
-  those lines should cut a release.
+  its subject is the PR title, and its body is empty because the repository's squash
+  message is `BLANK` (since 2026-09-19). A `--body` on the merge would be parsed too, so
+  pass none.
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.
