@@ -59,7 +59,8 @@ def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
             copy = saved.open("xb")
         except FileExistsError as exc:
             raise AgentPristineInputError(
-                f"{relative} is already saved; restore or discard it first"
+                f"{relative} is already saved; run discard, which drops the copy only "
+                "while the file still matches it"
             ) from exc
         try:
             with copy:
@@ -76,7 +77,7 @@ def run_agent_pristine(arguments: list[str], root: Path, scratch: Path) -> int:
         target.write_bytes(saved.read_bytes())
     elif not target.is_file() or target.read_bytes() != saved.read_bytes():
         raise AgentPristineInputError(
-            f"{relative} differs from the saved copy; restore it, or ask the owner"
+            f"{relative} differs from the saved copy; ask the owner"
         )
     saved.unlink()
     print(f"{'restored' if operation == 'restore' else 'discarded'} {relative}")

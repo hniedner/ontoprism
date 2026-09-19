@@ -930,8 +930,8 @@ def _pr_merge(
     the repository deletes merged branches (the wrapper does not confirm it), and is
     deleted by the wrapper otherwise.
     Every check runs before the first write, and GitHub itself refuses the merge if the
-    head moved after the check. Once merged, the result always names the merge
-    commit."""
+    head moved after the check. Once merged, the result or the error says so, and names
+    the merge commit whenever GitHub returned a readable one."""
     number, head, base = _merge_arguments(arguments)
     head_ref, subject = _reviewed_pull(number, head, base, root, runner)
     repository = _api("GET", API_ROOT, root, runner)
@@ -960,9 +960,10 @@ def _pr_merge(
         )
     merge_commit = result.get("sha")
     if not isinstance(merge_commit, str) or FULL_SHA.fullmatch(merge_commit) is None:
+        left = "" if github_deletes else f"; {head_ref} was not deleted, ask the owner"
         raise AgentGitHubProcessError(
             f"GitHub merged #{number}, but its merge commit is unreadable; do not "
-            "retry the merge, read it with gh pr view"
+            f"retry the merge, read it with gh pr view{left}"
         )
     if github_deletes:
         # GitHub removes the branch itself (unless a protection rule or ruleset stops

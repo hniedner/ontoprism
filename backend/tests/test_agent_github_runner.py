@@ -1365,7 +1365,7 @@ _MERGED = "a" * 40
         (_REPO_KEEPS, [Result(0, "")], "wrapper"),
     ],
 )
-def test_pr_merge_squashes_the_reviewed_head_and_removes_the_branch_once(
+def test_pr_merge_squashes_the_reviewed_head_and_deletes_only_what_github_keeps(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     repository: str,
@@ -1373,8 +1373,8 @@ def test_pr_merge_squashes_the_reviewed_head_and_removes_the_branch_once(
     deletion: str,
 ) -> None:
     """The merge is pinned to the reviewed head, titled from GitHub with the PR number,
-    carries no body, and removes the head branch exactly once: by GitHub when the
-    repository deletes merged branches, otherwise by the wrapper."""
+    and carries no body. It sends no branch DELETE when the repository deletes merged
+    branches (leaving it to GitHub), and deletes the head branch itself otherwise."""
     calls: list[tuple[list[str], dict[str, object]]] = []
     runner = recording_runner(
         [
@@ -1540,7 +1540,10 @@ def test_a_merge_without_a_readable_commit_is_not_called_unmerged(
         [],
     )
 
-    with pytest.raises(AgentGitHubProcessError, match="merged #12, but"):
+    # the repository keeps merged branches, so the message says this one is left
+    with pytest.raises(
+        AgentGitHubProcessError, match=r"merged #12, but.*fix/y-12 was not deleted"
+    ):
         run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
 
 

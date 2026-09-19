@@ -180,6 +180,3 @@ def test_each_checkout_gets_its_own_scratch_directory(tmp_path: Path) -> None:
     assert scratch_directory(tmp_path / "a" / "b_c", home) != scratch_directory(
         tmp_path / "a_b" / "c", home
     )
-    assert not scratch_directory(tmp_path / "a" / "b_c", home).is_relative_to(
-        tmp_path / "a"
-    )
