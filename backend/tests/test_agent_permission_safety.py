@@ -1,12 +1,13 @@
-"""Safety properties of the OpenCode agent permission files.
+r"""Safety properties of the OpenCode agent permission files.
 
 OpenCode matches a bash command against wildcard patterns (``*`` any run, ``?`` one
 character) and the last matching rule wins (https://opencode.ai/docs/permissions/).
-``_resolve`` emulates that rule plus one the documentation leaves out: a pattern that
-ends in a space and ``*`` also matches without that last argument (``"git diff * *"``
-matches ``git diff main...HEAD``). That rule was read from the OpenCode binary, not
-observed as a verdict. ``_resolve`` is not OpenCode itself, and whether the runtime
-matches a pipeline as one string or per command is not documented, so the
+``_resolve`` emulates that rule plus two the documentation leaves out, both read from
+the OpenCode binary rather than observed as a verdict: a pattern that ends in a space
+and ``*`` also matches without that last argument (``"git diff * *"`` matches
+``git diff main...HEAD``), and ``\`` becomes ``/`` in both the pattern and the
+command. ``_resolve`` is not OpenCode itself, and whether the runtime matches a
+pipeline as one string or per command is not documented, so the
 metacharacter cases below assert what the files say, not an observed runtime verdict.
 
 These tests describe what the bash permission layer refuses, not everything an agent can
@@ -86,6 +87,10 @@ _NEVER_ALLOWED = (
     "git diff --no-ext-diff /private/tmp/outside.txt\tx...HEAD",
     # git echoes the first line of the pathspec file in its error
     "git add --pathspec-from-file=/private/tmp/x",
+    "git add --pathspec-fr=/private/tmp/x",
+    "git add --pathspec-from /private/tmp/x",
+    # the shell splits a brace list into several words after the pattern matched one
+    "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
     "git log --format=%H --x=~/y",
     "git log --format=%H --no-index a b",
     # wrappers and option prefixes around a denied command
@@ -159,7 +164,9 @@ def _bash_rules(agent: str) -> dict[str, str]:
 def _resolve(agent: str, command: str) -> str:
     bash = _bash_rules(agent)
     action = bash["*"]
-    for pattern, rule in bash.items():
+    command = command.replace("\\", "/")
+    for raw_pattern, rule in bash.items():
+        pattern = raw_pattern.replace("\\", "/")
         optional_tail = pattern.endswith(" *")
         expression = "".join(
             ".*" if char == "*" else "." if char == "?" else re.escape(char)

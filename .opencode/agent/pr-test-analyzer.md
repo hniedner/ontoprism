@@ -64,6 +64,7 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*{*,*}*": deny
     "*\n*": deny
     "*\t*": deny
     "*\r*": deny

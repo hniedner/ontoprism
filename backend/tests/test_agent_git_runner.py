@@ -67,6 +67,12 @@ def test_git_invocation_requires_an_explicit_operation_class() -> None:
         ["switch-new", "feature", "--start", "main"],
         ["delete-force", "feature"],
         ["delete-merged", "main"],
+        # the permission map also allows each subcommand bare (OpenCode's optional tail)
+        ["switch-existing"],
+        ["switch-new"],
+        ["delete-merged"],
+        ["pull-origin"],
+        ["push-origin"],
         ["merge-no-ff", "feature", "--strategy=ours"],
         ["commit-staged", "message"],
         ["commit-staged", "--amend", "message"],
