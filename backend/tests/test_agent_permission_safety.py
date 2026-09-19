@@ -94,6 +94,8 @@ _NEVER_ALLOWED = (
     # it expands to keeps the ...HEAD suffix, so no plain path reaches git diff)
     "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
     "git log --format=%H --x=~/y",
+    # OpenCode turns a backslash into /, and bash turns ..\\/x into ../x
+    "git log --format=%H ..\\/x",
     "git log --format=%H --no-index a b",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
@@ -255,8 +257,6 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         # path-taking inspection forms prompt: a pattern list cannot confine their paths
         "ls -la src",
         "ls -la .. README.md",
-        "ls -la tmp /users/hannes",
-        "ls -la tmp /private/tmp/x",
         "wc -l README.md",
         "git ls-files --exclude-from=.. x",
         "ls -la /etc",
@@ -388,11 +388,21 @@ def test_no_local_opencode_config_overrides_agents_or_permissions(path: str) -> 
     if not config_path.exists():
         pytest.skip(f"{path} is not present on this machine")
     config = _load_jsonc(config_path.read_text(encoding="utf-8"))
+
+    assert not _overrides(path, config), sorted(config)
+
+
+def _overrides(path: str, config: dict[str, Any]) -> set[str]:
+    """The keys in ``config`` that this config file must not set."""
     forbidden = {"agent", "permission", "plugin"}
     if path != "opencode.json":
         forbidden.add("shell")
+    return forbidden & set(config)
 
-    assert not forbidden & set(config), sorted(config)
+
+def test_only_the_tracked_config_may_set_the_agent_shell() -> None:
+    assert _overrides(".opencode/opencode.json", {"shell": "/bin/zsh"}) == {"shell"}
+    assert _overrides("opencode.json", {"shell": "/bin/bash"}) == set()
 
 
 def _opencode_binary() -> Path | None:
@@ -479,54 +489,58 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
 
 
 _GLOB_QUALIFIER = "echo seed(e:'touch executed':)"
+# OpenCode's bash tool runs ``<shell> -c <command>``; its ``!`` user-shell path wraps
+# the command in ``eval``.
+_QUALIFIER_FORMS = {
+    "bash-tool": _GLOB_QUALIFIER,
+    "user-shell": f'eval "{_GLOB_QUALIFIER}"',
+}
 
 
 def _run_under(
-    shell: str, tmp_path: Path
-) -> tuple[bool, list[subprocess.CompletedProcess[str]]]:
-    """Run the qualifier in both forms OpenCode uses: its bash tool runs
-    ``<shell> -c <command>``, and its ``!`` user-shell path wraps the command in
-    ``eval``. Report whether the embedded command ran, and each run's result."""
+    shell: str, command: str, tmp_path: Path
+) -> tuple[bool, subprocess.CompletedProcess[str]]:
+    """Run one form of the qualifier; report whether the embedded command ran."""
     (tmp_path / "seed").touch()
-    results = [
-        subprocess.run(  # noqa: S603 -- argv list, fixed command
-            [shell, "-c", command],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-        for command in (_GLOB_QUALIFIER, f'eval "{_GLOB_QUALIFIER}"')
-    ]
-    return (tmp_path / "executed").exists(), results
+    result = subprocess.run(  # noqa: S603 -- argv list, fixed command
+        [shell, "-c", command],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return (tmp_path / "executed").exists(), result
 
 
-def test_zsh_runs_a_command_hidden_in_a_glob_qualifier(tmp_path: Path) -> None:
+@pytest.mark.parametrize("form", _QUALIFIER_FORMS)
+def test_zsh_runs_a_command_hidden_in_a_glob_qualifier(
+    form: str, tmp_path: Path
+) -> None:
     """Contract with zsh: a word such as ``seed(e:'cmd':)`` runs ``cmd`` when zsh
     expands it and a file named ``seed`` exists. The string holds none of the
     characters the maps deny, so every wildcard allow would admit it; the maps cannot
     stop this, only the shell can."""
     if not Path("/bin/zsh").is_file():
         pytest.skip("zsh is not installed here (not verified)")
-    executed, _ = _run_under("/bin/zsh", tmp_path)
+    executed, _ = _run_under("/bin/zsh", _QUALIFIER_FORMS[form], tmp_path)
 
     assert executed
 
 
+@pytest.mark.parametrize("form", _QUALIFIER_FORMS)
 def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
-    tmp_path: Path,
+    form: str, tmp_path: Path
 ) -> None:
     config = json.loads((_ROOT / "opencode.json").read_text(encoding="utf-8"))
     shell = config.get("shell")
 
     assert shell == "/bin/bash", "OpenCode would fall back to $SHELL, often zsh"
-    executed, results = _run_under(shell, tmp_path)
+    executed, result = _run_under(shell, _QUALIFIER_FORMS[form], tmp_path)
 
     assert not executed
-    for result in results:
-        assert result.returncode != 0
-        assert "syntax error" in result.stderr
+    assert result.returncode != 0
+    assert "syntax error" in result.stderr
 
 
 def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
@@ -569,3 +583,13 @@ def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
     resolved, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
 
     assert resolved.get("shell") == "/bin/bash"
+
+
+@pytest.mark.parametrize(
+    "command",
+    # known limits of a pattern list: letter case and aliases of /tmp slip past the
+    # path denies, so these may prompt or be refused, but never run unprompted
+    ["ls -la tmp /users/hannes", "ls -la tmp /private/tmp/x"],
+)
+def test_the_primary_agent_never_runs_a_known_path_gap_unprompted(command: str) -> None:
+    assert _resolve(_PRIMARY, command) != "allow"
