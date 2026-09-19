@@ -58,8 +58,8 @@ For the milestone:
 full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
 `gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
 to ten times, about a minute apart (the OpenCode primary waits with `sleep 60`; other
-harnesses use their own bounded wait) (a short SHA matches nothing; never take the
-newest run on the branch instead). If no run appears by then, that is a failure. Watch
+harnesses use their own bounded wait). A short SHA matches nothing; never take the
+newest run on the branch instead. If no run appears by then, that is a failure. Watch
 the run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh
 run view <id> --json conclusion` says `cancelled` and a newer push run exists on the
 branch (`cancel-in-progress` cancels a run when another merge follows); then watch that
