@@ -30,16 +30,21 @@ For each issue:
    of record.**
 9. Review the PR in all five dimensions to convergence (see Review).
 10. When every check passes, all five dimensions have converged and the PR body lists
-    every dropped and deferred finding, squash-merge the issue PR into the milestone
-    branch and delete the issue branch. This merge does not need the owner.
+    the five review verdicts and every dropped and deferred finding, squash-merge the
+    issue PR into the milestone branch and delete the issue branch. This merge does not
+    need the owner.
 
 For the milestone:
 
 11. When all its issues are merged, bring current `main` into the milestone branch (a
-    local merge is a prompted command for the agent; the owner approves it or does it),
-    run `pdm run verify` once, and open the milestone PR to `main`. Its body lists every
-    deferral collected from the issue PR bodies (blockers first) and every pending edit
-    to this milestone's description (see "What a finding becomes", step 5). Its review
+    local merge is a prompted command for the agent, for OpenCode
+    `pdm run agent-git merge-no-ff <branch>`; the owner approves it or does it),
+    run `pdm run verify` once, and open the milestone PR to `main`. Its title's type is
+    the highest-impact type among its issue PR titles (`feat` > `fix` or `perf` > any
+    other), because only this title reaches the release (see Conventions). Its body
+    lists the issue PR titles, the five review verdicts, every deferral collected from
+    the issue PR bodies (blockers first) and every pending edit to this milestone's
+    description (see "What a finding becomes", step 5). Its review
     is an integration pass: what the issue reviews could not see (interactions between
     issues, migrations in sequence, the combined diff against `main`).
 12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
@@ -64,24 +69,29 @@ Start a new agent session for each issue. Do not carry one context across days o
 - **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
   force-push, no deletion.
 - **Merge authorization is standing and contingent on the protocol.** The owner has
-  authorized agents (2026-09-19, D91) to merge a PR into `main` (a milestone PR, or a
-  change that belongs to no milestone) without asking per PR, and only when both hold:
-  the branch was vetted, tested and reviewed under the protocol (the steps that apply
-  are done: 1-10, and 11 for a milestone PR, including TDD, `pdm run verify` on the
-  head's tree, all five review dimensions converged and a body that lists every dropped
-  and deferred finding), and every GitHub workflow on the PR is green (the check rule
-  below). If either fails, do not merge. **Never merge any PR, into `main` or a
-  milestone branch, unless every expected check in `gh pr checks <n>` is present and
-  passing for the current head and base (or skipped by a documented path filter); a
-  check that is absent, or a run made before the PR's base was changed, does not
-  count, so get a fresh run first.** Squash-merge with the PR's Conventional Commit
-  title, no `--body`, and delete the branch. Never `--admin`, auto-merge, or a queue.
-  Re-read the PR just before merging; if its head, title or base changed after the
-  checks and the review, they run again first. Known quirk: PRs touching only
-  dependency manifests or workflows show the aggregate `CodeQL` check as neutral with no
-  `Analyze` jobs; that is expected for those PRs only. CodeQL runs on `main` and on PRs
-  into `main`, not on PRs into a milestone branch, so a milestone PR is the first place
-  it reports on the milestone's code.
+  authorized agents (2026-09-19, D91) to merge a PR into `main` without asking per PR,
+  and only when both hold. First, the branch was vetted, tested and reviewed under the
+  protocol: for a change that belongs to no milestone, steps 1-10 with `main` as base;
+  for a milestone PR, step 11 after every issue PR met steps 1-10. That includes
+  `pdm run verify` before the PR was opened, all five review dimensions converged, and
+  a body as step 10 or 11 describes. Second, every expected check passes under the
+  check rule below. If either fails, do not merge. GitHub does not yet enforce
+  required checks on `main` (#405), so keeping the check rule is the agent's job.
+- **Never merge any PR, into `main` or a milestone branch, unless every expected check
+  in `gh pr checks <n>` is present and passing for the current head and base (or
+  skipped by a documented path filter); a check that is absent, or a run made before
+  the PR's base was changed, does not count, so get a fresh run first.** On a PR into
+  `main`, `CI summary`, `quality (pre-commit parity)`, `conventional commit subject`,
+  `dependency review` and `CodeQL` (with its `Analyze` jobs) are always expected; if
+  one is missing, CI did not run fully. Merge with
+  `gh pr merge <n> --match-head-commit <reviewed sha> --squash --delete-branch
+  --subject "<PR title>"`: no `--body`, and GitHub refuses the merge if the head moved.
+  Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
+  head, title or base changed after the checks and the review, they run again first.
+  Known quirk: PRs touching only dependency manifests or workflows show the aggregate
+  `CodeQL` check as neutral with no `Analyze` jobs; that is expected for those PRs only.
+  CodeQL runs on `main` and on PRs into `main`, not on PRs into a milestone branch, so a
+  milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
@@ -366,8 +376,9 @@ steward.
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title, and its body is empty because the repository's squash
-  message is `BLANK` (since 2026-09-19). A `--body` on the merge would be parsed too, so
-  pass none.
+  message is `BLANK` (D91). A `--body` on the merge would be parsed too, so pass none
+  (the OpenCode map denies it). Issue PR titles inside a milestone do not reach the
+  release; the milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
 - Dependabot PRs: fetch into one ref name and delete it when the PR closes.

@@ -48,6 +48,9 @@ _NEVER_ALLOWED = (
     "gh pr merge 12 --squash --delete-branch --subject x --admin",
     "gh pr merge 12 --auto --squash --delete-branch --subject x",
     'gh pr merge 12 --squash --delete-branch --subject x --body "a $(id)"',
+    # the squash message is BLANK; a merge body would be parsed for releases
+    'gh pr merge 12 --squash --delete-branch --subject x --body "fix: y"',
+    'gh pr merge 12 --squash --delete-branch --subject x -b "fix: y"',
     "pdm run agent-github issue-delete 12",
     "pdm run pytest backend/tests/test_x.py",
     "python3 -c pass",
@@ -240,6 +243,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
         "gh pr merge 12 --squash --delete-branch --subject x",
+        "gh pr merge 12 --match-head-commit 3ed4ad7 "
+        "--squash --delete-branch --subject x",
     ],
 )
 def test_the_primary_agent_can_work_without_dispatching_a_subagent(
