@@ -52,7 +52,8 @@ _NEVER_ALLOWED = (
     "gh pr merge 12",
     f"{_MERGE} --admin",
     f"{_MERGE} --auto",
-    f'{_MERGE} --body "a $(id)"',
+    # a substitution in the subject, which only the $ deny catches
+    _MERGE.replace("--subject x", '--subject "a $(id)"'),
     # an unpinned merge could land a head that moved after the review
     "gh pr merge 12 --squash --delete-branch --subject x",
     # the squash message is BLANK; a merge body would be parsed for releases
