@@ -225,6 +225,8 @@ def test_no_agent_may_run_a_destructive_or_bypassing_command(
         "pdm run agent-git commit-staged --message x",
         "pdm run agent-git push-origin feat/x",
         "pdm run agent-github pr-create --title x --head feat/x",
+        "pdm run agent-github pr-merge 12 --head "
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
         "pdm run agent-test --safe-integration backend/tests/test_x.py::test_y",
     ],
 )

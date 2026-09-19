@@ -180,3 +180,37 @@ def test_each_checkout_gets_its_own_scratch_directory(tmp_path: Path) -> None:
     assert scratch_directory(tmp_path / "a" / "b_c", home) != scratch_directory(
         tmp_path / "a_b" / "c", home
     )
+    assert scratch_directory(tmp_path / "a" / "repo", home) != scratch_directory(
+        tmp_path / "b" / "repo", home
+    )
+
+
+def test_an_absolute_path_is_refused_even_inside_the_worktree(tmp_path: Path) -> None:
+    root, scratch = _worktree(tmp_path)
+
+    with pytest.raises(AgentPristineInputError, match="relative to the worktree"):
+        run_agent_pristine(["save", str(root / "src" / "module.py")], root, scratch)
+
+
+@pytest.mark.parametrize("operation", ["restore", "discard"])
+@pytest.mark.parametrize("path", ["../outside.txt", ".git/config", ".GIT/config"])
+def test_restore_and_discard_stay_inside_the_worktree(
+    tmp_path: Path, operation: str, path: str
+) -> None:
+    """A planted copy must not let restore write, or discard judge, a file outside
+    the worktree or inside .git."""
+    root, _ = _worktree(tmp_path)
+    scratch = tmp_path / "cache" / "scratch"
+    (root / ".git").mkdir()
+    (root / ".git" / "config").write_text("[core]\n")
+    (tmp_path / "outside.txt").write_text("secret\n")
+    # where a copy would sit if the path were not checked: scratch/<path as given>
+    for planted in (scratch.parent / "outside.txt", scratch / ".git" / "config"):
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text("planted\n")
+
+    with pytest.raises(AgentPristineInputError):
+        run_agent_pristine([operation, path], root, scratch)
+
+    assert (tmp_path / "outside.txt").read_text() == "secret\n"
+    assert (root / ".git" / "config").read_text() == "[core]\n"

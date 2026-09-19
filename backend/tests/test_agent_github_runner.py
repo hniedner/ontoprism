@@ -1498,6 +1498,7 @@ def test_pr_merge_refuses_a_pull_request_that_is_not_the_reviewed_one(
         ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--body", "fix: y"],
         ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--repo", "o/r"],
         ["pr-merge", "12", "--head", _HEAD, "--base", "../main"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "feat/../main"],
     ],
 )
 def test_pr_merge_rejects_malformed_or_extra_arguments_before_network(
@@ -1561,3 +1562,49 @@ def test_only_a_deletion_may_answer_with_an_empty_body(tmp_path: Path) -> None:
 def test_read_only_entrypoint_rejects_pr_merge(tmp_path: Path) -> None:
     with pytest.raises(AgentGitHubInputError, match="read-only"):
         run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=True, runner=None)
+
+
+@pytest.mark.parametrize(
+    "repository", ["{}", '{"delete_branch_on_merge": "true"}', "[]"]
+)
+def test_pr_merge_refuses_before_merging_when_the_branch_setting_is_unreadable(
+    tmp_path: Path, repository: str
+) -> None:
+    """Treating an unreadable setting as "keep" would race GitHub's own deletion."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps(_open_pull())), Result(0, repository)], calls
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="repository response is invalid"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET", "GET"]
+
+
+@pytest.mark.parametrize(
+    "pull",
+    [
+        {key: value for key, value in _open_pull().items() if key != "head"},
+        _open_pull(
+            head={
+                "ref": "fix/y 12",
+                "sha": _HEAD,
+                "repo": {"full_name": "hniedner/ontoprism"},
+            }
+        ),
+        _open_pull(title="fix(x): y\nfeat: smuggled"),
+    ],
+)
+def test_pr_merge_refuses_a_malformed_pull_before_any_write(
+    tmp_path: Path, pull: dict[str, object]
+) -> None:
+    """Malformed source data fails closed: the head ref goes into the DELETE URL and
+    the title into the commit subject."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(pull))], calls)
+
+    with pytest.raises((AgentGitHubInputError, AgentGitHubProcessError)):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]

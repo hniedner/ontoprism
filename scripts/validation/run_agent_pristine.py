@@ -26,7 +26,7 @@ def _worktree_file(root: Path, value: str, *, must_exist: bool) -> Path:
         raise AgentPristineInputError("path must stay inside the worktree") from exc
     # casefold: on a case-insensitive filesystem .GIT is the repository directory
     in_git_dir = bool(relative.parts) and relative.parts[0].casefold() == ".git"
-    if in_git_dir or path.is_symlink():
+    if in_git_dir:
         raise AgentPristineInputError("path is not a worktree file")
     if (must_exist or path.exists()) and not path.is_file():
         raise AgentPristineInputError("path is not a worktree file")
