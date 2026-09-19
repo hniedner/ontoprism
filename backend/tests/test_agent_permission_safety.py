@@ -70,6 +70,14 @@ _NEVER_ALLOWED = (
     "git ls-files --exclude-from=/tmp/x",
     "git ls-files --exclude-from=/var/x",
     "git ls-files --exclude-from=..",
+    # each older path deny, caught by that pattern alone after a wildcard git allow
+    "git log --format=%H /Users/x",
+    "git log --format=%H --exclude-from=/Users/x",
+    "git log --format=%H /var/x",
+    "git log --format=%H /tmp/x",
+    "git log --format=%H ../x",
+    "git log --format=%H --x=../x",
+    "git log --format=%H\t../x",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
     "xargs rm",
@@ -218,6 +226,13 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "pdm run decompose --branch neoplasm",
         "pdm run agent-git merge-no-ff feat/x",
         "git fetch origin feat/m1-6-1-provisional-publication",
+        # path-taking inspection forms prompt: a pattern list cannot confine their paths
+        "ls -la src",
+        "ls -la .. README.md",
+        "ls -la tmp /users/hannes",
+        "ls -la tmp /private/tmp/x",
+        "wc -l README.md",
+        "git ls-files --exclude-from=.. x",
         # a stash write moves work out of or into the worktree: the owner sees it
         "git stash",
         "git stash push -m wip",
