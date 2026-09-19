@@ -58,8 +58,6 @@ _NEVER_ALLOWED = (
     "git diff --no-ext-diff --no-index /dev/null /etc/passwd --src-prefix=...HEAD",
     "wc -l tmp/../../../../Users/hannes/.ssh/id_ed25519",
     "pdm run python tmp/scratch/../../evil.py",
-    "ls -la /etc",
-    "wc -l /etc/passwd",
     "head ~/.aws/credentials",
     "tail -n 5 ../../.ssh/id_ed25519",
     "jq . ~/.config/gh/hosts.yml",
@@ -78,6 +76,10 @@ _NEVER_ALLOWED = (
     "git log --format=%H ../x",
     "git log --format=%H --x=../x",
     "git log --format=%H\t../x",
+    # two paths make git diff an implicit --no-index diff that reads outside files
+    "git diff --no-ext-diff /private/tmp/outside.txt x...HEAD",
+    "git diff --check /private/tmp/outside.txt x...HEAD",
+    "git diff --name-only /private/tmp/outside.txt x...HEAD",
     # wrappers and option prefixes around a denied command
     "sudo rm -rf data",
     "xargs rm",
@@ -233,6 +235,9 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
         "ls -la tmp /private/tmp/x",
         "wc -l README.md",
         "git ls-files --exclude-from=.. x",
+        "ls -la /etc",
+        "wc -l /etc/passwd",
+        "git rev-parse --resolve-git-dir /private/tmp/x/.git",
         # a stash write moves work out of or into the worktree: the owner sees it
         "git stash",
         "git stash push -m wip",

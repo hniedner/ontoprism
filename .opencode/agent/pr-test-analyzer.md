@@ -52,6 +52,9 @@ permission:
     "git push --force*": deny
     "gh pr": deny
     "gh pr *": deny
+    "git diff --no-ext-diff * *": deny
+    "git diff --check * *": deny
+    "git diff --name-only * *": deny
     "*--output*": deny
     "*--no-index*": deny
     "*--ext-diff*": deny
