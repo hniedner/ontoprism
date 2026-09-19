@@ -90,7 +90,8 @@ _NEVER_ALLOWED = (
     "git add --pathspec-fr=/private/tmp/x",
     "git add --pathspec-from /private/tmp/x",
     # the shell splits a brace list into several words after the pattern matched one
-    # (a sequence such as x{1..2}...HEAD keeps the ...HEAD suffix on every word)
+    # (a sequence such as x{1..2}...HEAD has no comma and is not refused: every word
+    # it expands to keeps the ...HEAD suffix, so no plain path reaches git diff)
     "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
     "git log --format=%H --x=~/y",
     "git log --format=%H --no-index a b",
@@ -380,14 +381,18 @@ def test_the_tracked_opencode_config_is_present() -> None:
 @pytest.mark.parametrize("path", _LOCAL_CONFIGS)
 def test_no_local_opencode_config_overrides_agents_or_permissions(path: str) -> None:
     """OpenCode reads all four of these over the agent files; only the agent files may
-    grant permissions. Only the root ``opencode.json`` is tracked; the others are
-    machine-local and absent on most checkouts, hence the skip."""
+    grant permissions, and only the tracked root ``opencode.json`` may set the agent
+    shell (a machine-local ``shell`` would override it). The others are machine-local
+    and absent on most checkouts, hence the skip."""
     config_path = _ROOT / path
     if not config_path.exists():
         pytest.skip(f"{path} is not present on this machine")
     config = _load_jsonc(config_path.read_text(encoding="utf-8"))
+    forbidden = {"agent", "permission", "plugin"}
+    if path != "opencode.json":
+        forbidden.add("shell")
 
-    assert not {"agent", "permission", "plugin"} & set(config), sorted(config)
+    assert not forbidden & set(config), sorted(config)
 
 
 def _opencode_binary() -> Path | None:
@@ -476,27 +481,37 @@ def test_opencode_resolves_the_same_rules_as_the_agent_file(
 _GLOB_QUALIFIER = "echo seed(e:'touch executed':)"
 
 
-def _run_under(shell: str, tmp_path: Path) -> bool:
-    """Run the qualifier the way OpenCode's bash tool does (``<shell> -c 'eval ...'``)
-    and report whether the embedded command ran."""
+def _run_under(
+    shell: str, tmp_path: Path
+) -> tuple[bool, list[subprocess.CompletedProcess[str]]]:
+    """Run the qualifier in both forms OpenCode uses: its bash tool runs
+    ``<shell> -c <command>``, and its ``!`` user-shell path wraps the command in
+    ``eval``. Report whether the embedded command ran, and each run's result."""
     (tmp_path / "seed").touch()
-    subprocess.run(  # noqa: S603 -- argv list, fixed command
-        [shell, "-c", f'eval "{_GLOB_QUALIFIER}"'],
-        cwd=tmp_path,
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
-    return (tmp_path / "executed").exists()
+    results = [
+        subprocess.run(  # noqa: S603 -- argv list, fixed command
+            [shell, "-c", command],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        for command in (_GLOB_QUALIFIER, f'eval "{_GLOB_QUALIFIER}"')
+    ]
+    return (tmp_path / "executed").exists(), results
 
 
 def test_zsh_runs_a_command_hidden_in_a_glob_qualifier(tmp_path: Path) -> None:
     """Contract with zsh: a word such as ``seed(e:'cmd':)`` runs ``cmd`` when zsh
-    expands it. The string holds none of the characters the maps deny, so every
-    wildcard allow would admit it; the maps cannot stop this, only the shell can."""
+    expands it and a file named ``seed`` exists. The string holds none of the
+    characters the maps deny, so every wildcard allow would admit it; the maps cannot
+    stop this, only the shell can."""
     if not Path("/bin/zsh").is_file():
         pytest.skip("zsh is not installed here (not verified)")
-    assert _run_under("/bin/zsh", tmp_path)
+    executed, _ = _run_under("/bin/zsh", tmp_path)
+
+    assert executed
 
 
 def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
@@ -506,13 +521,20 @@ def test_the_configured_agent_shell_does_not_run_glob_qualifiers(
     shell = config.get("shell")
 
     assert shell == "/bin/bash", "OpenCode would fall back to $SHELL, often zsh"
-    assert not _run_under(shell, tmp_path)
+    executed, results = _run_under(shell, tmp_path)
+
+    assert not executed
+    for result in results:
+        assert result.returncode != 0
+        assert "syntax error" in result.stderr
 
 
 def test_opencode_resolves_the_repository_shell(tmp_path: Path) -> None:
     """Contract with the real tool: OpenCode reads ``shell`` from the tracked
-    ``opencode.json``, so its bash tool does not fall back to ``$SHELL``. Skipped,
-    not passed, where the binary is absent (always in CI)."""
+    ``opencode.json``, so its bash tool does not fall back to ``$SHELL``. It pins the
+    repository's contribution only: ``OPENCODE_CONFIG_CONTENT`` (stripped here) or
+    ``OPENCODE_DISABLE_PROJECT_CONFIG`` can still change the shell at run time.
+    Skipped, not passed, where the binary is absent (always in CI)."""
     binary = _opencode_binary()
     if binary is None:
         pytest.skip(
