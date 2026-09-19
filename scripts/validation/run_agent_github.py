@@ -434,9 +434,11 @@ def _selected_issue(
 
 
 def _names(value: dict[str, Any], key: str, attribute: str) -> list[str]:
-    """The ``attribute`` of each object in the issue's ``key`` list. Anything else,
-    including a null or absent list, is refused: a read would hide an epic, and an
-    edit, which sends the full list back, would delete what it could not read."""
+    """The ``attribute`` of each object in the issue's ``key`` list; anything else,
+    including a null or absent list, is refused. Reads call it only when the list is
+    present, so a malformed label cannot hide an epic; an edit, which sends the full
+    list back, calls it unconditionally, because it would delete what it could not
+    read."""
     items = value.get(key)
     if not isinstance(items, list) or not all(
         isinstance(item, dict) and isinstance(item.get(attribute), str)
