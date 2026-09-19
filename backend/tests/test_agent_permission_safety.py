@@ -90,6 +90,7 @@ _NEVER_ALLOWED = (
     "git add --pathspec-fr=/private/tmp/x",
     "git add --pathspec-from /private/tmp/x",
     # the shell splits a brace list into several words after the pattern matched one
+    # (a sequence such as x{1..2}...HEAD keeps the ...HEAD suffix on every word)
     "git diff --no-ext-diff {/private/tmp/o,x}...HEAD",
     "git log --format=%H --x=~/y",
     "git log --format=%H --no-index a b",
