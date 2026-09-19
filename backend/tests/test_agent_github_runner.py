@@ -693,7 +693,7 @@ def test_an_edit_never_rewrites_a_list_it_could_not_read(
     tmp_path: Path, key: str, listed: object, edit: list[str]
 ) -> None:
     """A label or assignee edit sends the full list back; an entry it could not read,
-    or a list GitHub did not send, would be deleted from the issue, so it refuses
+    or a null list, would be deleted from the issue, so it refuses
     before any write."""
     current = {"number": 8, key: listed}
     calls: list[tuple[list[str], dict[str, object]]] = []
