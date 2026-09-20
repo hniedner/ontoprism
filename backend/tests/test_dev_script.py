@@ -36,6 +36,20 @@ print("listening", flush=True)
 time.sleep(60)
 """
 
+# What the `pdm` stub runs in the round-trip test: a launcher that stays alive as the
+# parent of the process that binds the port, the way `pdm run uvicorn` and `npm run dev`
+# do. dev.sh passes the port last.
+_FAKE_SERVER = """
+import subprocess, sys, time
+
+child = subprocess.Popen(
+    [sys.executable, "-c", LISTENER, sys.argv[-1]], stdout=subprocess.PIPE, text=True
+)
+assert child.stdout is not None
+assert child.stdout.readline().strip() == "listening"
+time.sleep(60)
+"""
+
 _CLIENT = """
 import socket, sys, time
 client = socket.create_connection(("127.0.0.1", int(sys.argv[1])))
@@ -120,6 +134,18 @@ def _path_with_stubs(tmp_path: Path, **stubs: str) -> dict[str, str]:
         stub.write_text(f"#!/bin/sh\n{body}\n")
         stub.chmod(0o755)
     return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
+
+
+def _stubs_that_launch_a_fake_server(tmp_path: Path) -> dict[str, str]:
+    """PATH stubs that make `start backend` launch :data:`_FAKE_SERVER` instead of
+    uvicorn, so a test can drive a real ``start`` and ``stop`` round trip."""
+    server = tmp_path / "fake_server.py"
+    server.write_text(f"LISTENER = {_LISTENER!r}\n{_FAKE_SERVER}")
+    return _path_with_stubs(
+        tmp_path,
+        docker="echo ontoprism-postgres",
+        pdm=f'exec "{sys.executable}" "{server}" "$@"',
+    )
 
 
 def _is_listening(port: int) -> bool:
@@ -219,6 +245,94 @@ def _reap_group(process: subprocess.Popen[str]) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal.SIGKILL)
     _reap(process)
+
+
+@pytest.mark.unit
+def test_a_started_server_is_stopped_again_through_the_script(tmp_path: Path) -> None:
+    """The one test that drives both halves. `start` has to leave the launched process
+    leading its own group — without that, `stop`'s group signal reaches nothing and the
+    server survives every other test in this file."""
+    port = _free_port()
+    root = _script_copy(tmp_path)
+    environment = _stubs_that_launch_a_fake_server(tmp_path)
+    environment["BACKEND_PORT"] = str(port)
+    leader = 0
+    try:
+        started = _start(root, environment)
+
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert _is_listening(port)
+        recorded = (root / ".dev-logs/backend.pid").read_text().splitlines()
+        leader = int(recorded[0])
+        assert recorded[1] == _start_time(leader)
+        assert os.getpgid(leader) == leader
+
+        stopped = _stop(root, environment)
+
+        assert stopped.returncode == 0, stopped.stdout + stopped.stderr
+        assert not _is_listening(port)
+        assert not (root / ".dev-logs/backend.pid").exists()
+    finally:
+        if leader and _is_running(leader):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(leader, signal.SIGKILL)
+
+
+@pytest.mark.unit
+def test_start_does_not_launch_a_second_server_when_it_cannot_tell(
+    tmp_path: Path,
+) -> None:
+    """The start-side twin of the broken-`ps` case: an unanswered "is ours still
+    running?" must not read as "no", or `start` puts a second server on the port."""
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    environment = _path_with_stubs(
+        tmp_path, ps='echo "ps: broken" >&2; exit 2', docker="echo ontoprism-postgres"
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "cannot tell" in result.stdout + result.stderr
+        assert "http://localhost" not in result.stdout
+    finally:
+        _reap(ours)
+
+
+@pytest.mark.unit
+def test_stopping_all_stops_the_second_target_and_still_reports_the_failure(
+    tmp_path: Path,
+) -> None:
+    """`stop all` used to abort on the first failing target under `set -e`, leaving the
+    other server running with no sign that anything was skipped."""
+    frontend_port, backend_port = _free_port(), _free_port()
+    unreachable_leader, unreachable = _spawn_leader_of(_LISTENER, frontend_port)
+    reachable = _spawn_listener(backend_port)
+    root = _script_copy(tmp_path)
+    # A pid that leads no group: its stop fails, and the backend's must still run.
+    _write_pidfile(root, "frontend", unreachable, _start_time(unreachable))
+    _write_pidfile(root, "backend", reachable.pid, _start_time(reachable.pid))
+    try:
+        result = _stop(
+            root,
+            {
+                **os.environ,
+                "FRONTEND_PORT": str(frontend_port),
+                "BACKEND_PORT": str(backend_port),
+            },
+            "all",
+        )
+
+        assert result.returncode != 0
+        assert "frontend did not stop" in result.stdout
+        assert reachable.wait(timeout=10) != 0
+        assert not (root / ".dev-logs/backend.pid").exists()
+        assert (root / ".dev-logs/frontend.pid").exists()
+    finally:
+        _reap_group(unreachable_leader)
+        _reap(reachable)
 
 
 @pytest.mark.unit
@@ -341,12 +455,15 @@ def test_stop_keeps_the_pidfile_when_it_cannot_reach_the_recorded_process(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("field", ["0", "1", " {pid}", "abc", "{pid} 999"])
+@pytest.mark.parametrize("field", [" {pid}", "abc", "{pid} 999"])
 def test_a_pid_field_that_is_not_a_plain_pid_signals_nothing(
     field: str, tmp_path: Path
 ) -> None:
-    """`kill -TERM -0` and `kill -TERM -1` are broadcasts, not process groups, so the
-    pid field is checked before it reaches the signal, the way the ports are."""
+    """The pid field is pasted into `kill -<pid>`, so it is checked before it gets
+    there, the way the ports are. (`0` and `1`, which would make that a broadcast, are
+    rejected by the same check but cannot be a parameter here: the test would have to
+    record the real start time of pid 1 to isolate the check, and a regression would
+    then have the suite signal every process on the machine.)"""
     bystander = _spawn_listener(_free_port())
     root = _script_copy(tmp_path)
     _write_pidfile(root, "backend", bystander.pid, _start_time(bystander.pid))
@@ -501,8 +618,10 @@ def test_no_script_under_scripts_selects_a_process_by_port_or_name() -> None:
     offenders = [
         f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}"
         for path in sorted((REPO_ROOT / "scripts").rglob("*"))
-        if path.suffix in {".sh", ".py", ".mjs"}
-        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if path.is_file() and path.suffix in {"", ".sh", ".py", ".mjs"}
+        for number, line in enumerate(
+            path.read_text(errors="ignore").splitlines(), start=1
+        )
         if _selects_a_process_by_port_or_name(line)
     ]
 

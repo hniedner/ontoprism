@@ -109,7 +109,21 @@ recorded_pid() { # $1=target
   printf '%s' "$pid"
 }
 
-group_alive() { kill -0 -"$1" 2>/dev/null; }
+# `kill -0 -<pgid>` alone is not the question: on Linux a group whose members have all
+# exited but not been reaped still answers it, while macOS reports it gone. A process
+# that has exited holds no port and receives no signal, so the group counts as alive
+# only while it has a member that has not exited.
+group_alive() { # $1=pgid
+  local listing group state
+  kill -0 -"$1" 2>/dev/null || return 1
+  listing="$(lookup ps -axo pgid=,state=)" || return 0
+  while read -r group state; do
+    [ "$group" = "$1" ] || continue
+    case "$state" in Z*) continue ;; esac
+    return 0
+  done <<<"$listing"
+  return 1
+}
 
 # A pid is not reused while it is still a process group id, so a group with this id is
 # still the one `start` created. The second test catches a recorded pid that never led a
