@@ -1161,6 +1161,9 @@ def test_start_does_not_claim_a_port_a_stranger_answers(tmp_path: Path) -> None:
         # The refusal leaves our recorded server running, so it owes the user the same
         # handle the timeout branch gives: the pidfile is kept and `stop` can reach it.
         assert "backend.pid is kept" in result.stdout
+        # And no log pointer: this invocation launched nothing, so `.dev-logs` holds no
+        # backend.log. Naming one would send the user to a file that is not there.
+        assert f"{LOG_DIR}/backend.log" not in result.stdout
         assert not _wait_until_gone(stranger.pid, timeout=1)
     finally:
         _reap(stranger, ours)
