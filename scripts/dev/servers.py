@@ -110,7 +110,9 @@ class Target:
 
 
 def port_of(name: str, environment: dict[str, str] | None = None) -> int:
-    """The port for ``name``; a caller's environment wins over ``.env``.
+    """The port for ``name``: the caller's environment, else ``.env``, else the
+    default, which is what answers in every shipped configuration because
+    ``.env.example`` ships no ports.
 
     A command aimed at one port must never act on whatever holds another.
     """
@@ -202,8 +204,8 @@ def write_record(target: Target, record: Record) -> None:
 def forget_record(target: Target) -> None:
     """Drop a record whose process is known to be gone.
 
-    Outside ``DevError`` this would escape ``_attempt`` and take the other target
-    down with it, which is the failure ``_attempt`` exists to prevent.
+    Outside ``DevError`` this would escape ``_attempt`` and skip the other target,
+    which is the failure ``_attempt`` exists to prevent.
     """
     try:
         target.pid_file.unlink(missing_ok=True)
@@ -241,9 +243,9 @@ def group_members(pgid: int) -> list[int]:
             if os.getpgid(process.info["pid"]) == pgid:
                 members.append(process.info["pid"])
         except ProcessLookupError:
-            # "It exited" is an answer, and the only one that may be skipped. This arm
-            # must stay above the OSError arm it is a subclass of: that ordering is
-            # what keeps an unanswerable lookup from being silently skipped.
+            # "It exited" is an answer, and the only one that may be skipped. This
+            # arm must stay above the OSError arm it subclasses: below it, it would be
+            # dead code and every process that exits mid-sweep would raise instead.
             continue
         except OSError as error:
             # Anything else would quietly shorten the list, and a short list reads as
@@ -403,23 +405,24 @@ def _report_port_holders(port: int) -> None:
     if holders:
         yellow(
             f"⚠ :{port} is held by pid(s) {_joined(holders)}, which this "
-            f"script did not start — not signalled"
+            f"script has no record of starting — not signalled"
         )
 
 
 def start(target: Target) -> int:
-    # Resolved here, before anything is launched: it is input validation, and a typo
-    # must refuse rather than abort a server that is already running. Binding it
-    # inside `_await_listening` instead would raise before the record is written and
-    # leave exactly the orphan this module refuses to create.
+    # Resolved here, before anything is launched: a typo must refuse up front rather
+    # than fail once a server is up and recorded. Binding it inside `_await_listening`
+    # instead would raise before the record is written and leave exactly the orphan
+    # this module refuses to create.
     seconds = ready_seconds()
     record = read_record(target)
     if record is not None:
         if start_time_of(record.pid) == record.created:
-            yellow(
-                f"⚠ {target.name} already running (pid {record.pid}) on :{target.port}"
-            )
-            return 0
+            yellow(f"⚠ {target.name} already running (pid {record.pid})")
+            # Whether it is *serving* is the same question `start` answers for a
+            # server it just launched, so it gets the same answer: a recorded group
+            # that is alive but binds nothing must not report success.
+            return _await_listening(target, record.pid, seconds)
         survivors = _orphaned_group(record)
         if survivors:
             # `stop` refuses to touch this state; overwriting the record here would
@@ -434,7 +437,7 @@ def start(target: Target) -> int:
     if holders:
         red(
             f"✗ {target.name} not started: :{target.port} is held by pid(s) "
-            f"{_joined(holders)}, which this script did not start"
+            f"{_joined(holders)}, which this script has no record of starting"
         )
         return 1
     if target.name == "backend" and not _data_services_are_up():
@@ -451,8 +454,9 @@ def start(target: Target) -> int:
     try:
         return _await_listening(target, process.pid, seconds)
     except DevError as error:
-        # Whatever went wrong, a process is running and the user has to be able to
-        # find it; `start` must not report a clean "did not start" it cannot keep.
+        # A `DevError` here means the launch already happened, so the pid has to
+        # reach the user: `start` must not report a clean "did not start" it cannot
+        # keep. Anything else still escapes without it.
         raise DevError(
             f"{error}; {target.name} was launched as pid {process.pid} and may still "
             f"be running — check :{target.port}"

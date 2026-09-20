@@ -356,7 +356,12 @@ class of defect the others missed; that is why round 1 with a subset is never ac
    (`pr-comment-analyzer`)
 5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
+Run 1, 2, 4 and 5 in parallel, then 3 alone. **Only dimension 3 may modify tracked
+files**, and only as its own mutations, restored from a copy kept outside the worktree.
+Never authorise another dimension to mutate: on #389 a brief that let dimension 2 mutate
+while 1, 4 and 5 were reading gave two of them phantom test failures they had to
+recognise and discount, and cost a review pass to establish that the worktree was not
+broken. A missing, timed-out or inconclusive verdict
 is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
 but keep the five separate verdicts.
 

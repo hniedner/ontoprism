@@ -53,7 +53,7 @@ time.sleep(60)
 
 # What the `pdm` stub runs in the round-trip test: a launcher that stays alive as the
 # parent of the process that binds the port, the way `pdm run uvicorn` and `npm run dev`
-# do. the script passes the port last.
+# do. The script passes the port last.
 _FAKE_SERVER = """
 import subprocess, sys, time
 
@@ -192,20 +192,6 @@ def _stubs_that_launch_a_fake_server(
         docker="echo ontoprism-postgres",
         pdm=f'exec "{sys.executable}" "{server}" "$@"',
     )
-
-
-def _listeners_on(port: int) -> list[int]:
-    """The pids listening on ``port``, for cleaning up a server a test could not
-    record and therefore cannot stop through the script."""
-    lsof = shutil.which("lsof")
-    assert lsof is not None
-    found = subprocess.run(  # noqa: S603 - resolved executable, no shell
-        [lsof, "-w", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return [int(line) for line in found.stdout.split()]
 
 
 def _is_listening(port: int) -> bool:
@@ -495,7 +481,7 @@ def test_stop_outlasts_a_server_that_outlives_its_launcher(tmp_path: Path) -> No
         assert result.returncode == 0, result.stdout + result.stderr
         assert _wait_until_gone(child)
         assert not _is_listening(port)
-        assert "this script did not start" not in result.stdout
+        assert "has no record of starting" not in result.stdout
         assert not (root / ".dev-logs/backend.pid").exists()
     finally:
         _reap_group(leader)
@@ -1030,9 +1016,9 @@ def test_the_frontend_is_started_and_stopped_through_the_script(
 def test_a_readiness_wait_that_is_not_a_wait_is_refused(
     wait: str, tmp_path: Path
 ) -> None:
-    """A wrong value here used to reach a traceback after the server was already
-    launched and recorded, and `1e400` made `start` wait forever. It is validated
-    before anything is launched, like the ports."""
+    """Every one of these is refused before anything is launched: a non-number,
+    zero, a negative, and a value past the bound. A wrong readiness wait must not be
+    discovered after the server is up and recorded."""
     root = _script_copy(tmp_path)
     environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
     environment["BACKEND_PORT"] = str(_free_port())
@@ -1068,13 +1054,53 @@ def test_a_record_that_cannot_be_written_names_the_running_process(
 
         assert result.returncode != 0
         assert "could not be written" in result.stdout
-        assert "is running as pid" in result.stdout
+        # `start`'s own wrapper adds the port, so this pins that guard too: without
+        # it, `start` would report a clean failure for a server that is running.
+        assert f"check :{port}" in result.stdout
         assert "http://localhost" not in result.stdout
+        named = re.search(r"is running as pid (\d+)", result.stdout)
+        # The message must name a pid that is real and reachable — that is the whole
+        # point of naming it, and the cleanup below is the proof.
+        assert named is not None
     finally:
         (logs / "backend.pid").chmod(0o600)
-        for pid in _listeners_on(port):
+        if named is not None:
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                os.killpg(int(named.group(1)), signal.SIGKILL)
+
+
+@pytest.mark.unit
+def test_a_record_that_cannot_be_removed_does_not_skip_the_other_target(
+    tmp_path: Path,
+) -> None:
+    """A bare `unlink()` raises OSError, which `_attempt` does not catch, so one
+    unremovable record took the whole command down and the second target was never
+    attempted — silently, with an empty stdout."""
+    root = _script_copy(tmp_path)
+    logs = root / ".dev-logs"
+    logs.mkdir(exist_ok=True)
+    for name in ("backend", "frontend"):
+        (logs / f"{name}.pid").write_text("999999 1.0\n")
+    # The shape a `sudo` run leaves behind: the records exist and cannot be removed.
+    logs.chmod(0o555)
+    try:
+        result = _stop(
+            root,
+            {
+                **os.environ,
+                "BACKEND_PORT": str(_free_port()),
+                "FRONTEND_PORT": str(_free_port()),
+            },
+            "all",
+        )
+
+        assert result.returncode != 0
+        # Both targets attempted and named, and no traceback.
+        assert "backend" in result.stdout
+        assert "frontend" in result.stdout
+        assert "Traceback" not in result.stderr
+    finally:
+        logs.chmod(0o755)
 
 
 @pytest.mark.unit
@@ -1102,19 +1128,46 @@ def test_a_client_of_the_port_is_not_reported_as_holding_it(tmp_path: Path) -> N
 def test_start_leaves_a_server_it_already_started_alone(
     target: str, variable: str, tmp_path: Path
 ) -> None:
-    """The pidfile, not the port, says whether our server is up: a dev server that
-    has not bound its port yet must not be started a second time."""
-    ours = _spawn_listener(_free_port())
+    """The record, not the port, says whether the server is ours: a second `start`
+    must recognise it rather than launch another onto the same port."""
+    port = _free_port()
+    ours = _spawn_listener(port)
     root = _script_copy(tmp_path)
     _write_pidfile(root, target, ours.pid, _start_time(ours.pid))
     try:
-        result = _start(root, {**os.environ, variable: str(_free_port())}, target)
+        result = _start(root, {**os.environ, variable: str(port)}, target)
 
         assert result.returncode == 0, result.stdout + result.stderr
         assert f"already running (pid {ours.pid})" in result.stdout
         assert not _wait_until_gone(ours.pid, timeout=2)
     finally:
         _reap(ours)
+
+
+@pytest.mark.unit
+def test_start_does_not_call_a_recorded_group_that_binds_nothing_running(
+    tmp_path: Path,
+) -> None:
+    """ "Already running" is not "already serving". A recorded group can be alive and
+    bind nothing — `uvicorn --reload` restarting a worker that crashes on import is
+    the stated case — and reporting success there tells the user a broken stack is
+    up. The second `start` must reach the same verdict the first one did."""
+    port = _free_port()
+    leader, child = _spawn_leader_of(_LISTENER, _free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", leader.pid, _start_time(leader.pid))
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(port)
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = "1"
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "did not listen" in result.stdout
+        assert "http://localhost" not in result.stdout
+        assert not _wait_until_gone(child, timeout=1)
+    finally:
+        _reap_group(leader)
 
 
 @pytest.mark.unit
