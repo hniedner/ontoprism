@@ -106,8 +106,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          # Full history so the fallow hook can resolve the PR base (GITHUB_BASE_REF) as
-          # its audit base.
+          # Full history so the fallow hook can resolve its audit base — GITHUB_BASE_REF
+          # on a PR run, origin/main on a push run to a milestone branch (D92).
           fetch-depth: 0
 
       - name: Set up PDM (cached)

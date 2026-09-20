@@ -14,11 +14,11 @@ These rules apply to every agent and harness (OpenCode, Claude Code, others).
 > **pushed immediately after each issue merge, and that CI run must go green before the
 > next issue starts** — CI triggers on `push` to `main` and `feat/m[0-9]*`, so this is
 > the per-issue gate that replaces the issue PR. The five-dimension review runs **once
-> per milestone**, to convergence, on `git diff --no-ext-diff main...<milestone branch>`,
-> before the milestone PR is opened. The reason is cost: a review round measured ~145k
-> tokens per reviewer and ~725k per full round on #389, and ran to eight rounds on one
-> issue. This supersedes D89. The rest of this file is written to match; #338 shortens
-> it.
+> per milestone**, to convergence, on `git diff --no-ext-diff main...HEAD` with the
+> milestone branch checked out, before the milestone PR is opened. The reason is cost:
+> a review round measured ~145k tokens per reviewer and ~725k per full round on #389,
+> and ran to eight rounds on one issue. This supersedes D89. The rest of this file is
+> written to match; #338 shortens it.
 
 Work is organised in **milestones**. A milestone has a milestone branch off `main`
 (`feat/m<number>-<slug>`). Each issue gets an issue branch forked from the milestone
@@ -38,7 +38,10 @@ For each issue:
 4. Make it pass with the least code. Refactor with tests green.
 5. Inner loop: run only the tests for the code you touched (seconds to two minutes).
 6. Commit. Pre-commit runs on the commit.
-7. Before merging, run `pdm run lint` and `pdm run verify` once. If `.opencode/agent/*.md`
+7. Before merging — for a change that belongs to no milestone, before opening its PR —
+   run `pdm run lint` as a fast fail, then `pdm run verify` once. `verify` already runs
+   ruff and basedpyright through pre-commit, so `lint` adds no coverage; it just fails
+   in seconds instead of minutes. If `.opencode/agent/*.md`
    changed, also run the permission contract against the real OpenCode binary; a skip is
    not a pass.
 8. **Merge the issue branch into the milestone branch locally — no PR, no five-dimension
@@ -58,7 +61,8 @@ For the milestone:
     merge-no-ff <branch>`, which merges the local branch, so update local `main` first
     with `git fetch origin main:main`, also prompted; the owner approves it or does it),
     run `pdm run verify` once, **run the five-dimension review to convergence on
-    `git diff --no-ext-diff main...<milestone branch>`** (see Review), and then open the
+    `git diff --no-ext-diff main...HEAD` with the milestone branch checked out** (see
+    Review), and then open the
     milestone PR to `main`. Only this PR's title reaches the release (see Conventions),
     so its type is the highest-impact type among the issue commit subjects on the branch
     (`feat` > `fix` or `perf` > any other), and a `!` on any of them carries over; a
@@ -118,7 +122,8 @@ the work changes character; do not carry one context across days of work.
   protocol: for a change that belongs to no milestone, steps 1-7 and a PR into `main`
   reviewed in all five dimensions; for a milestone PR, step 11 after every issue met
   steps 1-10. That includes `pdm run verify` before the PR was opened, all five review
-  dimensions converged on the milestone diff, and a body as step 11 describes. Second, every expected check passes under the
+  dimensions converged on the milestone diff, and a body as step 11 describes. Second,
+  every expected check passes under the
   check rule below. If either fails, do not merge. GitHub does not yet enforce
   required checks on `main` (#405), so keeping the check rule is the agent's job.
 - **Never merge any PR, into `main` or a milestone branch, unless every expected check
@@ -220,7 +225,7 @@ aggregate coverage above 90%. What changed is *when* each lane runs.
 | Inner loop | the tests for what you touched | `pdm run agent-test <path>[::test] -v` |
 | Before commit, if the change is broad | hermetic unit lane (about 4.5 minutes, measured 2026-09-17) | `pdm run test-unit` |
 | On commit | pre-commit hooks | automatic |
-| Before merging an issue, once | lint, then everything CI runs | `pdm run lint`, `pdm run verify` |
+| Before merging an issue, once | lint as a fast fail, then everything CI runs | `pdm run lint`, `pdm run verify` |
 | Gate of record, per issue | CI on the pushed milestone branch | `gh run list --workflow CI --event push --commit <sha>` |
 | Gate of record, per milestone | CI and CodeQL on the milestone PR | `gh pr checks <n>` |
 | After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass. The binary is auto-discovered on the owner's machine; elsewhere the owner exports `ONTOPRISM_OPENCODE_BIN` before launching (an inline prefix is prompted or denied for an agent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
@@ -368,7 +373,7 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 ## Review
 
 Review runs **once per milestone** (owner decision, 2026-09-20): before the milestone
-PR is opened, review `git diff --no-ext-diff main...<milestone branch>` in
+PR is opened, review `git diff --no-ext-diff main...HEAD` with the milestone branch checked out in
 **all five dimensions** (round 1 is
 all five; later rounds re-run only what has not converged — see "Which dimensions run
 in which round"). The owner's account of the #73 review is that each dimension caught a

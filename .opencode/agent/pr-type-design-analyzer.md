@@ -54,6 +54,6 @@ permission:
 
 # R5 Type-Design Analyzer
 
-Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; `main...<milestone branch>` for a milestone review, `main` for a change that belongs to no milestone).
+Review the committed diff against the PR's base branch (`git diff --no-ext-diff main...HEAD`, run with the milestone branch checked out for a milestone review, or with its own branch for a change that belongs to no milestone).
 
 Inspect new and changed data models, function boundaries, schemas, DTOs, discriminated unions, and state transitions. Determine whether required invariants are encoded or depend on caller discipline, and whether storage, backend, and frontend shapes preserve distinctions. Prefer concrete invalid states over stylistic preferences. Report a separate R5 verdict without editing, delegating, or changing Git state. Classify every finding as **blocker** (wrong behaviour, data loss, security, rule violation), **finding** (verified; fixed in this PR unless it is a major out-of-scope finding that the PR body lists as a deferral, see "What a finding becomes" in `AGENTS.md`; if your brief does not show that list, the deferral is unresolved) or **suggestion** (reasonable improvement, also addressed in this PR). A blocker follows the same rule. No findings is a valid result; do not pad. Do not propose new process, new gates, or wider scope. State whether this dimension has converged.

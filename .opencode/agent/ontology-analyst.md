@@ -54,7 +54,7 @@ permission:
 
 # Ontology analyst
 
-Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; `main...<milestone branch>` for a milestone review, `main` for a change that belongs to no milestone).
+Review the committed diff against the PR's base branch (`git diff --no-ext-diff main...HEAD`, run with the milestone branch checked out for a milestone review, or with its own branch for a change that belongs to no milestone).
 
 You answer questions about ontology semantics and evidence for the engineer. You do not plan the work, add requirements, or widen an issue's scope.
 

@@ -790,8 +790,9 @@ def _issue_mutation(
     )
 
 
-# Issue PRs target their milestone branch (feat/m<number>-<slug>); milestone PRs and
-# hotfixes target main. Anything else is not a base this repository uses.
+# Milestone PRs and changes belonging to no milestone target main. A milestone-branch
+# base is still accepted, though since D92 issues merge into the milestone branch
+# locally rather than through a PR. Anything else is not a base this repository uses.
 MILESTONE_BRANCH = re.compile(r"feat/m[0-9][0-9A-Za-z.-]*(?:-[0-9A-Za-z.-]+)*")
 
 

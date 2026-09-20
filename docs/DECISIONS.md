@@ -22,8 +22,8 @@ single cost in the loop.
 **locally, with no PR and no five-dimension review**, and is then deleted. The milestone
 branch is **pushed immediately after each merge, and that CI run must be green before the
 next issue starts**; merges are never batched before a push. The five-dimension review
-runs **once per milestone**, to convergence, on `git diff --no-ext-diff
-main...<milestone branch>`, before the milestone PR is opened; that PR's body carries the
+runs **once per milestone**, to convergence, on `git diff --no-ext-diff main...HEAD`
+with the milestone branch checked out (the only diff form the reviewer maps allow), before the milestone PR is opened; that PR's body carries the
 five verdicts, every dropped finding and every deferral. A change belonging to no
 milestone is unaffected: it still takes a PR into `main` with the full review. This
 supersedes D89's per-issue PR and per-issue review; D89's third change, splitting a
@@ -133,7 +133,9 @@ the helpers would force one of those costs onto the other path.
 > **Superseded in part by D92 (2026-09-20).** Issues no longer take a PR into the
 > milestone branch and are no longer reviewed individually; the five-dimension review
 > runs once per milestone. The rest of D89 — tiered gates, no self-certifying
-> machinery, splitting a stalled milestone — stands.
+> machinery, splitting a stalled milestone — stands. D89's PR-sizing rationale does
+> not: granularity no longer trades against review cost, because the review runs once
+> per milestone (D92).
 
 **Context.** Between 2026-09-06 and 2026-09-17 about seventy commits on the M1.6 branches
 produced no user-visible change and nothing reached `main`. A review found the causes in
