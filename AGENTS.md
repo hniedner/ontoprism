@@ -133,6 +133,17 @@ Start a new agent session for each issue. Do not carry one context across days o
   milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
+- **Never signal a process you did not start, and never choose one by port or by name.**
+  No `lsof -ti :PORT | xargs kill`, no sweep over a port range, no `pkill`, `killall` or
+  `fuser -k`. Record the pid you launched, together with its start time so a reused pid
+  is not mistaken for it, and signal that; a port held by anything else is reported by
+  pid, never signalled, and a lookup that failed is never read as "the port is free".
+  The rule holds inside scripts and tools this repository ships, not only at an agent's
+  prompt: on 2026-09-18 another project's port sweep killed the Podman VM's `gvproxy`
+  (docs/DATA_SETUP.md), and the guard against it typed by hand is a local hook on the
+  owner's machine, which sees nothing a script does. `scripts/dev/servers.py` is the worked
+  example, pinned by `backend/tests/test_dev_script.py`, which also refuses the usual
+  kill-by-port and kill-by-name spellings anywhere under `scripts/`.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
   volumes, resetting the Podman VM, overwriting a run artifact. Write new outputs to new
   paths; never overwrite an artifact another step may still need.
@@ -329,9 +340,10 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 
 Before the PR is marked ready, review the committed diff against the PR's base branch
 (the milestone branch for an issue PR, `main` for a milestone PR:
-`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, every time**. The owner's
-account of the #73 review is that each dimension caught a class of defect the others
-missed; that is why a subset is never acceptable:
+`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, on every PR** (round 1
+is all five; later rounds re-run only what has not converged — see "Which dimensions run
+in which round"). The owner's account of the #73 review is that each dimension caught a
+class of defect the others missed; that is why round 1 with a subset is never acceptable:
 
 1. **Correctness and project rules** (`pr-code-reviewer`)
 2. **Silent failures**: swallowed errors, failures that look like clean results
@@ -344,7 +356,11 @@ missed; that is why a subset is never acceptable:
    (`pr-comment-analyzer`)
 5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
+Run 1, 2, 4 and 5 in parallel, then 3 alone. **Only dimension 3 may modify tracked
+files**, and only as its own mutations, restored from a copy kept outside the worktree.
+Never authorize another dimension to mutate: a brief that let one mutate while the
+read-only dimensions were running gave two of them phantom test failures they had to
+recognise and discount (#389, 2026-09-20). A missing, timed-out or inconclusive verdict
 is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
 but keep the five separate verdicts.
 
@@ -352,15 +368,33 @@ but keep the five separate verdicts.
 suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
 finding becomes"). A dimension has converged when a full pass reports no unresolved
 verified finding and its suggestions are addressed; a deferred finding counts as
-resolved only once the PR body lists it (step 3 below). A converged dimension is
-excluded from later rounds unless a later fix touches what it reviews (a new test
-re-arms test validity, a new docstring re-arms comment accuracy, a new error path
-re-arms silent failures); re-run only the non-converged ones, on the fix range, and
-brief each re-run with its previous findings and the outcome of each. There is no
-round ceiling, and an existing PR is never rejected as too big. Size is decided when
-the work is planned: one issue or one coherent change per PR, with granularity
-balanced against the cost of a five-dimension review and the workflows every PR
-triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+resolved only once the PR body lists it (step 3 below). There is no round ceiling, and
+an existing PR is never rejected as too big.
+
+**Which dimensions run in which round.** This is a rule about cost, not taste: a
+reviewer agent costs roughly 145k tokens and a full round of five roughly 725k
+(measured on #389, 2026-09-20). Re-running a dimension that has already converged buys
+nothing and is the main way a PR's review bill multiplies.
+
+- **Round 1: all five.** Always. 1, 2, 4 and 5 in parallel, then 3 alone.
+- **Every later round: only the dimensions that have not converged.** Never re-run a
+  converged dimension for reassurance, for completeness, or because the diff "feels"
+  different. If it converged, it is done.
+- **A converged dimension re-arms only when the fix range contains the kind of thing it
+  reviews**, and you name that thing when you re-run it: a changed or added test
+  re-arms test validity; a changed comment or docstring re-arms comment accuracy; a new
+  or changed error path re-arms silent failures; a new type, signature or invariant
+  re-arms type design; changed production logic re-arms correctness. A fix that only
+  reworded a message does not re-arm type design.
+- **Replacing the implementation re-arms everything**, because nothing the earlier
+  rounds reviewed still exists. This is one more reason to settle the approach before
+  the first review round rather than after it.
+- **Brief every re-run** with its own previous findings and what was done about each, and
+  point it at the fix range, not the whole diff.
+
+Size is decided when the work is planned: one issue or one coherent change per PR, with
+granularity balanced against the cost of a five-dimension review and the workflows every
+PR triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
 time, not at review time.
 
 ### What a finding becomes

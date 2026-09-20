@@ -145,15 +145,15 @@ adjudication = "python scripts/adjudication.py"
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"
 down = "docker compose down"
-start-all = { shell = "bash scripts/dev.sh start all" }
-stop-all = { shell = "bash scripts/dev.sh stop all" }
-restart-all = { shell = "bash scripts/dev.sh restart all" }
-start-backend = { shell = "bash scripts/dev.sh start backend" }
-stop-backend = { shell = "bash scripts/dev.sh stop backend" }
-restart-backend = { shell = "bash scripts/dev.sh restart backend" }
-start-frontend = { shell = "bash scripts/dev.sh start frontend" }
-stop-frontend = { shell = "bash scripts/dev.sh stop frontend" }
-restart-frontend = { shell = "bash scripts/dev.sh restart frontend" }
+start-all = "python scripts/dev/servers.py start all"
+stop-all = "python scripts/dev/servers.py stop all"
+restart-all = "python scripts/dev/servers.py restart all"
+start-backend = "python scripts/dev/servers.py start backend"
+stop-backend = "python scripts/dev/servers.py stop backend"
+restart-backend = "python scripts/dev/servers.py restart backend"
+start-frontend = "python scripts/dev/servers.py start frontend"
+stop-frontend = "python scripts/dev/servers.py stop frontend"
+restart-frontend = "python scripts/dev/servers.py restart frontend"
 
 [tool.pytest.ini_options]
 # prepend import mode: our keep-names layout has top dirs (ontolib/, backend/) whose
@@ -344,3 +344,8 @@ token = { env = "GH_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
+
+[dependency-groups]
+devtools = [
+    "psutil>=7.2.2",
+]
