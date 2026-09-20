@@ -1,5 +1,5 @@
-"""Behaviour of ``scripts/dev.py``, the process manager behind ``pdm run start-*``,
-``stop-*`` and ``restart-*``.
+"""Behaviour of ``scripts/dev/servers.py``, the process manager behind
+``pdm run start-*``, ``stop-*`` and ``restart-*``.
 
 Every test that runs the script runs a copy of it in its own directory: the script
 reads the ``.env`` of the directory above it and keeps its records there, and the
@@ -53,7 +53,7 @@ time.sleep(60)
 
 # What the `pdm` stub runs in the round-trip test: a launcher that stays alive as the
 # parent of the process that binds the port, the way `pdm run uvicorn` and `npm run dev`
-# do. dev.py passes the port last.
+# do. the script passes the port last.
 _FAKE_SERVER = """
 import subprocess, sys, time
 
@@ -85,8 +85,10 @@ print("listening", flush=True)
 time.sleep(60)
 """
 
-# The shape of both servers dev.py starts: `pdm run uvicorn` and `npm run dev` stay
-# alive as the parent of the process that serves, and neither forwards a signal.
+# The shape of both servers the script starts: `pdm run uvicorn` and `npm run dev` stay
+# alive as the parent of the process that serves. Both do forward SIGTERM
+# (measured), so the double earns its place by being a two-process tree: the group
+# is the handle that reaches the server whatever the launcher does.
 _LEADER_OF = """
 import subprocess, sys, time
 child = subprocess.Popen(
@@ -192,6 +194,20 @@ def _stubs_that_launch_a_fake_server(
     )
 
 
+def _listeners_on(port: int) -> list[int]:
+    """The pids listening on ``port``, for cleaning up a server a test could not
+    record and therefore cannot stop through the script."""
+    lsof = shutil.which("lsof")
+    assert lsof is not None
+    found = subprocess.run(  # noqa: S603 - resolved executable, no shell
+        [lsof, "-w", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return [int(line) for line in found.stdout.split()]
+
+
 def _is_listening(port: int) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -201,7 +217,7 @@ def _is_listening(port: int) -> bool:
 
 
 def _start_time(pid: int) -> float:
-    """The value dev.py records beside a pid."""
+    """The value the script records beside a pid."""
     return psutil.Process(pid).create_time()
 
 
@@ -229,8 +245,10 @@ def _wait_until_gone(pid: int, timeout: float = 10.0) -> bool:
 
 
 def _script_copy(tmp_path: Path, dotenv: str = "") -> Path:
-    (tmp_path / "scripts").mkdir()
-    shutil.copy(REPO_ROOT / "scripts/dev.py", tmp_path / "scripts/dev.py")
+    (tmp_path / "scripts/dev").mkdir(parents=True)
+    shutil.copy(
+        REPO_ROOT / "scripts/dev/servers.py", tmp_path / "scripts/dev/servers.py"
+    )
     if dotenv:
         (tmp_path / ".env").write_text(dotenv)
     return tmp_path
@@ -242,8 +260,8 @@ _TARGETS = [("backend", "BACKEND_PORT"), ("frontend", "FRONTEND_PORT")]
 def _stop(
     root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - fixed shell and a copy of the repo script
-        [sys.executable, "scripts/dev.py", "stop", target],
+    return subprocess.run(  # noqa: S603 - fixed interpreter and a copy of the repo script
+        [sys.executable, "scripts/dev/servers.py", "stop", target],
         cwd=root,
         env=environment,
         check=False,
@@ -256,8 +274,8 @@ def _stop(
 def _start(
     root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - fixed shell and a copy of the repo script
-        [sys.executable, "scripts/dev.py", "start", target],
+    return subprocess.run(  # noqa: S603 - fixed interpreter and a copy of the repo script
+        [sys.executable, "scripts/dev/servers.py", "start", target],
         cwd=root,
         env=environment,
         check=False,
@@ -271,7 +289,7 @@ def _restart(
     root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and a copy of the repo script
-        [sys.executable, "scripts/dev.py", "restart", target],
+        [sys.executable, "scripts/dev/servers.py", "restart", target],
         cwd=root,
         env=environment,
         check=False,
@@ -299,9 +317,9 @@ def _reap_group(process: subprocess.Popen[str]) -> None:
 
 @pytest.mark.unit
 def test_a_started_server_is_stopped_again_through_the_script(tmp_path: Path) -> None:
-    """The one test that drives both halves. `start` has to leave the launched process
-    leading its own group — without that, `stop`'s group signal reaches nothing and the
-    server survives every other test in this file."""
+    """The backend half of the round trip; the frontend's is below. `start` has to
+    leave the launched process leading its own group — without that, `stop`'s group
+    signal reaches nothing and the server survives every other test in this file."""
     port = _free_port()
     root = _script_copy(tmp_path)
     environment = _stubs_that_launch_a_fake_server(tmp_path)
@@ -355,8 +373,9 @@ def test_start_does_not_launch_a_second_server_when_it_cannot_read_the_record(
 def test_stopping_all_stops_the_second_target_and_still_reports_the_failure(
     tmp_path: Path,
 ) -> None:
-    """`stop all` used to abort on the first failing target under `set -e`, leaving the
-    other server running with no sign that anything was skipped."""
+    """Every target is attempted even when an earlier one fails, and the failure is
+    still reported. Giving up after the frontend leaves the backend running with no
+    sign that anything was skipped."""
     frontend_port, backend_port = _free_port(), _free_port()
     unreachable_leader, unreachable = _spawn_leader_of(_LISTENER, frontend_port)
     reachable = _spawn_listener(backend_port)
@@ -476,7 +495,7 @@ def test_stop_outlasts_a_server_that_outlives_its_launcher(tmp_path: Path) -> No
         assert result.returncode == 0, result.stdout + result.stderr
         assert _wait_until_gone(child)
         assert not _is_listening(port)
-        assert "no record of starting" not in result.stdout
+        assert "this script did not start" not in result.stdout
         assert not (root / ".dev-logs/backend.pid").exists()
     finally:
         _reap_group(leader)
@@ -534,7 +553,7 @@ def test_a_record_that_cannot_be_parsed_is_not_a_verdict(
 def test_a_recorded_pid_that_would_signal_a_foreign_group_is_refused(
     pid_field: str, tmp_path: Path
 ) -> None:
-    """`os.killpg` with 0 addresses dev.py's own process group and with 1 a group
+    """`os.killpg` with 0 addresses the script's own process group and with 1 a group
     that is not ours, so neither may reach a signal."""
     root = _script_copy(tmp_path)
     (root / ".dev-logs").mkdir(exist_ok=True)
@@ -851,8 +870,10 @@ def test_a_server_that_goes_down_on_term_is_not_killed(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_an_unreaped_process_does_not_keep_its_group_alive(tmp_path: Path) -> None:
     """On Linux an exited-but-unreaped process is still in its group and `getpgid`
-    still answers for it, so without the zombie filter `stop` would wait out its
-    bound and then refuse to confirm a server that is already gone."""
+    still answers for it, so `group_members`' zombie filter is what stops it keeping
+    the group alive. On macOS `getpgid` raises for it instead, and what this pins is
+    `start_time_of`'s zombie check — both must survive, and only CI exercises the
+    first."""
     port = _free_port()
     leader, child = _spawn_leader_of(_LISTENER, port)
     root = _script_copy(tmp_path)
@@ -873,8 +894,9 @@ def test_an_unreaped_process_does_not_keep_its_group_alive(tmp_path: Path) -> No
 def test_a_port_from_dotenv_is_used_when_the_environment_is_silent(
     tmp_path: Path,
 ) -> None:
-    """`cp .env.example .env` is the documented setup, and that file is where the
-    ports live, so reading it is the ordinary path rather than a fallback."""
+    """`.env` is where an operator overrides a port, and `port_of` reads it only
+    when the environment is silent. `.env.example` ships no ports, so this path is
+    the override rather than the default."""
     port = _free_port()
     stranger = _spawn_listener(port)
     root = _script_copy(tmp_path, f"BACKEND_PORT={port}\n")
@@ -972,8 +994,10 @@ def test_restart_does_not_start_again_when_a_target_could_not_be_stopped(
 def test_the_frontend_is_started_and_stopped_through_the_script(
     tmp_path: Path,
 ) -> None:
-    """The frontend has its own launch command and its own `node_modules` branch, so
-    the round trip has to be driven under that target too, not only the backend."""
+    """The frontend has its own launch command and writes its own record, so the
+    round trip has to be driven under that target too, not only the backend.
+    (`node_modules` is created here so the `npm install` branch is skipped; that
+    branch has no test.)"""
     port = _free_port()
     root = _script_copy(tmp_path)
     (root / "frontend/node_modules").mkdir(parents=True)
@@ -999,6 +1023,58 @@ def test_the_frontend_is_started_and_stopped_through_the_script(
         if leader and _is_running(leader):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(leader, signal.SIGKILL)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("wait", ["abc", "0", "1e400", "-5"])
+def test_a_readiness_wait_that_is_not_a_wait_is_refused(
+    wait: str, tmp_path: Path
+) -> None:
+    """A wrong value here used to reach a traceback after the server was already
+    launched and recorded, and `1e400` made `start` wait forever. It is validated
+    before anything is launched, like the ports."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(_free_port())
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = wait
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "ONTOPRISM_DEV_READY_SECONDS" in result.stdout
+    assert "http://localhost" not in result.stdout
+    # Nothing was launched, so there is nothing to find later.
+    assert not (root / ".dev-logs/backend.pid").exists()
+    assert "was launched as pid" not in result.stdout
+
+
+@pytest.mark.unit
+def test_a_record_that_cannot_be_written_names_the_running_process(
+    tmp_path: Path,
+) -> None:
+    """The server is already up by the time the record is written, so a write that
+    fails must name its pid: without a record nothing else can reach it."""
+    port = _free_port()
+    root = _script_copy(tmp_path)
+    environment = _stubs_that_launch_a_fake_server(tmp_path)
+    environment["BACKEND_PORT"] = str(port)
+    logs = root / ".dev-logs"
+    logs.mkdir(exist_ok=True)
+    # Readable but not writable, the shape a `sudo` run leaves behind.
+    (logs / "backend.pid").write_text("999999 1.0\n")
+    (logs / "backend.pid").chmod(0o444)
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "could not be written" in result.stdout
+        assert "is running as pid" in result.stdout
+        assert "http://localhost" not in result.stdout
+    finally:
+        (logs / "backend.pid").chmod(0o600)
+        for pid in _listeners_on(port):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
 
 
 @pytest.mark.unit

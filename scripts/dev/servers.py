@@ -9,11 +9,12 @@ pid reused after ours exited is never signalled. Choosing the victim from a port
 lookup instead is what took the Podman VM's gvproxy down on 2026-09-18
 (``docs/DATA_SETUP.md``); ``AGENTS.md`` carries the rule.
 
-This replaced a shell version, whose inference layer -- parsing ``ps`` output and
-reading exit codes, where "nothing there" and "the lookup broke" are the same empty
-string -- was about a third of the file and held six distinct bugs found over three
-review rounds. Here a dead pid raises ``NoSuchProcess`` and a start time is a float,
-so those questions have answers instead of conventions. ``lsof`` survives for one
+This replaced a shell version. Shell has no process API, so every question about a
+process had to be inferred from another tool's output and exit code, where "nothing
+there" and "the lookup broke" arrive as the same empty string; six distinct bugs in
+that inference were found over three review rounds of this PR. Here a dead pid raises
+``NoSuchProcess``, a start time is a float and a zombie is a status constant, so those
+questions have answers rather than conventions. ``lsof`` survives for one
 job -- naming who else holds a port, which ``psutil`` cannot do unprivileged on
 macOS -- and it is never used to choose what to signal.
 """
@@ -35,7 +36,7 @@ from typing import NamedTuple
 
 import psutil
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = REPO_ROOT / ".dev-logs"
 # 8001/5173 are the sibling fairdata app's ports; ours are offset so both can run.
 DEFAULT_PORTS = {"backend": 8011, "frontend": 5175}
@@ -174,8 +175,9 @@ def read_record(target: Target) -> Record | None:
             f"{target.pid_file} does not hold '<pid> <start time>': {raw!r}"
         ) from None
     if number <= 1:
-        # `os.killpg` with 0 addresses dev.py's own process group; with 1 it addresses
-        # pgid 1, which on Linux reaches every process the user may signal.
+        # `os.killpg` with 0 addresses this script's own process group. With 1 it
+        # addresses pgid 1, which on Linux is `kill(-1)` -- the broadcast to every
+        # process the user may signal -- and on macOS is launchd's group.
         raise DevError(
             f"{target.pid_file} records pid {number}, which would signal a group that "
             f"is not ours; nothing signalled"
@@ -186,7 +188,27 @@ def read_record(target: Target) -> Record | None:
 def write_record(target: Target, record: Record) -> None:
     # `repr` of the float, because `read_record` compares it with `==`: formatting it
     # to fewer digits would silently break every identity check in this module.
-    target.pid_file.write_text(f"{record.pid} {record.created}\n")
+    try:
+        target.pid_file.write_text(f"{record.pid} {record.created}\n")
+    except OSError as error:
+        # The process is already running here, so its pid is the whole value of the
+        # message: without a record nothing else can reach it.
+        raise DevError(
+            f"{target.name} is running as pid {record.pid} but its record could not "
+            f"be written to {target.pid_file}: {error}"
+        ) from error
+
+
+def forget_record(target: Target) -> None:
+    """Drop a record whose process is known to be gone.
+
+    Outside ``DevError`` this would escape ``_attempt`` and take the other target
+    down with it, which is the failure ``_attempt`` exists to prevent.
+    """
+    try:
+        target.pid_file.unlink(missing_ok=True)
+    except OSError as error:
+        raise DevError(f"cannot remove {target.pid_file}: {error}") from error
 
 
 def start_time_of(pid: int) -> float | None:
@@ -218,8 +240,10 @@ def group_members(pgid: int) -> list[int]:
                 continue
             if os.getpgid(process.info["pid"]) == pgid:
                 members.append(process.info["pid"])
-        except psutil.NoSuchProcess, ProcessLookupError:
-            # "It exited" is an answer; it is the only one that may be skipped.
+        except ProcessLookupError:
+            # "It exited" is an answer, and the only one that may be skipped. This arm
+            # must stay above the OSError arm it is a subclass of: that ordering is
+            # what keeps an unanswerable lookup from being silently skipped.
             continue
         except OSError as error:
             # Anything else would quietly shorten the list, and a short list reads as
@@ -335,7 +359,7 @@ def stop(target: Target) -> int:
                 f"{target.pid_file} is kept, so the next stop still knows it is ours."
             )
             return 1
-        target.pid_file.unlink()
+        forget_record(target)
         green(f"✓ {target.name} stopped (pid {pid})")
     elif record is not None:
         survivors = _orphaned_group(record)
@@ -351,7 +375,7 @@ def stop(target: Target) -> int:
                 f"Nothing was signalled and {target.pid_file} is kept."
             )
             return 1
-        target.pid_file.unlink()
+        forget_record(target)
         green(f"✓ {target.name} not running (stale pidfile)")
     else:
         green(f"✓ {target.name} was not running")
@@ -378,12 +402,17 @@ def _report_port_holders(port: int) -> None:
         return
     if holders:
         yellow(
-            f"⚠ :{port} is held by pid(s) {_joined(holders)}, which dev.py has no "
-            f"record of starting — not signalled"
+            f"⚠ :{port} is held by pid(s) {_joined(holders)}, which this "
+            f"script did not start — not signalled"
         )
 
 
 def start(target: Target) -> int:
+    # Resolved here, before anything is launched: it is input validation, and a typo
+    # must refuse rather than abort a server that is already running. Binding it
+    # inside `_await_listening` instead would raise before the record is written and
+    # leave exactly the orphan this module refuses to create.
+    seconds = ready_seconds()
     record = read_record(target)
     if record is not None:
         if start_time_of(record.pid) == record.created:
@@ -405,7 +434,7 @@ def start(target: Target) -> int:
     if holders:
         red(
             f"✗ {target.name} not started: :{target.port} is held by pid(s) "
-            f"{_joined(holders)}, which dev.py has no record of starting"
+            f"{_joined(holders)}, which this script did not start"
         )
         return 1
     if target.name == "backend" and not _data_services_are_up():
@@ -419,7 +448,15 @@ def start(target: Target) -> int:
         process = _launch(target)
     except OSError as error:
         raise DevError(f"cannot launch {target.name}: {error}") from error
-    return _await_listening(target, process.pid)
+    try:
+        return _await_listening(target, process.pid, seconds)
+    except DevError as error:
+        # Whatever went wrong, a process is running and the user has to be able to
+        # find it; `start` must not report a clean "did not start" it cannot keep.
+        raise DevError(
+            f"{error}; {target.name} was launched as pid {process.pid} and may still "
+            f"be running — check :{target.port}"
+        ) from error
 
 
 def _launch(target: Target) -> subprocess.Popen[bytes]:
@@ -449,13 +486,13 @@ def ready_seconds() -> float:
         raise DevError(f"ONTOPRISM_DEV_READY_SECONDS={raw!r} is not a number") from None
     if not 0 < seconds < LONGEST_READY_WAIT:
         raise DevError(
-            f"ONTOPRISM_DEV_READY_SECONDS={raw!r} is not a wait between 0 and "
-            f"{LONGEST_READY_WAIT:g} seconds"
+            f"ONTOPRISM_DEV_READY_SECONDS={raw!r} must be greater than 0 and less "
+            f"than {LONGEST_READY_WAIT:g} seconds"
         )
     return seconds
 
 
-def _await_listening(target: Target, pid: int) -> int:
+def _await_listening(target: Target, pid: int, seconds: float) -> int:
     """``start`` is only honest once the port answers.
 
     A server that fails just after launch — a bad config, a port taken inside a
@@ -471,12 +508,12 @@ def _await_listening(target: Target, pid: int) -> int:
     # group that outlives its failed child -- `uvicorn --reload` restarting a worker
     # that crashes on import keeps the group alive -- so this bound is what ends that
     # case, and it is generous for that reason rather than for cold-start time
-    # (measured: vite answers in well under a second on this app). The override exists
-    # so the timeout branch is testable without a half-minute test.
-    deadline = time.monotonic() + ready_seconds()
+    # (measured: vite answers in well under a second on this app). `ready_seconds`
+    # says why it is overridable.
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if not target_alive(record):
-            target.pid_file.unlink(missing_ok=True)
+            forget_record(target)
             red(f"✗ {target.name} exited while starting — see {target.log_file}")
             return 1
         if port_answers(target.port):
@@ -490,7 +527,7 @@ def _await_listening(target: Target, pid: int) -> int:
     # can still reach the process, and the status says the question went unanswered.
     red(
         f"✗ {target.name} (pid {pid}) did not listen on :{target.port} within "
-        f"{ready_seconds():g}s — "
+        f"{seconds:g}s — "
         f"see {target.log_file}. {target.pid_file} is kept, so `stop` can reach it."
     )
     return 1
@@ -523,11 +560,12 @@ def start_data_services() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="dev.py", description=__doc__)
+    parser = argparse.ArgumentParser(prog="dev/servers.py", description=__doc__)
     parser.add_argument("action", choices=["start", "stop", "restart"])
     parser.add_argument(
-        # Derived, so adding a target to DEFAULT_PORTS makes it selectable and the
-        # missing-command refusal in `Target.command` reachable rather than dead.
+        # Derived from one list, so the selectable targets and the default ports
+        # cannot drift apart. `Target.command`'s refusal stays a guard for a target
+        # added without a launch command rather than a branch reachable today.
         "target",
         nargs="?",
         default="all",
@@ -540,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
         LOG_DIR.mkdir(exist_ok=True)
         targets = [Target(name, port_of(name)) for name in names]
     except DevError as error:
-        red(f"✗ dev.py: {error}")
+        red(f"✗ dev: {error}")
         return 1
 
     if arguments.action == "start":
@@ -568,7 +606,7 @@ def _attempt(action: Callable[[Target], int], target: Target) -> int:
     try:
         return action(target)
     except DevError as error:
-        red(f"✗ dev.py: {target.name}: {error}")
+        red(f"✗ dev: {target.name}: {error}")
         return 1
 
 
