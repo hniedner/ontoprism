@@ -53,12 +53,15 @@ time.sleep(60)
 
 # What the `pdm` stub runs in the round-trip test: a launcher that stays alive as the
 # parent of the process that binds the port, the way `pdm run uvicorn` and `npm run dev`
-# do. The script passes the port last.
+# do. It finds the port by name in the argv the script passes.
 _FAKE_SERVER = """
 import subprocess, sys, time
 
+# `--port N`, because the frontend command puts `--strictPort` last: a stub reading
+# argv[-1] would take whatever came last and never exercise the real argument.
+port = sys.argv[sys.argv.index("--port") + 1]
 child = subprocess.Popen(
-    [sys.executable, "-c", LISTENER, sys.argv[-1]], stdout=subprocess.PIPE, text=True
+    [sys.executable, "-c", LISTENER, port], stdout=subprocess.PIPE, text=True
 )
 assert child.stdout is not None
 assert child.stdout.readline().strip() == "listening"
@@ -949,8 +952,13 @@ def test_an_lsof_that_warns_while_finding_nothing_is_not_read_as_a_free_port(
     result = _start(root, environment)
 
     assert result.returncode != 0
-    assert "lsof" in result.stdout
+    # The script's own words, not "lsof": `tmp_path` is named after the test, so that
+    # substring arrives free in any message quoting a path underneath it.
+    assert "the lsof lookup for :" in result.stdout
+    assert "cannot stat" in result.stdout
     assert "http://localhost" not in result.stdout
+    # The refusal has to come before the launch, not after it.
+    assert not (root / ".dev-logs/backend.pid").exists()
 
 
 @pytest.mark.unit
@@ -990,7 +998,7 @@ def test_the_frontend_is_started_and_stopped_through_the_script(
     server = tmp_path / "fake_server.py"
     server.write_text(f"LISTENER = {_LISTENER!r}\n{_FAKE_SERVER}")
     environment = _path_with_stubs(
-        tmp_path, npm=f'exec "{sys.executable}" "{server}" {port}'
+        tmp_path, npm=f'exec "{sys.executable}" "{server}" "$@"'
     )
     environment["FRONTEND_PORT"] = str(port)
     leader = 0
@@ -1133,6 +1141,30 @@ def test_start_does_not_claim_a_port_a_stranger_answers(tmp_path: Path) -> None:
         assert not _wait_until_gone(stranger.pid, timeout=1)
     finally:
         _reap(stranger, ours)
+
+
+@pytest.mark.unit
+def test_start_does_not_rewrite_a_record_it_would_not_change(tmp_path: Path) -> None:
+    """An already-running server's record is already on disk and correct. Rewriting
+    it is a no-op that can still fail — a read-only pidfile is the shape a `sudo` run
+    leaves behind — and failing it would report a failure for a server that is up and
+    serving."""
+    port = _free_port()
+    ours = _spawn_listener(port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    (root / ".dev-logs/backend.pid").chmod(0o444)
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(port)
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"http://localhost:{port}" in result.stdout
+        assert "could not be written" not in result.stdout
+    finally:
+        (root / ".dev-logs/backend.pid").chmod(0o600)
+        _reap(ours)
 
 
 @pytest.mark.unit
