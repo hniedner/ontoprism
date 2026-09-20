@@ -1,19 +1,21 @@
 """Behaviour of ``scripts/dev.sh``, the process manager behind ``pdm run start-*``,
 ``stop-*`` and ``restart-*``.
 
-Every test runs a copy of the script in its own directory: the script sources the
-``.env`` of the directory above it, and the repository's must never decide what a
-test signals.
+Every test that runs the script runs a copy of it in its own directory: the script
+sources the ``.env`` of the directory above it, and the repository's must never decide
+what a test signals.
 
 The processes the tests spawn get their own session, so a signal aimed at a process
-group reaches only the spawned process and not the test runner.
+group reaches only that process and its children, never the test runner.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -34,11 +36,34 @@ print("listening", flush=True)
 time.sleep(60)
 """
 
+_CLIENT = """
+import socket, sys, time
+client = socket.create_connection(("127.0.0.1", int(sys.argv[1])))
+print("connected", flush=True)
+time.sleep(60)
+"""
+
+# A server that takes its time over a graceful shutdown: uvicorn draining an in-flight
+# request, vite finishing a write. `stop` has to outlast it, not walk away from it.
+_STUBBORN_LISTENER = """
+import signal, socket, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("127.0.0.1", int(sys.argv[1])))
+server.listen()
+print("listening", flush=True)
+time.sleep(60)
+"""
+
 # The shape of both servers dev.sh starts: `pdm run uvicorn` and `npm run dev` stay
-# alive as the parent of the process that actually serves.
-_LEADER_WITH_CHILD = """
+# alive as the parent of the process that serves, and neither forwards a signal.
+_LEADER_OF = """
 import subprocess, sys, time
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+child = subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2]], stdout=subprocess.PIPE, text=True
+)
+assert child.stdout.readline().strip() == "listening"
 print(child.pid, flush=True)
 time.sleep(60)
 """
@@ -62,15 +87,47 @@ def _spawn_listener(port: int) -> subprocess.Popen[str]:
     return process
 
 
-def _spawn_leader_with_child() -> tuple[subprocess.Popen[str], int]:
+def _spawn_client(port: int) -> subprocess.Popen[str]:
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter and script
-        [sys.executable, "-c", _LEADER_WITH_CHILD],
+        [sys.executable, "-c", _CLIENT, str(port)],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline().strip() == "connected"
+    return process
+
+
+def _spawn_leader_of(child: str, port: int) -> tuple[subprocess.Popen[str], int]:
+    """A process-group leader whose child holds ``port``; returns both pids."""
+    process = subprocess.Popen(  # noqa: S603 - fixed interpreter and script
+        [sys.executable, "-c", _LEADER_OF, child, str(port)],
         stdout=subprocess.PIPE,
         text=True,
         start_new_session=True,
     )
     assert process.stdout is not None
     return process, int(process.stdout.readline())
+
+
+def _path_with_stubs(tmp_path: Path, **stubs: str) -> dict[str, str]:
+    """An environment whose PATH shadows each named tool with a one-line script."""
+    directory = tmp_path / "stubs"
+    directory.mkdir()
+    for name, body in stubs.items():
+        stub = directory / name
+        stub.write_text(f"#!/bin/sh\n{body}\n")
+        stub.chmod(0o755)
+    return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
+
+
+def _is_listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 def _start_time(pid: int) -> str:
@@ -154,10 +211,20 @@ def _reap(*processes: subprocess.Popen[str]) -> None:
         process.wait()
 
 
+def _reap_group(process: subprocess.Popen[str]) -> None:
+    """Clean up a leader spawned by :func:`_spawn_leader_of` along with its child.
+
+    macOS reports EPERM rather than ESRCH for a process group that is already gone.
+    """
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
+    _reap(process)
+
+
 @pytest.mark.unit
 def test_stop_spares_a_listener_it_did_not_start(tmp_path: Path) -> None:
-    """Another project's server on :8011 is not ours to kill: on 2026-09-18 a sweep
-    over a port range took down this project's gvproxy the same way."""
+    """Another project's server on a dev port is not ours to kill: on 2026-09-18 a
+    sweep over a port range took down this project's gvproxy the same way."""
     port = _free_port()
     stranger = _spawn_listener(port)
     try:
@@ -215,19 +282,166 @@ def test_stop_takes_down_the_server_behind_the_recorded_process(
 ) -> None:
     """`pdm run uvicorn` and `npm run dev` serve from a child, so signalling the
     recorded pid alone would leave the actual server holding the port."""
-    leader, child = _spawn_leader_with_child()
+    port = _free_port()
+    leader, child = _spawn_leader_of(_LISTENER, port)
     root = _script_copy(tmp_path)
     _write_pidfile(root, "backend", leader.pid, _start_time(leader.pid))
     try:
-        result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
 
         assert result.returncode == 0, result.stderr
         assert leader.wait(timeout=10) != 0
         assert _wait_until_gone(child)
+        assert not _is_listening(port)
     finally:
-        _reap(leader)
-        if _is_running(child):
-            os.kill(child, 9)
+        _reap_group(leader)
+
+
+@pytest.mark.unit
+def test_stop_outlasts_a_server_that_outlives_its_launcher(tmp_path: Path) -> None:
+    """The launcher dies on the first TERM while the server drains. Watching only the
+    recorded pid, `stop` reported success here, deleted the pidfile, and left the real
+    server holding the port with nothing left that knew it was ours."""
+    port = _free_port()
+    leader, child = _spawn_leader_of(_STUBBORN_LISTENER, port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", leader.pid, _start_time(leader.pid))
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert _wait_until_gone(child)
+        assert not _is_listening(port)
+        assert "no record of starting" not in result.stdout
+        assert not (root / ".dev-logs/backend.pid").exists()
+    finally:
+        _reap_group(leader)
+
+
+@pytest.mark.unit
+def test_stop_keeps_the_pidfile_when_it_cannot_reach_the_recorded_process(
+    tmp_path: Path,
+) -> None:
+    """`kill -TERM -<pid>` reaches nothing when the recorded pid leads no process
+    group. Reporting that as "stopped" would throw away the only record of a live
+    server, so the reject branch has to fire and keep the pidfile."""
+    port = _free_port()
+    leader, child = _spawn_leader_of(_LISTENER, port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", child, _start_time(child))
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
+
+        assert result.returncode != 0
+        assert "did not stop" in result.stdout + result.stderr
+        assert not _wait_until_gone(child, timeout=1)
+        assert (root / ".dev-logs/backend.pid").exists()
+    finally:
+        _reap_group(leader)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["0", "1", " {pid}", "abc", "{pid} 999"])
+def test_a_pid_field_that_is_not_a_plain_pid_signals_nothing(
+    field: str, tmp_path: Path
+) -> None:
+    """`kill -TERM -0` and `kill -TERM -1` are broadcasts, not process groups, so the
+    pid field is checked before it reaches the signal, the way the ports are."""
+    bystander = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", bystander.pid, _start_time(bystander.pid))
+    (root / ".dev-logs/backend.pid").write_text(
+        f"{field.format(pid=bystander.pid)}\n{_start_time(bystander.pid)}\n"
+    )
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "stale pidfile" in result.stdout
+        assert not _wait_until_gone(bystander.pid, timeout=1)
+    finally:
+        _reap(bystander)
+
+
+@pytest.mark.unit
+def test_a_broken_port_lookup_is_not_read_as_a_free_port(tmp_path: Path) -> None:
+    """lsof exits 1 for "nothing listening"; a higher status is a broken lookup. Taking
+    it for a free port makes `start` launch a second server onto an occupied port and
+    silences the warning `stop` owes the user."""
+    environment = _path_with_stubs(
+        tmp_path, lsof='echo "lsof: cannot open /dev/kmem" >&2; exit 2'
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+    root = _script_copy(tmp_path)
+
+    started = _start(root, environment)
+    stopped = _stop(root, environment)
+
+    assert started.returncode != 0
+    assert "http://localhost" not in started.stdout
+    assert stopped.returncode != 0
+    assert "lsof" in stopped.stdout + stopped.stderr
+
+
+@pytest.mark.unit
+def test_a_broken_process_lookup_does_not_delete_a_live_pidfile(tmp_path: Path) -> None:
+    """ps exits 1 for "no such process"; a higher status says the question was not
+    answered. Reading that as "gone" printed a green "stale pidfile" over a running
+    server and removed the only record of it."""
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    environment = _path_with_stubs(tmp_path, ps='echo "ps: broken" >&2; exit 2')
+    environment["BACKEND_PORT"] = str(_free_port())
+    try:
+        result = _stop(root, environment)
+
+        assert result.returncode != 0
+        assert "stale pidfile" not in result.stdout
+        assert (root / ".dev-logs/backend.pid").exists()
+        assert not _wait_until_gone(ours.pid, timeout=1)
+    finally:
+        _reap(ours)
+
+
+@pytest.mark.unit
+def test_start_reports_a_server_that_exited_instead_of_a_url(tmp_path: Path) -> None:
+    """A crash on startup used to print the green "→ http://localhost:…" line with a
+    pid that was already gone, and the next `stop` called that a stale pidfile."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path,
+        docker="echo ontoprism-postgres",
+        pdm='echo "boom" >&2; exit 1',
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "http://localhost" not in result.stdout
+    assert "exited immediately" in result.stdout + result.stderr
+    assert not (root / ".dev-logs/backend.pid").exists()
+
+
+@pytest.mark.unit
+def test_a_client_of_the_port_is_not_reported_as_holding_it(tmp_path: Path) -> None:
+    """A bare `lsof -i :PORT` also lists every client of the port — a browser tab on the
+    dev server, a proxy — and naming one as the holder would make `start` refuse a port
+    that is free."""
+    port = _free_port()
+    listener = _spawn_listener(port)
+    client = _spawn_client(port)
+    try:
+        result = _stop(
+            _script_copy(tmp_path), {**os.environ, "BACKEND_PORT": str(port)}
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert str(listener.pid) in result.stdout
+        assert str(client.pid) not in result.stdout
+    finally:
+        _reap(listener, client)
 
 
 @pytest.mark.unit
@@ -271,20 +485,25 @@ def test_start_refuses_a_port_held_by_a_process_it_did_not_start(
         _reap(stranger)
 
 
-@pytest.mark.unit
-def test_no_script_selects_a_process_by_port_or_name() -> None:
-    """The global guard against `lsof -ti :PORT | xargs kill`, `pkill` and friends is
-    a Claude Code hook, and a hook cannot see inside a script this repository ships."""
-    by_port_or_name = re.compile(
-        r"lsof[^\n]*\bkill\b|xargs\s+kill|\bpkill\b|\bkillall\b|fuser\s+-k"
-    )
+def _selects_a_process_by_port_or_name(line: str) -> bool:
+    """`kill -9 $(lsof -ti:8011)` puts the kill first, so matching `lsof … kill` in that
+    order alone let the usual spelling through: the two only have to share a line."""
+    if re.search(r"\bpkill\b|\bkillall\b|fuser\s+-k", line):
+        return True
+    return bool(re.search(r"\bkill\b", line) and re.search(r"\blsof\b", line))
 
+
+@pytest.mark.unit
+def test_no_script_under_scripts_selects_a_process_by_port_or_name() -> None:
+    """The guard against `lsof -ti :PORT | xargs kill`, `pkill` and friends at an
+    agent's prompt is a Claude Code hook, and a hook sees nothing a script does. This
+    covers `scripts/` only; the rest of the tree has no process management in it."""
     offenders = [
         f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}"
         for path in sorted((REPO_ROOT / "scripts").rglob("*"))
         if path.suffix in {".sh", ".py", ".mjs"}
         for number, line in enumerate(path.read_text().splitlines(), start=1)
-        if by_port_or_name.search(line)
+        if _selects_a_process_by_port_or_name(line)
     ]
 
     assert offenders == []
@@ -319,25 +538,28 @@ def test_a_port_given_in_the_environment_wins_over_dotenv(
 
 
 @pytest.mark.unit
-def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
-    tmp_path: Path,
+@pytest.mark.parametrize("missing", ["lsof", "ps"])
+def test_a_missing_lookup_tool_refuses_instead_of_reporting_nothing_running(
+    missing: str, tmp_path: Path
 ) -> None:
-    """lsof is how the script sees a port held by a process it did not start. With it
-    missing every lookup comes back empty, and a stranger on the port goes
-    unmentioned."""
-    without_lsof = tmp_path / "bin"
-    without_lsof.mkdir()
-    # The external commands dev.sh itself uses, so only lsof is missing and the script
-    # would otherwise reach "was not running".
-    for tool in ("dirname", "mkdir", "ps", "sleep"):
+    """lsof is how the script sees who holds a port and ps how it sees whether the
+    recorded process is still ours. With either missing, every lookup comes back empty
+    and the script would report a free port and a stopped server."""
+    only_the_rest = tmp_path / "bin"
+    only_the_rest.mkdir()
+    # The external commands the stop path needs before it reports anything, so the
+    # missing tool is the only reason the script can fail.
+    for tool in ("dirname", "lsof", "mkdir", "ps", "sleep"):
+        if tool == missing:
+            continue
         found = shutil.which(tool)
         assert found is not None
-        (without_lsof / tool).symlink_to(found)
+        (only_the_rest / tool).symlink_to(found)
 
-    result = _stop(_script_copy(tmp_path), {"PATH": str(without_lsof)})
+    result = _stop(_script_copy(tmp_path), {"PATH": str(only_the_rest)})
 
     assert result.returncode != 0
-    assert "lsof" in result.stderr
+    assert missing in result.stderr
     assert "not running" not in result.stdout
 
 
@@ -346,8 +568,9 @@ def test_without_lsof_the_script_refuses_instead_of_reporting_nothing_running(
 def test_a_port_that_is_not_a_number_is_refused(
     target: str, variable: str, tmp_path: Path
 ) -> None:
-    """lsof exits 1 for a malformed port exactly as it does for "no listener", so
-    ``stop`` used to print "was not running" whatever was running."""
+    """lsof exits 1 for a malformed port exactly as it does for "no listener", so a
+    port that is silently wrong would leave a foreign holder unreported by ``stop`` and
+    unnoticed by ``start``."""
     result = _stop(_script_copy(tmp_path), {**os.environ, variable: "80l1"}, target)
 
     assert result.returncode != 0

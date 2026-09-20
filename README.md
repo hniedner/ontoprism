@@ -386,8 +386,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 | `pdm run migrate` | Alembic schema migration |
 
 Background logs go to `.dev-logs/`, beside the pid of each process `start` launched:
-`stop` signals only those, never whatever happens to hold the port. Ports are offset
-from the sibling `fairdata` app — see [docs/DATA_SETUP.md](docs/DATA_SETUP.md).
+`stop` signals that process group and nothing else, never whatever happens to hold
+the port. Ports are offset from the sibling `fairdata` app — see
+[docs/DATA_SETUP.md](docs/DATA_SETUP.md).
 
 ### Testing
 

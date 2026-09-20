@@ -136,13 +136,14 @@ Start a new agent session for each issue. Do not carry one context across days o
 - **Never signal a process you did not start, and never choose one by port or by name.**
   No `lsof -ti :PORT | xargs kill`, no sweep over a port range, no `pkill`, `killall` or
   `fuser -k`. Record the pid you launched, together with its start time so a reused pid
-  is not mistaken for it, and signal that; a port that is held by something else is
-  reported by pid, never signalled. The rule holds inside scripts and tools this
-  repository ships, not only at an agent's prompt: on 2026-09-18 another project's port
-  sweep killed the Podman VM's `gvproxy` (docs/DATA_SETUP.md), and the guard that would
-  have caught it typed by hand is a Claude Code hook, which sees nothing a script does.
-  `scripts/dev.sh` is the worked example; `backend/tests/test_dev_script.py` keeps
-  `scripts/` to it.
+  is not mistaken for it, and signal that; a port held by anything else is reported by
+  pid, never signalled, and a lookup that failed is never read as "the port is free".
+  The rule holds inside scripts and tools this repository ships, not only at an agent's
+  prompt: on 2026-09-18 another project's port sweep killed the Podman VM's `gvproxy`
+  (docs/DATA_SETUP.md), and the guard against it typed by hand is a local hook on the
+  owner's machine, which sees nothing a script does. `scripts/dev.sh` is the worked
+  example, pinned by `backend/tests/test_dev_script.py`, which also refuses the usual
+  kill-by-port and kill-by-name spellings anywhere under `scripts/`.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
   volumes, resetting the Podman VM, overwriting a run artifact. Write new outputs to new
   paths; never overwrite an artifact another step may still need.
