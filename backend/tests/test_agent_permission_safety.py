@@ -382,7 +382,7 @@ def test_an_agent_that_may_not_edit_may_not_write_through_the_pristine_wrapper(
     assert _resolve(agent, command) == "deny"
 
 
-# Every bash pattern an agent outside `_MAY_MUTATE` is allowed to run today. It is
+# Every bash pattern an agent outside `_MAY_MUTATE` is not denied today. It is
 # pinned as a whole rather than screened for the dangerous spellings, because a
 # screen only sees the shapes it was written for: a substring test for
 # "agent-pristine" misses `"pdm run agent-* restore backend/*"`, and a probe on a
@@ -414,8 +414,11 @@ def test_a_read_only_agent_gains_no_command_without_review(agent: str) -> None:
     it. Widening the list is the decision this test exists to make visible: a new
     allow for an agent that reviews alongside dimension 3 has to be added here, where
     it is read against that sentence, rather than arriving inside an agent file."""
+    # `!= "deny"`, not `== "allow"`: the same write arrives through `ask`, and an
+    # `ask` is a command gained without review too -- it puts the owner in the loop
+    # mid-review, where a map they trust is what they are being asked to trust.
     granted = {
-        pattern for pattern, rule in _bash_rules(agent).items() if rule == "allow"
+        pattern for pattern, rule in _bash_rules(agent).items() if rule != "deny"
     }
 
     assert granted <= set(_READ_ONLY_ALLOWS)
