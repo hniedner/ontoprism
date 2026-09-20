@@ -141,7 +141,7 @@ Start a new agent session for each issue. Do not carry one context across days o
   The rule holds inside scripts and tools this repository ships, not only at an agent's
   prompt: on 2026-09-18 another project's port sweep killed the Podman VM's `gvproxy`
   (docs/DATA_SETUP.md), and the guard against it typed by hand is a local hook on the
-  owner's machine, which sees nothing a script does. `scripts/dev.sh` is the worked
+  owner's machine, which sees nothing a script does. `scripts/dev.py` is the worked
   example, pinned by `backend/tests/test_dev_script.py`, which also refuses the usual
   kill-by-port and kill-by-name spellings anywhere under `scripts/`.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or

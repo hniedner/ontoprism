@@ -1,9 +1,9 @@
-"""Behaviour of ``scripts/dev.sh``, the process manager behind ``pdm run start-*``,
+"""Behaviour of ``scripts/dev.py``, the process manager behind ``pdm run start-*``,
 ``stop-*`` and ``restart-*``.
 
 Every test that runs the script runs a copy of it in its own directory: the script
-sources the ``.env`` of the directory above it, and the repository's must never decide
-what a test signals.
+reads the ``.env`` of the directory above it and keeps its records there, and the
+repository's must never decide what a test signals.
 
 The processes the tests spawn get their own session, so a signal aimed at a process
 group reaches only that process and its children, never the test runner.
@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -37,9 +38,22 @@ print("listening", flush=True)
 time.sleep(60)
 """
 
+# vite binds `localhost`, which resolves to ::1 on this machine. Every other double
+# here binds IPv4, which is how an IPv4-only readiness probe passed the whole suite
+# while the real frontend never registered as ready.
+_LISTENER_V6 = """
+import socket, sys, time
+server = socket.socket(socket.AF_INET6)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("::1", int(sys.argv[1])))
+server.listen()
+print("listening", flush=True)
+time.sleep(60)
+"""
+
 # What the `pdm` stub runs in the round-trip test: a launcher that stays alive as the
 # parent of the process that binds the port, the way `pdm run uvicorn` and `npm run dev`
-# do. dev.sh passes the port last.
+# do. dev.py passes the port last.
 _FAKE_SERVER = """
 import subprocess, sys, time
 
@@ -71,7 +85,7 @@ print("listening", flush=True)
 time.sleep(60)
 """
 
-# The shape of both servers dev.sh starts: `pdm run uvicorn` and `npm run dev` stay
+# The shape of both servers dev.py starts: `pdm run uvicorn` and `npm run dev` stay
 # alive as the parent of the process that serves, and neither forwards a signal.
 _LEADER_OF = """
 import subprocess, sys, time
@@ -164,11 +178,13 @@ def _path_with_stubs(tmp_path: Path, **stubs: str) -> dict[str, str]:
     return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
 
 
-def _stubs_that_launch_a_fake_server(tmp_path: Path) -> dict[str, str]:
+def _stubs_that_launch_a_fake_server(
+    tmp_path: Path, listener: str = _LISTENER
+) -> dict[str, str]:
     """PATH stubs that make `start backend` launch :data:`_FAKE_SERVER` instead of
     uvicorn, so a test can drive a real ``start`` and ``stop`` round trip."""
     server = tmp_path / "fake_server.py"
-    server.write_text(f"LISTENER = {_LISTENER!r}\n{_FAKE_SERVER}")
+    server.write_text(f"LISTENER = {listener!r}\n{_FAKE_SERVER}")
     return _path_with_stubs(
         tmp_path,
         docker="echo ontoprism-postgres",
@@ -184,23 +200,15 @@ def _is_listening(port: int) -> bool:
         return False
 
 
-def _start_time(pid: int) -> str:
-    """The value dev.sh records beside a pid, normalised the way the script does."""
-    ps = shutil.which("ps")
-    assert ps is not None
-    listing = subprocess.run(  # noqa: S603 - resolved executable, no shell
-        [ps, "-o", "lstart=", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return " ".join(listing.stdout.split())
+def _start_time(pid: int) -> float:
+    """The value dev.py records beside a pid."""
+    return psutil.Process(pid).create_time()
 
 
-def _write_pidfile(root: Path, target: str, pid: int, started: str) -> None:
+def _write_pidfile(root: Path, target: str, pid: int, started: float) -> None:
     logs = root / ".dev-logs"
     logs.mkdir(exist_ok=True)
-    (logs / f"{target}.pid").write_text(f"{pid}\n{started}\n")
+    (logs / f"{target}.pid").write_text(f"{pid} {started}\n")
 
 
 def _is_running(pid: int) -> bool:
@@ -222,7 +230,7 @@ def _wait_until_gone(pid: int, timeout: float = 10.0) -> bool:
 
 def _script_copy(tmp_path: Path, dotenv: str = "") -> Path:
     (tmp_path / "scripts").mkdir()
-    shutil.copy(REPO_ROOT / "scripts/dev.sh", tmp_path / "scripts/dev.sh")
+    shutil.copy(REPO_ROOT / "scripts/dev.py", tmp_path / "scripts/dev.py")
     if dotenv:
         (tmp_path / ".env").write_text(dotenv)
     return tmp_path
@@ -235,7 +243,7 @@ def _stop(
     root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed shell and a copy of the repo script
-        ["/bin/bash", "scripts/dev.sh", "stop", target],
+        [sys.executable, "scripts/dev.py", "stop", target],
         cwd=root,
         env=environment,
         check=False,
@@ -249,7 +257,7 @@ def _start(
     root: Path, environment: dict[str, str], target: str = "backend"
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed shell and a copy of the repo script
-        ["/bin/bash", "scripts/dev.sh", "start", target],
+        [sys.executable, "scripts/dev.py", "start", target],
         cwd=root,
         env=environment,
         check=False,
@@ -290,9 +298,9 @@ def test_a_started_server_is_stopped_again_through_the_script(tmp_path: Path) ->
 
         assert started.returncode == 0, started.stdout + started.stderr
         assert _is_listening(port)
-        recorded = (root / ".dev-logs/backend.pid").read_text().splitlines()
+        recorded = (root / ".dev-logs/backend.pid").read_text().split()
         leader = int(recorded[0])
-        assert recorded[1] == _start_time(leader)
+        assert float(recorded[1]) == _start_time(leader)
         assert os.getpgid(leader) == leader
 
         stopped = _stop(root, environment)
@@ -307,25 +315,25 @@ def test_a_started_server_is_stopped_again_through_the_script(tmp_path: Path) ->
 
 
 @pytest.mark.unit
-def test_start_does_not_launch_a_second_server_when_it_cannot_tell(
+def test_start_does_not_launch_a_second_server_when_it_cannot_read_the_record(
     tmp_path: Path,
 ) -> None:
-    """The start-side twin of the broken-`ps` case: an unanswered "is ours still
-    running?" must not read as "no", or `start` puts a second server on the port."""
+    """An unanswered "is ours still running?" must not read as "no", or `start` puts
+    a second server on the port."""
     ours = _spawn_listener(_free_port())
     root = _script_copy(tmp_path)
     _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
-    environment = _path_with_stubs(
-        tmp_path, ps='echo "ps: broken" >&2; exit 2', docker="echo ontoprism-postgres"
-    )
+    (root / ".dev-logs/backend.pid").chmod(0o000)
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
     environment["BACKEND_PORT"] = str(_free_port())
     try:
         result = _start(root, environment)
 
         assert result.returncode != 0
-        assert "'ps' lookup failed" in result.stdout + result.stderr
+        assert "cannot read" in result.stdout
         assert "http://localhost" not in result.stdout
     finally:
+        (root / ".dev-logs/backend.pid").chmod(0o600)
         _reap(ours)
 
 
@@ -390,7 +398,7 @@ def test_stop_spares_a_pid_that_was_reused_after_our_process_exited(
     port = _free_port()
     survivor = _spawn_listener(port)
     root = _script_copy(tmp_path)
-    _write_pidfile(root, "backend", survivor.pid, "Thu Jan  1 00:00:00 1970")
+    _write_pidfile(root, "backend", survivor.pid, 1.0)
     try:
         result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
 
@@ -502,7 +510,7 @@ def test_a_pid_field_that_is_not_a_plain_pid_signals_nothing(
         result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
 
         assert result.returncode == 0, result.stdout + result.stderr
-        assert "stale pidfile" in result.stdout
+        assert "http://localhost" not in result.stdout
         assert not _wait_until_gone(bystander.pid, timeout=1)
     finally:
         _reap(bystander)
@@ -526,27 +534,6 @@ def test_a_broken_port_lookup_is_not_read_as_a_free_port(tmp_path: Path) -> None
     assert "http://localhost" not in started.stdout
     assert stopped.returncode != 0
     assert "lsof" in stopped.stdout + stopped.stderr
-
-
-@pytest.mark.unit
-def test_a_broken_process_lookup_does_not_delete_a_live_pidfile(tmp_path: Path) -> None:
-    """ps exits 1 for "no such process"; a higher status says the question was not
-    answered. Reading that as "gone" printed a green "stale pidfile" over a running
-    server and removed the only record of it."""
-    ours = _spawn_listener(_free_port())
-    root = _script_copy(tmp_path)
-    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
-    environment = _path_with_stubs(tmp_path, ps='echo "ps: broken" >&2; exit 2')
-    environment["BACKEND_PORT"] = str(_free_port())
-    try:
-        result = _stop(root, environment)
-
-        assert result.returncode != 0
-        assert "stale pidfile" not in result.stdout
-        assert (root / ".dev-logs/backend.pid").exists()
-        assert not _wait_until_gone(ours.pid, timeout=1)
-    finally:
-        _reap(ours)
 
 
 @pytest.mark.unit
@@ -581,7 +568,7 @@ def test_stop_keeps_a_record_whose_pid_is_gone_while_its_group_still_runs(
     port = _free_port()
     leader, child = _spawn_leader_that_exits(port)
     root = _script_copy(tmp_path)
-    _write_pidfile(root, "backend", leader, "Thu Jan  1 00:00:00 1970")
+    _write_pidfile(root, "backend", leader, 1.0)
     try:
         result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
 
@@ -613,6 +600,28 @@ def test_a_record_that_cannot_be_read_is_not_a_verdict(tmp_path: Path) -> None:
     finally:
         (root / ".dev-logs/backend.pid").chmod(0o600)
         _reap(ours)
+
+
+@pytest.mark.unit
+def test_a_server_on_the_ipv6_loopback_counts_as_listening(tmp_path: Path) -> None:
+    """vite binds `localhost`, which resolves to ::1 here, so probing only 127.0.0.1
+    reported the real frontend as never coming up and left it running unannounced."""
+    port = _free_port()
+    root = _script_copy(tmp_path)
+    environment = _stubs_that_launch_a_fake_server(tmp_path, _LISTENER_V6)
+    environment["BACKEND_PORT"] = str(port)
+    leader = 0
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"http://localhost:{port}" in result.stdout
+        assert "not listening yet" not in result.stdout
+        leader = int((root / ".dev-logs/backend.pid").read_text().split()[0])
+    finally:
+        if leader:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(leader, signal.SIGKILL)
 
 
 @pytest.mark.unit
@@ -775,29 +784,28 @@ def test_a_port_given_in_the_environment_wins_over_dotenv(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("missing", ["lsof", "ps"])
+@pytest.mark.unit
 def test_a_missing_lookup_tool_refuses_instead_of_reporting_nothing_running(
-    missing: str, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
-    """lsof is how the script sees who holds a port and ps how it sees whether the
-    recorded process is still ours. With either missing, every lookup comes back empty
-    and the script would report a free port and a stopped server."""
-    only_the_rest = tmp_path / "bin"
-    only_the_rest.mkdir()
-    # The external commands the stop path needs before it reports anything, so the
-    # missing tool is the only reason the script can fail.
-    for tool in ("dirname", "lsof", "mkdir", "ps", "sleep"):
-        if tool == missing:
-            continue
-        found = shutil.which(tool)
-        assert found is not None
-        (only_the_rest / tool).symlink_to(found)
+    """lsof is how the script sees who holds a port, and `start` is where a blind
+    lookup does damage: an empty answer reading as "the port is free" launches a
+    second server on top of whatever is already there."""
+    port = _free_port()
+    stranger = _spawn_listener(port)
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    try:
+        result = _start(
+            _script_copy(tmp_path), {"PATH": str(empty), "BACKEND_PORT": str(port)}
+        )
 
-    result = _stop(_script_copy(tmp_path), {"PATH": str(only_the_rest)})
-
-    assert result.returncode != 0
-    assert missing in result.stderr
-    assert "not running" not in result.stdout
+        assert result.returncode != 0
+        assert "lsof" in result.stdout + result.stderr
+        assert "http://localhost" not in result.stdout
+        assert not _wait_until_gone(stranger.pid, timeout=1)
+    finally:
+        _reap(stranger)
 
 
 @pytest.mark.unit
@@ -811,6 +819,6 @@ def test_a_port_that_is_not_a_number_is_refused(
     result = _stop(_script_copy(tmp_path), {**os.environ, variable: "80l1"}, target)
 
     assert result.returncode != 0
-    assert variable in result.stderr
-    assert "80l1" in result.stderr
+    assert variable in result.stdout
+    assert "80l1" in result.stdout
     assert "not running" not in result.stdout
