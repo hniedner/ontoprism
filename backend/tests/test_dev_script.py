@@ -68,6 +68,19 @@ assert child.stdout.readline().strip() == "listening"
 time.sleep(60)
 """
 
+# Something that answers exactly one connection and then goes: a server in the middle
+# of restarting, a health probe's peer. `port_answers` opens a socket, so it counts this
+# as an answer -- and by the time `lsof` looks, there is nothing on the port at all.
+_ONE_SHOT_LISTENER = """
+import socket, sys
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("127.0.0.1", int(sys.argv[1])))
+server.listen()
+print("listening", flush=True)
+server.accept()
+"""
+
 _CLIENT = """
 import socket, sys, time
 client = socket.create_connection(("127.0.0.1", int(sys.argv[1])))
@@ -593,7 +606,11 @@ def test_start_reports_a_server_that_exited_instead_of_a_url(tmp_path: Path) -> 
 
     assert result.returncode != 0
     assert "http://localhost" not in result.stdout
-    assert "exited" in result.stdout + result.stderr
+    # Two honest answers to the same state, and which one wins is a race on how fast
+    # the stub launcher exits: `_await_listening` says "pid N is gone" when the process
+    # is already unreachable at its first look and "exited while waiting" when it dies
+    # inside the loop. Pinning one of them would make this test flaky, not stricter.
+    assert "exited while waiting for" in result.stdout or "is gone" in result.stdout
     assert f"{LOG_DIR}/backend.log" in result.stdout + result.stderr
     assert not (root / ".dev-logs/backend.pid").exists()
 
@@ -957,8 +974,11 @@ def test_an_lsof_that_warns_while_finding_nothing_is_not_read_as_a_free_port(
     assert "the lsof lookup for :" in result.stdout
     assert "cannot stat" in result.stdout
     assert "http://localhost" not in result.stdout
-    # The refusal has to come before the launch, not after it.
+    # The refusal has to come before the launch: `_launch` opens the log file before it
+    # spawns, so an untouched log dir is what says nothing was started. The pidfile's
+    # absence alone would not: a launch that failed afterwards leaves none either.
     assert not (root / ".dev-logs/backend.pid").exists()
+    assert not (root / ".dev-logs/backend.log").exists()
 
 
 @pytest.mark.unit
@@ -1138,6 +1158,9 @@ def test_start_does_not_claim_a_port_a_stranger_answers(tmp_path: Path) -> None:
         assert result.returncode != 0
         assert "http://localhost" not in result.stdout
         assert str(stranger.pid) in result.stdout
+        # This branch is the only refusal that leaves a running server the user did
+        # not have before, so it owes them the same handle the timeout branch gives.
+        assert "backend.pid is kept" in result.stdout
         assert not _wait_until_gone(stranger.pid, timeout=1)
     finally:
         _reap(stranger, ours)
@@ -1355,3 +1378,39 @@ def test_a_port_that_is_not_a_number_is_refused(
     assert variable in result.stdout
     assert "80l1" in result.stdout
     assert "not running" not in result.stdout
+
+
+@pytest.mark.unit
+def test_start_does_not_claim_a_port_whose_answer_has_gone(tmp_path: Path) -> None:
+    """`listeners_on` returns nothing only when its own re-probe agrees the port is
+    silent, so an empty answer means whatever replied a moment ago is gone -- and the
+    one thing that cannot be true then is that our pid is serving the port. Falling
+    through to the green URL here is the same lie as claiming a stranger's server,
+    reached by the other route."""
+    port = _free_port()
+    fleeting = subprocess.Popen(  # noqa: S603 - fixed interpreter and script
+        [sys.executable, "-c", _ONE_SHOT_LISTENER, str(port)],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert fleeting.stdout is not None
+    assert fleeting.stdout.readline().strip() == "listening"
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    # The stub outlives the one connection `port_answers` makes, so by the time it
+    # answers, the port really is empty -- "nothing matched", not a broken lookup.
+    environment = _path_with_stubs(
+        tmp_path, docker="echo ontoprism-postgres", lsof="sleep 0.3; exit 1"
+    )
+    environment["BACKEND_PORT"] = str(port)
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = "2"
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "http://localhost" not in result.stdout
+        assert f"did not listen on :{port}" in result.stdout
+    finally:
+        _reap(fleeting, ours)

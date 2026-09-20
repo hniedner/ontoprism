@@ -497,10 +497,11 @@ def ready_seconds() -> float:
 
 
 def _log_hint(target: Target) -> str:
-    """Point at the log only when this invocation could have written one.
+    """Point at the log only when there is one; existence, not authorship.
 
-    ``_await_listening`` also runs for a server an earlier ``start`` recorded, where
-    the log file may not exist at all.
+    ``_await_listening`` also runs for a server an earlier ``start`` recorded. This
+    invocation launched nothing there, so no log of its own exists -- and the log that
+    does exist is that earlier start's, which is still the log to read.
     """
     return f" — see {target.log_file}" if target.log_file.exists() else ""
 
@@ -539,16 +540,26 @@ def _await_listening(target: Target, pid: int, seconds: float) -> int:
             )
             return 1
         if port_answers(target.port):
-            # Something answers, but `port_answers` only opens a socket: it cannot
-            # tell our listener from a stranger's. The launch path refuses a port it
+            # Something answers, but `port_answers` only opens a socket: it can tell
+            # neither our listener from a stranger's nor a listener that is still
+            # there from one that answered and left. The launch path refuses a port it
             # does not own before launching, so this branch owes the same answer —
             # otherwise `start` prints a green URL for another app's server.
             holders = set(listeners_on(target.port))
-            if holders and not holders & set(group_members(pid)):
+            if not holders:
+                # `listeners_on` returns nothing only when its own re-probe agrees the
+                # port is silent, so whatever answered has gone and our pid is
+                # certainly not serving it. Keep waiting; the deadline below turns
+                # that into an honest failure.
+                time.sleep(0.1)
+                continue
+            if not holders & set(group_members(pid)):
                 red(
                     f"✗ {target.name}: :{target.port} is answered by pid(s) "
                     f"{_joined(sorted(holders))}, which are not in the group of "
-                    f"pid {pid}. {target.name} is running but is not serving it."
+                    f"pid {pid}. {target.name} is running but is not serving it"
+                    f"{_log_hint(target)}. {target.pid_file} is kept, so `stop` can "
+                    f"reach it."
                 )
                 return 1
             green(
