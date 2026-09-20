@@ -19,6 +19,35 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.25.1 (2026-09-20)
+
+### Bug Fixes
+
+- **tooling**: Wrappers that build their own operation, and a dev manager that never kills by port
+  ([#414](https://github.com/hniedner/ontoprism/pull/414),
+  [`6649b85`](https://github.com/hniedner/ontoprism/commit/6649b855e7580b2276267c297775e657fc5e059a))
+
+### Chores
+
+- **agents**: R0 part 1, finding rules, issue-steward and agent permission fixes
+  ([`5c011d3`](https://github.com/hniedner/ontoprism/commit/5c011d3b8aaefcb1fb1cbb386adafb0e3a8b1732))
+
+- **agents**: Standing merge authorization, contingent on the protocol and green workflows
+  ([#406](https://github.com/hniedner/ontoprism/pull/406),
+  [`ad15843`](https://github.com/hniedner/ontoprism/commit/ad15843836c5584cbe716c543ad4a1fede6c44b6))
+
+### Documentation
+
+- Update README code line-count table
+  ([`8206ab0`](https://github.com/hniedner/ontoprism/commit/8206ab09e5ab5bc34f6ea7e2d14dd41d805a8d28))
+
+- Update README code line-count table
+  ([`a226247`](https://github.com/hniedner/ontoprism/commit/a2262477da3fe7a5fd4dca953542e6c94d6911e9))
+
+- Update README code line-count table
+  ([`0655218`](https://github.com/hniedner/ontoprism/commit/0655218ff93953d18931208c69e706e48d76b03e))
+
+
 ## v0.25.0 (2026-09-19)
 
 ### Bug Fixes
