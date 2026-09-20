@@ -133,6 +133,16 @@ Start a new agent session for each issue. Do not carry one context across days o
   milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
+- **Never signal a process you did not start, and never choose one by port or by name.**
+  No `lsof -ti :PORT | xargs kill`, no sweep over a port range, no `pkill`, `killall` or
+  `fuser -k`. Record the pid you launched, together with its start time so a reused pid
+  is not mistaken for it, and signal that; a port that is held by something else is
+  reported by pid, never signalled. The rule holds inside scripts and tools this
+  repository ships, not only at an agent's prompt: on 2026-09-18 another project's port
+  sweep killed the Podman VM's `gvproxy` (docs/DATA_SETUP.md), and the guard that would
+  have caught it typed by hand is a Claude Code hook, which sees nothing a script does.
+  `scripts/dev.sh` is the worked example; `backend/tests/test_dev_script.py` keeps
+  `scripts/` to it.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
   volumes, resetting the Podman VM, overwriting a run artifact. Write new outputs to new
   paths; never overwrite an artifact another step may still need.
