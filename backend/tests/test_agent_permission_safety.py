@@ -346,10 +346,15 @@ def test_only_the_primary_and_the_test_analyzer_may_edit() -> None:
     them phantom test failures they had to recognise and discount (#389). The set is
     asserted whole rather than per agent, so a new agent has to be put on one side of
     it deliberately instead of inheriting whatever its template had."""
+    # `!= "deny"`, not `== "allow"`: `edit` may be written as a mapping, the way
+    # `pr-test-analyzer` already writes `external_directory: {"*": ask}`. A mapping
+    # equals neither string, so testing for "allow" would drop `edit: {"*": allow}`
+    # out of the set and pass for the wrong reason. Inverted, anything that is not a
+    # flat deny -- a mapping, an `ask`, a typo -- lands in the set and trips.
     allowed = {
         agent
         for agent in _AGENTS
-        if _frontmatter(agent)["permission"]["edit"] == "allow"
+        if _frontmatter(agent)["permission"]["edit"] != "deny"
     }
 
     assert allowed == set(_MAY_MUTATE)
@@ -373,6 +378,24 @@ def test_an_agent_that_may_not_edit_may_not_write_through_the_pristine_wrapper(
     writes bytes back, and it runs through bash, not the edit tool. Dimension 3 needs
     that wrapper; nothing that reviews alongside it does."""
     assert _resolve(agent, command) == "deny"
+
+
+def test_only_the_test_analyzer_has_any_pristine_rule_at_all() -> None:
+    """The test above resolves three literal paths, so an allow scoped to a path it
+    does not name -- `"pdm run agent-pristine restore backend/*"` -- would leave the
+    reviewer able to write bytes into the worktree with the whole suite green.
+    Observed: that rule passes all 1198 cases. This asserts the rules themselves, so
+    no pattern can hide behind the probe's choice of path."""
+    writers = {
+        agent
+        for agent in _AGENTS
+        if any(
+            "agent-pristine" in pattern and rule == "allow"
+            for pattern, rule in _bash_rules(agent).items()
+        )
+    }
+
+    assert writers == {"pr-test-analyzer"}
 
 
 _STEWARD = "issue-steward"
