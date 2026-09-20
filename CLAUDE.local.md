@@ -1,8 +1,9 @@
 # CLAUDE.local.md — ontoprism project standards
 
-Project-specific testing standards. The workflow (milestone branches with issue PRs, CI
-as the gate of record, five-dimension review to convergence, scope discipline,
-long-run rules) lives in `AGENTS.md`,
+Project-specific testing standards. The workflow (milestone branches; issues merge
+into them locally with no PR, CI on the pushed milestone branch as the per-issue gate,
+one five-dimension review per milestone, scope discipline, long-run rules) lives in
+`AGENTS.md`,
 which `CLAUDE.md` imports; this file only deepens the testing rules. These are enforced,
 not aspirational.
 
@@ -13,7 +14,9 @@ every edit" — that reading is what stalled the project in September 2026.
 
 - Inner loop: the tests for the code being changed (`pdm run agent-test <path>`).
 - On commit: pre-commit. Broad change: `pdm run test-unit` (about 4.5 minutes).
-- Once before the PR: `pdm run verify`. Gate of record: CI on the PR.
+- Once before merging an issue: `pdm run lint` and `pdm run verify`. Gate of record per
+  issue: the CI run on the pushed milestone branch. Per milestone: CI and CodeQL on the
+  milestone PR.
 - Real-store (`full_store`) contracts: when the change touches that store's contract, and
   before merging such a change — not per commit.
 

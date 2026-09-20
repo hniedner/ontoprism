@@ -7,6 +7,43 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-20 — review once per milestone, not once per issue
+
+### D92. An issue merges into its milestone branch locally; the five-dimension review runs once per milestone
+
+**Context.** D89 made CI the gate of record on issue PRs into milestone branches and put
+the five-dimension review on every issue PR. That fixed the September stall, and it cost
+more than the defects it found were worth: a reviewer agent measured about 145k tokens
+and a full round about 725k, and #389 ran to eight rounds on a single issue, with about
+seven minutes of CI plus dependency review on every push. The review was the largest
+single cost in the loop.
+
+**Decision (owner, 2026-09-20).** An issue branch merges into its milestone branch
+**locally, with no PR and no five-dimension review**, and is then deleted. The milestone
+branch is **pushed immediately after each merge, and that CI run must be green before the
+next issue starts**; merges are never batched before a push. The five-dimension review
+runs **once per milestone**, to convergence, on `git diff --no-ext-diff main...HEAD`
+with the milestone branch checked out (the reviewer maps allow only a `<ref>...HEAD` form, so
+`main...<milestone branch>` is refused), before the milestone PR is opened; that PR's
+body carries the five verdicts, every dropped finding and every deferral. A change belonging to no
+milestone is unaffected: it still takes a PR into `main` with the full review. This
+supersedes D89's per-issue PR and per-issue review; D89's third change, splitting a
+stalled milestone rather than extending it, stands.
+
+**Why it is not a return to September.** The failure then was 94k unreviewed lines on a
+milestone branch with **no CI run at all**. CI triggers on `push` to `main` and
+`feat/m[0-9]*` (`.github/workflows/ci.yml`), so every issue merge is still gated by a
+full CI run within minutes of landing — the automated gate is unchanged, and only the
+subagent review moves. The rule that makes this true, and that must not be relaxed, is
+that the milestone branch is pushed after every single issue merge and goes green before
+the next issue begins.
+
+**Consequence worth knowing.** On a `push` run there is no `GITHUB_BASE_REF` and no
+`FALLOW_BASE`, so the frontend fallow gate compares the milestone branch against
+`origin/main` and audits everything the milestone has accumulated, not only the issue
+just merged. It blocks rather than warns, so the whole milestone diff has to stay
+fallow-clean.
+
 ## 2026-09-19 — standing merge authorization
 
 ### D91. Merges into `main` need the protocol, not a per-PR authorization
@@ -40,7 +77,8 @@ commit message (the body stays empty while the squash message is `BLANK`); the h
 branch is left to GitHub under `delete_branch_on_merge` (unconfirmed) or else deleted by
 the wrapper; no agent map allows `gh pr merge`, which closes the wildcard gaps a
 permission pattern could not.)* Issue PR titles inside a milestone no longer reach the
-release, so a milestone PR takes the highest-impact type among its issue PR titles.
+release, so a milestone PR takes the highest-impact type among the issue commit
+subjects on its branch (D92; before D92, among its issue PR titles).
 D85's and D89's exact-PR-number requirement is superseded.
 
 **Why.** The protocol is what makes a merge safe; the per-PR question only repeated an
@@ -92,6 +130,13 @@ the helpers would force one of those costs onto the other path.
 ## 2026-09-17 — recovery: tiered gates, reviewed issue PRs, no self-certifying machinery
 
 ### D89. CI is the gate of record on issue PRs into milestone branches; rules and roster cut back
+
+> **Superseded in part by D92 (2026-09-20).** Issues no longer take a PR into the
+> milestone branch and are no longer reviewed individually; the five-dimension review
+> runs once per milestone. The rest of D89 — tiered gates, no self-certifying
+> machinery, splitting a stalled milestone — stands. D89's PR-sizing rationale does
+> not: granularity no longer trades against review cost, because the review runs once
+> per milestone (D92).
 
 **Context.** Between 2026-09-06 and 2026-09-17 about seventy commits on the M1.6 branches
 produced no user-visible change and nothing reached `main`. A review found the causes in

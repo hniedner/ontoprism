@@ -9,11 +9,24 @@ These rules apply to every agent and harness (OpenCode, Claude Code, others).
 
 ## How work flows
 
+> **Owner decision, 2026-09-20 (D92).** An issue branch merges into the milestone
+> branch **locally, with no PR and no five-dimension review**. The milestone branch is
+> **pushed immediately after each issue merge, and that CI run must go green before the
+> next issue starts** — CI triggers on `push` to `main` and `feat/m[0-9]*`, so this is
+> the per-issue gate that replaces the issue PR. The five-dimension review runs **once
+> per milestone**, to convergence, on `git diff --no-ext-diff main...HEAD` with the
+> milestone branch checked out, before the milestone PR is opened. The reason is cost:
+> a review round measured ~145k tokens per reviewer and ~725k per full round on #389,
+> and ran to eight rounds on one issue. This supersedes D89. The rest of this file is
+> written to match; #338 shortens it.
+
 Work is organised in **milestones**. A milestone has a milestone branch off `main`
 (`feat/m<number>-<slug>`). Each issue gets an issue branch forked from the milestone
-branch and merges back into it through a PR. When every issue of the milestone is merged,
+branch and merges back into it. When every issue of the milestone is merged,
 the milestone branch gets its own PR to `main`. A change that belongs to no milestone
-(a hotfix, a dependency bump) uses the same steps with `main` as its base.
+(a hotfix, a dependency bump) does **not** use steps 8-10: it is never merged locally
+into `main`. It follows steps 1-7 on its own branch, then takes a PR into `main`,
+reviewed in all five dimensions.
 
 For each issue:
 
@@ -25,15 +38,21 @@ For each issue:
 4. Make it pass with the least code. Refactor with tests green.
 5. Inner loop: run only the tests for the code you touched (seconds to two minutes).
 6. Commit. Pre-commit runs on the commit.
-7. Before opening the PR, run `pdm run verify` once.
-8. Open the PR **into the milestone branch**. CI runs on it. **CI on the PR is the gate
-   of record.**
-9. Review the PR in all five dimensions to convergence (see Review).
-10. When every check passes, all five dimensions have converged and the PR body lists
-    the five review verdicts and every dropped and deferred finding, squash-merge the
-    issue PR into the milestone branch and delete the issue branch. This merge does not
-    need the owner. Then watch the CI run on the milestone branch (post-merge watch,
-    below).
+7. Before merging — for a change that belongs to no milestone, before opening its PR —
+   run `pdm run lint` as a fast fail, then `pdm run verify` once. `verify` already runs
+   ruff and basedpyright through pre-commit, so `lint` adds no coverage; it just fails
+   in seconds instead of minutes. If `.opencode/agent/*.md`
+   changed, also run the permission contract against the real OpenCode binary; a skip is
+   not a pass.
+8. **Merge the issue branch into the milestone branch locally — no PR, no five-dimension
+   review** — and delete the issue branch. For OpenCode the merge is
+   `pdm run agent-git merge-no-ff <branch>`, a **prompted** command: the owner approves
+   it or does it (`git merge` is denied outright in the maps).
+9. **Push the milestone branch immediately** and watch that CI run to completion
+   (post-merge watch, below). **That run is the gate of record for the issue.** Never
+   batch several issue merges before pushing.
+10. If the run is red, stop: do not start the next issue. Fix the cause on a new issue
+    branch and repeat from step 3.
 
 For the milestone:
 
@@ -41,22 +60,26 @@ For the milestone:
     local merge is a prompted command for the agent, for OpenCode `pdm run agent-git
     merge-no-ff <branch>`, which merges the local branch, so update local `main` first
     with `git fetch origin main:main`, also prompted; the owner approves it or does it),
-    run `pdm run verify` once, and open the milestone PR to `main`. Only this PR's title
-    reaches the release (see Conventions), so its type is the highest-impact type among
-    its issue PR titles (`feat` > `fix` or `perf` > any other), and a `!` on any of them
-    carries over; a `BREAKING CHANGE:` footer never reaches the release, because the
-    squash body is blank. Its body lists the issue PR titles, the five review verdicts,
-    every deferral collected from the issue PR bodies (blockers first) and every pending
-    edit to this milestone's description (see "What a finding becomes", step 5). Its
-    review is an integration pass: what the issue reviews could not see (interactions
-    between issues, migrations in sequence, the combined diff against `main`).
+    run `pdm run verify` once, **run the five-dimension review to convergence on
+    `git diff --no-ext-diff main...HEAD` with the milestone branch checked out** (see
+    Review), and then open the
+    milestone PR to `main`. Only this PR's title reaches the release (see Conventions),
+    so its type is the highest-impact type among the issue commit subjects on the branch
+    (`feat` > `fix` or `perf` > any other), and a `!` on any of them carries over; a
+    `BREAKING CHANGE:` footer never reaches the release, because the squash body is
+    blank. Its body lists the issues the milestone landed, the five review verdicts,
+    every dropped finding, every deferral (blockers first) and every pending edit to this
+    milestone's description (see "What a finding becomes", step 5). This is the only
+    review the milestone gets, so it reads the whole diff, not a sample.
 12. Merge the milestone PR to `main` once the protocol is met; the owner's standing
     authorization covers it (see Hard rules, D91). After it, watch the CI run on `main`
     (post-merge watch, below) before starting the next milestone.
 
-**Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
-full merge SHA that `pdm run agent-github pr-merge` prints (`merge_commit`), or from `gh
-pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll `gh run list --workflow
+**Post-merge watch (steps 9 and 12).** Find the CI run for the merge commit. After a
+local issue merge (step 9) the SHA is `git rev-parse HEAD` on the milestone branch once
+the merge is pushed; after a PR merge (step 12) it is the full merge SHA that
+`pdm run agent-github pr-merge` prints (`merge_commit`), or `gh pr view <n> --json
+mergeCommit --jq .mergeCommit.oid`. Then poll `gh run list --workflow
 CI --event push --commit <sha> --json databaseId,conclusion` up to ten times, about a
 minute apart (the OpenCode primary waits with `sleep 60`; other harnesses use their own
 bounded wait). A short SHA matches nothing; never take the newest run on the branch
@@ -65,7 +88,7 @@ instead. If no run appears by then, that is a failure. Watch the run with `gh ru
 conclusion` says `cancelled` and a newer push run exists on the branch
 (`cancel-in-progress` cancels a run when another merge follows); then watch that newer
 run, which tests the combined tree, and repeat. On a failure, stop: do not start the
-next issue or milestone, report it to the owner, and fix the cause through an issue PR
+next issue or milestone, report it to the owner, and fix the cause on a new issue branch
 ("What a finding becomes"). The agent does not judge whether a merge into `main`
 produced a release: the `Release` guard can hand a release to a newer merge, so that
 cannot be read reliably from outside `release.yml`, and making a lost release visible is
@@ -74,27 +97,33 @@ tracked in #131.
 Three rules keep this model from stalling, as it did in September when a milestone branch
 grew to 94k unreviewed lines with no CI run:
 
-- **CI must run on the milestone branch.** Never merge an issue branch into it locally.
-  If an issue PR shows no CI checks, stop and fix the workflow triggers first.
-- **Review happens per issue PR, while the diff is small.** Never defer review to the
-  milestone PR.
+- **CI must run on the milestone branch, per issue.** Push the milestone branch
+  immediately after each issue merge and watch that run to completion. Never batch
+  several issue merges before pushing, and never start the next issue while that run is
+  red. If a push produces no CI run, stop and fix the workflow triggers first. This is
+  what replaces the issue PR, and it is the rule that keeps the September failure from
+  recurring.
+- **Review happens once per milestone, on the whole diff against `main`**, before the
+  milestone PR is opened.
 - **A stalled milestone is split, not extended.** If the remaining issues are blocked or
   have grown, move them to a follow-on milestone and land what is finished. Ask the owner
   to confirm the split.
 
-Start a new agent session for each issue. Do not carry one context across days of work.
+One session may carry a whole milestone. Start a new one when context is exhausted or
+the work changes character; do not carry one context across days of work.
 
 ## Hard rules
 
-- **Never commit to `main`.** Everything lands through a PR. `main` is protected: no
+- **Never commit to `main`.** Everything reaches `main` through a PR. `main` is protected: no
   force-push, no deletion.
 - **Merge authorization is standing and contingent on the protocol.** The owner has
   authorized agents (2026-09-19, D91) to merge a PR into `main` without asking per PR,
   and only when both hold. First, the branch was vetted, tested and reviewed under the
-  protocol: for a change that belongs to no milestone, steps 1-10 with `main` as base;
-  for a milestone PR, step 11 after every issue PR met steps 1-10. That includes
-  `pdm run verify` before the PR was opened, all five review dimensions converged, and
-  a body as step 10 or 11 describes. Second, every expected check passes under the
+  protocol: for a change that belongs to no milestone, steps 1-7 and a PR into `main`
+  reviewed in all five dimensions; for a milestone PR, step 11 after every issue met
+  steps 1-10. That includes `pdm run verify` before the PR was opened, all five review
+  dimensions converged on the milestone diff, and a body as step 11 describes. Second,
+  every expected check passes under the
   check rule below. If either fails, do not merge. GitHub does not yet enforce
   required checks on `main` (#405), so keeping the check rule is the agent's job.
 - **Never merge any PR, into `main` or a milestone branch, unless every expected check
@@ -106,7 +135,7 @@ Start a new agent session for each issue. Do not carry one context across days o
   merging; after a retarget, push a new commit (a re-run keeps the old base) before
   counting checks. New commits on the base branch, such as the release and README bot
   commits on `main`, do not void a run; a merge skew between two PRs shows up in the CI
-  run on the base branch after the merge, which steps 10 and 12 watch, and whether
+  run on the base branch after the merge, which steps 9 and 12 watch, and whether
   GitHub should require up-to-date branches is decided in #405. Ignore the rows whose
   event is `push` (`gh pr checks <n> --json name,event,bucket`): a PR whose head is a
   milestone branch also shows push rows under the same names, while CodeQL's aggregate
@@ -196,8 +225,9 @@ aggregate coverage above 90%. What changed is *when* each lane runs.
 | Inner loop | the tests for what you touched | `pdm run agent-test <path>[::test] -v` |
 | Before commit, if the change is broad | hermetic unit lane (about 4.5 minutes, measured 2026-09-17) | `pdm run test-unit` |
 | On commit | pre-commit hooks | automatic |
-| Before PR, once | everything CI runs | `pdm run verify` |
-| Gate of record | CI on the PR | `gh pr checks <n>` |
+| Before merging an issue, once | lint as a fast fail, then everything CI runs | `pdm run lint`, `pdm run verify` |
+| Gate of record, per issue | CI on the pushed milestone branch | `gh run list --workflow CI --event push --commit <sha>` |
+| Gate of record, per milestone | CI and CodeQL on the milestone PR | `gh pr checks <n>` |
 | After editing `.opencode/agent/*.md` | contract against the real OpenCode binary; a skip is not a pass. The binary is auto-discovered on the owner's machine; elsewhere the owner exports `ONTOPRISM_OPENCODE_BIN` before launching (an inline prefix is prompted or denied for an agent) | `pdm run agent-test backend/tests/test_agent_permission_safety.py` |
 | When the change touches a real store contract | read-only contracts on configured corpora | `pdm run agent-test --full-store <node> -v` |
 
@@ -333,16 +363,20 @@ Lint and format: `pdm run lint` (ruff + basedpyright), `pdm run fmt`. Frontend, 
 fallow gate reports only findings new against the PR base: in CI that is the real base;
 locally it is `origin/main` unless `FALLOW_BASE=<milestone branch>` is set (for an agent
 that prefix is a prompted command), so a local run on an issue branch may show findings
-from sibling issue PRs (over-strict, never silent; CI is the gate of record).
+from sibling issues already merged into the milestone branch. The same holds for the
+per-issue gate itself: a `push` run sets no `GITHUB_BASE_REF` and no `FALLOW_BASE`, so
+fallow compares against `origin/main` and audits everything the milestone has
+accumulated, not only the issue you merged. It blocks rather than warns, so keep the
+whole milestone diff fallow-clean.
 Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D30/D31).
 
 ## Review
 
-Before the PR is marked ready, review the committed diff against the PR's base branch
-(the milestone branch for an issue PR, `main` for a milestone PR:
-`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, on every PR** (round 1
-is all five; later rounds re-run only what has not converged — see "Which dimensions run
-in which round"). The owner's account of the #73 review is that each dimension caught a
+Review runs **once per milestone** (owner decision, 2026-09-20): before the milestone
+PR is opened, check out the milestone branch and review
+`git diff --no-ext-diff main...HEAD` in **all five dimensions** (round 1 is all five;
+later rounds re-run only what has not converged — see "Which dimensions run in which
+round"). The owner's account of the #73 review is that each dimension caught a
 class of defect the others missed; that is why round 1 with a subset is never acceptable:
 
 1. **Correctness and project rules** (`pr-code-reviewer`)
@@ -392,9 +426,10 @@ nothing and is the main way a PR's review bill multiplies.
 - **Brief every re-run** with its own previous findings and what was done about each, and
   point it at the fix range, not the whole diff.
 
-Size is decided when the work is planned: one issue or one coherent change per PR, with
-granularity balanced against the cost of a five-dimension review and the workflows every
-PR triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+Size is decided when the work is planned: one issue or one coherent change per issue
+branch. Review cost no longer scales with issue granularity, because the review runs once
+per milestone; what each issue still costs is a CI run on the milestone branch (about
+seven minutes). Split at planning
 time, not at review time.
 
 ### What a finding becomes
@@ -408,10 +443,10 @@ real, is fixed where it was found, and is filed at most once:
    together with the input or state that triggers it. One that cannot be verified is
    dropped, with a one-line reason in the PR body. Never file, fix or "harden against" an
    unverified finding.
-2. **Fix it where it was found**: in the issue PR that surfaced it, including for
-   findings in code the PR only touches in passing. A finding on a milestone PR is fixed
-   through an issue branch and a PR into the milestone branch, never as a direct commit;
-   that PR references the issue whose change the finding concerns.
+2. **Fix it where it was found**: on the issue branch that surfaced it, including for
+   findings in code it only touches in passing. A finding from the milestone review is
+   fixed on a new issue branch merged into the milestone branch, never as a direct commit
+   to it; its commit references the issue whose change the finding concerns.
 3. **Defer only a major, out-of-scope finding** (a blocker included): one whose fix needs
    its own design, its own tests and its own review, and does not belong to the issue's
    contract. Size alone is not a reason, and neither is inconvenience. List every
@@ -451,7 +486,7 @@ steward.
   its subject is the PR title with ` (#<n>)` appended, and its body is empty because the
   repository's squash message is `BLANK` (D91). A merge body would be parsed too;
   `pdm run agent-github pr-merge` passes none, and no agent map allows `gh pr merge`.
-  Issue PR titles inside a milestone do not reach the release; the
+  Issue commit subjects inside a milestone do not reach the release; the
   milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.

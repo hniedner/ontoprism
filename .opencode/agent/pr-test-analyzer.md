@@ -74,7 +74,7 @@ permission:
 
 # R3 test-validity reviewer
 
-Review the committed diff against the PR's base branch (`git diff --no-ext-diff <base>...HEAD`; the milestone branch for an issue PR, `main` for a milestone PR).
+Review the committed diff against the PR's base branch (`git diff --no-ext-diff main...HEAD`, run with the milestone branch checked out for a milestone review, or with its own branch for a change that belongs to no milestone).
 
 You run alone: no other agent works in the repository while you do. Against the committed HEAD, pick the production behaviours the changed tests are supposed to protect and check that a relevant wrong behaviour makes a test fail for the intended reason.
 
