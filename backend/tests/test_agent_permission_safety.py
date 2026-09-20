@@ -354,7 +354,9 @@ def test_only_the_primary_and_the_test_analyzer_may_edit() -> None:
     allowed = {
         agent
         for agent in _AGENTS
-        if _frontmatter(agent)["permission"]["edit"] != "deny"
+        # `.get`, so an agent file that omits `edit:` entirely names itself here
+        # instead of dying on a bare KeyError ten files from the cause.
+        if _frontmatter(agent)["permission"].get("edit", "missing") != "deny"
     }
 
     assert allowed == set(_MAY_MUTATE)
@@ -380,22 +382,43 @@ def test_an_agent_that_may_not_edit_may_not_write_through_the_pristine_wrapper(
     assert _resolve(agent, command) == "deny"
 
 
-def test_only_the_test_analyzer_has_any_pristine_rule_at_all() -> None:
-    """The test above resolves three literal paths, so an allow scoped to a path it
-    does not name -- `"pdm run agent-pristine restore backend/*"` -- would leave the
-    reviewer able to write bytes into the worktree with the whole suite green.
-    Observed: that rule passes all 1198 cases. This asserts the rules themselves, so
-    no pattern can hide behind the probe's choice of path."""
-    writers = {
-        agent
-        for agent in _AGENTS
-        if any(
-            "agent-pristine" in pattern and rule == "allow"
-            for pattern, rule in _bash_rules(agent).items()
-        )
+# Every bash pattern an agent outside `_MAY_MUTATE` is allowed to run today. It is
+# pinned as a whole rather than screened for the dangerous spellings, because a
+# screen only sees the shapes it was written for: a substring test for
+# "agent-pristine" misses `"pdm run agent-* restore backend/*"`, and a probe on a
+# literal path misses anything scoped away from that path. Both were observed green.
+_READ_ONLY_ALLOWS = frozenset(
+    {
+        "git diff --check *...HEAD",
+        "git diff --check main...HEAD",
+        "git diff --name-only *...HEAD",
+        "git diff --no-ext-diff *...HEAD",
+        "git diff --no-ext-diff main...HEAD",
+        "git log --oneline -10",
+        "git merge-base * HEAD",
+        "git rev-parse HEAD",
+        "git show --stat --oneline HEAD",
+        "git status --porcelain",
+        "git status --short --branch",
+        "pdm run agent-github-read *",
+        "pdm run agent-test *",
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "agent", [agent for agent in _AGENTS if agent not in _MAY_MUTATE]
+)
+def test_a_read_only_agent_gains_no_command_without_review(agent: str) -> None:
+    """None of these reads or writes outside the repository, and none writes inside
+    it. Widening the list is the decision this test exists to make visible: a new
+    allow for an agent that reviews alongside dimension 3 has to be added here, where
+    it is read against that sentence, rather than arriving inside an agent file."""
+    granted = {
+        pattern for pattern, rule in _bash_rules(agent).items() if rule == "allow"
     }
 
-    assert writers == {"pr-test-analyzer"}
+    assert granted <= set(_READ_ONLY_ALLOWS)
 
 
 _STEWARD = "issue-steward"
