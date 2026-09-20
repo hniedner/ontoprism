@@ -4,7 +4,8 @@ on:
   push:
     branches: [main, 'feat/m[0-9]*']
   pull_request:
-    # Milestone branches (feat/m<number>-<slug>) receive issue PRs; CI must see them.
+    # Milestone branches take a PR to `main`; issues merge into them locally and are
+    # gated by the push trigger above (owner decision 2026-09-20, D92).
     branches: [main, 'feat/m[0-9]*']
   # On-demand CI for a feature branch that has no pull request yet: workflow_dispatch
   # runs every ordinary job; only Docker and the pinned embedding-model contract remain
