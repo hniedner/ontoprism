@@ -227,6 +227,10 @@ def test_no_agent_may_run_a_destructive_or_bypassing_command(
         "pdm run agent-github pr-create --title x --head feat/x",
         "pdm run agent-github pr-merge 12 --head "
         "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
+        # D92: an issue merges into the milestone branch locally, once per issue. The
+        # wrapper refuses to merge while HEAD is main/master or detached, so it cannot
+        # reach a protected branch (pinned in test_agent_git_runner.py).
+        "pdm run agent-git merge-no-ff feat/x",
         "pdm run agent-test --safe-integration backend/tests/test_x.py::test_y",
     ],
 )
@@ -260,6 +264,10 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "git add backend/src/backend/main.py",
         "pdm run agent-git switch-existing feat/m1-6-1-provisional-publication",
         "pdm run agent-git switch-new feat/x-1",
+        # D92: the primary merges each issue into the milestone branch locally. The
+        # wrapper refuses while HEAD is main/master or detached, so it cannot reach a
+        # protected branch (pinned in test_agent_git_runner.py).
+        "pdm run agent-git merge-no-ff feat/x-1",
         "pdm run agent-git commit-staged --message x",
         "pdm run agent-git push-origin feat/x-1",
         "pdm run agent-github pr-create --title x --body-file tmp/plans/pr.md "
@@ -282,7 +290,6 @@ def test_the_primary_agent_can_work_without_dispatching_a_subagent(
     [
         "cat README.md",
         "pdm run decompose --branch neoplasm",
-        "pdm run agent-git merge-no-ff feat/x",
         "git fetch origin feat/m1-6-1-provisional-publication",
         # path-taking inspection forms prompt: a pattern list cannot confine their paths
         "ls -la src",

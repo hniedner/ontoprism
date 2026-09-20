@@ -46,8 +46,9 @@ For each issue:
    not a pass.
 8. **Merge the issue branch into the milestone branch locally — no PR, no five-dimension
    review** — and delete the issue branch. For OpenCode the merge is
-   `pdm run agent-git merge-no-ff <branch>`, a **prompted** command: the owner approves
-   it or does it (`git merge` is denied outright in the maps).
+   `pdm run agent-git merge-no-ff <branch>`, which the primary runs without asking: the
+   wrapper refuses to merge while `HEAD` is `main`, `master` or detached, so it cannot
+   reach a protected branch. Bare `git merge` stays denied.
 9. **Push the milestone branch immediately** and watch that CI run to completion
    (post-merge watch, below). **That run is the gate of record for the issue.** Never
    batch several issue merges before pushing.
@@ -56,10 +57,10 @@ For each issue:
 
 For the milestone:
 
-11. When all its issues are merged, bring current `main` into the milestone branch (a
-    local merge is a prompted command for the agent, for OpenCode `pdm run agent-git
-    merge-no-ff <branch>`, which merges the local branch, so update local `main` first
-    with `git fetch origin main:main`, also prompted; the owner approves it or does it),
+11. When all its issues are merged, bring current `main` into the milestone branch (for
+    OpenCode, `pdm run agent-git merge-no-ff main` from the milestone branch, which needs
+    no prompt; it merges the *local* `main`, so update it first with
+    `git fetch origin main:main`, which is still a prompted command),
     run `pdm run verify` once, **run the five-dimension review to convergence on
     `git diff --no-ext-diff main...HEAD` with the milestone branch checked out** (see
     Review), and then open the
