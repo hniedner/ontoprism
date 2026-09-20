@@ -23,8 +23,9 @@ single cost in the loop.
 branch is **pushed immediately after each merge, and that CI run must be green before the
 next issue starts**; merges are never batched before a push. The five-dimension review
 runs **once per milestone**, to convergence, on `git diff --no-ext-diff main...HEAD`
-with the milestone branch checked out (the only diff form the reviewer maps allow), before the milestone PR is opened; that PR's body carries the
-five verdicts, every dropped finding and every deferral. A change belonging to no
+with the milestone branch checked out (the maps allow only a `<ref>...HEAD` form, so
+`main...<milestone branch>` is refused), before the milestone PR is opened; that PR's
+body carries the five verdicts, every dropped finding and every deferral. A change belonging to no
 milestone is unaffected: it still takes a PR into `main` with the full review. This
 supersedes D89's per-issue PR and per-issue review; D89's third change, splitting a
 stalled milestone rather than extending it, stands.
