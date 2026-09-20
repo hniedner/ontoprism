@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+LOG_DIR = ".dev-logs"
 
 _LISTENER = """
 import socket, sys, time
@@ -101,6 +102,19 @@ def _spawn_listener(port: int) -> subprocess.Popen[str]:
     return process
 
 
+# `pdm`/`npm` dying while the server they started keeps running: the launcher exits as
+# soon as the child is up, so the recorded pid is gone and its group is not.
+_LEADER_THAT_EXITS = """
+import subprocess, sys
+child = subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2]], stdout=subprocess.PIPE, text=True
+)
+assert child.stdout is not None
+assert child.stdout.readline().strip() == "listening"
+print(child.pid, flush=True)
+"""
+
+
 def _spawn_client(port: int) -> subprocess.Popen[str]:
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter and script
         [sys.executable, "-c", _CLIENT, str(port)],
@@ -123,6 +137,20 @@ def _spawn_leader_of(child: str, port: int) -> tuple[subprocess.Popen[str], int]
     )
     assert process.stdout is not None
     return process, int(process.stdout.readline())
+
+
+def _spawn_leader_that_exits(port: int) -> tuple[int, int]:
+    """Returns (leader pid, child pid) once the leader has exited."""
+    process = subprocess.Popen(  # noqa: S603 - fixed interpreter and script
+        [sys.executable, "-c", _LEADER_THAT_EXITS, _LISTENER, str(port)],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert process.stdout is not None
+    child = int(process.stdout.readline())
+    assert process.wait(timeout=10) == 0
+    return process.pid, child
 
 
 def _path_with_stubs(tmp_path: Path, **stubs: str) -> dict[str, str]:
@@ -295,7 +323,7 @@ def test_start_does_not_launch_a_second_server_when_it_cannot_tell(
         result = _start(root, environment)
 
         assert result.returncode != 0
-        assert "cannot tell" in result.stdout + result.stderr
+        assert "'ps' lookup failed" in result.stdout + result.stderr
         assert "http://localhost" not in result.stdout
     finally:
         _reap(ours)
@@ -537,8 +565,98 @@ def test_start_reports_a_server_that_exited_instead_of_a_url(tmp_path: Path) -> 
 
     assert result.returncode != 0
     assert "http://localhost" not in result.stdout
-    assert "exited immediately" in result.stdout + result.stderr
+    assert "exited" in result.stdout + result.stderr
+    assert f"{LOG_DIR}/backend.log" in result.stdout + result.stderr
     assert not (root / ".dev-logs/backend.pid").exists()
+
+
+@pytest.mark.unit
+def test_stop_keeps_a_record_whose_pid_is_gone_while_its_group_still_runs(
+    tmp_path: Path,
+) -> None:
+    """The launcher exited before `stop` ran, but the server it started is still on
+    the port. Calling that a stale pidfile deletes the only record that the process is
+    ours and leaves it to be found by port. It is not signalled either: once the group
+    empties the pid can be reused, and a reused pid leading a group looks the same."""
+    port = _free_port()
+    leader, child = _spawn_leader_that_exits(port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", leader, "Thu Jan  1 00:00:00 1970")
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
+
+        assert result.returncode != 0
+        assert str(child) in result.stdout
+        assert "stale pidfile" not in result.stdout
+        assert (root / ".dev-logs/backend.pid").exists()
+        assert not _wait_until_gone(child, timeout=1)
+    finally:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(child, signal.SIGKILL)
+
+
+@pytest.mark.unit
+def test_a_record_that_cannot_be_read_is_not_a_verdict(tmp_path: Path) -> None:
+    """An unreadable pidfile used to decode as "not ours": green "stale pidfile", the
+    record deleted, and the live server it named left to be blamed on a stranger."""
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    (root / ".dev-logs/backend.pid").chmod(0o000)
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
+
+        assert result.returncode != 0
+        assert "stale pidfile" not in result.stdout
+        assert (root / ".dev-logs/backend.pid").exists()
+        assert not _wait_until_gone(ours.pid, timeout=1)
+    finally:
+        (root / ".dev-logs/backend.pid").chmod(0o600)
+        _reap(ours)
+
+
+@pytest.mark.unit
+def test_start_does_not_hand_out_a_url_for_a_server_that_dies_while_starting(
+    tmp_path: Path,
+) -> None:
+    """A fixed pause after launch only catches an instant crash; a server failing a
+    second later still got a green URL, and the next `stop` called that a stale
+    pidfile."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path,
+        docker="echo ontoprism-postgres",
+        pdm="sleep 1.2; exit 1",
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "http://localhost" not in result.stdout
+    assert "exited while starting" in result.stdout
+    assert not (root / ".dev-logs/backend.pid").exists()
+
+
+@pytest.mark.unit
+def test_data_services_that_fail_to_start_are_reported(tmp_path: Path) -> None:
+    """`docker compose up -d >/dev/null 2>&1 || true` hid the reason the stack was
+    down, leaving the user to debug the app instead of the services."""
+    port = _free_port()
+    stranger = _spawn_listener(port)
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path,
+        docker='[ "$1" = "compose" ] && { echo "boom" >&2; exit 1; }; echo none',
+    )
+    environment["BACKEND_PORT"] = str(port)
+    try:
+        result = _start(root, environment, "all")
+
+        assert "docker compose did not start the data services" in result.stdout
+        assert (root / ".dev-logs/compose.log").read_text().strip() == "boom"
+    finally:
+        _reap(stranger)
 
 
 @pytest.mark.unit
