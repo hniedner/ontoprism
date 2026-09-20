@@ -363,15 +363,33 @@ but keep the five separate verdicts.
 suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
 finding becomes"). A dimension has converged when a full pass reports no unresolved
 verified finding and its suggestions are addressed; a deferred finding counts as
-resolved only once the PR body lists it (step 3 below). A converged dimension is
-excluded from later rounds unless a later fix touches what it reviews (a new test
-re-arms test validity, a new docstring re-arms comment accuracy, a new error path
-re-arms silent failures); re-run only the non-converged ones, on the fix range, and
-brief each re-run with its previous findings and the outcome of each. There is no
-round ceiling, and an existing PR is never rejected as too big. Size is decided when
-the work is planned: one issue or one coherent change per PR, with granularity
-balanced against the cost of a five-dimension review and the workflows every PR
-triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+resolved only once the PR body lists it (step 3 below). There is no round ceiling, and
+an existing PR is never rejected as too big.
+
+**Which dimensions run in which round.** This is a rule about cost, not taste: a
+reviewer agent costs roughly 145k tokens and a full round of five roughly 725k
+(measured on #389, 2026-09-20). Re-running a dimension that has already converged buys
+nothing and is the main way a PR's review bill multiplies.
+
+- **Round 1: all five.** Always. 1, 2, 4 and 5 in parallel, then 3 alone.
+- **Every later round: only the dimensions that have not converged.** Never re-run a
+  converged dimension for reassurance, for completeness, or because the diff "feels"
+  different. If it converged, it is done.
+- **A converged dimension re-arms only when the fix range contains the kind of thing it
+  reviews**, and you name that thing when you re-run it: a changed or added test
+  re-arms test validity; a changed comment or docstring re-arms comment accuracy; a new
+  or changed error path re-arms silent failures; a new type, signature or invariant
+  re-arms type design; changed production logic re-arms correctness. A fix that only
+  reworded a message does not re-arm type design.
+- **Replacing the implementation re-arms everything**, because nothing the earlier
+  rounds reviewed still exists. This is one more reason to settle the approach before
+  the first review round rather than after it.
+- **Brief every re-run** with its own previous findings and what was done about each, and
+  point it at the fix range, not the whole diff.
+
+Size is decided when the work is planned: one issue or one coherent change per PR, with
+granularity balanced against the cost of a five-dimension review and the workflows every
+PR triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
 time, not at review time.
 
 ### What a finding becomes
