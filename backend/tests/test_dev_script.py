@@ -685,7 +685,7 @@ def test_start_does_not_hand_out_a_url_for_a_server_that_dies_while_starting(
 
     assert result.returncode != 0
     assert "http://localhost" not in result.stdout
-    assert "exited while starting" in result.stdout
+    assert "exited while waiting" in result.stdout
     assert not (root / ".dev-logs/backend.pid").exists()
 
 
@@ -1049,19 +1049,26 @@ def test_a_record_that_cannot_be_written_names_the_running_process(
     # Readable but not writable, the shape a `sudo` run leaves behind.
     (logs / "backend.pid").write_text("999999 1.0\n")
     (logs / "backend.pid").chmod(0o444)
+    # Bound before the try: a failing assertion below must not turn the cleanup into
+    # an UnboundLocalError that masks it and leaks the group — which is the state this
+    # test is in whenever it is run red.
+    named: re.Match[str] | None = None
     try:
         result = _start(root, environment)
 
         assert result.returncode != 0
         assert "could not be written" in result.stdout
-        # `start`'s own wrapper adds the port, so this pins that guard too: without
-        # it, `start` would report a clean failure for a server that is running.
+        # The pid below comes from `write_record`'s own message; the wrapper in
+        # `start` is what appends the port, so this assertion is what pins the
+        # wrapper firing on this path.
         assert f"check :{port}" in result.stdout
         assert "http://localhost" not in result.stdout
         named = re.search(r"is running as pid (\d+)", result.stdout)
-        # The message must name a pid that is real and reachable — that is the whole
-        # point of naming it, and the cleanup below is the proof.
         assert named is not None
+        # Naming the pid is only worth anything if it is reachable, so check that
+        # rather than leaving it to the cleanup, which suppresses exactly the error a
+        # fabricated pid would raise.
+        assert _is_running(int(named.group(1)))
     finally:
         (logs / "backend.pid").chmod(0o600)
         if named is not None:
@@ -1073,9 +1080,9 @@ def test_a_record_that_cannot_be_written_names_the_running_process(
 def test_a_record_that_cannot_be_removed_does_not_skip_the_other_target(
     tmp_path: Path,
 ) -> None:
-    """A bare `unlink()` raises OSError, which `_attempt` does not catch, so one
-    unremovable record took the whole command down and the second target was never
-    attempted — silently, with an empty stdout."""
+    """An unremovable record has to fail as a `DevError`, so `_attempt` keeps it to
+    its own target: `stop all` still attempts and names both, exits non-zero, and
+    does not fall out as a traceback with nothing on stdout."""
     root = _script_copy(tmp_path)
     logs = root / ".dev-logs"
     logs.mkdir(exist_ok=True)
@@ -1101,6 +1108,31 @@ def test_a_record_that_cannot_be_removed_does_not_skip_the_other_target(
         assert "Traceback" not in result.stderr
     finally:
         logs.chmod(0o755)
+
+
+@pytest.mark.unit
+def test_start_does_not_claim_a_port_a_stranger_answers(tmp_path: Path) -> None:
+    """`port_answers` only opens a socket, so a stranger on the port satisfies it.
+    The launch path refuses a port it does not own; the already-running path has to
+    reach the same answer, or `start` hands out a green URL for another app — which
+    is one `BACKEND_PORT=8001` away, the sibling app's port."""
+    port = _free_port()
+    stranger = _spawn_listener(port)
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(port)
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = "5"
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "http://localhost" not in result.stdout
+        assert str(stranger.pid) in result.stdout
+        assert not _wait_until_gone(stranger.pid, timeout=1)
+    finally:
+        _reap(stranger, ours)
 
 
 @pytest.mark.unit
@@ -1150,8 +1182,8 @@ def test_start_does_not_call_a_recorded_group_that_binds_nothing_running(
 ) -> None:
     """ "Already running" is not "already serving". A recorded group can be alive and
     bind nothing — `uvicorn --reload` restarting a worker that crashes on import is
-    the stated case — and reporting success there tells the user a broken stack is
-    up. The second `start` must reach the same verdict the first one did."""
+    the case `_await_listening` names — and reporting success there tells the user a
+    broken stack is up. The second `start` must reach the first one's verdict."""
     port = _free_port()
     leader, child = _spawn_leader_of(_LISTENER, _free_port())
     root = _script_copy(tmp_path)

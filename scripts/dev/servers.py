@@ -496,18 +496,33 @@ def ready_seconds() -> float:
     return seconds
 
 
-def _await_listening(target: Target, pid: int, seconds: float) -> int:
-    """``start`` is only honest once the port answers.
+def _log_hint(target: Target) -> str:
+    """Point at the log only when this invocation could have written one.
 
-    A server that fails just after launch — a bad config, a port taken inside a
-    container — would otherwise be reported as a working URL.
+    ``_await_listening`` also runs for a server an earlier ``start`` recorded, where
+    the log file may not exist at all.
+    """
+    return f" — see {target.log_file}" if target.log_file.exists() else ""
+
+
+def _await_listening(target: Target, pid: int, seconds: float) -> int:
+    """Is the pid ``start`` is responsible for actually serving on the port?
+
+    Asked of a server this command just launched and of one an earlier ``start``
+    recorded, because the honest answer is the same for both: a process that is
+    alive but binds nothing — a bad config, a port taken inside a container, a
+    `uvicorn --reload` worker that crashes on import — is not a working URL.
     """
     created = start_time_of(pid)
     if created is None:
-        red(f"✗ {target.name} exited immediately — see {target.log_file}")
+        red(f"✗ {target.name} is not running: pid {pid} is gone{_log_hint(target)}")
         return 1
     record = Record(pid, created)
-    write_record(target, record)
+    # Only when it would change: an already-running server's record is already on
+    # disk and correct, and a no-op rewrite that fails on a read-only pidfile would
+    # report a failure for a server that is up and serving.
+    if read_record(target) != record:
+        write_record(target, record)
     # The early exit covers a launcher whose whole group dies. It does not cover a
     # group that outlives its failed child -- `uvicorn --reload` restarting a worker
     # that crashes on import keeps the group alive -- so this bound is what ends that
@@ -518,9 +533,24 @@ def _await_listening(target: Target, pid: int, seconds: float) -> int:
     while time.monotonic() < deadline:
         if not target_alive(record):
             forget_record(target)
-            red(f"✗ {target.name} exited while starting — see {target.log_file}")
+            red(
+                f"✗ {target.name} exited while waiting for :{target.port}"
+                f"{_log_hint(target)}"
+            )
             return 1
         if port_answers(target.port):
+            # Something answers, but `port_answers` only opens a socket: it cannot
+            # tell our listener from a stranger's. The launch path refuses a port it
+            # does not own before launching, so this branch owes the same answer —
+            # otherwise `start` prints a green URL for another app's server.
+            holders = set(listeners_on(target.port))
+            if holders and not holders & set(group_members(pid)):
+                red(
+                    f"✗ {target.name}: :{target.port} is answered by pid(s) "
+                    f"{_joined(sorted(holders))}, which are not in the group of "
+                    f"pid {pid}. {target.name} is running but is not serving it."
+                )
+                return 1
             green(
                 f"✓ {target.name} → http://localhost:{target.port} "
                 f"(pid {pid}, logs: {target.log_file})"
@@ -531,8 +561,8 @@ def _await_listening(target: Target, pid: int, seconds: float) -> int:
     # can still reach the process, and the status says the question went unanswered.
     red(
         f"✗ {target.name} (pid {pid}) did not listen on :{target.port} within "
-        f"{seconds:g}s — "
-        f"see {target.log_file}. {target.pid_file} is kept, so `stop` can reach it."
+        f"{seconds:g}s{_log_hint(target)}. "
+        f"{target.pid_file} is kept, so `stop` can reach it."
     )
     return 1
 
