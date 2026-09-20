@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run repository-scoped issue/milestone mutations, pull-request create/edit
-mutations, and reads.
+mutations, a squash merge pinned to the reviewed head, and reads.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ MUTATION_OPERATIONS = frozenset(
         "milestone-reopen",
         "pr-create",
         "pr-edit",
+        "pr-merge",
     }
 )
 PROCESS_TIMEOUT_SECONDS = 30
@@ -53,6 +54,7 @@ MAX_LIST_LIMIT = 100
 MAX_GITHUB_NUMBER = 2_147_483_647
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 SAFE_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}\Z")
+FULL_SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class AgentGitHubInputError(ValueError):
@@ -203,6 +205,7 @@ def _invoke(
     *,
     payload: dict[str, object] | None = None,
     mutating: bool = False,
+    empty_ok: bool = False,
 ) -> Any:
     kwargs: dict[str, object] = {
         "cwd": root,
@@ -230,6 +233,8 @@ def _invoke(
             else "GitHub read operation failed"
         )
         raise AgentGitHubProcessError(message)
+    if empty_ok and not result.stdout.strip():
+        return None
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -264,6 +269,8 @@ def _api(
         runner,
         payload=payload,
         mutating=method != "GET",
+        # a successful DELETE answers with an empty body; nothing else may
+        empty_ok=method == "DELETE",
     )
 
 
@@ -866,6 +873,125 @@ def _pr_edit(
     return _validate_pr_mutation_result(result, expected_number=number)
 
 
+def _merge_arguments(arguments: list[str]) -> tuple[int, str, str]:
+    if not arguments:
+        raise AgentGitHubInputError("pr-merge requires a pull request number")
+    number = _positive_number(arguments[0], "pull request number")
+    options = _flags(arguments[1:], singles=frozenset({"--head", "--base"}))
+    if set(options) != {"--head", "--base"}:
+        raise AgentGitHubInputError("pr-merge requires --head and --base")
+    head = str(options["--head"])
+    if FULL_SHA.fullmatch(head) is None:
+        raise AgentGitHubInputError("--head must be a full 40-character commit SHA")
+    base = str(options["--base"])
+    if SAFE_BRANCH.fullmatch(base) is None or ".." in base:
+        raise AgentGitHubInputError("--base is invalid")
+    return number, head, base
+
+
+def _reviewed_pull(
+    number: int, head: str, base: str, root: Path, runner: CommandRunner
+) -> tuple[str, str]:
+    """The head branch and merge subject of the open PR whose head and base are the
+    ones reviewed; anything else is refused before a write."""
+    pull = _api("GET", f"{API_ROOT}/pulls/{number}", root, runner)
+    identity = _pull_identity(pull, expected_number=number)
+    if identity.state != "open" or identity.merged:
+        raise AgentGitHubInputError("pr-merge requires an open pull request")
+    pull_head, pull_base, title = pull.get("head"), pull.get("base"), pull.get("title")
+    if (
+        not isinstance(pull_head, dict)
+        or not isinstance(pull_base, dict)
+        or not isinstance(pull_head.get("sha"), str)
+        or not isinstance(pull_head.get("ref"), str)
+        or not isinstance(pull_base.get("ref"), str)
+        or not isinstance(title, str)
+    ):
+        raise AgentGitHubProcessError("GitHub pull request response is invalid")
+    head_repo = pull_head.get("repo")
+    if not isinstance(head_repo, dict) or head_repo.get("full_name") != REPOSITORY:
+        raise AgentGitHubInputError(f"#{number} head branch is not in {REPOSITORY}")
+    if pull_head["sha"] != head:
+        raise AgentGitHubInputError(
+            f"#{number} head moved: reviewed {head}, GitHub has {pull_head['sha']}"
+        )
+    if pull_base["ref"] != base:
+        raise AgentGitHubInputError(f"#{number} base is not {base}")
+    head_ref = _safe_branch(pull_head["ref"], "head branch")
+    title = _validate_text(title, "title", maximum=MAX_TITLE_LENGTH)
+    return head_ref, f"{title} (#{number})"
+
+
+def _pr_merge(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> dict[str, object]:
+    """Squash-merge the reviewed head of an open PR into its expected base, titled
+    ``<PR title> (#<n>)`` with an empty body. The head branch is left to GitHub when
+    the repository deletes merged branches (the wrapper does not confirm it), and is
+    deleted by the wrapper otherwise.
+    Every check runs before the first write, and GitHub itself refuses the merge if the
+    head moved after the check. Once merged, the result or the error says so, and names
+    the merge commit whenever GitHub returned a readable one."""
+    number, head, base = _merge_arguments(arguments)
+    head_ref, subject = _reviewed_pull(number, head, base, root, runner)
+    repository = _api("GET", API_ROOT, root, runner)
+    github_deletes = (
+        repository.get("delete_branch_on_merge")
+        if isinstance(repository, dict)
+        else None
+    )
+    if type(github_deletes) is not bool:
+        raise AgentGitHubProcessError("GitHub repository response is invalid")
+    result = _api(
+        "PUT",
+        f"{API_ROOT}/pulls/{number}/merge",
+        root,
+        runner,
+        payload={
+            "merge_method": "squash",
+            "sha": head,
+            "commit_title": subject,
+            "commit_message": "",
+        },
+    )
+    if not isinstance(result, dict) or result.get("merged") is not True:
+        raise AgentGitHubProcessError(
+            f"GitHub did not merge #{number}; inspect the repository before retrying"
+        )
+    merge_commit = result.get("sha")
+    if not isinstance(merge_commit, str) or FULL_SHA.fullmatch(merge_commit) is None:
+        left = "" if github_deletes else f"; {head_ref} was not deleted, ask the owner"
+        raise AgentGitHubProcessError(
+            f"GitHub merged #{number}, but its merge commit is unreadable; do not "
+            f"retry the merge, read it with gh pr view{left}"
+        )
+    if github_deletes:
+        # GitHub removes the branch itself (unless a protection rule or ruleset stops
+        # it); a second DELETE would race that and fail on a merge that succeeded
+        return {
+            "number": number,
+            "merge_commit": merge_commit,
+            "branch_deletion": "github",
+        }
+    try:
+        _api(
+            "DELETE",
+            f"{API_ROOT}/git/refs/heads/{quote(head_ref, safe='/')}",
+            root,
+            runner,
+        )
+    except AgentGitHubProcessError as exc:
+        raise AgentGitHubProcessError(
+            f"merged #{number} as {merge_commit}; deleting {head_ref} failed, so ask "
+            "the owner to delete it; do not retry the merge"
+        ) from exc
+    return {
+        "number": number,
+        "merge_commit": merge_commit,
+        "branch_deletion": "wrapper",
+    }
+
+
 def _validate_pr_mutation_result(
     value: Any, *, expected_number: int | None = None
 ) -> PullMutationResult:
@@ -992,6 +1118,8 @@ def run_agent_github(
         value = _pr_create(arguments[1:], resolved_root, command_runner)
     elif operation == "pr-edit":
         value = _pr_edit(arguments[1:], resolved_root, command_runner)
+    elif operation == "pr-merge":
+        value = _pr_merge(arguments[1:], resolved_root, command_runner)
     else:
         value = _milestone_mutation(
             operation, arguments[1:], resolved_root, command_runner

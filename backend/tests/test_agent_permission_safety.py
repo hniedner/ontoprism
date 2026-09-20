@@ -35,7 +35,7 @@ _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
 _ACTIONS = {"allow", "ask", "deny"}
-# the documented merge form: squash, pinned to the reviewed head (wildcard gaps: #401)
+# the pinned squash form #406 allowed; merges now go through `agent-github pr-merge`
 _MERGE = (
     "gh pr merge 12 --match-head-commit 3ed4ad7f8367ee96f4fd4ae80299def48979adac "
     "--squash --delete-branch --subject x"
@@ -50,24 +50,25 @@ _NEVER_ALLOWED = (
     "git checkout -- .",
     "git commit -m x --no-verify",
     "gh pr merge 12",
+    # a permission pattern cannot fence gh's argument parser, so every gh pr merge form
+    # is denied; these rows guard against a narrower allow coming back
+    _MERGE,
+    "gh pr merge 12 --squash --delete-branch --subject x --body-file .env",
+    "gh pr merge 12 -sdF .env --subject x",
+    "gh pr merge 12 --squash --delete-branch --subject x -sdF .env",
     f"{_MERGE} --admin",
     f"{_MERGE} --auto",
-    # a substitution in the subject, which only the $ deny catches
     _MERGE.replace("--subject x", '--subject "a $(id)"'),
-    # an unpinned merge could land a head that moved after the review
     "gh pr merge 12 --squash --delete-branch --subject x",
-    # the squash message is BLANK; a merge body would be parsed for releases
     f'{_MERGE} --body "fix: y"',
     f'{_MERGE} -b "fix: y"',
     f'{_MERGE} -b"fix: y"',
     f"{_MERGE} -b=fix",
     f"{_MERGE} -F notes.md",
-    # an empty pin sends no head check; gh drops an empty --match-head-commit
     'gh pr merge 12 --match-head-commit "" --squash --delete-branch --subject x',
     "gh pr merge 12 --match-head-commit '' --squash --delete-branch --subject x",
     f"{_MERGE} --match-head-commit=",
     f'{_MERGE} --match-head-commit ""',
-    # the standing authorization covers this repository's PRs only
     f"{_MERGE} -R other/repo",
     f"{_MERGE} --repo other/repo",
     "pdm run agent-github issue-delete 12",
@@ -224,6 +225,8 @@ def test_no_agent_may_run_a_destructive_or_bypassing_command(
         "pdm run agent-git commit-staged --message x",
         "pdm run agent-git push-origin feat/x",
         "pdm run agent-github pr-create --title x --head feat/x",
+        "pdm run agent-github pr-merge 12 --head "
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
         "pdm run agent-test --safe-integration backend/tests/test_x.py::test_y",
     ],
 )
@@ -263,7 +266,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "--head feat/x-1 --base feat/m1-6-1-provisional-publication",
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
-        _MERGE,
+        "pdm run agent-github pr-merge 12 --head "
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
         "sleep 60",
     ],
 )
@@ -330,6 +334,96 @@ def test_the_primary_agent_can_edit_and_only_dispatches_existing_subagents() -> 
     assert permission["task"]["*"] == "deny"
 
 
+# The only two agents that may write to the worktree: the primary, which does the
+# work, and dimension 3, which mutates production code to check that a test fails when
+# the behaviour is wrong and restores it from a copy outside the worktree.
+_MAY_MUTATE = frozenset({_PRIMARY, "pr-test-analyzer"})
+
+
+def test_only_the_primary_and_the_test_analyzer_may_edit() -> None:
+    """AGENTS.md, Review: "Only dimension 3 may modify tracked files." A brief that
+    let another dimension mutate while three read-only ones were running gave two of
+    them phantom test failures they had to recognise and discount (#389). The set is
+    asserted whole rather than per agent, so a new agent has to be put on one side of
+    it deliberately instead of inheriting whatever its template had."""
+    # `!= "deny"`, not `== "allow"`: `edit` may be written as a mapping, the way
+    # `pr-test-analyzer` already writes `external_directory: {"*": ask}`. A mapping
+    # equals neither string, so testing for "allow" would drop `edit: {"*": allow}`
+    # out of the set and pass for the wrong reason. Inverted, anything that is not a
+    # flat deny -- a mapping, an `ask`, a typo -- lands in the set and trips.
+    allowed = {
+        agent
+        for agent in _AGENTS
+        # `.get`, so an agent file that omits `edit:` entirely names itself here
+        # instead of dying on a bare KeyError ten files from the cause.
+        if _frontmatter(agent)["permission"].get("edit", "missing") != "deny"
+    }
+
+    assert allowed == set(_MAY_MUTATE)
+
+
+@pytest.mark.parametrize(
+    "agent", [agent for agent in _AGENTS if agent not in _MAY_MUTATE]
+)
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pdm run agent-pristine save ontolib/src/ontolib/storage/graph_store.py",
+        "pdm run agent-pristine restore ontolib/src/ontolib/storage/graph_store.py",
+        "pdm run agent-pristine discard ontolib/src/ontolib/storage/graph_store.py",
+    ],
+)
+def test_an_agent_that_may_not_edit_may_not_write_through_the_pristine_wrapper(
+    agent: str, command: str
+) -> None:
+    """`edit: deny` does not by itself keep an agent out of the worktree: `restore`
+    writes bytes back, and it runs through bash, not the edit tool. Dimension 3 needs
+    that wrapper; nothing that reviews alongside it does."""
+    assert _resolve(agent, command) == "deny"
+
+
+# Every bash pattern an agent outside `_MAY_MUTATE` is not denied today. It is
+# pinned as a whole rather than screened for the dangerous spellings, because a
+# screen only sees the shapes it was written for: a substring test for
+# "agent-pristine" misses `"pdm run agent-* restore backend/*"`, and a probe on a
+# literal path misses anything scoped away from that path. Both were observed green.
+_READ_ONLY_ALLOWS = frozenset(
+    {
+        "git diff --check *...HEAD",
+        "git diff --check main...HEAD",
+        "git diff --name-only *...HEAD",
+        "git diff --no-ext-diff *...HEAD",
+        "git diff --no-ext-diff main...HEAD",
+        "git log --oneline -10",
+        "git merge-base * HEAD",
+        "git rev-parse HEAD",
+        "git show --stat --oneline HEAD",
+        "git status --porcelain",
+        "git status --short --branch",
+        "pdm run agent-github-read *",
+        "pdm run agent-test *",
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "agent", [agent for agent in _AGENTS if agent not in _MAY_MUTATE]
+)
+def test_a_read_only_agent_gains_no_command_without_review(agent: str) -> None:
+    """None of these reads or writes outside the repository, and none writes inside
+    it. Widening the list is the decision this test exists to make visible: a new
+    allow for an agent that reviews alongside dimension 3 has to be added here, where
+    it is read against that sentence, rather than arriving inside an agent file."""
+    # `!= "deny"`, not `== "allow"`: the same write arrives through `ask`, and an
+    # `ask` is a command gained without review too -- it puts the owner in the loop
+    # mid-review, where a map they trust is what they are being asked to trust.
+    granted = {
+        pattern for pattern, rule in _bash_rules(agent).items() if rule != "deny"
+    }
+
+    assert granted <= set(_READ_ONLY_ALLOWS)
+
+
 _STEWARD = "issue-steward"
 
 
@@ -375,6 +469,23 @@ def test_the_issue_steward_can_read_the_tracker_and_reproduce_a_finding(
 )
 def test_the_issue_steward_never_writes_the_tracker(command: str) -> None:
     assert _resolve(_STEWARD, command) == "deny"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("pdm run agent-pristine save backend/src/backend/x.py", "allow"),
+        ("pdm run agent-pristine restore backend/src/backend/x.py", "allow"),
+        ("pdm run agent-pristine discard backend/src/backend/x.py", "allow"),
+        ("cp ~/.ssh/id_ed25519 tmp/k", "deny"),
+        ("cp /Users/x/.ssh/id tmp/k", "deny"),
+        ("cp backend/src/backend/x.py /private/tmp/x.py", "deny"),
+    ],
+)
+def test_the_test_analyzer_copies_only_through_the_pristine_wrapper(
+    command: str, expected: str
+) -> None:
+    assert _resolve("pr-test-analyzer", command) == expected
 
 
 def test_the_wrappers_the_read_only_agents_rely_on_are_still_read_only() -> None:

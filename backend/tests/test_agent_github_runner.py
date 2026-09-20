@@ -1327,3 +1327,286 @@ def test_pr_mutations_reject_malformed_success_response(
             read_only=False,
             runner=recording_runner(results, []),
         )
+
+
+_HEAD = "3ed4ad7f8367ee96f4fd4ae80299def48979adac"
+
+
+def _open_pull(**changes: object) -> dict[str, object]:
+    pull: dict[str, object] = {
+        "number": 12,
+        "state": "open",
+        "merged": False,
+        "merged_at": None,
+        "title": "fix(x): y",
+        "base": {"ref": "feat/m0-r0", "repo": {"full_name": "hniedner/ontoprism"}},
+        "head": {
+            "ref": "fix/y-12",
+            "sha": _HEAD,
+            "repo": {"full_name": "hniedner/ontoprism"},
+        },
+    }
+    pull.update(changes)
+    return pull
+
+
+_MERGE_ARGUMENTS = ["pr-merge", "12", "--head", _HEAD, "--base", "feat/m0-r0"]
+
+
+_REPO_DELETES = json.dumps({"delete_branch_on_merge": True})
+_REPO_KEEPS = json.dumps({"delete_branch_on_merge": False})
+_MERGED = "a" * 40
+
+
+@pytest.mark.parametrize(
+    ("repository", "tail", "deletion"),
+    [
+        (_REPO_DELETES, [], "github"),
+        (_REPO_KEEPS, [Result(0, "")], "wrapper"),
+    ],
+)
+def test_pr_merge_squashes_the_reviewed_head_and_deletes_only_what_github_keeps(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    repository: str,
+    tail: list[Result],
+    deletion: str,
+) -> None:
+    """The merge is pinned to the reviewed head, titled from GitHub with the PR number,
+    and carries no body. It sends no branch DELETE when the repository deletes merged
+    branches (leaving it to GitHub), and deletes the head branch itself otherwise."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, repository),
+            Result(0, json.dumps({"merged": True, "sha": _MERGED})),
+            *tail,
+        ],
+        calls,
+    )
+
+    assert (
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+        == 0
+    )
+
+    deletes = [["DELETE", "repos/hniedner/ontoprism/git/refs/heads/fix/y-12"]]
+    assert [call[0][3:5] for call in calls] == [
+        ["GET", "repos/hniedner/ontoprism/pulls/12"],
+        ["GET", "repos/hniedner/ontoprism"],
+        ["PUT", "repos/hniedner/ontoprism/pulls/12/merge"],
+        *(deletes if deletion == "wrapper" else []),
+    ]
+    assert json.loads(str(calls[2][1]["input"])) == {
+        "merge_method": "squash",
+        "sha": _HEAD,
+        "commit_title": "fix(x): y (#12)",
+        "commit_message": "",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "branch_deletion": deletion,
+        "merge_commit": _MERGED,
+        "number": 12,
+    }
+
+
+def test_a_failed_branch_deletion_still_reports_the_merge(tmp_path: Path) -> None:
+    """After a confirmed merge the merge commit is never lost: the agent needs it for
+    the post-merge watch, and a retry would find the PR already merged."""
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, _REPO_KEEPS),
+            Result(0, json.dumps({"merged": True, "sha": _MERGED})),
+            Result(1, "", "boom"),
+        ],
+        [],
+    )
+
+    with pytest.raises(
+        AgentGitHubProcessError, match=f"merged #12 as {_MERGED}.*do not retry"
+    ):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+
+@pytest.mark.parametrize(
+    ("pull", "reason"),
+    [
+        (
+            _open_pull(
+                head={
+                    "ref": "fix/y-12",
+                    "sha": "b" * 40,
+                    "repo": {"full_name": "hniedner/ontoprism"},
+                }
+            ),
+            "head moved",
+        ),
+        (
+            _open_pull(
+                base={"ref": "main", "repo": {"full_name": "hniedner/ontoprism"}}
+            ),
+            "base is not",
+        ),
+        (_open_pull(state="closed"), "open pull request"),
+        (
+            _open_pull(state="closed", merged=True, merged_at="2026-09-19T00:00:00Z"),
+            "open pull request",
+        ),
+        (
+            _open_pull(
+                head={
+                    "ref": "fix/y-12",
+                    "sha": _HEAD,
+                    "repo": {"full_name": "fork/ontoprism"},
+                }
+            ),
+            "head branch is not in",
+        ),
+    ],
+)
+def test_pr_merge_refuses_a_pull_request_that_is_not_the_reviewed_one(
+    tmp_path: Path, pull: dict[str, object], reason: str
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(pull))], calls)
+
+    with pytest.raises(AgentGitHubInputError, match=reason):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [
+            "pr-merge",
+            "https://github.com/other/repo/pull/5",
+            "--head",
+            _HEAD,
+            "--base",
+            "main",
+        ],
+        ["pr-merge", "12x", "--head", _HEAD, "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD[:7], "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD.upper(), "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD],
+        ["pr-merge", "12", "--base", "main"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--admin"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--body", "fix: y"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--repo", "o/r"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "../main"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "feat/../main"],
+    ],
+)
+def test_pr_merge_rejects_malformed_or_extra_arguments_before_network(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    def must_not_run(_arguments: list[str], **_kwargs: object) -> Result:
+        raise AssertionError("invalid arguments must fail before GitHub access")
+
+    # refused by pr-merge's own argument checks, not as an unknown operation
+    with pytest.raises(AgentGitHubInputError, match=r"^(?!GitHub operation is unsup)"):
+        run_agent_github(arguments, tmp_path, read_only=False, runner=must_not_run)
+
+
+def test_pr_merge_keeps_the_branch_when_github_did_not_merge(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, _REPO_KEEPS),
+            Result(0, json.dumps({"merged": False, "message": "not mergeable"})),
+        ],
+        calls,
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="did not merge"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET", "GET", "PUT"]
+
+
+@pytest.mark.parametrize(
+    ("repository", "names_the_branch"), [(_REPO_KEEPS, True), (_REPO_DELETES, False)]
+)
+def test_a_merge_without_a_readable_commit_is_not_called_unmerged(
+    tmp_path: Path, repository: str, *, names_the_branch: bool
+) -> None:
+    """The branch is named as left behind only when the wrapper, not GitHub, would
+    have deleted it."""
+    runner = recording_runner(
+        [
+            Result(0, json.dumps(_open_pull())),
+            Result(0, repository),
+            Result(0, json.dumps({"merged": True, "sha": "short"})),
+        ],
+        [],
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="merged #12, but") as raised:
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert ("fix/y-12 was not deleted" in str(raised.value)) is names_the_branch
+
+
+def test_only_a_deletion_may_answer_with_an_empty_body(tmp_path: Path) -> None:
+    runner = recording_runner([Result(0, "")], [])
+
+    with pytest.raises(AgentGitHubProcessError, match="invalid response"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+
+def test_read_only_entrypoint_rejects_pr_merge(tmp_path: Path) -> None:
+    with pytest.raises(AgentGitHubInputError, match="read-only"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=True, runner=None)
+
+
+@pytest.mark.parametrize(
+    "repository", ["{}", '{"delete_branch_on_merge": "true"}', "[]"]
+)
+def test_pr_merge_refuses_before_merging_when_the_branch_setting_is_unreadable(
+    tmp_path: Path, repository: str
+) -> None:
+    """A guess either way is wrong: taking it as "GitHub keeps the branch" makes the
+    wrapper's DELETE race GitHub's own deletion, and taking it as "GitHub deletes"
+    could leave the branch behind without a word."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps(_open_pull())), Result(0, repository)], calls
+    )
+
+    with pytest.raises(AgentGitHubProcessError, match="repository response is invalid"):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET", "GET"]
+
+
+@pytest.mark.parametrize(
+    "pull",
+    [
+        {key: value for key, value in _open_pull().items() if key != "head"},
+        _open_pull(
+            head={
+                "ref": "fix/y 12",
+                "sha": _HEAD,
+                "repo": {"full_name": "hniedner/ontoprism"},
+            }
+        ),
+        _open_pull(title="fix(x): y\nfeat: smuggled"),
+    ],
+)
+def test_pr_merge_refuses_a_malformed_pull_before_any_write(
+    tmp_path: Path, pull: dict[str, object]
+) -> None:
+    """Malformed source data fails closed: the head ref goes into the DELETE URL and
+    the title into the commit subject."""
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(pull))], calls)
+
+    with pytest.raises((AgentGitHubInputError, AgentGitHubProcessError)):
+        run_agent_github(_MERGE_ARGUMENTS, tmp_path, read_only=False, runner=runner)
+
+    assert [call[0][3] for call in calls] == ["GET"]

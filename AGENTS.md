@@ -55,17 +55,18 @@ For the milestone:
     (post-merge watch, below) before starting the next milestone.
 
 **Post-merge watch (steps 10 and 12).** Find the CI run for the merge commit: take the
-full merge SHA from `gh pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll
-`gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion` up
-to ten times, about a minute apart (the OpenCode primary waits with `sleep 60`; other
-harnesses use their own bounded wait). A short SHA matches nothing; never take the
-newest run on the branch instead. If no run appears by then, that is a failure. Watch
-the run with `gh run watch <id> --exit-status`. A non-zero exit is a failure unless `gh
-run view <id> --json conclusion` says `cancelled` and a newer push run exists on the
-branch (`cancel-in-progress` cancels a run when another merge follows); then watch that
-newer run, which tests the combined tree, and repeat. On a failure, stop: do not start
-the next issue or milestone, report it to the owner, and fix the cause through an issue
-PR ("What a finding becomes"). The agent does not judge whether a merge into `main`
+full merge SHA that `pdm run agent-github pr-merge` prints (`merge_commit`), or from `gh
+pr view <n> --json mergeCommit --jq .mergeCommit.oid`, then poll `gh run list --workflow
+CI --event push --commit <sha> --json databaseId,conclusion` up to ten times, about a
+minute apart (the OpenCode primary waits with `sleep 60`; other harnesses use their own
+bounded wait). A short SHA matches nothing; never take the newest run on the branch
+instead. If no run appears by then, that is a failure. Watch the run with `gh run watch
+<id> --exit-status`. A non-zero exit is a failure unless `gh run view <id> --json
+conclusion` says `cancelled` and a newer push run exists on the branch
+(`cancel-in-progress` cancels a run when another merge follows); then watch that newer
+run, which tests the combined tree, and repeat. On a failure, stop: do not start the
+next issue or milestone, report it to the owner, and fix the cause through an issue PR
+("What a finding becomes"). The agent does not judge whether a merge into `main`
 produced a release: the `Release` guard can hand a release to a newer merge, so that
 cannot be read reliably from outside `release.yml`, and making a lost release visible is
 tracked in #131.
@@ -113,10 +114,17 @@ Start a new agent session for each issue. Do not carry one context across days o
   summary`, `quality (pre-commit parity)`, `conventional commit subject` and `dependency
   review` are always expected; on a PR into `main`, so are `CodeQL` and its `Analyze`
   jobs, except under the known quirk below. If one is missing, CI did not run fully.
-  Merge with this command, where `<sha>` is the full reviewed head SHA from `git
-  rev-parse` (GitHub refuses the merge if the head moved) and no body is passed:
-  `gh pr merge <n> --match-head-commit <sha> --squash --delete-branch --subject "<title> (#<n>)"`
-  The `(#<n>)` suffix keeps the PR number in the log, as GitHub's default subject does.
+  Merge only with `pdm run agent-github pr-merge <n> --head <sha> --base <branch>`,
+  where `<sha>` is the full reviewed head SHA from `git rev-parse` and `<branch>` the
+  base recorded when the review converged. The wrapper refuses a PR that is not open,
+  comes from another repository, or whose head or base differ; squash-merges pinned to
+  `<sha>` (GitHub refuses the merge if the head moved) with the subject `<PR title>
+  (#<n>)`, which keeps the PR number in the log, and an empty body; and prints the merge
+  commit for the post-merge watch (after a merge whose branch deletion failed, the merge
+  commit is in the error message). The head branch is left to GitHub while the
+  repository's `delete_branch_on_merge` setting is on (the wrapper does not confirm the
+  deletion), and deleted by the wrapper otherwise. Never run `gh pr merge` in any
+  harness; the OpenCode maps deny it.
   Never `--admin`, auto-merge, or a queue. Re-read the PR just before merging; if its
   head, title or base changed after the checks and the review, they run again first.
   Known quirk: PRs touching only dependency manifests or workflows show the aggregate
@@ -125,6 +133,17 @@ Start a new agent session for each issue. Do not carry one context across days o
   milestone PR is the first place it reports on the milestone's code.
 - **No dead code and no legacy compatibility code.** The product is pre-production:
   rebuild internal data instead of keeping old-schema readers, adapters or fallbacks.
+- **Never signal a process you did not start, and never choose one by port or by name.**
+  No `lsof -ti :PORT | xargs kill`, no sweep over a port range, no `pkill`, `killall` or
+  `fuser -k`. Record the pid you launched, together with its start time so a reused pid
+  is not mistaken for it, and signal that; a port held by anything else is reported by
+  pid, never signalled, and a lookup that failed is never read as "the port is free".
+  The rule holds inside scripts and tools this repository ships, not only at an agent's
+  prompt: on 2026-09-18 another project's port sweep killed the Podman VM's `gvproxy`
+  (docs/DATA_SETUP.md), and the guard against it typed by hand is a local hook on the
+  owner's machine, which sees nothing a script does. `scripts/dev/servers.py` is the worked
+  example, pinned by `backend/tests/test_dev_script.py`, which also refuses the usual
+  kill-by-port and kill-by-name spellings anywhere under `scripts/`.
 - **Destructive or irreversible actions need the owner's go-ahead**: deleting data or
   volumes, resetting the Podman VM, overwriting a run artifact. Write new outputs to new
   paths; never overwrite an artifact another step may still need.
@@ -321,9 +340,10 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 
 Before the PR is marked ready, review the committed diff against the PR's base branch
 (the milestone branch for an issue PR, `main` for a milestone PR:
-`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, every time**. The owner's
-account of the #73 review is that each dimension caught a class of defect the others
-missed; that is why a subset is never acceptable:
+`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, on every PR** (round 1
+is all five; later rounds re-run only what has not converged — see "Which dimensions run
+in which round"). The owner's account of the #73 review is that each dimension caught a
+class of defect the others missed; that is why round 1 with a subset is never acceptable:
 
 1. **Correctness and project rules** (`pr-code-reviewer`)
 2. **Silent failures**: swallowed errors, failures that look like clean results
@@ -336,7 +356,11 @@ missed; that is why a subset is never acceptable:
    (`pr-comment-analyzer`)
 5. **Type design**: invariants left to caller convention (`pr-type-design-analyzer`)
 
-Run 1, 2, 4 and 5 in parallel, then 3 alone. A missing, timed-out or inconclusive verdict
+Run 1, 2, 4 and 5 in parallel, then 3 alone. **Only dimension 3 may modify tracked
+files**, and only as its own mutations, restored from a copy kept outside the worktree.
+Never authorize another dimension to mutate: a brief that let one mutate while the
+read-only dimensions were running gave two of them phantom test failures they had to
+recognise and discount (#389, 2026-09-20). A missing, timed-out or inconclusive verdict
 is a non-converged dimension, not a clean one. Other harnesses use their own reviewers
 but keep the five separate verdicts.
 
@@ -344,15 +368,33 @@ but keep the five separate verdicts.
 suggestion in the PR; the only exception is a major out-of-scope finding (see "What a
 finding becomes"). A dimension has converged when a full pass reports no unresolved
 verified finding and its suggestions are addressed; a deferred finding counts as
-resolved only once the PR body lists it (step 3 below). A converged dimension is
-excluded from later rounds unless a later fix touches what it reviews (a new test
-re-arms test validity, a new docstring re-arms comment accuracy, a new error path
-re-arms silent failures); re-run only the non-converged ones, on the fix range, and
-brief each re-run with its previous findings and the outcome of each. There is no
-round ceiling, and an existing PR is never rejected as too big. Size is decided when
-the work is planned: one issue or one coherent change per PR, with granularity
-balanced against the cost of a five-dimension review and the workflows every PR
-triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
+resolved only once the PR body lists it (step 3 below). There is no round ceiling, and
+an existing PR is never rejected as too big.
+
+**Which dimensions run in which round.** This is a rule about cost, not taste: a
+reviewer agent costs roughly 145k tokens and a full round of five roughly 725k
+(measured on #389, 2026-09-20). Re-running a dimension that has already converged buys
+nothing and is the main way a PR's review bill multiplies.
+
+- **Round 1: all five.** Always. 1, 2, 4 and 5 in parallel, then 3 alone.
+- **Every later round: only the dimensions that have not converged.** Never re-run a
+  converged dimension for reassurance, for completeness, or because the diff "feels"
+  different. If it converged, it is done.
+- **A converged dimension re-arms only when the fix range contains the kind of thing it
+  reviews**, and you name that thing when you re-run it: a changed or added test
+  re-arms test validity; a changed comment or docstring re-arms comment accuracy; a new
+  or changed error path re-arms silent failures; a new type, signature or invariant
+  re-arms type design; changed production logic re-arms correctness. A fix that only
+  reworded a message does not re-arm type design.
+- **Replacing the implementation re-arms everything**, because nothing the earlier
+  rounds reviewed still exists. This is one more reason to settle the approach before
+  the first review round rather than after it.
+- **Brief every re-run** with its own previous findings and what was done about each, and
+  point it at the fix range, not the whole diff.
+
+Size is decided when the work is planned: one issue or one coherent change per PR, with
+granularity balanced against the cost of a five-dimension review and the workflows every
+PR triggers (about seven minutes of CI, dependency review, CodeQL). Split at planning
 time, not at review time.
 
 ### What a finding becomes
@@ -407,11 +449,9 @@ steward.
 - PR titles are Conventional Commits; CI enforces it. Releases derive versions from the
   squash commit on `main` (`feat` -> minor, `fix`/`perf` -> patch; pre-1.0, see D18):
   its subject is the PR title with ` (#<n>)` appended, and its body is empty because the
-  repository's squash message is `BLANK` (D91). A `--body` on the merge would be parsed
-  too, so pass none (the OpenCode map denies `--body`, `-b`, `-F`, a quoted or `=` pin
-  and `-R`/`--repo` after its pinned allow row, but its wildcards still admit bundled
-  short flags, a value flag that swallows the pin and a PR URL; the merge wrapper in
-  #401 closes them). Issue PR titles inside a milestone do not reach the release; the
+  repository's squash message is `BLANK` (D91). A merge body would be parsed too;
+  `pdm run agent-github pr-merge` passes none, and no agent map allows `gh pr merge`.
+  Issue PR titles inside a milestone do not reach the release; the
   milestone PR's title type does (step 11).
 - `Closes #X` only when the PR fully resolves the issue; never on an `epic` issue (D35).
 - Do not hand-edit `CHANGELOG.md` or version numbers; semantic-release owns both.
