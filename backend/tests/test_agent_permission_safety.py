@@ -334,6 +334,47 @@ def test_the_primary_agent_can_edit_and_only_dispatches_existing_subagents() -> 
     assert permission["task"]["*"] == "deny"
 
 
+# The only two agents that may write to the worktree: the primary, which does the
+# work, and dimension 3, which mutates production code to check that a test fails when
+# the behaviour is wrong and restores it from a copy outside the worktree.
+_MAY_MUTATE = frozenset({_PRIMARY, "pr-test-analyzer"})
+
+
+def test_only_the_primary_and_the_test_analyzer_may_edit() -> None:
+    """AGENTS.md, Review: "Only dimension 3 may modify tracked files." A brief that
+    let another dimension mutate while three read-only ones were running gave two of
+    them phantom test failures they had to recognise and discount (#389). The set is
+    asserted whole rather than per agent, so a new agent has to be put on one side of
+    it deliberately instead of inheriting whatever its template had."""
+    allowed = {
+        agent
+        for agent in _AGENTS
+        if _frontmatter(agent)["permission"]["edit"] == "allow"
+    }
+
+    assert allowed == set(_MAY_MUTATE)
+
+
+@pytest.mark.parametrize(
+    "agent", [agent for agent in _AGENTS if agent not in _MAY_MUTATE]
+)
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pdm run agent-pristine save ontolib/src/ontolib/storage/graph_store.py",
+        "pdm run agent-pristine restore ontolib/src/ontolib/storage/graph_store.py",
+        "pdm run agent-pristine discard ontolib/src/ontolib/storage/graph_store.py",
+    ],
+)
+def test_an_agent_that_may_not_edit_may_not_write_through_the_pristine_wrapper(
+    agent: str, command: str
+) -> None:
+    """`edit: deny` does not by itself keep an agent out of the worktree: `restore`
+    writes bytes back, and it runs through bash, not the edit tool. Dimension 3 needs
+    that wrapper; nothing that reviews alongside it does."""
+    assert _resolve(agent, command) == "deny"
+
+
 _STEWARD = "issue-steward"
 
 
