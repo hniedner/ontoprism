@@ -340,9 +340,10 @@ Workflows stay SHA-pinned and Docker base images digest-pinned (`zizmor` hook, D
 
 Before the PR is marked ready, review the committed diff against the PR's base branch
 (the milestone branch for an issue PR, `main` for a milestone PR:
-`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, every time**. The owner's
-account of the #73 review is that each dimension caught a class of defect the others
-missed; that is why a subset is never acceptable:
+`git diff --no-ext-diff <base>...HEAD`) in **all five dimensions, on every PR** (round 1
+is all five; later rounds re-run only what has not converged — see "Which dimensions run
+in which round"). The owner's account of the #73 review is that each dimension caught a
+class of defect the others missed; that is why round 1 with a subset is never acceptable:
 
 1. **Correctness and project rules** (`pr-code-reviewer`)
 2. **Silent failures**: swallowed errors, failures that look like clean results

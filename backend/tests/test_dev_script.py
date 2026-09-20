@@ -491,29 +491,46 @@ def test_stop_keeps_the_pidfile_when_it_cannot_reach_the_recorded_process(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("field", [" {pid}", "abc", "{pid} 999"])
-def test_a_pid_field_that_is_not_a_plain_pid_signals_nothing(
+@pytest.mark.parametrize("field", [" {pid}", "abc", ""])
+def test_a_record_that_cannot_be_parsed_is_not_a_verdict(
     field: str, tmp_path: Path
 ) -> None:
-    """The pid field is pasted into `kill -<pid>`, so it is checked before it gets
-    there, the way the ports are. (`0` and `1`, which would make that a broadcast, are
-    rejected by the same check but cannot be a parameter here: the test would have to
-    record the real start time of pid 1 to isolate the check, and a regression would
-    then have the suite signal every process on the machine.)"""
+    """A record that cannot be parsed is not a verdict: it must not read as "nothing
+    of ours is running", because that deletes the only record of a live server. The
+    pid also reaches `os.killpg`, so the field is bounded before it gets there, the
+    way the ports are. `write_record` truncates before it writes, so a half-written
+    record is a state that happens."""
     bystander = _spawn_listener(_free_port())
     root = _script_copy(tmp_path)
-    _write_pidfile(root, "backend", bystander.pid, _start_time(bystander.pid))
-    (root / ".dev-logs/backend.pid").write_text(
-        f"{field.format(pid=bystander.pid)}\n{_start_time(bystander.pid)}\n"
-    )
+    (root / ".dev-logs").mkdir(exist_ok=True)
+    (root / ".dev-logs/backend.pid").write_text(field.format(pid=bystander.pid))
     try:
         result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
 
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert "http://localhost" not in result.stdout
+        assert result.returncode != 0
+        assert "was not running" not in result.stdout
+        assert (root / ".dev-logs/backend.pid").exists()
         assert not _wait_until_gone(bystander.pid, timeout=1)
     finally:
         _reap(bystander)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("pid_field", ["0", "1"])
+def test_a_recorded_pid_that_would_signal_a_foreign_group_is_refused(
+    pid_field: str, tmp_path: Path
+) -> None:
+    """`os.killpg` with 0 addresses dev.py's own process group and with 1 a group
+    that is not ours, so neither may reach a signal."""
+    root = _script_copy(tmp_path)
+    (root / ".dev-logs").mkdir(exist_ok=True)
+    (root / ".dev-logs/backend.pid").write_text(f"{pid_field} 1.0\n")
+
+    result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
+
+    assert result.returncode != 0
+    assert "nothing signalled" in result.stdout
+    assert (root / ".dev-logs/backend.pid").exists()
 
 
 @pytest.mark.unit
@@ -532,8 +549,10 @@ def test_a_broken_port_lookup_is_not_read_as_a_free_port(tmp_path: Path) -> None
 
     assert started.returncode != 0
     assert "http://localhost" not in started.stdout
-    assert stopped.returncode != 0
-    assert "lsof" in stopped.stdout + stopped.stderr
+    # `stop`'s own verdict stands; who else holds the port is advisory, and a lookup
+    # that cannot answer must not turn a successful stop into a failure.
+    assert stopped.returncode == 0, stopped.stdout + stopped.stderr
+    assert "could not check who holds" in stopped.stdout
 
 
 @pytest.mark.unit
@@ -651,21 +670,141 @@ def test_start_does_not_hand_out_a_url_for_a_server_that_dies_while_starting(
 def test_data_services_that_fail_to_start_are_reported(tmp_path: Path) -> None:
     """`docker compose up -d >/dev/null 2>&1 || true` hid the reason the stack was
     down, leaving the user to debug the app instead of the services."""
-    port = _free_port()
+    port, frontend_port = _free_port(), _free_port()
     stranger = _spawn_listener(port)
+    frontend_stranger = _spawn_listener(frontend_port)
     root = _script_copy(tmp_path)
     environment = _path_with_stubs(
         tmp_path,
         docker='[ "$1" = "compose" ] && { echo "boom" >&2; exit 1; }; echo none',
     )
+    # Both ports, because `start all` names both targets: an unset one falls back to
+    # the real dev port, and the test would then ask about the developer's own server.
     environment["BACKEND_PORT"] = str(port)
+    environment["FRONTEND_PORT"] = str(frontend_port)
     try:
         result = _start(root, environment, "all")
 
         assert "docker compose did not start the data services" in result.stdout
         assert (root / ".dev-logs/compose.log").read_text().strip() == "boom"
     finally:
+        _reap(stranger, frontend_stranger)
+
+
+@pytest.mark.unit
+def test_start_refuses_to_overwrite_a_record_whose_group_still_runs(
+    tmp_path: Path,
+) -> None:
+    """`stop` refuses to touch this state; `start` overwriting the record would leave
+    those processes with nothing that knows they are ours, so no later `stop` could
+    ever reach them."""
+    port = _free_port()
+    leader, child = _spawn_leader_that_exits(port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", leader, 1.0)
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(_free_port())
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert str(child) in result.stdout
+        assert "http://localhost" not in result.stdout
+        assert (root / ".dev-logs/backend.pid").read_text().split()[0] == str(leader)
+    finally:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(child, signal.SIGKILL)
+
+
+@pytest.mark.unit
+def test_stopping_all_attempts_every_target_when_one_cannot_be_answered(
+    tmp_path: Path,
+) -> None:
+    """An unanswerable question about one target must not skip the others: giving up
+    after the frontend leaves the backend running and unmentioned."""
+    backend_port = _free_port()
+    ours = _spawn_listener(backend_port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    (root / ".dev-logs/frontend.pid").write_text("not a record at all\n")
+    try:
+        result = _stop(
+            root,
+            {
+                **os.environ,
+                "FRONTEND_PORT": str(_free_port()),
+                "BACKEND_PORT": str(backend_port),
+            },
+            "all",
+        )
+
+        assert result.returncode != 0
+        assert "frontend" in result.stdout
+        assert ours.wait(timeout=10) != 0
+        assert not (root / ".dev-logs/backend.pid").exists()
+    finally:
+        _reap(ours)
+
+
+@pytest.mark.unit
+def test_a_port_lsof_cannot_see_is_not_reported_as_free(tmp_path: Path) -> None:
+    """Unprivileged lsof reports another user's socket exactly as it reports a free
+    port: exit 1, both streams empty. Reading that as "free" makes `start` launch a
+    second server onto an occupied port."""
+    port = _free_port()
+    stranger = _spawn_listener(port)
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path, lsof="exit 1", docker="echo ontoprism-postgres"
+    )
+    environment["BACKEND_PORT"] = str(port)
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "lsof cannot see it" in result.stdout
+        assert "http://localhost" not in result.stdout
+        assert not _wait_until_gone(stranger.pid, timeout=1)
+    finally:
         _reap(stranger)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("port", ["0", "99999"])
+def test_a_port_outside_the_usable_range_is_refused(port: str, tmp_path: Path) -> None:
+    """lsof answers an out-of-range port exactly as it answers a free one, so a port
+    that is silently wrong would read as "nothing there". `--port 0` is worse than a
+    no-op: uvicorn binds a random port under a record whose port field means
+    nothing."""
+    result = _stop(_script_copy(tmp_path), {**os.environ, "BACKEND_PORT": port})
+
+    assert result.returncode != 0
+    assert "between 1 and 65535" in result.stdout
+    assert "not running" not in result.stdout
+
+
+@pytest.mark.unit
+def test_start_reports_a_server_that_never_listens(tmp_path: Path) -> None:
+    """An unanswered "is it serving?" is not a success. The record is kept so `stop`
+    can still reach the process."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path, docker="echo ontoprism-postgres", pdm="sleep 60"
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = "1"
+    leader = 0
+    try:
+        result = _start(root, environment)
+
+        assert result.returncode != 0
+        assert "did not listen" in result.stdout
+        assert "http://localhost" not in result.stdout
+        leader = int((root / ".dev-logs/backend.pid").read_text().split()[0])
+    finally:
+        if leader:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(leader, signal.SIGKILL)
 
 
 @pytest.mark.unit
@@ -740,8 +879,9 @@ def _selects_a_process_by_port_or_name(line: str) -> bool:
 @pytest.mark.unit
 def test_no_script_under_scripts_selects_a_process_by_port_or_name() -> None:
     """The guard against `lsof -ti :PORT | xargs kill`, `pkill` and friends at an
-    agent's prompt is a Claude Code hook, and a hook sees nothing a script does. This
-    covers `scripts/` only; the rest of the tree has no process management in it."""
+    agent's prompt is a local hook on the owner's machine, and a hook sees nothing a
+    script does. This covers `scripts/` only, where this project's process management
+    lives."""
     offenders = [
         f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}"
         for path in sorted((REPO_ROOT / "scripts").rglob("*"))
@@ -783,7 +923,6 @@ def test_a_port_given_in_the_environment_wins_over_dotenv(
         _reap(aimed_at, bystander)
 
 
-@pytest.mark.unit
 @pytest.mark.unit
 def test_a_missing_lookup_tool_refuses_instead_of_reporting_nothing_running(
     tmp_path: Path,
