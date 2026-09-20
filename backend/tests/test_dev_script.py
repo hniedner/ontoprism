@@ -1158,8 +1158,8 @@ def test_start_does_not_claim_a_port_a_stranger_answers(tmp_path: Path) -> None:
         assert result.returncode != 0
         assert "http://localhost" not in result.stdout
         assert str(stranger.pid) in result.stdout
-        # This branch is the only refusal that leaves a running server the user did
-        # not have before, so it owes them the same handle the timeout branch gives.
+        # The refusal leaves our recorded server running, so it owes the user the same
+        # handle the timeout branch gives: the pidfile is kept and `stop` can reach it.
         assert "backend.pid is kept" in result.stdout
         assert not _wait_until_gone(stranger.pid, timeout=1)
     finally:
