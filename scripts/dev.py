@@ -40,6 +40,7 @@ LOG_DIR = REPO_ROOT / ".dev-logs"
 # 8001/5173 are the sibling fairdata app's ports; ours are offset so both can run.
 DEFAULT_PORTS = {"backend": 8011, "frontend": 5175}
 HIGHEST_PORT = 65535
+LONGEST_READY_WAIT = 3600.0
 GREEN, YELLOW, RED, RESET = "\033[0;32m", "\033[1;33m", "\033[0;31m", "\033[0m"
 
 
@@ -209,13 +210,23 @@ def group_members(pgid: int) -> list[int]:
     """The pids in process group ``pgid`` that have not exited."""
     members = []
     for process in psutil.process_iter(["pid", "status"]):
-        # Only "it exited" is an answer here; anything else must not quietly shorten
-        # the list, because an empty list reads as "the group is gone".
-        with contextlib.suppress(psutil.NoSuchProcess, ProcessLookupError):
+        try:
+            # A process that has exited but not been reaped is still in its group on
+            # Linux, and `getpgid` still answers for it. It holds nothing and receives
+            # nothing, so it must not keep the group alive.
             if process.info["status"] == psutil.STATUS_ZOMBIE:
                 continue
             if os.getpgid(process.info["pid"]) == pgid:
                 members.append(process.info["pid"])
+        except psutil.NoSuchProcess, ProcessLookupError:
+            # "It exited" is an answer; it is the only one that may be skipped.
+            continue
+        except OSError as error:
+            # Anything else would quietly shorten the list, and a short list reads as
+            # "the group is gone" -- which deletes the record of a live server.
+            raise DevError(
+                f"cannot tell whether pid {process.pid} is in group {pgid}: {error}"
+            ) from error
     return sorted(members)
 
 
@@ -426,8 +437,22 @@ def _launch(target: Target) -> subprocess.Popen[bytes]:
 
 
 def ready_seconds() -> float:
+    """How long ``start`` waits for the port, overridable so the timeout branch is
+    testable without a half-minute test. Validated like every other input: a wrong
+    value must not read as an answer."""
     raw = os.environ.get("ONTOPRISM_DEV_READY_SECONDS")
-    return float(raw) if raw else 30.0
+    if raw is None:
+        return 30.0
+    try:
+        seconds = float(raw)
+    except ValueError:
+        raise DevError(f"ONTOPRISM_DEV_READY_SECONDS={raw!r} is not a number") from None
+    if not 0 < seconds < LONGEST_READY_WAIT:
+        raise DevError(
+            f"ONTOPRISM_DEV_READY_SECONDS={raw!r} is not a wait between 0 and "
+            f"{LONGEST_READY_WAIT:g} seconds"
+        )
+    return seconds
 
 
 def _await_listening(target: Target, pid: int) -> int:
@@ -501,10 +526,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dev.py", description=__doc__)
     parser.add_argument("action", choices=["start", "stop", "restart"])
     parser.add_argument(
-        "target", nargs="?", default="all", choices=["backend", "frontend", "all"]
+        # Derived, so adding a target to DEFAULT_PORTS makes it selectable and the
+        # missing-command refusal in `Target.command` reachable rather than dead.
+        "target",
+        nargs="?",
+        default="all",
+        choices=[*DEFAULT_PORTS, "all"],
     )
     arguments = parser.parse_args(argv)
-    names = ["backend", "frontend"] if arguments.target == "all" else [arguments.target]
+    names = list(DEFAULT_PORTS) if arguments.target == "all" else [arguments.target]
 
     try:
         LOG_DIR.mkdir(exist_ok=True)

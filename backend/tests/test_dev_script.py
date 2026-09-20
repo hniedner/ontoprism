@@ -267,6 +267,20 @@ def _start(
     )
 
 
+def _restart(
+    root: Path, environment: dict[str, str], target: str = "backend"
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - fixed interpreter and a copy of the repo script
+        [sys.executable, "scripts/dev.py", "restart", target],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
 def _reap(*processes: subprocess.Popen[str]) -> None:
     for process in processes:
         process.kill()
@@ -613,6 +627,7 @@ def test_a_record_that_cannot_be_read_is_not_a_verdict(tmp_path: Path) -> None:
         result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
 
         assert result.returncode != 0
+        assert "cannot read" in result.stdout
         assert "stale pidfile" not in result.stdout
         assert (root / ".dev-logs/backend.pid").exists()
         assert not _wait_until_gone(ours.pid, timeout=1)
@@ -629,6 +644,9 @@ def test_a_server_on_the_ipv6_loopback_counts_as_listening(tmp_path: Path) -> No
     root = _script_copy(tmp_path)
     environment = _stubs_that_launch_a_fake_server(tmp_path, _LISTENER_V6)
     environment["BACKEND_PORT"] = str(port)
+    # Below the harness timeout, so a regression fails on the assertion below rather
+    # than racing `_start`'s own 30s bound.
+    environment["ONTOPRISM_DEV_READY_SECONDS"] = "5"
     leader = 0
     try:
         result = _start(root, environment)
@@ -800,9 +818,185 @@ def test_start_reports_a_server_that_never_listens(tmp_path: Path) -> None:
         assert result.returncode != 0
         assert "did not listen" in result.stdout
         assert "http://localhost" not in result.stdout
+        # The record is kept, and names the process that is actually running, so a
+        # later `stop` can still reach it.
         leader = int((root / ".dev-logs/backend.pid").read_text().split()[0])
+        assert _is_running(leader)
+        stopped = _stop(root, environment)
+        assert stopped.returncode == 0, stopped.stdout + stopped.stderr
+        assert _wait_until_gone(leader)
     finally:
         if leader:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(leader, signal.SIGKILL)
+
+
+@pytest.mark.unit
+def test_a_server_that_goes_down_on_term_is_not_killed(tmp_path: Path) -> None:
+    """The graceful window exists so uvicorn can drain a request and vite can finish
+    a write. Without it `stop` is just TERM-then-KILL, and nothing would notice."""
+    ours = _spawn_listener(_free_port())
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", ours.pid, _start_time(ours.pid))
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(_free_port())})
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        # -SIGTERM, not -SIGKILL: it was asked to go, not forced.
+        assert ours.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        _reap(ours)
+
+
+@pytest.mark.unit
+def test_an_unreaped_process_does_not_keep_its_group_alive(tmp_path: Path) -> None:
+    """On Linux an exited-but-unreaped process is still in its group and `getpgid`
+    still answers for it, so without the zombie filter `stop` would wait out its
+    bound and then refuse to confirm a server that is already gone."""
+    port = _free_port()
+    leader, child = _spawn_leader_of(_LISTENER, port)
+    root = _script_copy(tmp_path)
+    _write_pidfile(root, "backend", leader.pid, _start_time(leader.pid))
+    try:
+        result = _stop(root, {**os.environ, "BACKEND_PORT": str(port)})
+
+        # The test process is the leader's parent and never reaps it, so the group
+        # holds an unreaped member for the whole of `stop`.
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "did not stop" not in result.stdout
+        assert _wait_until_gone(child)
+    finally:
+        _reap_group(leader)
+
+
+@pytest.mark.unit
+def test_a_port_from_dotenv_is_used_when_the_environment_is_silent(
+    tmp_path: Path,
+) -> None:
+    """`cp .env.example .env` is the documented setup, and that file is where the
+    ports live, so reading it is the ordinary path rather than a fallback."""
+    port = _free_port()
+    stranger = _spawn_listener(port)
+    root = _script_copy(tmp_path, f"BACKEND_PORT={port}\n")
+    environment = {
+        key: value for key, value in os.environ.items() if key != "BACKEND_PORT"
+    }
+    try:
+        result = _stop(root, environment)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert str(stranger.pid) in result.stdout
+    finally:
+        _reap(stranger)
+
+
+@pytest.mark.unit
+def test_start_refuses_when_the_data_services_are_not_up(tmp_path: Path) -> None:
+    """The backend cannot serve without them, and the message is the only place the
+    user is told which command starts them."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(tmp_path, docker="echo some-other-container")
+    environment["BACKEND_PORT"] = str(_free_port())
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "pdm run up" in result.stdout
+    assert "http://localhost" not in result.stdout
+    assert not (root / ".dev-logs/backend.pid").exists()
+
+
+@pytest.mark.unit
+def test_a_container_runtime_that_does_not_answer_is_not_read_as_services_up(
+    tmp_path: Path,
+) -> None:
+    """A runtime that cannot answer must not read as "the services are there" — that
+    launches the backend against a database that is not running."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path, docker='echo "Cannot connect to the Docker daemon" >&2; exit 1'
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "did not answer" in result.stdout
+    assert "http://localhost" not in result.stdout
+    assert not (root / ".dev-logs/backend.pid").exists()
+
+
+@pytest.mark.unit
+def test_an_lsof_that_warns_while_finding_nothing_is_not_read_as_a_free_port(
+    tmp_path: Path,
+) -> None:
+    """`-w` suppresses lsof's own warnings, so stderr beside exit 1 is a lookup that
+    went wrong, not an empty answer."""
+    root = _script_copy(tmp_path)
+    environment = _path_with_stubs(
+        tmp_path, lsof='echo "lsof: WARNING: cannot stat /Volumes/x" >&2; exit 1'
+    )
+    environment["BACKEND_PORT"] = str(_free_port())
+
+    result = _start(root, environment)
+
+    assert result.returncode != 0
+    assert "lsof" in result.stdout
+    assert "http://localhost" not in result.stdout
+
+
+@pytest.mark.unit
+def test_restart_does_not_start_again_when_a_target_could_not_be_stopped(
+    tmp_path: Path,
+) -> None:
+    """Restarting over a server that would not stop is how a port ends up with two
+    of them. `pdm run restart-*` ships, so the refusal has to hold."""
+    port = _free_port()
+    leader, child = _spawn_leader_of(_LISTENER, port)
+    root = _script_copy(tmp_path)
+    # A recorded pid that leads no group: `stop` cannot reach it and says so.
+    _write_pidfile(root, "backend", child, _start_time(child))
+    environment = _path_with_stubs(tmp_path, docker="echo ontoprism-postgres")
+    environment["BACKEND_PORT"] = str(port)
+    try:
+        result = _restart(root, environment)
+
+        assert result.returncode != 0
+        assert "not restarted" in result.stdout
+        assert "http://localhost" not in result.stdout
+    finally:
+        _reap_group(leader)
+
+
+@pytest.mark.unit
+def test_the_frontend_is_started_and_stopped_through_the_script(
+    tmp_path: Path,
+) -> None:
+    """The frontend has its own launch command and its own `node_modules` branch, so
+    the round trip has to be driven under that target too, not only the backend."""
+    port = _free_port()
+    root = _script_copy(tmp_path)
+    (root / "frontend/node_modules").mkdir(parents=True)
+    server = tmp_path / "fake_server.py"
+    server.write_text(f"LISTENER = {_LISTENER!r}\n{_FAKE_SERVER}")
+    environment = _path_with_stubs(
+        tmp_path, npm=f'exec "{sys.executable}" "{server}" {port}'
+    )
+    environment["FRONTEND_PORT"] = str(port)
+    leader = 0
+    try:
+        started = _start(root, environment, "frontend")
+
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert _is_listening(port)
+        leader = int((root / ".dev-logs/frontend.pid").read_text().split()[0])
+
+        stopped = _stop(root, environment, "frontend")
+
+        assert stopped.returncode == 0, stopped.stdout + stopped.stderr
+        assert not _is_listening(port)
+    finally:
+        if leader and _is_running(leader):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(leader, signal.SIGKILL)
 
@@ -869,11 +1063,18 @@ def test_start_refuses_a_port_held_by_a_process_it_did_not_start(
 
 
 def _selects_a_process_by_port_or_name(line: str) -> bool:
-    """`kill -9 $(lsof -ti:8011)` puts the kill first, so matching `lsof … kill` in that
-    order alone let the usual spelling through: the two only have to share a line."""
+    """Whether one line picks a process to signal out of a port or name lookup.
+
+    `kill -9 $(lsof -ti:8011)` puts the kill first, so matching `lsof … kill` in that
+    order alone let the usual shell spelling through: the two only have to share a
+    line. The Python spellings matter too now that `scripts/` is mostly Python —
+    `os.kill(p, ...)` beside `lsof` or `listeners_on` selects a victim the same way.
+    """
     if re.search(r"\bpkill\b|\bkillall\b|fuser\s+-k", line):
         return True
-    return bool(re.search(r"\bkill\b", line) and re.search(r"\blsof\b", line))
+    signals = re.search(r"\bkill\b|os\.kill|killpg|\bterminate\(|SIGKILL|SIGTERM", line)
+    selects_by_port = re.search(r"\blsof|listeners_on|net_connections", line)
+    return bool(signals and selects_by_port)
 
 
 @pytest.mark.unit
