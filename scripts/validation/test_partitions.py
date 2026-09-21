@@ -78,7 +78,7 @@ LANE_SELECTORS = (
     LaneSelector(
         lane="integration",
         required_markers=("integration",),
-        excluded_markers=("full_store", "full_build", "slow"),
+        excluded_markers=("full_store", "full_build"),
     ),
 )
 

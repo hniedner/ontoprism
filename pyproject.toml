@@ -80,7 +80,7 @@ pre_run = "python -m scripts.validation.validate_python_runtime"
 test = "python scripts/test_runner.py"
 test-unit = "pytest ontolib/tests backend/tests tooling_tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
-test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build'"
+test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests tooling_tests -m 'integration and not full_store and not full_build and not slow'"
 test-integration-full-store = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_store'"
 test-integration-full-build = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_build'"
 # CI integration run against a small seeded fixture (excludes full_build tests, which

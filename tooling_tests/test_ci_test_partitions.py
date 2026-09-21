@@ -608,8 +608,8 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
         (
             "integration",
             ("integration",),
-            ("full_store", "full_build", "slow"),
-            "integration and not full_store and not full_build and not slow",
+            ("full_store", "full_build"),
+            "integration and not full_store and not full_build",
         ),
     )
     for selector in partitions.LANE_SELECTORS:
@@ -622,7 +622,7 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
                 "integration" not in markers
                 if selector.lane == "backend"
                 else "integration" in markers
-                and not markers.intersection({"full_store", "full_build", "slow"})
+                and not markers.intersection({"full_store", "full_build"})
             )
             assert partitions._eligible(record, selector.lane) is expected
 
