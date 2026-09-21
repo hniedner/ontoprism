@@ -24,7 +24,7 @@ from scripts.research.specialist_review_packets import (
     validate_source_preferred_labels,
     validate_specialist_review_generation,
 )
-from scripts.validation.run_agent_replay import run_agent_replay
+from scripts.validation.run_agent_replay import AgentReplayInputError, run_agent_replay
 
 pytestmark = pytest.mark.unit
 
@@ -465,21 +465,17 @@ def test_cli_uses_markdown_completion_command_and_fixed_replay_inputs(
         capture_output: bool,
         text: Literal[True],
         env: dict[str, str] | None = None,
+        start_new_session: bool = False,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, shell, check, timeout, capture_output, text, env
+        del cwd, shell, check, timeout, capture_output, text, env, start_new_session
         commands.append(arguments)
         return subprocess.CompletedProcess(arguments, 0, "", "")
 
-    assert (
+    with pytest.raises(AgentReplayInputError, match="unsupported"):
         run_agent_replay(
             ["generate-specialist-review-packets"], tmp_path, runner=runner
         )
-        == 0
-    )
-    command = commands[0]
-    assert "--cadsr-usage" in command
-    assert "--label-source" in command
-    assert str(tmp_path / "tmp/m1-6-specialist-packets") in command
+    assert commands == []
 
 
 @pytest.mark.parametrize(

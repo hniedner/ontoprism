@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
-import hashlib
 import io
 import json
 import os
@@ -12,9 +10,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from copy import deepcopy
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import scripts.validation.run_agent_replay as replay
@@ -23,8 +19,6 @@ from scripts.validation.run_agent_replay import (
     AgentReplayInputError,
     run_agent_replay,
 )
-
-from ontolib.decomposition.run_artifacts import ArtifactManifest
 
 
 class _Runner:
@@ -37,6 +31,8 @@ class _Runner:
         self.calls.append((arguments, kwargs))
         return subprocess.CompletedProcess(arguments, 0)
 
+
+_RETIRED_ISSUE_127_TEST_SOURCE_PART_1 = r"""Retired issue #127 operation tests.
 
 def _publish_test_generation(
     tmp_path: Path,
@@ -906,12 +902,17 @@ def test_incomplete_current_r101_report_can_only_be_recorded_as_diagnostic(
     ).read_bytes() == b"incomplete-report"
 
 
+"""
+
+
 class _Result:
     def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
 
+
+_RETIRED_ISSUE_127_TEST_SOURCE_PART_2 = r"""Retired issue #127 operation tests.
 
 @pytest.mark.unit
 def test_group_review_registry_keeps_only_immutable_candidate_operation(
@@ -927,6 +928,9 @@ def test_group_review_registry_keeps_only_immutable_candidate_operation(
         match="exact current-evidence and R101 parent manifests are required",
     ):
         run_agent_replay(["generate-group-review-rev2-candidate"], tmp_path)
+
+
+"""
 
 
 @pytest.mark.unit
@@ -1164,6 +1168,8 @@ def _write_compose_inputs(root: Path, *, app: bool = False) -> None:
         (root / "docker-compose.app.yml").touch()
         (root / "Caddyfile").touch()
 
+
+_RETIRED_ISSUE_127_TEST_SOURCE_PART_3 = r"""Retired issue #127 operation tests.
 
 @pytest.mark.unit
 def test_current_replay_uses_only_the_documented_fixed_inputs(
@@ -2890,7 +2896,7 @@ def test_pre_sme_readiness_refuses_current_packet_without_tracked_state(
         AgentReplayInputError,
         match=(
             r"required input does not exist: ontolib/tests/decomposition/golden/"
-            r"r103-review-state-26\.07d-rev2\.json"
+            "r103-review-state-26\\.07d-rev2\\.json"
         ),
     ):
         run_agent_replay(
@@ -3022,10 +3028,62 @@ def test_pre_sme_verify_gate_failure_removes_stale_evidence(
     assert not output.exists()
 
 
+"""
+
+
 @pytest.mark.unit
 def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="unsupported"):
         run_agent_replay(["import-workbook"], tmp_path)
+
+
+@pytest.mark.unit
+def test_wrapper_rejects_retired_issue_127_experiment_operations(
+    tmp_path: Path,
+) -> None:
+    retired = {
+        "decompose-current",
+        "read-issue",
+        "inspect-current-replay",
+        "record-artifact-registry",
+        "generate-current-evidence",
+        "generate-current-evidence-candidate",
+        "regenerate-current-comparison",
+        "generate-axis-diagnostics",
+        "generate-group-review-rev2-candidate",
+        "generate-grouping-detector-candidate",
+        "generate-normalized-group-policy-candidate",
+        "promote-normalized-group-policy-candidate",
+        "generate-specialist-literature-context",
+        "generate-specialist-cadsr-usage",
+        "generate-specialist-review-packets",
+        "validate-specialist-review-generation",
+        "generate-r103-review",
+        "generate-r103-evidence-application",
+        "transcribe-r103-specificity-selection",
+        "validate-r101-current",
+        "regenerate-r101-current-packet",
+        "report-r101-current-reuse",
+        "audit-primary-sites",
+        "generate-pre-sme-readiness",
+        "capture-pre-sme-verify",
+        "inspect-decomposition-runs",
+        "generate-current-r101-conservation",
+        "generate-current-corpus-baseline",
+        "qualify-current-r101-comparator",
+        "promote-current-r101-evidence",
+        "record-current-r101-diagnostic",
+        "inspect-r101-report",
+        "generate-mixed-chain-inventory",
+        "record-mixed-chain-inventory",
+        "generate-mixed-chain-corrected-projection",
+        "record-mixed-chain-corrected-projection",
+    }
+
+    assert retired.isdisjoint(replay._OPERATIONS)
+    for operation in retired:
+        with pytest.raises(AgentReplayInputError, match="unsupported"):
+            run_agent_replay([operation], tmp_path)
 
 
 @pytest.mark.unit

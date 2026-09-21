@@ -93,9 +93,10 @@ and passes. Whether a `main` merge released is not judged here (#131).
 
 State facts only from commands run in this session; otherwise say `not verified`.
 `tmp/` is gitignored. Put read-only diagnostics in `tmp/scratch/` and run them with
-`pdm run python tmp/scratch/<name>.py`; never read credentials/home files or modify
-stores, repository data or artifacts. A plan names checked inputs. Dry-run downstream
-paths before requesting sign-off.
+`pdm run python`, `python` or `python3`; `jq .`, `sqlite3 -readonly -json`, and the fixed
+`tmp/scratch/inspect.py | jq .` pipeline are also available there. Never read
+credentials/home files or modify stores, repository data or artifacts. A plan names
+checked inputs. Dry-run downstream paths before requesting sign-off.
 
 ## Testing tiers
 
