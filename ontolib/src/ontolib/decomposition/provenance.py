@@ -33,11 +33,6 @@ if TYPE_CHECKING:
         Constituent,
         Decomposition,
     )
-    from ontolib.decomposition.r101_comparator import ComparatorRun
-    from ontolib.decomposition.r101_conservation import (
-        OccurrenceInput,
-        R101LedgerSource,
-    )
 
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -170,48 +165,6 @@ def _existing_residual_inventory_matches(
     if actual != expected:
         raise RunIdentityMismatchError("residual filler inventory differs")
     return True
-
-
-def _parse_r101_occurrences(rows: Sequence[RowMapping]) -> list[OccurrenceInput]:
-    from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
-        EngineOccurrenceDisposition,
-        OccurrenceInput,
-        Pair,
-        R101ConservationValidationError,
-        StructuralOccurrence,
-    )
-
-    occurrences: list[OccurrenceInput] = []
-    for row in rows:
-        if row["old_occurrence"] is None or row["new_occurrence"] is None:
-            raise R101ConservationValidationError("structural-key-mismatch")
-        old_payload = dict(row["old_occurrence"])
-        new_payload = dict(row["new_occurrence"])
-        old_payload["structural_path"] = tuple(old_payload["structural_path"])
-        new_payload["structural_path"] = tuple(new_payload["structural_path"])
-        retained_links = cast("list[dict[str, str]]", row["retained_links"])
-        disposition = row["new_disposition"]
-        occurrences.append(
-            OccurrenceInput(
-                old_occurrence=StructuralOccurrence.model_validate(old_payload),
-                new_occurrence=StructuralOccurrence.model_validate(new_payload),
-                old_links=tuple(row["old_links"]),
-                new_links=tuple(row["new_links"]),
-                retained_new_r101_links=tuple(
-                    Pair.model_validate(item)
-                    for item in sorted(
-                        retained_links,
-                        key=lambda item: (item["axis"], item["filler_code"]),
-                    )
-                ),
-                new_disposition=(
-                    EngineOccurrenceDisposition.model_validate(disposition)
-                    if disposition is not None
-                    else None
-                ),
-            )
-        )
-    return occurrences
 
 
 def _require_completion_source(row: RowMapping, source_identity: str) -> None:
@@ -1513,47 +1466,6 @@ def _dispositions_by_code(
     return by_code
 
 
-def _comparator_run_from_row(
-    run_id: str, row: RowMapping, worklist: Sequence[str]
-) -> ComparatorRun:
-    from ontolib.decomposition.r101_comparator import (  # noqa: PLC0415
-        ComparatorRun,
-    )
-
-    if row["status"] != "complete" or row["publication_state"] != "published":
-        raise RunStateError(
-            f"decomposition run {run_id!r} is not complete and published"
-        )
-    representation_identity = row["representation_identity"]
-    artifact_path = row["publication_artifact_path"]
-    if representation_identity is None or artifact_path is None:
-        raise RunStateError(f"decomposition run {run_id!r} lacks publication evidence")
-    try:
-        run = ComparatorRun.model_validate_json(
-            _json.dumps(
-                {
-                    "run_id": run_id,
-                    "ncit_version": row["ncit_version"],
-                    "fingerprint": row["fingerprint"],
-                    "fingerprint_identity": row["fingerprint_sha256"],
-                    "worklist": tuple(worklist),
-                    "representation_identity": representation_identity,
-                    "publication_artifact_path": artifact_path,
-                },
-                sort_keys=True,
-            )
-        )
-    except ValidationError as exc:
-        raise RunIdentityMismatchError(
-            "persisted comparator evidence violates its source schema"
-        ) from exc
-    if row["source_identity"] != run.fingerprint.source_identity:
-        raise RunIdentityMismatchError(
-            "persisted run source identity does not match its fingerprint"
-        )
-    return run
-
-
 class ProvenanceStore:
     """Persistence for decomposition run manifests and constituents."""
 
@@ -2620,31 +2532,6 @@ class ProvenanceStore:
                 publication_artifact_path=artifact_path,
             )
 
-    async def completed_comparator_run_for_evidence(self, run_id: str) -> ComparatorRun:
-        """Read completed publication fields for a controlled historical comparison."""
-        async with self._sf() as session:
-            result = await session.execute(
-                text(
-                    "SELECT status, ncit_version, source_identity, fingerprint, "
-                    "fingerprint_sha256, publication_state, representation_identity, "
-                    "publication_artifact_path FROM decomp_run WHERE id = :run_id"
-                ),
-                {"run_id": run_id},
-            )
-            row = result.mappings().first()
-            if row is None:
-                raise RunStateError(f"decomposition run {run_id!r} does not exist")
-            worklist_result = await session.execute(
-                text(
-                    "SELECT concept_code FROM decomp_work_item "
-                    "WHERE run_id = :run_id ORDER BY ordinal"
-                ),
-                {"run_id": run_id},
-            )
-            return _comparator_run_from_row(
-                run_id, row, worklist_result.scalars().all()
-            )
-
     async def historical_mixed_chain_run_for_evidence(
         self, run_id: str
     ) -> HistoricalMixedChainRunBinding:
@@ -2859,70 +2746,6 @@ class ProvenanceStore:
                     "minted_count": row["minted_count"],
                 }
             )
-
-    async def r101_occurrence_ledger(
-        self,
-        old_run_id: str,
-        new_run_id: str,
-    ) -> R101LedgerSource:
-        """Read both exact occurrence inventories and links in one bounded query."""
-        from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
-            NonR101DeltaEvidence,
-            NonR101DeltaRow,
-            R101ConservationValidationError,
-            R101LedgerSource,
-            classify_non_r101_delta_rows,
-            r101_ledger_query_identity,
-            r101_non_r101_delta_query,
-            r101_occurrence_ledger_query,
-        )
-
-        sql = text(r101_occurrence_ledger_query())
-        delta_sql = text(r101_non_r101_delta_query())
-        async with self._sf() as session:
-            result = await session.execute(
-                sql, {"old_run_id": old_run_id, "new_run_id": new_run_id}
-            )
-            rows = result.mappings().all()
-            delta_result = await session.execute(
-                delta_sql,
-                {"old_run_id": old_run_id, "new_run_id": new_run_id},
-            )
-            delta_rows = delta_result.mappings().all()
-        occurrences = _parse_r101_occurrences(rows)
-        parsed_delta_rows = tuple(
-            NonR101DeltaRow.model_validate_json(_json.dumps(dict(item), sort_keys=True))
-            for item in delta_rows
-        )
-        if len(parsed_delta_rows) != len(set(parsed_delta_rows)):
-            raise R101ConservationValidationError("duplicate non-R101 delta evidence")
-        r101_occurrences: dict[str, list[str]] = {}
-        for item in occurrences:
-            if item.old_links != item.new_links:
-                r101_occurrences.setdefault(
-                    item.old_occurrence.concept_code, []
-                ).append(item.old_occurrence.occurrence_id)
-        structural_rows, metadata_deltas, classified_rows = (
-            classify_non_r101_delta_rows(
-                parsed_delta_rows,
-                r101_changed_occurrences={
-                    concept: tuple(sorted(set(occurrence_ids)))
-                    for concept, occurrence_ids in r101_occurrences.items()
-                },
-            )
-        )
-        evidence = NonR101DeltaEvidence(
-            old_run_id=old_run_id,
-            new_run_id=new_run_id,
-            query_identity=r101_ledger_query_identity(),
-            rows=structural_rows,
-            metadata_deltas=metadata_deltas,
-            classified_rows=classified_rows,
-            raw_typed_delta_count=len(parsed_delta_rows),
-        )
-        return R101LedgerSource(
-            occurrences=tuple(occurrences), non_r101_delta_evidence=evidence
-        )
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         """Return the exact ordered per-concept outcomes for a run."""

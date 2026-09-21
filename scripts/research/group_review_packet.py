@@ -33,13 +33,6 @@ from ontolib.decomposition.normalized_group_policy import (
     ACTIVE_GROUP_CODES,
     REVIEWED_STAGE_CODES,
 )
-from ontolib.decomposition.r101_conservation import (
-    HistoricalR101ConservationReport,
-    R82PathEdge,
-    R101ConservationReport,
-    load_group_review_r101_report,
-    load_historical_r101_review_report,
-)
 
 try:
     from scripts.research.current_evidence import (
@@ -78,6 +71,17 @@ RuleKind = Literal[
     "repeated-pairs",
     "reviewed-regrouping",
 ]
+
+
+class R82PathEdge(StrictFrozenBoundaryModel):
+    """One historical R82 edge retained in the schema-3 group review evidence."""
+
+    part_code: str
+    asserted_part_code: str
+    whole_code: str
+    restriction_node_id: str
+    fact_identity: str = Field(pattern=_SHA256)
+    source_identity: str = Field(pattern=_SHA256)
 
 
 def _identity(value: object) -> str:
@@ -575,13 +579,11 @@ class GroupReviewConcept(StrictFrozenBoundaryModel):
 
 
 class GroupReviewPacket(StrictFrozenBoundaryModel):
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     source_identity: str = Field(pattern=_SHA256)
     ncit_version: str
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
-    r101_report_identity: str = Field(pattern=_SHA256)
-    historical_r101_report_identity: str = Field(pattern=_SHA256)
     historical_full_partition_agreement: HistoricalAgreement
     current_metrics: CurrentMetrics
     cohort: CurrentReviewCohort
@@ -968,12 +970,9 @@ def _available_occurrences(
 def _machine_rule_evidence(  # noqa: C901
     concepts: tuple[GroupReviewConcept, ...],
     evidence: CurrentEngineEvidence,
-    report: HistoricalR101ConservationReport | R101ConservationReport,
-    historical_report: HistoricalR101ConservationReport,
 ) -> tuple[RuleEvidenceRow, ...]:
     result: list[RuleEvidenceRow] = []
     evidence_by_code = {row.code: row for row in evidence.concepts}
-    packet_by_code = {row.code: row for row in concepts}
     for concept in concepts:
         all_occurrences = tuple(
             _occurrence_document(row)
@@ -1063,62 +1062,42 @@ def _machine_rule_evidence(  # noqa: C901
                 ),
             )
         )
-    occurrence_by_id = {
-        row.occurrence_id: _occurrence_document(row)
-        for concept in evidence.concepts
-        for row in concept.all_source_occurrences
-    }
-    report_rows = {
-        row.occurrence_id: row
-        for source in (historical_report, report)
-        for row in source.occurrences
-        if row.retained_r82_target is not None
-    }
-    for row in report_rows.values():
-        if (
-            row.concept_code not in packet_by_code
-            or row.retained_r82_target is None
-            or row.occurrence_id not in occurrence_by_id
-        ):
+    concept_by_code = {item.code: item for item in concepts}
+    for evidence_concept in evidence.concepts:
+        concept = concept_by_code.get(evidence_concept.code)
+        if concept is None:
             continue
-        concept = packet_by_code[row.concept_code]
-        target = (row.retained_r82_target.axis, row.retained_r82_target.filler_code)
-        groups = tuple(
-            group.normalized_group_id
-            for group in concept.actual_groups
-            if any(pair.pair == target for pair in group.pairs)
-        )
-        if not groups:
-            continue
-        result.append(
-            _rule_row(
-                kind="specificity-collapse",
-                concept_code=row.concept_code,
-                occurrences=(occurrence_by_id[row.occurrence_id],),
-                output_group_ids=groups,
-                output_pairs=(target,),
-                r82_path=row.r82_path,
-                machine_evidence=(
-                    "R101 same-axis specificity collapse with exact asserted R82 path."
-                ),
+        occurrences = {
+            item.occurrence_id: _occurrence_document(item)
+            for item in evidence_concept.all_source_occurrences
+        }
+        for disposition in evidence_concept.occurrence_dispositions:
+            if disposition.kind != "collapsed-r82":
+                continue
+            occurrence = occurrences[disposition.source_occurrence.occurrence_id]
+            groups = tuple(
+                group.normalized_group_id
+                for group in concept.actual_groups
+                if any(pair.pair == disposition.retained_pair for pair in group.pairs)
             )
-        )
+            if groups:
+                result.append(
+                    _rule_row(
+                        kind="specificity-collapse",
+                        concept_code=concept.code,
+                        occurrences=(occurrence,),
+                        output_group_ids=groups,
+                        output_pairs=(disposition.retained_pair,),
+                        machine_evidence=(
+                            "Current engine disposition records a stated-R82 "
+                            "specificity collapse."
+                        ),
+                    )
+                )
     kinds = {row.kind for row in result}
     missing = set(cast("tuple[RuleKind, ...]", _RULE_KINDS)) - kinds
     if missing:
-        retained_r82_codes = tuple(
-            sorted(
-                {
-                    row.concept_code
-                    for row in report.occurrences
-                    if row.retained_r82_target is not None
-                }
-            )
-        )
-        raise ValueError(
-            f"machine rule evidence is absent for: {sorted(missing)}; "
-            f"R101 report retained-R82 concepts={retained_r82_codes!r}"
-        )
+        raise ValueError(f"machine rule evidence is absent for: {sorted(missing)}")
     return tuple(
         sorted(result, key=lambda row: (row.concept_code, row.kind, row.row_identity))
     )
@@ -1169,16 +1148,9 @@ def build_group_review_packet(
     *,
     evidence: CurrentEngineEvidence,
     comparison: CurrentComparison,
-    r101_report: HistoricalR101ConservationReport | R101ConservationReport,
-    historical_r101_report: HistoricalR101ConservationReport | None = None,
 ) -> GroupReviewPacket:
     """Derive the current disagreement packet without making an SME decision."""
     _validate_inputs(evidence, comparison)
-    if (
-        r101_report.source_identity != evidence.source_identity
-        or r101_report.source_release_id != evidence.ncit_version
-    ):
-        raise ValueError("R101 path evidence does not bind current evidence")
     by_code = {item.code: item for item in evidence.concepts}
     disagreements = tuple(
         item for item in comparison.concepts if item.full_partition.agrees is False
@@ -1205,20 +1177,13 @@ def build_group_review_packet(
     concepts = tuple(
         _concept_packet(item, by_code[item.code]) for item in policy_evidence
     )
-    historical_r101_report = historical_r101_report or cast(
-        "HistoricalR101ConservationReport", r101_report
-    )
-    rule_evidence = _machine_rule_evidence(
-        concepts, evidence, r101_report, historical_r101_report
-    )
+    rule_evidence = _machine_rule_evidence(concepts, evidence)
     payload = {
-        "schema_version": 4,
+        "schema_version": 5,
         "source_identity": comparison.source_identity,
         "ncit_version": comparison.ncit_version,
         "current_evidence_identity": evidence.evidence_identity,
         "current_comparison_identity": comparison.comparison_identity,
-        "r101_report_identity": r101_report.report_identity,
-        "historical_r101_report_identity": historical_r101_report.report_identity,
         "historical_full_partition_agreement": HistoricalAgreement(
             numerator=_HISTORICAL_AGREEMENTS,
             denominator=_HISTORICAL_COHORT,
@@ -1280,13 +1245,9 @@ def build_machine_group_review_packet(
     *,
     evidence: CurrentEngineEvidence,
     comparison: CurrentComparison,
-    r101_report_path: Path,
 ) -> GroupReviewPacket:
     """Build the complete machine boundary while leaving all SME fields absent."""
-    report = load_historical_r101_review_report(r101_report_path)
-    return build_group_review_packet(
-        evidence=evidence, comparison=comparison, r101_report=report
-    )
+    return build_group_review_packet(evidence=evidence, comparison=comparison)
 
 
 def load_group_review_packet(path: Path) -> GroupReviewPacket:
@@ -1947,7 +1908,6 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
         ("source_identity", packet.source_identity),
         ("evidence_identity", packet.current_evidence_identity),
         ("comparison_identity", packet.current_comparison_identity),
-        ("r101_report_identity", packet.r101_report_identity),
         ("schema_version", packet.schema_version),
     ):
         bindings.append([name, value])
@@ -2183,7 +2143,6 @@ def _expected_bindings(packet: GroupReviewPacket) -> tuple[tuple[object, object]
         ("source_identity", packet.source_identity),
         ("evidence_identity", packet.current_evidence_identity),
         ("comparison_identity", packet.current_comparison_identity),
-        ("r101_report_identity", packet.r101_report_identity),
         ("schema_version", packet.schema_version),
     )
 
@@ -2461,12 +2420,10 @@ def generate_group_review_packet(
     *,
     evidence_path: Path,
     comparison_path: Path,
-    r101_report_path: Path,
-    historical_r101_report_path: Path | None = None,
     output: Path,
 ) -> GroupReviewPacket:
     """Generate canonical JSON from the validated current evidence pair."""
-    for path in (evidence_path, comparison_path, r101_report_path):
+    for path in (evidence_path, comparison_path):
         if not path.is_file():
             raise ValueError(f"input does not exist: {path}")
     if not output.parent.is_dir():
@@ -2474,20 +2431,11 @@ def generate_group_review_packet(
     if output.resolve() in {
         evidence_path.resolve(),
         comparison_path.resolve(),
-        r101_report_path.resolve(),
     }:
         raise ValueError("output must differ from inputs")
-    primary_report = load_group_review_r101_report(r101_report_path)
-    historical_report = (
-        load_historical_r101_review_report(historical_r101_report_path)
-        if historical_r101_report_path is not None
-        else cast("HistoricalR101ConservationReport", primary_report)
-    )
     packet = build_group_review_packet(
         evidence=CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes()),
         comparison=CurrentComparison.model_validate_json(comparison_path.read_bytes()),
-        r101_report=primary_report,
-        historical_r101_report=historical_report,
     )
     _write_json(output, packet.model_dump(mode="json"))
     if load_group_review_packet(output) != packet:
@@ -2499,8 +2447,6 @@ def generate_group_review_boundary(
     *,
     evidence_path: Path,
     comparison_path: Path,
-    r101_report_path: Path,
-    historical_r101_report_path: Path | None = None,
     output: Path,
     workbook: Path,
     correction_audit: Path,
@@ -2524,8 +2470,6 @@ def generate_group_review_boundary(
         packet = generate_group_review_packet(
             evidence_path=evidence_path,
             comparison_path=comparison_path,
-            r101_report_path=r101_report_path,
-            historical_r101_report_path=historical_r101_report_path,
             output=staged[0],
         )
         write_group_review_workbook(staged[1], packet)

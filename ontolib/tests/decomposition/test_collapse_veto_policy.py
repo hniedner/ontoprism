@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import gzip
 import inspect
-import json
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
 from ontolib.decomposition import collapse_policy
 from ontolib.decomposition.collapse_policy import CollapsePolicyError
-from ontolib.decomposition.collapse_policy_generation import (
-    _entry,
-    _validate_authorized_accounting,
-)
 from ontolib.decomposition.filler_selection import (
     _reduce_routed_plan,
     build_routed_plan,
@@ -28,12 +21,9 @@ from ontolib.decomposition.provenance_models import (
     RunFingerprint,
     RunResumeIdentity,
 )
-from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
-from ontolib.decomposition.r101_review import load_r101_decision_registry
 
 _SOURCE = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
 _OTHER_SOURCE = "a" * 64
-_GOLDEN = Path(__file__).parent / "golden" / "r101-review-registry-v3-sme.json.gz"
 
 
 def _policy_module():
@@ -281,27 +271,6 @@ def test_empty_policy_has_double_fidelity_with_ordinary_collapse() -> None:
 
 
 @pytest.mark.unit
-def test_tracked_registry_golden_has_exact_authorized_accounting() -> None:
-    with gzip.open(_GOLDEN, "rt", encoding="ascii") as stream:
-        payload = json.load(stream)
-    outcomes: dict[str, int] = {}
-    for row in payload["atomic_decisions"]:
-        outcomes[row["outcome"]] = outcomes.get(row["outcome"], 0) + 1
-    assert payload["schema_version"] == 3
-    assert payload["status"] == "proposed"
-    assert payload["registry_identity"] == (
-        "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
-    )
-    assert outcomes == {
-        "approved-non-exclusive-coverage": 3288,
-        "rejected-retain-broader": 3,
-    }
-    assert len(payload["atomic_decisions"]) == 3291
-    assert len(payload["disease_exceptions"]) == 2800
-    assert not any(row["is_exception"] for row in payload["disease_exceptions"])
-
-
-@pytest.mark.unit
 def test_packaged_policy_loads_via_importlib_resources() -> None:
     module = _policy_module()
     policy = module.load_packaged_collapse_veto_policy()
@@ -410,168 +379,6 @@ def test_policy_second_staging_failure_leaves_no_partial_or_temp_file(
     assert list(tmp_path.iterdir()) == []
 
 
-def _rejected_evidence():
-    report = load_historical_r101_review_report(
-        Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
-    )
-    source = next(
-        row
-        for row in report.occurrences
-        if row.occurrence_id
-        == "4a8c695aa34264fb7fb95a2afd4d8bfd0c6d49dab5f0313ef682a3b0fba39784"
-    )
-    frozen = SimpleNamespace(
-        disease_code=source.concept_code,
-        source_fact_id=source.source_fact_id,
-        anchor_code=source.anchor_code,
-        structural_path=source.structural_path,
-        broader_code=source.filler_code,
-        retained_code="C32639",
-    )
-    decision = SimpleNamespace(
-        occurrence_id=source.occurrence_id,
-        broader_code=source.filler_code,
-        retained_code="C32639",
-        atomic_decision_identity="7d72cc8db2ba1f05aea37e74f13048ce74cd59e924244cbe959bec7af3ecce42",
-    )
-    return report, source, frozen, decision
-
-
-def _source_namespace(source):
-    values = source.model_dump(mode="python")
-    target = values["retained_r82_target"]
-    values["retained_r82_target"] = SimpleNamespace(**target) if target else None
-    return SimpleNamespace(**values)
-
-
-def _source_occurrence(source, *, occurrence_id: str | None = None):
-    return SimpleNamespace(
-        occurrence_id=occurrence_id or source.occurrence_id,
-        root_code=source.concept_code,
-        source_fact_id=source.source_fact_id,
-        source_group_id=source.source_group_id,
-        anchor_code=source.anchor_code,
-        depth=source.depth,
-        role_code=source.role_code,
-        filler_code=source.filler_code,
-        structural_path=source.structural_path,
-        member_position=source.member_position,
-    )
-
-
-@pytest.mark.unit
-def test_generator_entry_uses_broader_endpoint_and_derived_axis() -> None:
-    report, source, frozen, decision = _rejected_evidence()
-    result = _entry(
-        decision,
-        {source.occurrence_id: source},
-        {source.occurrence_id: frozen},
-        report.source_identity,
-    )
-    assert (result.broader_code, result.narrower_code, result.normalized_axis) == (
-        "C12351",
-        "C32639",
-        "op:PrimarySite",
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        (
-            lambda source, frozen, decision: setattr(frozen, "anchor_code", "C999"),
-            "stale",
-        ),
-        (
-            lambda source, frozen, decision: setattr(
-                decision, "broader_code", "C32639"
-            ),
-            "broader_code",
-        ),
-        (
-            lambda source, frozen, decision: setattr(
-                source, "retained_r82_target", None
-            ),
-            "routing-derived",
-        ),
-        (
-            lambda source, frozen, decision: setattr(source, "occurrence_id", "0" * 64),
-            "recompute",
-        ),
-    ],
-)
-def test_generator_entry_refuses_stale_or_conflicting_evidence(
-    mutation, message: str
-) -> None:
-    report, original, frozen, decision = _rejected_evidence()
-    source = _source_namespace(original)
-    mutation(source, frozen, decision)
-    with pytest.raises(CollapsePolicyError, match=message):
-        _entry(
-            decision,
-            {decision.occurrence_id: source},
-            {decision.occurrence_id: frozen},
-            report.source_identity,
-        )
-
-
-@pytest.mark.unit
-def test_policy_qualification_refuses_missing_duplicate_and_provenance_drift() -> None:
-    policy = _policy()
-    report, source, _frozen, _decision = _rejected_evidence()
-    occurrence = _source_occurrence(source)
-    with pytest.raises(CollapsePolicyError, match="missing or ambiguous"):
-        policy.qualify_live_occurrences((), source_identity=report.source_identity)
-    with pytest.raises(CollapsePolicyError, match="duplicate"):
-        policy.qualify_live_occurrences(
-            cast("Any", (occurrence, occurrence)),
-            source_identity=report.source_identity,
-        )
-    drifted = _source_occurrence(source, occurrence_id="0" * 64)
-    with pytest.raises(CollapsePolicyError, match="missing or ambiguous"):
-        policy.qualify_live_occurrences(
-            cast("Any", (drifted,)), source_identity=report.source_identity
-        )
-
-
-@pytest.mark.unit
-def test_generator_accounting_rejects_identity_outcome_and_exception_drift(
-    tmp_path: Path,
-) -> None:
-    registry_json = tmp_path / "registry.json"
-    with gzip.open(_GOLDEN, "rb") as source:
-        registry_json.write_bytes(source.read())
-    registry = load_r101_decision_registry(registry_json)
-    _validate_authorized_accounting(registry)
-
-    with pytest.raises(CollapsePolicyError, match="not authorized"):
-        _validate_authorized_accounting(
-            registry.model_copy(update={"registry_identity": "0" * 64})
-        )
-    unknown = registry.atomic_decisions[0].model_copy(update={"outcome": "future"})
-    with pytest.raises(CollapsePolicyError, match="outcomes"):
-        _validate_authorized_accounting(
-            registry.model_copy(
-                update={"atomic_decisions": (unknown, *registry.atomic_decisions[1:])}
-            )
-        )
-    exception = registry.disease_exceptions[0].model_copy(
-        update={"is_exception": True, "rationale": "test refusal"}
-    )
-    with pytest.raises(CollapsePolicyError, match="disease exceptions"):
-        _validate_authorized_accounting(
-            registry.model_copy(
-                update={
-                    "disease_exceptions": (
-                        exception,
-                        *registry.disease_exceptions[1:],
-                    )
-                }
-            )
-        )
-
-
 @pytest.mark.unit
 def test_policy_rejects_duplicate_keys_and_duplicate_live_tuple() -> None:
     policy = _policy()
@@ -600,36 +407,6 @@ def test_policy_rejects_duplicate_keys_and_duplicate_live_tuple() -> None:
 
 
 @pytest.mark.unit
-def test_policy_live_qualification_accepts_all_keys_and_rejects_provenance_drift() -> (
-    None
-):
-    policy = _policy()
-    report = load_historical_r101_review_report(
-        Path(__file__).parent / "golden" / "neoplasm-r101-v4-conservation.json.gz"
-    )
-    by_id = {row.occurrence_id: row for row in report.occurrences}
-    rows = tuple(
-        _source_occurrence(by_id[entry.occurrence_id]) for entry in policy.entries
-    )
-    policy.qualify_live_occurrences(cast("Any", rows), source_identity=_SOURCE)
-    drifted = (
-        _source_occurrence(
-            by_id[policy.entries[0].occurrence_id], occurrence_id="0" * 64
-        ),
-        *rows[1:],
-    )
-    with pytest.raises(CollapsePolicyError, match="provenance drifted"):
-        policy.qualify_live_occurrences(cast("Any", drifted), source_identity=_SOURCE)
-    with pytest.raises(CollapsePolicyError, match="source identity"):
-        policy.qualify_live_occurrences(
-            cast("Any", rows), source_identity=_OTHER_SOURCE
-        )
-    collapse_policy.NO_COLLAPSE_VETO_POLICY.qualify_live_occurrences(
-        (), source_identity=_OTHER_SOURCE
-    )
-
-
-@pytest.mark.unit
 def test_policy_model_rejects_wrong_identity_and_noncanonical_order() -> None:
     policy = _policy()
     payload = policy.model_dump(mode="python")
@@ -641,10 +418,3 @@ def test_policy_model_rejects_wrong_identity_and_noncanonical_order() -> None:
         collapse_policy.CollapseVetoPolicy.model_validate(
             {**payload, "entries": tuple(reversed(policy.entries))}
         )
-
-
-@pytest.mark.unit
-def test_generator_entry_refuses_missing_occurrence() -> None:
-    report, source, frozen, decision = _rejected_evidence()
-    with pytest.raises(CollapsePolicyError, match="missing from evidence"):
-        _entry(decision, {}, {source.occurrence_id: frozen}, report.source_identity)

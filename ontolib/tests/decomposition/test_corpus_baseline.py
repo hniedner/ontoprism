@@ -338,64 +338,6 @@ def test_generate_corpus_baseline_cli_requires_explicit_inputs() -> None:
 
 
 @pytest.mark.unit
-def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
-    args = _parser().parse_args(
-        [
-            "generate-r101-conservation",
-            "--source-manifest",
-            "candidate.json",
-            "--baseline",
-            "baseline.json",
-            "--run-id",
-            "full-run",
-            "--new-run-id",
-            "v4-full-run",
-            "--old-artifact",
-            "old.ttl",
-            "--new-artifact",
-            "new.ttl",
-            "--qualification-output",
-            "qualification.json",
-            "--endpoint",
-            "http://localhost:7888",
-            "--output",
-            "report.json.gz",
-            "--pre-resume-proof-identity",
-            "1" * 64,
-            "--resume-dry-run-identity",
-            "2" * 64,
-            "--mixed-cohort-identity",
-            "3" * 64,
-        ]
-    )
-
-    assert args.command == "generate-r101-conservation"
-    assert args.source_manifest == Path("candidate.json")
-    assert args.baseline == Path("baseline.json")
-    assert args.run_id == "full-run"
-    assert args.new_run_id == "v4-full-run"
-    assert args.old_artifact == Path("old.ttl")
-    assert args.new_artifact == Path("new.ttl")
-    assert args.qualification_output == Path("qualification.json")
-    assert args.endpoint == "http://localhost:7888"
-    assert args.output == Path("report.json.gz")
-    assert args.pre_resume_proof_identity == "1" * 64
-    assert args.resume_dry_run_identity == "2" * 64
-    assert args.mixed_cohort_identity == "3" * 64
-
-    validation = _parser().parse_args(
-        [
-            "validate-r101-publication",
-            "--report",
-            "report.json.gz",
-            "--authorization-digest",
-            "4" * 64,
-        ]
-    )
-    assert validation.report == Path("report.json.gz")
-    assert validation.authorization_digest == "4" * 64
-
-
 @pytest.mark.unit
 def test_pre_resume_proof_identity_excludes_freshness_metadata() -> None:
     payload = {

@@ -1,5 +1,8 @@
 """Unit tests for the stated-graph SPARQL builders (string shape + injection guard)."""
 
+import json
+import subprocess
+import sys
 from collections.abc import Collection
 
 import pytest
@@ -13,8 +16,10 @@ from ontolib.decomposition.models import (
     canonical_definition_group_id,
 )
 from ontolib.decomposition.stated_queries import (
+    _advance_origin_paths,
     _intersection_hop_pattern,
     _is_staging_concept_label,
+    _make_r82_edge,
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
@@ -52,6 +57,93 @@ def _genus_fact(anchor: str, depth: int, genus: str) -> GenusDefinitionFact:
         genus_code=genus,
         is_defined=False,
     )
+
+
+@pytest.mark.unit
+def test_engine_imports_do_not_load_r101_review_tooling() -> None:
+    script = """
+import json
+import sys
+
+from ontolib.decomposition import provenance, run, stated_queries
+
+del provenance, run, stated_queries
+print(json.dumps(sorted(
+    name for name in sys.modules
+    if name in {
+        "ontolib.decomposition.r101_review",
+        "ontolib.decomposition.r101_conservation",
+        "ontolib.decomposition.r101_comparator",
+    }
+)))
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and source
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.unit
+def test_r82_path_tie_prefers_the_lexicographically_first_path() -> None:
+    source_identity = "a" * 64
+    first = _make_r82_edge("C1", "C2", ("C1", "_:first"), source_identity)
+    second = _make_r82_edge("C1", "C3", ("C1", "_:second"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2", "C3"},
+        {
+            "C2": {"C4": ("C2", "_:via-c2")},
+            "C3": {"C4": ("C3", "_:via-c3")},
+        },
+        set(),
+        {"C2": (first,), "C3": (second,)},
+        source_identity,
+    )
+
+    assert tuple(edge.part_code for edge in paths["C4"]) == ("C1", "C2")
+
+
+@pytest.mark.unit
+def test_r82_path_tie_replaces_a_later_lexicographic_candidate() -> None:
+    source_identity = "a" * 64
+    later = _make_r82_edge("C1", "C3", ("C1", "_:later"), source_identity)
+    earlier = _make_r82_edge("C1", "C2", ("C1", "_:earlier"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2", "C3"},
+        {
+            "C2": {"C4": ("C2", "_:via-c2")},
+            "C3": {"C4": ("C3", "_:via-c3")},
+        },
+        set(),
+        {"C2": (later,), "C3": (earlier,)},
+        source_identity,
+    )
+
+    assert tuple(edge.part_code for edge in paths["C4"]) == ("C1", "C3")
+
+
+@pytest.mark.unit
+def test_r82_path_search_does_not_revisit_a_reached_node() -> None:
+    source_identity = "a" * 64
+    first = _make_r82_edge("C1", "C2", ("C1", "_:first"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2"},
+        {"C2": {"C1": ("C2", "_:cycle"), "C3": ("C2", "_:forward")}},
+        {"C1"},
+        {"C2": (first,)},
+        source_identity,
+    )
+
+    assert set(paths) == {"C3"}
 
 
 @pytest.mark.unit
