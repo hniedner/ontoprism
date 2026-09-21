@@ -43,16 +43,6 @@ from ontolib.decomposition.proposal_registry_migration import (
     validate_historical_migration_artifact,
     validate_migrated_proposal_registry,
 )
-from ontolib.decomposition.r101_conservation import (
-    R101ConservationReport,
-    load_historical_r101_review_report,
-    load_r101_conservation_report,
-)
-from ontolib.decomposition.r101_review import (
-    dry_run_r101_decision_expansion,
-    load_r101_decision_registry,
-    load_r101_review_packet,
-)
 from ontolib.decomposition.r103_evidence_application import (
     load_applied_policy_report,
     load_authority_artifact,
@@ -83,7 +73,6 @@ _GROUP_REVIEW_COUNT = 18
 _R103_REVIEW_COUNT = 3
 _GROUP_REVIEW = "group-review"
 _R103_REVIEW = "r103-review"
-_R101_AUTHORIZATION = "r101-ledger-authorization"
 _FINAL_ACCEPTANCE = "final-full-corpus-scientific-acceptance-and-publication"
 _ACCEPTED_COHORT_COUNT = 20
 
@@ -428,12 +417,6 @@ class MachineReadinessInputs(_StrictModel):
     sample_artifact_identity: str = Field(pattern=_SHA256)
     corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
-    r101_current_report_identity: str = Field(pattern=_SHA256)
-    r101_historical_report_identity: str = Field(pattern=_SHA256)
-    r101_registry_identity: str = Field(pattern=_SHA256)
-    r101_existing_packet_identity: str = Field(pattern=_SHA256)
-    r101_current_packet_identity: str = Field(pattern=_SHA256)
-    r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     row_decisions_identity: str = Field(pattern=_SHA256)
@@ -471,28 +454,9 @@ class MachineReadinessInputs(_StrictModel):
     common_partition_agreement: CommonValidatedFraction
     group_review_count: Literal[18]
     r103_review_count: Literal[3]
-    r101_historical_validation_established: bool
-    r101_current_authorization_status: Literal["pending"]
-    r101_occurrence_count: int = Field(gt=0)
-    r101_mechanical_unresolved: int = Field(ge=0)
-    r101_non_r101_delta: int = Field(ge=0)
-    r101_metadata_delta: int = Field(ge=0)
-    r101_occurrence_certification: Literal["complete", "blocked"]
-    r101_non_r101_enumeration: Literal["complete"]
-    r101_explanation: Literal["complete", "incomplete", "blocked"]
-    r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
-    r101_execution_comparability: Literal["unqualified"]
-    r101_fully_controlled: Literal[False]
-    r101_all_controls_equal: Literal[False]
-    r101_causal_attribution: Literal["prohibited"]
 
     @model_validator(mode="after")
-    def _validate_reuse_status(self) -> Self:  # noqa: C901
-        exact = self.r101_existing_packet_identity == self.r101_current_packet_identity
-        if self.r101_historical_validation_established != exact:
-            raise ValueError(
-                "historical R101 validation differs from packet identities"
-            )
+    def _validate_reuse_status(self) -> Self:
         if (
             self.primary_site_resolved_count + self.primary_site_review_required_count
             == 0
@@ -571,108 +535,6 @@ class MachineReadinessInputs(_StrictModel):
         ):
             raise ValueError("C3264 terminal exclusion identity is absent")
         return self
-
-
-class R101ReuseValidation(_StrictModel):
-    schema_version: Literal[1]
-    status: Literal["exact-reuse-established", "human-reattestation-required"]
-    reason: Literal["exact-bindings-match", "packet-bindings-differ"]
-    report_identity: str = Field(pattern=_SHA256)
-    existing_packet_identity: str = Field(pattern=_SHA256)
-    current_packet_identity: str = Field(pattern=_SHA256)
-    registry_identity: str = Field(pattern=_SHA256)
-    exact_reuse: bool
-    authorization: Literal[False]
-    publication_writes_performed: Literal[False]
-    validation_identity: str = Field(pattern=_SHA256)
-
-    @model_validator(mode="after")
-    def _validate_result(self) -> Self:
-        established = self.existing_packet_identity == self.current_packet_identity
-        if self.exact_reuse != established:
-            raise ValueError("R101 exact-reuse verdict differs from packet identities")
-        expected_status = (
-            "exact-reuse-established" if established else "human-reattestation-required"
-        )
-        expected_reason = (
-            "exact-bindings-match" if established else "packet-bindings-differ"
-        )
-        if (self.status, self.reason) != (expected_status, expected_reason):
-            raise ValueError("R101 reuse status differs from packet identities")
-        expected = _identity(
-            self.model_dump(mode="json", exclude={"validation_identity"})
-        )
-        if self.validation_identity != expected:
-            raise ValueError("R101 reuse validation identity differs")
-        return self
-
-
-def build_r101_reuse_validation(
-    *,
-    report_identity: str,
-    existing_packet_identity: str,
-    current_packet_identity: str,
-    registry_identity: str,
-) -> R101ReuseValidation:
-    exact = existing_packet_identity == current_packet_identity
-    payload = {
-        "schema_version": 1,
-        "status": (
-            "exact-reuse-established" if exact else "human-reattestation-required"
-        ),
-        "reason": "exact-bindings-match" if exact else "packet-bindings-differ",
-        "report_identity": report_identity,
-        "existing_packet_identity": existing_packet_identity,
-        "current_packet_identity": current_packet_identity,
-        "registry_identity": registry_identity,
-        "exact_reuse": exact,
-        "authorization": False,
-        "publication_writes_performed": False,
-    }
-    return R101ReuseValidation.model_validate(
-        {**payload, "validation_identity": _identity(payload)}
-    )
-
-
-def generate_r101_reuse_validation(
-    *,
-    report: Path,
-    existing_packet: Path,
-    current_packet: Path,
-    registry: Path,
-    output: Path,
-) -> R101ReuseValidation:
-    """Report whether an explicitly supplied attestation is exactly reusable.
-
-    Exact reuse requires the registry to bind the supplied existing packet and the
-    regenerated packet to be byte-semantically identical. It reuses that prior human
-    evidence; this operation never creates or rebinds an authorization.
-    """
-    try:
-        report_value = load_historical_r101_review_report(report)
-        existing = load_r101_review_packet(existing_packet)
-        current = load_r101_review_packet(current_packet)
-        registry_value = load_r101_decision_registry(registry)
-    except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
-        raise PreSmeValidationError(str(exc)) from exc
-    if current.bindings.report_identity != report_value.report_identity:
-        raise PreSmeValidationError(
-            "regenerated R101 packet does not bind current report"
-        )
-    if registry_value.packet_identity != existing.packet_identity:
-        raise PreSmeValidationError(
-            "R101 registry does not bind existing attested packet"
-        )
-    result = build_r101_reuse_validation(
-        report_identity=report_value.report_identity,
-        existing_packet_identity=existing.packet_identity,
-        current_packet_identity=current.packet_identity,
-        registry_identity=registry_value.registry_identity,
-    )
-    if result.exact_reuse:
-        dry_run_r101_decision_expansion(report_value, current, registry_value)
-    _atomic_write(output, _canonical_bytes(result))
-    return result
 
 
 class MetricView(_StrictModel):
@@ -801,8 +663,6 @@ class PublicationState(_StrictModel):
 
 
 SemanticBlockerKind = Literal[
-    "r101-unexplained-structural-delta",
-    "r101-semantic-metadata-delta",
     "unclassified-delta",
     "axis-contract-violation",
     "normalized-group-violation",
@@ -840,8 +700,6 @@ SemanticBlocker = Annotated[
 
 
 _SEMANTIC_BLOCKER_KINDS: tuple[SemanticBlockerKind, ...] = (
-    "r101-unexplained-structural-delta",
-    "r101-semantic-metadata-delta",
     "unclassified-delta",
     "axis-contract-violation",
     "normalized-group-violation",
@@ -876,7 +734,6 @@ class SemanticGateSummary(_StrictModel):
 RequirementKind = Literal[
     "group-review",
     "r103-review",
-    "r101-ledger-authorization",
     "final-full-corpus-scientific-acceptance-and-publication",
 ]
 
@@ -945,12 +802,6 @@ class ReportIdentities(_StrictModel):
     sample_artifact_identity: str = Field(pattern=_SHA256)
     corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
-    r101_current_report_identity: str = Field(pattern=_SHA256)
-    r101_historical_report_identity: str = Field(pattern=_SHA256)
-    r101_registry_identity: str = Field(pattern=_SHA256)
-    r101_existing_packet_identity: str = Field(pattern=_SHA256)
-    r101_current_packet_identity: str = Field(pattern=_SHA256)
-    r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     proposal_registry_migration_identity: str = Field(pattern=_SHA256)
     row_decisions_identity: str = Field(pattern=_SHA256)
@@ -990,23 +841,11 @@ class MachineReadinessReport(_StrictModel):
     quality_target: QualityTargetIndicators
     semantic_gate: SemanticGateSummary
     primary_site_audit: PrimarySiteAuditSummary
-    r101_occurrence_count: int = Field(gt=0)
-    r101_mechanical_unresolved: int = Field(ge=0)
-    r101_non_r101_delta: int = Field(ge=0)
-    r101_metadata_delta: int = Field(ge=0)
-    r101_occurrence_certification: Literal["complete", "blocked"]
-    r101_non_r101_enumeration: Literal["complete"]
-    r101_explanation: Literal["complete", "incomplete", "blocked"]
-    r101_semantic_isolation: Literal["partial-unqualified", "blocked"]
-    r101_execution_comparability: Literal["unqualified"]
-    r101_fully_controlled: Literal[False]
-    r101_all_controls_equal: Literal[False]
-    r101_causal_attribution: Literal["prohibited"]
     human_requirements: tuple[HumanRequirement, ...]
     report_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
-    def _validate_identity(  # noqa: C901, PLR0912, PLR0915 - full report checks
+    def _validate_identity(  # noqa: C901, PLR0912 - full report checks
         self,
     ) -> Self:
         requirements = [item.requirement for item in self.human_requirements]
@@ -1015,7 +854,6 @@ class MachineReadinessReport(_StrictModel):
         if set(requirements) != {
             _GROUP_REVIEW,
             _R103_REVIEW,
-            _R101_AUTHORIZATION,
             _FINAL_ACCEPTANCE,
         }:
             raise ValueError("required human requirements differ")
@@ -1067,16 +905,10 @@ class MachineReadinessReport(_StrictModel):
             raise ValueError("primary-site blocker differs from audit")
         r101_blocker = blockers["unexplained-r101-loss"]
         if (
-            not isinstance(r101_blocker, (ClearSemanticBlocker, BlockedSemanticBlocker))
-            or r101_blocker.blocker_count != self.r101_mechanical_unresolved
+            not isinstance(r101_blocker, NotEvaluatedSemanticBlocker)
+            or r101_blocker.owning_issue != "#417"
         ):
-            raise ValueError("R101 blocker differs from conservation count")
-        structural = blockers["r101-unexplained-structural-delta"]
-        if structural.blocker_count != self.r101_non_r101_delta:  # type: ignore[union-attr]
-            raise ValueError("R101 structural delta blocker differs")
-        metadata = blockers["r101-semantic-metadata-delta"]
-        if metadata.blocker_count != self.r101_metadata_delta:  # type: ignore[union-attr]
-            raise ValueError("R101 metadata delta blocker differs")
+            raise ValueError("R101 blocker must remain owned by #417")
         for kind in (
             "axis-contract-violation",
             "normalized-group-violation",
@@ -1086,11 +918,6 @@ class MachineReadinessReport(_StrictModel):
                 raise ValueError(f"{kind} must be evaluated")
         if not isinstance(blockers["unclassified-delta"], NotEvaluatedSemanticBlocker):
             raise ValueError("total delta classification must remain not evaluated")
-        r101 = by_requirement[_R101_AUTHORIZATION]
-        if r101.count != self.r101_occurrence_count:
-            raise ValueError("R101 requirement count differs from report")
-        if not isinstance(r101, PendingHumanRequirement):
-            raise ValueError("current R101 authorization must remain pending")
         expected = _identity(self.model_dump(mode="json", exclude={"report_identity"}))
         if self.report_identity != expected:
             raise ValueError("machine readiness report identity differs")
@@ -1160,21 +987,11 @@ def _evaluated_blocker(
 
 def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
     entries: tuple[SemanticBlocker, ...] = (
-        _evaluated_blocker(
-            "r101-unexplained-structural-delta",
-            inputs.r101_non_r101_delta,
-            (f"r101-current-report:{inputs.r101_current_report_identity}",),
-        ),
-        _evaluated_blocker(
-            "r101-semantic-metadata-delta",
-            inputs.r101_metadata_delta,
-            (f"r101-current-report:{inputs.r101_current_report_identity}",),
-        ),
         NotEvaluatedSemanticBlocker(
             kind="unclassified-delta",
             status="not-evaluated",
             owning_issue="#127",
-            reason="the R101-isolated comparison is not a total delta classification",
+            reason="no total full-corpus delta classification is available",
         ),
         _evaluated_blocker(
             "axis-contract-violation",
@@ -1199,10 +1016,11 @@ def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
             len(inputs.primary_site_cardinality_violations),
             (f"primary-site-audit:{inputs.primary_site_audit_identity}",),
         ),
-        _evaluated_blocker(
-            "unexplained-r101-loss",
-            inputs.r101_mechanical_unresolved,
-            (f"r101-current-report:{inputs.r101_current_report_identity}",),
+        NotEvaluatedSemanticBlocker(
+            kind="unexplained-r101-loss",
+            status="not-evaluated",
+            owning_issue="#417",
+            reason="per-run R101 conservation is pending implementation",
         ),
     )
     status = (
@@ -1282,13 +1100,6 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
                 status="pending",
             )
         )
-    requirements.append(
-        PendingHumanRequirement(
-            requirement=_R101_AUTHORIZATION,
-            count=inputs.r101_occurrence_count,
-            status="pending",
-        )
-    )
     requirements.append(
         PendingHumanRequirement(
             requirement=_FINAL_ACCEPTANCE,
@@ -1387,28 +1198,11 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             "review_required_site_count": inputs.primary_site_review_required_count,
             "cardinality_violations": inputs.primary_site_cardinality_violations,
         },
-        "r101_occurrence_count": inputs.r101_occurrence_count,
-        "r101_mechanical_unresolved": inputs.r101_mechanical_unresolved,
-        "r101_non_r101_delta": inputs.r101_non_r101_delta,
-        "r101_metadata_delta": inputs.r101_metadata_delta,
-        "r101_occurrence_certification": inputs.r101_occurrence_certification,
-        "r101_non_r101_enumeration": inputs.r101_non_r101_enumeration,
-        "r101_explanation": inputs.r101_explanation,
-        "r101_semantic_isolation": inputs.r101_semantic_isolation,
-        "r101_execution_comparability": inputs.r101_execution_comparability,
-        "r101_fully_controlled": inputs.r101_fully_controlled,
-        "r101_all_controls_equal": inputs.r101_all_controls_equal,
-        "r101_causal_attribution": inputs.r101_causal_attribution,
         "human_requirements": tuple(requirements),
     }
     return MachineReadinessReport.model_validate(
         {**payload, "report_identity": _identity(_jsonable(payload))}
     )
-
-
-def r101_human_occurrence_count(report: R101ConservationReport) -> int:
-    """Return current source occurrences requiring current content authorization."""
-    return report.counts.total
 
 
 def _load_json_no_duplicates(path: Path, name: str) -> tuple[object, bytes]:
@@ -1627,8 +1421,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     current_comparison: Path,
     corpus_baseline: Path,
     corpus_artifact: Path,
-    r101_report: Path,
-    r101_validation: Path,
     proposal_registry: Path,
     proposal_registry_migration: Path,
     row_decisions: Path,
@@ -1669,17 +1461,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         artifact_identity = hashlib.sha256(corpus_artifact.read_bytes()).hexdigest()
         if artifact_identity != baseline.artifact_identity:
             raise PreSmeValidationError("full-corpus artifact identity differs")
-        report = load_r101_conservation_report(r101_report)
-        if report.authorization != "pending":
-            raise PreSmeValidationError(
-                "current R101 content authorization must remain pending"
-            )
-        unresolved = report.counts.unresolved
-        non_r101_delta = report.counts.non_r101_delta
-        validation_value, _validation_raw = _load_json_no_duplicates(
-            r101_validation, "R101 current validation"
-        )
-        validation = R101ReuseValidation.model_validate(validation_value)
         migration = load_proposal_registry_migration_envelope(
             proposal_registry_migration
         )
@@ -1758,7 +1539,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     checks = (
         (manifest.source_identity == evidence.source_identity, "sample source"),
         (manifest.source_identity == baseline.source_identity, "corpus source"),
-        (manifest.source_identity == report.source_identity, "R101 source"),
         (manifest.source_identity == audit.source_identity, "audit source"),
         (
             baseline.baseline_identity == audit.corpus_baseline_identity,
@@ -1791,14 +1571,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             and issue_274_detector.normalized_group_policy_identity
             == normalized_group_policy.policy_identity,
             "Issue #274 grouping detector",
-        ),
-        (
-            group.r101_report_identity == report.report_identity,
-            "current group R101",
-        ),
-        (
-            group.historical_r101_report_identity == validation.report_identity,
-            "historical group R101",
         ),
         (r103.source_identity == manifest.source_identity, "R103 source"),
         (r103.candidate_manifest_identity == manifest_identity, "R103 manifest"),
@@ -1913,12 +1685,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             sample_artifact_identity=evidence.artifact_identity,
             corpus_baseline_identity=baseline.baseline_identity,
             corpus_artifact_identity=artifact_identity,
-            r101_current_report_identity=report.report_identity,
-            r101_historical_report_identity=validation.report_identity,
-            r101_registry_identity=validation.registry_identity,
-            r101_existing_packet_identity=validation.existing_packet_identity,
-            r101_current_packet_identity=validation.current_packet_identity,
-            r101_validation_identity=validation.validation_identity,
             proposal_registry_identity=proposals.registry_identity,
             proposal_registry_migration_identity=migration.envelope_identity,
             row_decisions_identity=historical_rows.payload_identity,
@@ -1967,20 +1733,6 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             ),
             group_review_count=_GROUP_REVIEW_COUNT,
             r103_review_count=_R103_REVIEW_COUNT,
-            r101_historical_validation_established=validation.exact_reuse,
-            r101_current_authorization_status="pending",
-            r101_occurrence_count=r101_human_occurrence_count(report),
-            r101_mechanical_unresolved=unresolved,
-            r101_non_r101_delta=non_r101_delta,
-            r101_metadata_delta=len(report.non_r101_delta_evidence.metadata_deltas),
-            r101_occurrence_certification=report.r101_occurrence_certification,
-            r101_non_r101_enumeration=report.non_r101_enumeration,
-            r101_explanation=report.explanation,
-            r101_semantic_isolation=report.semantic_isolation,
-            r101_execution_comparability=report.execution_comparability,
-            r101_fully_controlled=report.fully_controlled,
-            r101_all_controls_equal=report.all_controls_equal,
-            r101_causal_attribution=report.causal_attribution,
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc

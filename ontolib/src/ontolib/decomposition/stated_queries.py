@@ -8,6 +8,8 @@ in a ``GRAPH <STATED_GRAPH_IRI>`` clause, and reuse ``safe_iri`` for injection s
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -26,7 +28,6 @@ from ontolib.decomposition.models import (
     RestrictionDefinitionFact,
     RoleRestriction,
 )
-from ontolib.decomposition.r101_conservation import r82_fact_identity
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
@@ -63,6 +64,39 @@ _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
 _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def r82_fact_identity(
+    source_identity: str,
+    asserted_part_code: str,
+    whole_code: str,
+    restriction_node_id: str,
+) -> str:
+    """Identify one replayable stated R82 restriction from its exact bindings."""
+    return _sha256(
+        _canonical(
+            {
+                "asserted_part": asserted_part_code,
+                "restriction_node": restriction_node_id,
+                "role_code": "R82",
+                "source_identity": source_identity,
+                "whole": whole_code,
+            }
+        )
+    )
 
 
 class SelectRows(Protocol):

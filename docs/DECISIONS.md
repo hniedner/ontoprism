@@ -640,16 +640,10 @@ trust boundaries. Mixing them in one object graph makes it unclear whether const
 a domain operation or parsing untrusted data, and lets a wire-library behavior become an accidental
 semantic invariant.
 
-Applying this rule changed the R101 detector identity to
-`7ca7924792a82c1822a278bd817b41392587a30779d7431827b47cb926269f46` because shortest-path
-resolution now uses domain dataclasses and converts explicitly at the report boundary. A deterministic
-rebind of the tracked D77 payload changed only `detector_identity`, `json_identity`, and
-`report_identity`; all 43,414 occurrence rows, grouping rows, counts, query metrics, and the exact TSV
-identity remained equal
-(`pdm run python -c 'import gzip,json,pathlib,subprocess; old=subprocess.run(["git","show","f17fa44:ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"],check=True,capture_output=True).stdout; a=json.loads(gzip.decompress(old)); b=json.loads(gzip.decompress(pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz").read_bytes())); print({k for k in a.keys()|b.keys() if a.get(k)!=b.get(k)},a["occurrences"]==b["occurrences"],a["counts"]==b["counts"],a["query_metrics"]==b["query_metrics"],a["tsv_identity"]==b["tsv_identity"])'`,
-2026-08-22). Full regeneration from the historical database is blocked because its v3 baseline run
-stores obsolete fingerprint schema 2 and no `collapse_policy_identity`; current readers correctly
-fail closed rather than carrying a legacy compatibility reader.
+Applying this rule changed the historical R101 detector identity because shortest-path resolution
+used domain dataclasses and converted explicitly at the report boundary. That one-off detector and
+its tracked report were removed in #341 after the review decisions were transcribed into packaged
+policy data. Current readers do not carry a legacy compatibility reader.
 
 ## 2026-08-20 — R101 coverage review is human-centered and occurrence-bound
 
@@ -681,7 +675,7 @@ generated with `Exception?=No` and a blank rationale; this is a scope default wi
 its pattern is approved. Reviewers change only true exceptions to `Yes` and supply rationale. A
 missing or invalid value refuses import; every non-approve pattern must retain `No` and blank
 rationale
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q`, 2026-08-20). Hiddenness is not
+Hiddenness is not
 security: import regenerates every immutable visible cell from the separate packet. Benign XLSX
 container re-saves are accepted, while semantic cell edits, stale guidance/bindings, formulas,
 missing/duplicate/extra rows, macros, and external links refuse the whole import.
@@ -706,26 +700,20 @@ fields (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook(
 the detailed pilot counts cannot be durably certified here; that documentation remains blocked on
 independent evidence rather than being reconstructed from memory.
 
-The TEST-ONLY all-approve/no-exception import expanded to exactly 3,291 proposed atomic decisions
-and the dry run reported `writes_performed=false`; the tracked conservation report remained pending
-and publication-blocked
-(`pdm run adjudication import-r101-review-decisions --packet tmp/r101-review-packet-v3.json --reviewed-xlsx tmp/r101-review-workbook-v3-TEST-ONLY.xlsx --output tmp/r101-review-registry-v3-TEST-ONLY.json --provenance test-only && pdm run adjudication dry-run-r101-decision-expansion --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz --packet tmp/r101-review-packet-v3.json --registry tmp/r101-review-registry-v3-TEST-ONLY.json --output tmp/r101-review-preflight-v3-TEST-ONLY.json`,
-2026-08-20). Expansion creates a proposed decision registry, never a new packet, authorization, or
-publication artifact. This decision does not implement D75/#271.
+The historical TEST-ONLY import expanded to exactly 3,291 proposed atomic decisions and performed
+no publication write. The generator, import command, packet, and test-only registry were removed in
+#341 after the accepted decisions were transcribed into packaged policy data. This decision does
+not implement D75/#271.
 
 ## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
 
 ### D77. Bind every source occurrence and replayable stated-R82 edge before review
 
-The generated schema-3 artifact partitions 43,414 R101 occurrences into 30,040 projected,
+The historical schema-3 artifact partitioned 43,414 R101 occurrences into 30,040 projected,
 10,083 unchanged-unprojected, 1,954 one-step-R82 covered, 1,337 closure-only-R82 covered, and
-zero unresolved rows, with zero non-R101 delta
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
-2026-08-19). Every path edge records the traversal endpoints, asserted restriction subject,
+zero unresolved rows, with zero non-R101 delta. Every path edge recorded the traversal endpoints, asserted restriction subject,
 restriction node, exact source identity, and recomputed fact identity; the persisted compressed
-JSON and on-demand TSV roundtrip contract passes
-(`pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_full_structural_key_survives_model_json_and_lossless_tsv ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_r82_edge_carries_replayable_asserted_subject_and_validates_fact_identity -q`,
-2026-08-19).
+JSON and on-demand TSV roundtrip contract passed in the retired implementation.
 
 **Decision:** the conservation boundary is one deterministic gzip file containing a strict
 schema-3 occurrence inventory, with no raw-JSON compatibility reader. The lossless TSV projection
@@ -739,10 +727,10 @@ evidence is the canonical sorted row set bound to both run IDs and the exact SQL
 its count is derived from those rows rather than accepted as an independent scalar.
 
 Mechanical completion, content authorization, and publication eligibility are independent states.
-The tracked report currently records `complete`, `pending`, and `blocked`, respectively
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
-2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
-review remains a final M1.6 milestone decision before publication.
+The historical report recorded `complete`, `pending`, and `blocked`, respectively. #341 removed the
+two-run artifact and tooling after its review decisions were transcribed into packaged policy data;
+#417 owns the replacement per-run unexplained-loss check. This decision neither authorizes content
+nor changes D75/#271 semantics.
 
 ## 2026-08-17 — full-corpus routing attribution requires depth-matched evidence
 
@@ -752,8 +740,7 @@ The run inventory showed a full historical v3 baseline at walker depth 5 and a
 completed production v4 run at depth 7, with no full depth-matched counterpart
 (`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
 2026-08-17). The conservation generator correctly refused that comparison with
-`new run fingerprint dimension drift: walker_max_depth`
-(`pdm run adjudication generate-r101-conservation ...`, 2026-08-17). Historical
+`new run fingerprint dimension drift: walker_max_depth` (2026-08-17). Historical
 recovery inputs were inspected with `git cat-file -t f2800654...`, `git diff
 --name-status f2800654... -- pdm.lock pyproject.toml compose files migrations`,
 and `git grep -n 'walker-max-depth|walker_max_depth' f2800654...` (2026-08-17).
@@ -849,23 +836,18 @@ all five canonical metric names with their denominator rules, represents strict 
 improvement and #44's inclusive 0.9 indicators separately, and carries the closed
 semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
 states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
-2026-09-06). A zero delta from the R101-isolated comparison remains not evaluated for
-total full-corpus classification; primary-site cardinality and unexplained R101 loss
-are evaluated from their identity-bound evidence, while #274 owns the deferred axis,
+2026-09-06). The retired R101-isolated comparison did not classify total full-corpus delta;
+primary-site cardinality remains evaluated, while unexplained R101 loss is explicitly
+`not-evaluated` and owned by #417 until its per-run check lands. #274 owns the deferred axis,
 normalized-group, and golden-cohort detectors and #127 owns total delta classification
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
 2026-09-06). The current high-severity npm audit reports no vulnerabilities
 (`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
 
-**Current-status addition (2026-09-11):** `MachineReadinessReport` schema 3 and the R101
-conservation schema 4 no longer conflate complete enumeration with causal explanation. The exact
-v4→v5 pair certifies all 43,414 R101 occurrences and enumerates all 79,393 typed non-R101 delta
-rows exactly once, while explanation remains `incomplete`, semantic isolation remains
-`partial-unqualified`, execution comparability remains `unqualified`, causal attribution is
-prohibited, authorization is pending, and publication is blocked
-(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-11). Inventory completeness is therefore evidence that the bounded populations were
-exhaustively represented, not evidence that the treatment caused any observed delta.
+**Current-status addition (2026-09-21):** #341 removed the historical two-run R101 report and
+inspection commands. Inventory completeness was evidence that bounded historical populations were
+represented, not evidence that the treatment caused any observed delta. #417 owns the replacement
+per-run conservation check required before publication.
 
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 

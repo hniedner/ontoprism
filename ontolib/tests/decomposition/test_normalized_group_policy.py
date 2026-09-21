@@ -54,7 +54,6 @@ def _generate(tmp_path: Path):
     generate_group_review_packet(
         evidence_path=_GOLDEN / "neoplasm-current-engine-evidence.json",
         comparison_path=_GOLDEN / "neoplasm-current-comparison.json",
-        r101_report_path=_GOLDEN / "neoplasm-r101-v4-conservation.json.gz",
         output=current_packet,
     )
     return generate_active_normalized_group_policy(
@@ -199,7 +198,6 @@ def _fresh_promotion_bundle(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     generate_group_review_packet(
         evidence_path=evidence_path,
         comparison_path=comparison_path,
-        r101_report_path=_GOLDEN / "neoplasm-r101-v4-conservation.json.gz",
         output=packet_path,
     )
     policy = generate_active_normalized_group_policy(
@@ -219,7 +217,6 @@ def _fresh_promotion_bundle(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     generate_group_review_packet(
         evidence_path=evidence_path,
         comparison_path=comparison_path,
-        r101_report_path=_GOLDEN / "neoplasm-r101-v4-conservation.json.gz",
         output=packet_path,
     )
     generate_active_normalized_group_policy(

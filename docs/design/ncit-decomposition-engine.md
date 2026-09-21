@@ -278,24 +278,10 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
-- **R101 change evidence (D77):** the v3→v4 boundary is a strict occurrence ledger keyed by the
-  complete persisted structural occurrence identity. A removed broader same-axis projection is
-  covered only by a retained new R101 link and a replayable directed stated-R82 path. One-step and
-  closure-only evidence remain distinct; report mechanics cannot authorize content or open the
-  publication gate. The tracked report is mechanically complete but content-pending and blocked
-  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
-  2026-08-19).
-- **R101 human review (D78):** the 3,291 R82-covered occurrences are frozen in a separate packet as
-  162 endpoint patterns and 2,800 disease propositions. The workbook contains no occurrence audit
-  sheet or internal IDs. Review asks only whether the retained more-specific site supplies
-  non-exclusive projection coverage of the broader site for listed disease/source occurrences;
-  source assertions remain preserved, multiple valid narrower sites remain independent, and no
-  equivalence, universal, complete, or exclusive claim is recorded. Pattern decisions expand over
-  immutable membership, with explicit reasoned disease exceptions. Import creates a proposed
-  occurrence-level registry, and preflight only replays decision expansion with
-  `writes_performed=false`; it cannot authorize or publish the pending report
-  (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q && pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_bounded_batches`,
-  2026-08-20).
+- **R101 conservation:** the historical two-run D77/D78 review, conservation, and comparator
+  tooling was removed in #341 after its decisions were transcribed into packaged policy data.
+  The engine still records exact source occurrences and R101 dispositions. Until #417 adds the
+  per-run D74 check, readiness reports unexplained R101 loss as `not-evaluated` and owned by #417.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 

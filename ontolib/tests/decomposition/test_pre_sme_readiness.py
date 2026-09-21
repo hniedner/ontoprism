@@ -22,10 +22,8 @@ from scripts.research.pre_sme_readiness import (
     ReadinessMetrics,
     audit_primary_site_artifact,
     build_machine_readiness,
-    build_r101_reuse_validation,
     generate_pre_sme_readiness,
     generate_primary_site_audit,
-    r101_human_occurrence_count,
     require_current_verify_evidence,
     write_verify_evidence,
 )
@@ -35,7 +33,6 @@ from ontolib.decomposition.corpus_baseline import (
     corpus_baseline_identity,
 )
 from ontolib.decomposition.evaluation import MetricDenominatorRule
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.r103_review_promotion import (
     load_r103_promoted_review_revision,
 )
@@ -45,7 +42,6 @@ from ontolib.decomposition.r103_specificity_review import (
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _OP = "https://w3id.org/ontoprism/vocab#"
-_R101_REPORT = Path(__file__).parent / "golden/neoplasm-r101-v5-conservation.json.gz"
 
 
 def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
@@ -155,7 +151,6 @@ def _patch_composed_readiness_loaders(
     module: Any,
     monkeypatch: pytest.MonkeyPatch,
     golden: Path,
-    report: Any,
     baseline: CorpusBaseline,
     evidence: CurrentEngineEvidence,
     group: Any,
@@ -171,8 +166,8 @@ def _patch_composed_readiness_loaders(
         module,
         "validate_ncit_sibling_manifest",
         lambda _path: SimpleNamespace(
-            source_identity=report.source_identity,
-            ontology_version=report.source_release_id,
+            source_identity=baseline.source_identity,
+            ontology_version=baseline.ontology_release,
             stated_artifact=SimpleNamespace(
                 artifact_identity=source_fixture.source_artifact_identity,
                 sha256=source_fixture.source_artifact_sha256,
@@ -198,7 +193,6 @@ def _patch_composed_readiness_loaders(
         ),
     )
     monkeypatch.setattr(module, "load_corpus_baseline", lambda _path: baseline)
-    monkeypatch.setattr(module, "load_r101_conservation_report", lambda _path: report)
     monkeypatch.setattr(
         module,
         "validate_migrated_proposal_registry",
@@ -232,30 +226,21 @@ def _composed_readiness_inputs(
         comparison_path = tmp_path / "stale-grouping-comparison.json"
         evidence_path.write_text(evidence.model_dump_json(), encoding="utf-8")
         comparison_path.write_text(comparison.model_dump_json(), encoding="utf-8")
-    report = load_r101_conservation_report(_R101_REPORT)
     corpus_artifact = tmp_path / "corpus.ttl"
     corpus_artifact.write_text(_site_line("C1", "C10"))
     baseline = _baseline(
         corpus_artifact,
-        source_identity=report.source_identity,
-        ontology_release=report.source_release_id,
+        source_identity=evidence.source_identity,
+        ontology_release=evidence.ncit_version,
     )
     audit = audit_primary_site_artifact(
         artifact=corpus_artifact,
         baseline=baseline,
-        source_identity=report.source_identity,
-        source_release=report.source_release_id,
+        source_identity=evidence.source_identity,
+        source_release=evidence.ncit_version,
     )
     manifest = tmp_path / "source-manifest.json"
     manifest.write_text("{}", encoding="utf-8")
-    validation = build_r101_reuse_validation(
-        report_identity="4" * 64,
-        existing_packet_identity="1" * 64,
-        current_packet_identity="2" * 64,
-        registry_identity="3" * 64,
-    )
-    validation_path = tmp_path / "r101-validation.json"
-    validation_path.write_text(validation.model_dump_json())
     audit_path = tmp_path / "audit.json"
     audit_path.write_text(audit.model_dump_json())
     verify_path = tmp_path / "verify.json"
@@ -271,13 +256,11 @@ def _composed_readiness_inputs(
     group = SimpleNamespace(
         current_evidence_identity=evidence.evidence_identity,
         current_comparison_identity=comparison.comparison_identity,
-        r101_report_identity=report.report_identity,
-        historical_r101_report_identity=validation.report_identity,
         packet_identity=normalized_group_policy.basis_packet_identity,
         review_rows=(None,) * 18,
     )
     _patch_composed_readiness_loaders(
-        module, monkeypatch, golden, report, baseline, evidence, group
+        module, monkeypatch, golden, baseline, evidence, group
     )
     unused = tmp_path / "unused.json"
     unused.write_text("{}")
@@ -328,8 +311,6 @@ def _composed_readiness_inputs(
         "current_comparison": comparison_path,
         "corpus_baseline": unused,
         "corpus_artifact": corpus_artifact,
-        "r101_report": unused,
-        "r101_validation": validation_path,
         "proposal_registry": unused,
         "proposal_registry_migration": golden
         / "proposal-registry-schema2-migration.json",
@@ -350,7 +331,7 @@ def _composed_readiness_inputs(
         "expected_git_head": "a" * 40,
         "output": tmp_path / "readiness.json",
     }
-    return arguments, module, report, comparison, group
+    return arguments, module, None, comparison, group
 
 
 @pytest.mark.unit
@@ -585,12 +566,6 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "sample_artifact_identity": "e" * 64,
         "corpus_baseline_identity": "f" * 64,
         "corpus_artifact_identity": "1" * 64,
-        "r101_current_report_identity": "2" * 64,
-        "r101_historical_report_identity": "3" * 64,
-        "r101_registry_identity": "3" * 64,
-        "r101_existing_packet_identity": "4" * 64,
-        "r101_current_packet_identity": "5" * 64,
-        "r101_validation_identity": "6" * 64,
         "proposal_registry_identity": "7" * 64,
         "proposal_registry_migration_identity": "c" * 64,
         "row_decisions_identity": "d" * 64,
@@ -625,20 +600,6 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         },
         "group_review_count": 18,
         "r103_review_count": 3,
-        "r101_historical_validation_established": False,
-        "r101_current_authorization_status": "pending",
-        "r101_occurrence_count": 1,
-        "r101_mechanical_unresolved": 0,
-        "r101_non_r101_delta": 0,
-        "r101_metadata_delta": 0,
-        "r101_occurrence_certification": "complete",
-        "r101_non_r101_enumeration": "complete",
-        "r101_explanation": "complete",
-        "r101_semantic_isolation": "partial-unqualified",
-        "r101_execution_comparability": "unqualified",
-        "r101_fully_controlled": False,
-        "r101_all_controls_equal": False,
-        "r101_causal_attribution": "prohibited",
     }
 
 
@@ -775,8 +736,6 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
 
     assert report.semantic_gate.status == "not-evaluated"
     assert [entry.kind for entry in report.semantic_gate.entries] == [
-        "r101-unexplained-structural-delta",
-        "r101-semantic-metadata-delta",
         "unclassified-delta",
         "axis-contract-violation",
         "normalized-group-violation",
@@ -784,10 +743,17 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
         "primary-site-cardinality",
         "unexplained-r101-loss",
     ]
-    assert report.semantic_gate.entries[2].status == "not-evaluated"
+    assert report.semantic_gate.entries[0].status == "not-evaluated"
+    r101_loss = next(
+        entry
+        for entry in report.semantic_gate.entries
+        if entry.kind == "unexplained-r101-loss"
+    )
+    assert r101_loss.status == "not-evaluated"
+    assert r101_loss.owning_issue == "#417"
     evaluated = tuple(
         cast("ClearSemanticBlocker", entry)
-        for entry in report.semantic_gate.entries[3:6]
+        for entry in report.semantic_gate.entries[1:4]
     )
     assert all(isinstance(entry, ClearSemanticBlocker) for entry in evaluated)
     assert all(entry.status == "clear" for entry in evaluated)
@@ -816,14 +782,6 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
             "primary-site-cardinality",
             1,
         ),
-        ("r101_mechanical_unresolved", 2, "unexplained-r101-loss", 2),
-        (
-            "r101_non_r101_delta",
-            3,
-            "r101-unexplained-structural-delta",
-            3,
-        ),
-        ("r101_metadata_delta", 4, "r101-semantic-metadata-delta", 4),
         (
             "axis_contract_violations",
             ("C1:op:UnknownAxis",),
@@ -875,9 +833,7 @@ def test_high_metrics_cannot_clear_incomplete_semantic_gate() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "mutation", ["duplicate-kind", "blocked-zero", "not-evaluated-count"]
-)
+@pytest.mark.parametrize("mutation", ["duplicate-kind", "blocked-zero"])
 def test_semantic_gate_rejects_invalid_correlated_variants(mutation: str) -> None:
     report = build_machine_readiness(
         MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
@@ -893,8 +849,6 @@ def test_semantic_gate_rejects_invalid_correlated_variants(mutation: str) -> Non
             "blocker_count": 0,
             "evidence": ["audit:" + "8" * 64],
         }
-    else:
-        entries[2]["blocker_count"] = 0
     payload["semantic_gate"]["entries"] = tuple(entries)
 
     with pytest.raises(
@@ -1003,7 +957,6 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     payload.update(
         primary_site_resolved_count=8039,
         primary_site_review_required_count=5918,
-        r101_occurrence_count=43_414,
     )
     report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
 
@@ -1025,86 +978,18 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     }
     assert report.primary_site_audit.resolved_site_count == 8039
     assert report.primary_site_audit.review_required_site_count == 5918
-    assert report.r101_mechanical_unresolved == 0
-    assert report.r101_non_r101_delta == 0
     assert "claims" not in report.model_dump()
     assert [item.requirement for item in report.human_requirements] == [
         "group-review",
         "r103-review",
-        "r101-ledger-authorization",
         "final-full-corpus-scientific-acceptance-and-publication",
     ]
-    assert report.human_requirements[2].status == "pending"
-    assert report.human_requirements[2].count == 43_414
 
 
 @pytest.mark.unit
-def test_historical_r101_reuse_does_not_authorize_current_content() -> None:
-    payload = _machine_readiness_input_payload()
-    payload.update(
-        r101_existing_packet_identity="4" * 64,
-        r101_current_packet_identity="4" * 64,
-        r101_historical_validation_established=True,
-        r101_occurrence_count=3291,
-    )
-    inputs = MachineReadinessInputs.model_validate(payload)
-
-    requirement = build_machine_readiness(inputs).human_requirements[2]
-
-    assert requirement.requirement == "r101-ledger-authorization"
-    assert requirement.status == "pending"
-
-
 @pytest.mark.unit
-def test_readiness_report_refuses_current_r101_authorization_as_satisfied() -> None:
-    input_payload = _machine_readiness_input_payload()
-    input_payload.update(
-        r101_existing_packet_identity="4" * 64,
-        r101_current_packet_identity="4" * 64,
-        r101_historical_validation_established=True,
-        r101_occurrence_count=3291,
-    )
-    inputs = MachineReadinessInputs.model_validate(input_payload)
-    report = build_machine_readiness(inputs)
-    payload = report.model_dump(mode="python")
-    requirements = list(payload["human_requirements"])
-    requirements[2] = {
-        "requirement": "r101-ledger-authorization",
-        "count": 3291,
-        "status": "satisfied-by-exact-reuse",
-        "packet_identity": "4" * 64,
-        "registry_identity": "3" * 64,
-    }
-    payload["human_requirements"] = tuple(requirements)
-
-    with pytest.raises(
-        ValueError, match=r"human_requirements|current R101 authorization"
-    ):
-        type(report).model_validate(payload)
-
-
 @pytest.mark.unit
-def test_r101_human_requirement_covers_every_current_source_occurrence() -> None:
-    report = load_r101_conservation_report(_R101_REPORT)
-
-    assert r101_human_occurrence_count(report) == report.counts.total == 43_414
-
-
 @pytest.mark.unit
-def test_tracked_r101_grouping_schema_contains_only_consumed_totals() -> None:
-    report = load_r101_conservation_report(_R101_REPORT)
-
-    assert all(
-        set(pattern.model_dump())
-        == {"old_filler_code", "retained_filler_code", "occurrence_count"}
-        for pattern in report.grouping_presentation
-    )
-    occurrence_count = sum(
-        pattern.occurrence_count for pattern in report.grouping_presentation
-    )
-    assert occurrence_count == report.counts.covered_by_retained_r82
-
-
 @pytest.mark.unit
 def test_readiness_metrics_refuse_a_metric_with_another_views_denominator() -> None:
     report = build_machine_readiness(
@@ -1168,8 +1053,6 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             current_comparison=tmp_path / "absent-comparison.json",
             corpus_baseline=tmp_path / "absent-baseline.json",
             corpus_artifact=tmp_path / "absent.ttl",
-            r101_report=tmp_path / "absent-report.json.gz",
-            r101_validation=tmp_path / "absent-r101-validation.json",
             proposal_registry=tmp_path / "absent-proposals.json",
             proposal_registry_migration=tmp_path / "absent-migration.json",
             row_decisions=tmp_path / "absent-row-decisions.json",
@@ -1275,51 +1158,6 @@ def test_composed_readiness_rejects_changed_historical_row_decisions_without_out
     arguments["row_decisions"] = changed
 
     with pytest.raises(PreSmeValidationError, match="row decision"):
-        generate_pre_sme_readiness(**arguments)
-
-    assert not Path(arguments["output"]).exists()
-
-
-@pytest.mark.unit
-def test_composed_readiness_binds_current_and_historical_r101_planes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    arguments, _module, report, _comparison, _group = _composed_readiness_inputs(
-        tmp_path, monkeypatch
-    )
-
-    readiness = generate_pre_sme_readiness(**arguments)
-
-    assert readiness.identities.r101_current_report_identity == report.report_identity
-    assert readiness.identities.r101_historical_report_identity == "4" * 64
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("field", "message"),
-    [
-        ("r101_report_identity", "current group R101"),
-        ("historical_r101_report_identity", "historical group R101"),
-    ],
-)
-def test_composed_readiness_independently_rejects_wrong_r101_plane_binding(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    field: str,
-    message: str,
-) -> None:
-    arguments, module, _report, _comparison, group = _composed_readiness_inputs(
-        tmp_path, monkeypatch
-    )
-    monkeypatch.setattr(
-        module,
-        "load_group_review_packet",
-        lambda _path: SimpleNamespace(
-            **{**group.__dict__, field: "f" * 64},
-        ),
-    )
-
-    with pytest.raises(PreSmeValidationError, match=message):
         generate_pre_sme_readiness(**arguments)
 
     assert not Path(arguments["output"]).exists()
@@ -1912,30 +1750,6 @@ def test_composed_readiness_reject_branches_are_live_without_output(
 
 
 @pytest.mark.unit
-def test_composed_readiness_emits_blocked_report_for_valid_unresolved_r101(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    arguments, module, report, _comparison, _group = _composed_readiness_inputs(
-        tmp_path, monkeypatch
-    )
-    bad_counts = report.counts.model_copy(update={"unresolved": 1})
-    blocked_report = report.model_copy(update={"counts": bad_counts})
-    monkeypatch.setattr(
-        module, "load_r101_conservation_report", lambda _path: blocked_report
-    )
-
-    readiness = generate_pre_sme_readiness(**arguments)
-
-    assert readiness.status == "machine-blocked"
-    blocker = next(
-        item
-        for item in readiness.semantic_gate.entries
-        if item.kind == "unexplained-r101-loss"
-    )
-    assert blocker.status == "blocked"
-    assert Path(arguments["output"]).is_file()
-
-
 @pytest.mark.unit
 def test_primary_site_generation_translates_invalid_manifest_without_output(
     tmp_path: Path,
@@ -1960,23 +1774,6 @@ def test_primary_site_generation_translates_invalid_manifest_without_output(
 
 
 @pytest.mark.unit
-def test_r101_reuse_validation_reports_re_attestation_without_authorizing() -> None:
-    result = build_r101_reuse_validation(
-        report_identity="a" * 64,
-        existing_packet_identity="b" * 64,
-        current_packet_identity="c" * 64,
-        registry_identity=(
-            "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
-        ),
-    )
-
-    assert result.status == "human-reattestation-required"
-    assert result.exact_reuse is False
-    assert result.authorization is False
-    assert result.publication_writes_performed is False
-    assert result.reason == "packet-bindings-differ"
-
-
 @pytest.mark.unit
 def test_readiness_refuses_verify_evidence_from_another_head() -> None:
     with pytest.raises(PreSmeValidationError, match="HEAD"):

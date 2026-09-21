@@ -38,7 +38,7 @@ from ontolib.decomposition.normalized_group_policy import (
 )
 
 _MIN_DIAGNOSIS_PAIRS = 2
-_CURRENT_PACKET_SCHEMA_VERSION = 4
+_CURRENT_PACKET_SCHEMA_VERSION = 5
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
