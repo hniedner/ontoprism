@@ -1,9 +1,8 @@
 """Filler selection — choose the intended constituent(s) per axis (design §6).
 
-Working from the *stated* graph already eliminates most ancestor bleed; most-specific
-selection is defense-in-depth for hierarchy-comparable axes that still return multiple
-fillers. The selection is a pure function of the fillers and an injected
-``is_ancestor`` predicate, so it is fully unit-testable without a store.
+Most-specific selection compares routed fillers through caller-supplied is-a and R82
+relations. The module also records source-backed reduction dispositions and supports a
+separate non-emitting historical diagnostic path.
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ class RoutedSelection:
 
 
 class DiagnosticReductionPurpose(Enum):
-    """Closed authorization for a non-emitting unassessed diagnostic reduction."""
+    """Named purpose required by the non-emitting unassessed diagnostic API."""
 
     HISTORICAL_MIXED_CHAIN_RECONSTRUCTION = "historical-mixed-chain-reconstruction"
 
@@ -824,7 +823,7 @@ def _reduce_routed_plan(
     *,
     is_part_of: IsPartOf | None = None,
 ) -> RoutedSelection:
-    """Reduce only within final routed partitions and disposition every occurrence."""
+    """Reduce within final routed partitions and record eligible source occurrences."""
     part_of = is_part_of or (lambda _part, _whole: False)
     by_axis: dict[str, list[RoutedOccurrence]] = defaultdict(list)
     for occurrence in plan.occurrences:

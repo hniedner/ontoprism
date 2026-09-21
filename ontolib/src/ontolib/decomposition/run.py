@@ -327,8 +327,7 @@ class RunMetrics:
       corpus genuinely bottoms out on atomic in-scope fillers, or the detector never met
       an in-scope compound filler at all — indistinguishable without the real run, which
       is why D37 makes a 0 on the first run (#127) a signal to suspect the detector, and
-      why the number is proved reachable there (start at the morphology/genus path), on
-      real data, not only in unit tests.
+      why the morphology/genus path is the relevant place to investigate a zero result.
 
     ``roundtrip_fidelity`` is unavailable for the current curated projection. Numeric
     values from historical runs remain readable, but new runs record ``None`` until
