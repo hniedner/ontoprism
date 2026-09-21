@@ -11,8 +11,8 @@ pipeline as one string or per command is not documented, so the
 metacharacter cases below assert what the files say, not an observed runtime verdict.
 
 These tests describe what the bash permission layer refuses, not everything an agent can
-do: the primary's scratch-script lane (``pdm run python tmp/scratch/*``) is a deliberate
-escape hatch bounded by rule, not by the map.
+do: the primary's scratch diagnostics lanes are deliberately also bounded by rule, not
+only by the map.
 """
 
 from __future__ import annotations
@@ -79,6 +79,13 @@ _NEVER_ALLOWED = (
     # command execution or file access smuggled through an inspection tool
     "rg --pre rm pattern",
     'sqlite3 -readonly data/x.db ".shell rm -rf data"',
+    'sqlite3 -readonly -json tmp/scratch/x.db ".shell rm -rf data"',
+    "sqlite3 -readonly -json tmp/scratch/x.db \"SELECT readfile('/etc/passwd')\"",
+    'sqlite3 -readonly -json tmp/scratch/x.db "ATTACH DATABASE '
+    "'tmp/scratch/y.db' AS y\"",
+    "python tmp/scratch/../../evil.py",
+    "python3 tmp/scratch/../../evil.py",
+    "python tmp/scratch/inspect.py | sh",
     "git log -p --output=/Users/hannes/.zshrc",
     "git diff --stat --output=/Users/hannes/x",
     "git show HEAD --output=/Users/hannes/x",
@@ -247,6 +254,13 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run test-unit",
         "pdm run verify",
         "pdm run python tmp/scratch/inspect_run.py",
+        "python tmp/scratch/inspect_run.py",
+        "python3 tmp/scratch/inspect_run.py",
+        "jq . tmp/scratch/result.json",
+        'sqlite3 -readonly -json tmp/scratch/inspect.db "SELECT * FROM rows"',
+        "pdm run python tmp/scratch/inspect.py | jq .",
+        "python tmp/scratch/inspect.py | jq .",
+        "python3 tmp/scratch/inspect.py | jq .",
         "pdm run agent-replay ensure-podman-stack",
         "npm --prefix frontend run test:coverage",
         "npm --prefix frontend run check",

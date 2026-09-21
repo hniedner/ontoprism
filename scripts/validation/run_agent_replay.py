@@ -4115,6 +4115,8 @@ def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
     )
 
 
+_RETIRED_ISSUE_127_SOURCE_PART_3 = r"""Retired issue #127 verify-evidence operation.
+
 def _capture_pre_sme_verify(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -4168,6 +4170,9 @@ def _capture_pre_sme_verify(
     except ValueError as exc:
         raise AgentReplayInputError(str(exc)) from exc
     return 0
+
+
+"""
 
 
 @contextmanager
@@ -4998,61 +5003,18 @@ def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> i
     return 0
 
 
+# Frozen command registry: remove retired one-off operations; never add new ones.
 _OPERATIONS: dict[str, Operation] = {
     "activate-enhanced-ncit-showcase": _activate_enhanced_ncit_showcase,
     "consolidate-obsolete": _consolidate_obsolete,
-    "read-issue": _read_issue,
-    "decompose-current": _decompose_current,
-    "inspect-current-replay": _inspect_current_replay,
-    "record-artifact-registry": _record_artifact_registry,
-    "generate-current-evidence": _generate_current_evidence,
-    "generate-current-evidence-candidate": _generate_current_evidence_candidate,
-    "generate-grouping-detector-candidate": _generate_grouping_detector_candidate,
-    "regenerate-current-comparison": _regenerate_current_comparison,
-    "generate-axis-diagnostics": _generate_axis_diagnostics,
-    "generate-group-review-rev2-candidate": _generate_group_review_rev2_candidate,
-    "generate-normalized-group-policy-candidate": (
-        _generate_normalized_group_policy_candidate
-    ),
-    "promote-normalized-group-policy-candidate": (
-        _promote_normalized_group_policy_candidate
-    ),
-    "generate-specialist-literature-context": _generate_specialist_literature_context,
-    "generate-specialist-cadsr-usage": _generate_specialist_cadsr_usage,
-    "generate-specialist-review-packets": _generate_specialist_review_packets,
-    "validate-specialist-review-generation": _validate_specialist_review_generation,
-    "generate-r103-review": _generate_r103_review,
-    "generate-r103-evidence-application": _generate_r103_evidence_application,
-    "transcribe-r103-specificity-selection": (_transcribe_r103_specificity_selection),
-    "validate-r101-current": _validate_r101_current,
     "verify-enhanced-ncit-showcase": _verify_enhanced_ncit_showcase,
-    "regenerate-r101-current-packet": _regenerate_r101_current_packet,
-    "report-r101-current-reuse": _report_r101_current_reuse,
-    "audit-primary-sites": _audit_primary_sites,
-    "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "inspect-podman": _inspect_podman,
     "ensure-podman-stack": _ensure_podman_stack,
-    "inspect-decomposition-runs": _inspect_decomposition_runs,
-    "qualify-current-r101-comparator": _qualify_current_r101_comparator,
-    "generate-current-r101-conservation": _generate_current_r101_conservation,
-    "generate-current-corpus-baseline": _generate_current_corpus_baseline,
-    "promote-current-r101-evidence": _promote_current_r101_evidence,
-    "record-current-r101-diagnostic": _record_current_r101_diagnostic,
-    "inspect-r101-report": _inspect_r101_report,
-    "generate-mixed-chain-inventory": _generate_mixed_chain_inventory,
-    "record-mixed-chain-inventory": _record_mixed_chain_inventory,
-    "generate-mixed-chain-corrected-projection": (
-        _generate_mixed_chain_corrected_projection
-    ),
-    "record-mixed-chain-corrected-projection": (
-        _record_mixed_chain_corrected_projection
-    ),
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,
     "podman-test-full-store": _podman_test_full_store,
     "podman-verify": _podman_verify,
-    "capture-pre-sme-verify": _capture_pre_sme_verify,
     "podman-compose-up": _podman_compose_up,
     "podman-compose-check": _podman_compose_check,
     "podman-compose-down": _podman_compose_down,
