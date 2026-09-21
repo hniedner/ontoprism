@@ -351,6 +351,34 @@ def test_duration_capture_requires_clean_complete_calls_and_writes_metadata(
     assert generated["default_weight_seconds"] == 3.375
 
 
+def test_integration_measurement_includes_the_tooling_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    output = tmp_path / "timings.toml"
+    monkeypatch.setattr(
+        runner,
+        "_integration_tool_environment",
+        lambda environment: environment,
+    )
+
+    def fake_run(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[1:3] == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(command, 0, stdout="")
+        output.write_text("measurement")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner.measure_integration(output) >= 0
+    measurement = commands[-1]
+    assert "tooling_tests" in measurement
+    assert "--ignore=tooling_tests" not in measurement
+
+
 @pytest.mark.parametrize("outcome", ["skipped", "xfailed", "failed"])
 def test_duration_capture_refuses_degraded_or_failed_calls(
     tmp_path: Path,

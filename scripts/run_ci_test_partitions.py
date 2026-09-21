@@ -245,6 +245,7 @@ def measure_integration(output: Path) -> float:
             collect_only=False,
             coverage_xml=None,
             with_coverage=False,
+            include_tooling=True,
         ),
         cwd=ROOT,
         env=environment,
