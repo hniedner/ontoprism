@@ -1,4 +1,4 @@
-"""Add identity-bound decomposition stages and residual filler work.
+"""Add update-protected decomposition stages and residual filler work.
 
 Revision ID: 0024_decomposition_run_stages
 Revises: 0023_occurrence_dispositions

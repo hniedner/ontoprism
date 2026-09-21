@@ -60,7 +60,6 @@ from ontolib.decomposition.stated_queries import (
     build_in_scope_concepts_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
-    build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
@@ -244,9 +243,6 @@ async def test_stated_query_builders_parse_against_disposable_store(
     isolated_qlever_url: str,
 ) -> None:
     async with ncit_sparql_client(isolated_qlever_url) as client:
-        assert isinstance(
-            await client.select(build_role_restrictions_query("C6135")), list
-        )
         assert isinstance(await client.select(build_semantic_type_query("C6135")), list)
         assert isinstance(
             await client.select(build_ancestor_pairs_query(["C12400", "C12401"])), list

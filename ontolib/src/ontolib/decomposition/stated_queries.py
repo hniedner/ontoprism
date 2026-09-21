@@ -966,41 +966,6 @@ def build_morphology_query(concept_code: str) -> str:
     """
 
 
-def build_role_restrictions_query(concept_code: str) -> str:
-    """Role restrictions (``owl:someValuesFrom``) for *concept_code*, stated graph.
-
-    Projects ``?rel`` (property IRI), ``?relLabel`` (its name — the ``Excludes_*`` /
-    defining classification keys on), and ``?target`` (the filler concept IRI).
-
-    NOTE: this matches only restrictions hung **directly** off ``rdfs:subClassOf``. In
-    the stated build a pre-coordinated concept is a *defined class* whose roles live in
-    an ``owl:equivalentClass``/``owl:intersectionOf`` genus chain — those require the
-    recursive genus-chain traversal described in
-    ``docs/design/ncit-decomposition-engine.md`` §6.1 (next #4 increment). This builder
-    is the primitive-class building block for that traversal.
-
-    Raises:
-        ValueError: if *concept_code* is not injection-safe.
-    """
-    concept_uri = safe_iri(concept_code, NCIT_NS)
-    return f"""{_PREFIXES}
-        SELECT ?rel ?relLabel ?target WHERE {{
-            GRAPH <{STATED_GRAPH_IRI}> {{
-                <{concept_uri}> rdfs:subClassOf ?restriction .
-                ?restriction a owl:Restriction ;
-                             owl:onProperty ?rel ;
-                             owl:someValuesFrom ?target .
-                FILTER(STRSTARTS(STR(?target), "{NCIT_NS}"))
-            }}
-            # Resolve the property label from the DEFAULT graph (NCIt property
-            # definitions live there), not the stated named graph — otherwise the
-            # Excludes_* classification silently breaks if the stated graph carries only
-            # class axioms without property rdfs:labels.
-            OPTIONAL {{ ?rel rdfs:label ?relLabel }}
-        }}
-    """  # noqa: S608 — interpolated values are safe_iri-validated + module constants
-
-
 def build_semantic_type_query(concept_code: str) -> str:
     """The ``P106`` semantic-type literal(s) for *concept_code* in the stated graph.
 

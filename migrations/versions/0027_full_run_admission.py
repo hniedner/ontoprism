@@ -1,4 +1,4 @@
-"""Add database-authoritative full decomposition run admission.
+"""Arbitrate concurrent full decomposition run admission in the database.
 
 Revision ID: 0027_full_run_admission
 Revises: 0026_mixed_specificity_paths

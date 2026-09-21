@@ -24,9 +24,6 @@ _SHA256 = r"^[0-9a-f]{64}$"
 _CODE = r"^C[0-9]+$"
 _ROLE = r"^R[0-9]+$"
 _RESOURCE = "data/r101-collapse-veto-policy.json"
-AUTHORIZED_REGISTRY_IDENTITY = (
-    "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975"
-)
 
 
 class CollapsePolicyError(ValueError):
@@ -70,7 +67,7 @@ def _canonical(payload: object) -> bytes:
 
 
 class CollapseVetoPolicy(_StrictModel):
-    """A complete deterministic runtime collapse-veto policy."""
+    """A canonical runtime collapse-veto policy with a self-hashed payload."""
 
     schema_version: int = Field(ge=1, le=1)
     registry_identity: str = Field(pattern=_SHA256)
@@ -117,7 +114,7 @@ class CollapseVetoPolicy(_StrictModel):
         concept_code: str | None,
         route_axis: Callable[[RoleRestriction], str],
     ) -> tuple[CollapseVeto, ...]:
-        """Return exact authorized vetoes applicable to the routed live tuples."""
+        """Return policy entries whose source, concept, and routed tuples match."""
         return _applicable_vetoes(
             self.entries,
             restrictions,
@@ -132,7 +129,7 @@ class CollapseVetoPolicy(_StrictModel):
         *,
         source_identity: str,
     ) -> None:
-        """Require every policy key to occur exactly once in the certified source."""
+        """Match every policy entry once against selected live occurrence fields."""
         if not self.entries:
             return
         if source_identity not in {entry.source_identity for entry in self.entries}:
