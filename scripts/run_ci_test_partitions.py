@@ -221,7 +221,7 @@ def run_partition(
 
 
 def measure_integration(output: Path) -> float:
-    """Measure the eligible safe lane, excluding slow/full-store/full-build tests."""
+    """Measure the CI-safe lane, excluding full-store and full-build tests."""
     git = shutil.which("git")
     if git is None:
         raise RuntimeError("git is required to identify timing evidence")
