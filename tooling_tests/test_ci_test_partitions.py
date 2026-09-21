@@ -687,6 +687,33 @@ def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> No
         assert collected_indices == expected_indices
 
 
+def test_pre_resume_full_store_module_stays_out_of_backend_lane() -> None:
+    module = "ontolib/tests/decomposition/test_pre_resume_full_store.py"
+    completed = subprocess.run(  # noqa: S603 - pinned environment executable
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            module,
+            "--collect-only",
+            "-m",
+            "not integration or not full_store",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env={
+            **os.environ,
+            "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == pytest.ExitCode.NO_TESTS_COLLECTED, (
+        completed.stdout + completed.stderr
+    )
+
+
 @pytest.mark.parametrize(
     ("environment", "message"),
     [
