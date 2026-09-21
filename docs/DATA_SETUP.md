@@ -330,7 +330,7 @@ migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
 
 Migration `0028_distinct_group_identities` renames the former relationship-group
-column to `axis_ambiguity_group_id`, backfills canonical `source_group_ids`, adds the
+column to the boolean `axis_ambiguous`, backfills canonical `source_group_ids`, adds the
 paired nullable normalized-group fields, and installs database constraints for all
 three representations. For #274, no genuine configured-database backup was captured
 before migration 0028. A dump captured after 0028 is recovery material only and must

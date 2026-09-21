@@ -362,17 +362,28 @@ export interface ConceptAlignments {
 
 // Decomposition (non-pre-coordinated) read models (backend ontolib.decomposition).
 
+export interface DecompositionUpstreamMapping {
+	object_id: string;
+	predicate: MappingPredicate;
+	lifecycle: MappingLifecycle;
+	confidence: number;
+}
+
 export interface DecompositionConstituent {
 	axis: string;
 	axis_label: string | null;
 	filler: string;
 	filler_label: string | null;
-	axis_source: string;
+	axis_source: 'role' | 'parent' | 'nlp';
+	source_roles: string[];
 	most_specific: boolean;
-	axis_ambiguity_group_id: string | null;
+	needs_review: boolean;
+	axis_ambiguous: boolean;
 	source_group_ids: string[];
 	normalized_group_id: string | null;
 	normalized_group_label: string | null;
+	source_definition_ids: string[];
+	upstream: DecompositionUpstreamMapping[];
 }
 
 export interface ConceptDecomposition {

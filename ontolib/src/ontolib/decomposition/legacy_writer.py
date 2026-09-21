@@ -67,11 +67,8 @@ def _render_selection_flags(constituent: Constituent) -> str:
     rendered = ""
     if constituent.most_specific:
         rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
-    if constituent.axis_ambiguity_group_id is not None:
-        rendered += (
-            f" ; {_p(vocab.AXIS_AMBIGUITY_GROUP)} "
-            f'"{constituent.axis_ambiguity_group_id}"'
-        )
+    if constituent.axis_ambiguous:
+        rendered += f" ; {_p(vocab.AXIS_AMBIGUOUS)} true"
     return rendered
 
 

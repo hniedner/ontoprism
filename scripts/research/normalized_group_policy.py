@@ -73,7 +73,7 @@ def _concept_semantics_without_groups(
     for concept in evidence.concepts:
         payload = concept.model_dump(mode="json")
         for constituent in payload["constituents"]:
-            constituent.pop("axis_ambiguity_group_id")
+            constituent.pop("axis_ambiguous")
             constituent.pop("source_group_ids")
             constituent.pop("source_facts")
             constituent.pop("normalized_group_id")

@@ -333,7 +333,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
     constituent = CurrentConstituent(
         axis="op:Morphology",
         filler="C9290",
-        axis_ambiguity_group_id=None,
+        axis_ambiguous=False,
         source_group_ids=("b" * 64,),
         normalized_group_id=None,
         normalized_group_label=None,
@@ -349,7 +349,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
     policy_grouped = CurrentConstituent(
         axis="op:WithFinding",
         filler="C9290",
-        axis_ambiguity_group_id=None,
+        axis_ambiguous=False,
         source_group_ids=("b" * 64,),
         normalized_group_id="c" * 64,
         normalized_group_label="source-evidence-grouping:C1:cccccccccccc",
@@ -364,7 +364,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:Morphology",
             filler="C9290",
-            axis_ambiguity_group_id=None,
+            axis_ambiguous=False,
             source_group_ids=("b" * 64,),
             normalized_group_id=None,
             normalized_group_label=None,
@@ -391,7 +391,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            axis_ambiguity_group_id=None,
+            axis_ambiguous=False,
             source_group_ids=("b" * 64,),
             normalized_group_id=None,
             normalized_group_label=None,
@@ -405,7 +405,7 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
         CurrentConstituent(
             axis="op:PrimarySite",
             filler="C12400",
-            axis_ambiguity_group_id=None,
+            axis_ambiguous=False,
             source_group_ids=(),
             normalized_group_id=None,
             normalized_group_label=None,
@@ -421,7 +421,7 @@ def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
     constituent = CurrentConstituent(
         axis="R999",
         filler="C1",
-        axis_ambiguity_group_id=None,
+        axis_ambiguous=False,
         source_group_ids=(),
         normalized_group_id=None,
         normalized_group_label=None,
@@ -449,7 +449,7 @@ def test_current_constituent_rejects_malformed_axis_or_filler(
         CurrentConstituent(
             axis=axis,
             filler=filler,
-            axis_ambiguity_group_id=None,
+            axis_ambiguous=False,
             source_group_ids=(),
             normalized_group_id=None,
             normalized_group_label=None,
@@ -649,7 +649,7 @@ def test_row_replay_classifies_every_status() -> None:
                     CurrentConstituent(
                         axis=pair.axis,
                         filler=pair.filler,
-                        axis_ambiguity_group_id=None,
+                        axis_ambiguous=False,
                         source_group_ids=(),
                         normalized_group_id=None,
                         normalized_group_label=None,
@@ -699,7 +699,7 @@ def test_row_replay_classifies_every_status() -> None:
                 CurrentConstituent(
                     axis=excluded_pair.axis,
                     filler=excluded_pair.filler,
-                    axis_ambiguity_group_id=None,
+                    axis_ambiguous=False,
                     source_group_ids=(),
                     normalized_group_id=None,
                     normalized_group_label=None,
@@ -989,7 +989,7 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                 CurrentConstituent(
                     axis="op:PrimarySite",
                     filler="C12400",
-                    axis_ambiguity_group_id=None,
+                    axis_ambiguous=False,
                     source_group_ids=(occurrence.source_group_id,),
                     normalized_group_id=None,
                     normalized_group_label=None,

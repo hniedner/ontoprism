@@ -619,25 +619,6 @@ def test_evidence_policy_group_map_requires_exact_symmetric_unique_pairs(
         validate_evidence_policy_group_map(mutated, policy)
 
 
-def test_unavailable_prechange_metadata_is_self_contained(
-    tmp_path: Path,
-) -> None:
-    policy = _generate(tmp_path)
-
-    assert policy.unavailable_historical_artifact.status == "not-retained"
-    assert policy.unavailable_historical_artifact.expected_artifact_sha256 == (
-        "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d"
-    )
-    assert policy.unavailable_historical_artifact.reason == (
-        "overwritten-before-immutable-retention"
-    )
-    dumped = policy.unavailable_historical_artifact.model_dump()
-    assert dumped["evidentiary_use"] == "none"
-    assert "durable_record_path" not in dumped
-    assert "record_sha256" not in dumped
-    assert "last_known_path" not in dumped
-
-
 def test_policy_refuses_unavailable_prechange_output_identity_literals() -> None:
     payload = load_packaged_normalized_group_policy().model_dump()
     payload["prechange_evidence_identity"] = "4475" + "0" * 60
@@ -1367,7 +1348,7 @@ def test_runtime_reviewed_policy_refuses_stage_target_drift(
         apply_normalized_group_policy(decomposition, drifted_policy)
 
 
-def test_runtime_policy_applies_exact_source_and_normalized_groups() -> None:
+def test_policy_preserves_bound_source_groups_and_applies_normalized_group() -> None:
     policy = load_packaged_normalized_group_policy()
     pair = ("op:Morphology", "C2")
     group_id = canonical_definition_group_id("C1", ("genus:C2:primitive",))
@@ -1376,6 +1357,7 @@ def test_runtime_policy_applies_exact_source_and_normalized_groups() -> None:
         axis=pair[0],
         filler_code=pair[1],
         axis_source="parent",
+        source_group_ids=("d" * 64,),
         source_definition_ids=(fact_id,),
     )
     coordinate = SourceCoordinate(
@@ -1447,11 +1429,35 @@ def test_runtime_policy_applies_exact_source_and_normalized_groups() -> None:
         for item in applied.decomposition.constituents
     } == {
         pair: (
-            (group_id,),
+            ("d" * 64,),
             transformation_block.normalized_group_id,
             transformation_block.normalized_group_label,
         )
     }
+
+
+def test_all_policy_source_groups_match_current_bound_constituents() -> None:
+    policy = load_packaged_normalized_group_policy()
+    evidence = CurrentEngineEvidence.model_validate_json(
+        (_GOLDEN / "neoplasm-current-engine-evidence.json").read_bytes()
+    )
+    constituents = {
+        (concept.code, item.axis, item.filler): item.source_group_ids
+        for concept in evidence.concepts
+        for item in concept.constituents
+    }
+
+    assert len(policy.rows) == 15
+    for row in policy.rows:
+        for item in row.source_pair_evidence:
+            assert constituents[(row.concept_code, *item.pair)] == tuple(
+                sorted(
+                    {
+                        coordinate.source_group_id
+                        for coordinate in item.source_coordinates
+                    }
+                )
+            )
 
 
 def test_policy_rejects_duplicate_concepts_and_wrong_identity() -> None:

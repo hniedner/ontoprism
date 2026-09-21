@@ -587,9 +587,9 @@ class Constituent:
     ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
     ``source_roles`` preserves every defining NCIt role independently. ``most_specific``
     records that the filler was chosen over a strictly broader is-a candidate;
-    ``needs_review`` flags an unresolved ordinary axis. Group identities are
-    deliberately separate: axis ambiguity, source OWL structure, and reviewed
-    normalized projection.
+    ``needs_review`` flags an unresolved ordinary axis. ``axis_ambiguous`` records
+    retained co-equal values without pretending the axis name is a group identity.
+    Source OWL structure and reviewed normalized projection retain real identities.
     """
 
     axis: str
@@ -598,7 +598,7 @@ class Constituent:
     source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
-    axis_ambiguity_group_id: str | None = None
+    axis_ambiguous: bool = False
     source_group_ids: tuple[str, ...] = ()
     normalized_group_id: str | None = None
     normalized_group_label: str | None = None

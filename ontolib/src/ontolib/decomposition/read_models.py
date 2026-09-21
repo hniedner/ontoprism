@@ -51,11 +51,11 @@ def _validate_axis_source_roles(
         raise ValueError("parent/NLP constituents must have empty source_roles")
 
 
-def _validate_source_group_ids(source_group_ids: tuple[str, ...]) -> None:
-    if tuple(sorted(set(source_group_ids))) != source_group_ids:
-        raise ValueError("source_group_ids must be canonical and unique")
-    if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in source_group_ids):
+def _canonical_source_group_ids(source_group_ids: tuple[str, ...]) -> tuple[str, ...]:
+    canonical = tuple(sorted(set(source_group_ids)))
+    if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in canonical):
         raise ValueError("source_group_ids must contain SHA-256 identities")
+    return canonical
 
 
 class DecompositionConstituent(StrictBoundaryModel):
@@ -75,7 +75,7 @@ class DecompositionConstituent(StrictBoundaryModel):
     source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
-    axis_ambiguity_group_id: str | None = None
+    axis_ambiguous: bool = False
     source_group_ids: tuple[str, ...] = ()
     normalized_group_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     normalized_group_label: str | None = None
@@ -91,10 +91,16 @@ class DecompositionConstituent(StrictBoundaryModel):
             raise ValueError("source_roles must contain only NCIt role codes")
         return tuple(sorted(set(source_roles)))
 
+    @field_validator("source_group_ids")
+    @classmethod
+    def _source_group_ids_are_canonical(
+        cls, source_group_ids: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        return _canonical_source_group_ids(source_group_ids)
+
     @model_validator(mode="after")
     def _source_roles_match_axis_source(self) -> Self:
         _validate_axis_source_roles(self.axis_source, self.source_roles)
-        _validate_source_group_ids(self.source_group_ids)
         if (self.normalized_group_id is None) != (self.normalized_group_label is None):
             raise ValueError("normalized group identity and label must be paired")
         return self

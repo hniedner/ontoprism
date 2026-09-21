@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     )
 
 _SHA256 = r"^[0-9a-f]{64}$"
-_CURRENT_EVIDENCE_SCHEMA_VERSION = 4
+_CURRENT_EVIDENCE_SCHEMA_VERSION = 5
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -145,7 +145,7 @@ class CurrentSourceFact(_StrictModel):
 class CurrentConstituent(_StrictModel):
     axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
-    axis_ambiguity_group_id: str | None
+    axis_ambiguous: bool
     source_group_ids: tuple[str, ...]
     normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
     normalized_group_label: str | None
@@ -302,7 +302,7 @@ class CurrentConceptEvidence(_StrictModel):
 
 
 class CurrentEngineEvidence(_StrictModel):
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     ncit_version: str
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
@@ -763,7 +763,7 @@ def _concepts(
             CurrentConstituent(
                 axis=item.axis,
                 filler=item.filler_code,
-                axis_ambiguity_group_id=item.axis_ambiguity_group_id,
+                axis_ambiguous=item.axis_ambiguous,
                 source_group_ids=item.source_group_ids,
                 normalized_group_id=item.normalized_group_id,
                 normalized_group_label=item.normalized_group_label,
