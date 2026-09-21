@@ -73,9 +73,9 @@ DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
 # --- Projection vocabulary (DECISIONS D19/D20) -------------------------------------
 # The writer serializes these values when a constituent supplies them.
 
-# Distinct projection-group planes. Source structural groups preserve stated OWL
-# coordinates; normalized projection groups are reviewed output policy.
-AXIS_AMBIGUITY_GROUP = f"{ONTOPRISM_NS}axisAmbiguityGroup"
+# Axis ambiguity is a flag. Source structural groups preserve stated OWL coordinates;
+# normalized projection groups are reviewed output policy.
+AXIS_AMBIGUOUS = f"{ONTOPRISM_NS}axisAmbiguous"
 SOURCE_STRUCTURAL_GROUP = f"{ONTOPRISM_NS}sourceStructuralGroup"
 NORMALIZED_PROJECTION_GROUP = f"{ONTOPRISM_NS}normalizedProjectionGroup"
 NORMALIZED_PROJECTION_GROUP_LABEL = f"{ONTOPRISM_NS}normalizedProjectionGroupLabel"

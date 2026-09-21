@@ -58,7 +58,7 @@ def test_persisted_constituent_reload_rejects_orphan_source_occurrence() -> None
         "source_roles": ["R101"],
         "most_specific": True,
         "needs_review": False,
-        "axis_ambiguity_group_id": None,
+        "axis_ambiguous": False,
         "source_group_ids": [],
         "normalized_group_id": None,
         "normalized_group_label": None,
@@ -255,18 +255,18 @@ def test_detection_result_carries_the_gate_inputs() -> None:
 
 
 @pytest.mark.unit
-def test_constituent_distinguishes_all_three_group_identities() -> None:
+def test_constituent_distinguishes_ambiguity_from_group_identities() -> None:
     c = Constituent(
         axis="op:AssociatedRegion",
         filler_code="C12418",
         axis_source="role",
         source_roles=("R101",),
-        axis_ambiguity_group_id="op:AssociatedRegion",
+        axis_ambiguous=True,
         source_group_ids=("a" * 64, "b" * 64, "a" * 64),
         normalized_group_id="c" * 64,
         normalized_group_label="reviewed-regrouping:C1:cccccccccccc",
     )
-    assert c.axis_ambiguity_group_id == "op:AssociatedRegion"
+    assert c.axis_ambiguous is True
     assert c.source_group_ids == ("a" * 64, "b" * 64)
     assert c.normalized_group_id == "c" * 64
     assert c.normalized_group_label == "reviewed-regrouping:C1:cccccccccccc"

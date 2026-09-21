@@ -20,11 +20,15 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C27970',
 			filler_label: 'Stage III',
 			axis_source: 'role',
+			source_roles: ['R88'],
 			most_specific: false,
-			axis_ambiguity_group_id: null,
+			axis_ambiguous: true,
+			needs_review: false,
 			source_group_ids: ['source-stage'],
 			normalized_group_id: 'normalized-stage',
-			normalized_group_label: 'Stage block'
+			normalized_group_label: 'Stage block',
+			source_definition_ids: [],
+			upstream: []
 		},
 		{
 			axis: 'R101',
@@ -32,11 +36,15 @@ const decomposed: ConceptDecomposition = {
 			filler: 'C12400',
 			filler_label: 'Thyroid Gland',
 			axis_source: 'role',
+			source_roles: ['R101'],
 			most_specific: true,
-			axis_ambiguity_group_id: 'ambiguous-site',
+			axis_ambiguous: true,
+			needs_review: true,
 			source_group_ids: ['source-site'],
 			normalized_group_id: 'normalized-site',
-			normalized_group_label: 'Primary site block'
+			normalized_group_label: 'Primary site block',
+			source_definition_ids: [],
+			upstream: []
 		}
 	]
 };
@@ -141,12 +149,14 @@ describe('DecompositionPanel', () => {
 			is_legacy_precoordinated: true,
 			decomposed_on: '2026-07-06',
 			constituents: [
-				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null },
-				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true, axis_ambiguity_group_id: null, source_group_ids: [], normalized_group_id: null, normalized_group_label: null }
+				{ ...decomposed.constituents[0], filler: 'C27970', filler_label: 'Stage III', normalized_group_id: null, normalized_group_label: null },
+				{ ...decomposed.constituents[0], filler: 'C12400', filler_label: 'Thyroid Gland', most_specific: true, normalized_group_id: null, normalized_group_label: null }
 			]
 		} satisfies ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
-		expect(await screen.findAllByText('R88')).toHaveLength(2);
+		const group = await screen.findByRole('group', { name: 'R88' });
+		expect(within(group).getAllByRole('link')).toHaveLength(2);
+		expect(screen.getAllByText('R88')).toHaveLength(1);
 	});
 
 	it('groups within an axis by normalized policy and exposes separate provenance', async () => {
@@ -154,21 +164,20 @@ describe('DecompositionPanel', () => {
 			...decomposed,
 			constituents: [
 				{ ...decomposed.constituents[0], filler: 'C1', filler_label: 'First', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s1'] },
-				{ ...decomposed.constituents[0], filler: 'C2', filler_label: 'Second', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s2'], axis_ambiguity_group_id: 'a1' }
+				{ ...decomposed.constituents[0], filler: 'C2', filler_label: 'Second', normalized_group_id: 'n1', normalized_group_label: 'Reviewed block', source_group_ids: ['s2'], axis_ambiguous: true }
 			]
 		});
 		render(DecompositionPanel, { code: 'C6135' });
 		expect(await screen.findByText('Reviewed block')).toBeInTheDocument();
 		expect(screen.getByText('Source groups: s1')).toBeInTheDocument();
 		expect(screen.getByText('Source groups: s2')).toBeInTheDocument();
-		expect(screen.getByText('Axis ambiguity: a1')).toBeInTheDocument();
+		expect(screen.getAllByText('Ambiguous axis')).toHaveLength(2);
 	});
 
 	it('renders one cross-axis normalized block without erasing axis or pair provenance', async () => {
 		const normalizedId = 'a'.repeat(64);
 		const stageSystemSource = 'b'.repeat(64);
 		const stageValueSource = 'c'.repeat(64);
-		const ambiguityId = 'd'.repeat(64);
 		mock.mockResolvedValue({
 			...decomposed,
 			constituents: [
@@ -188,7 +197,7 @@ describe('DecompositionPanel', () => {
 					axis_label: 'Stage Value',
 					filler: 'C27966',
 					filler_label: 'Stage II',
-					axis_ambiguity_group_id: ambiguityId,
+					axis_ambiguous: true,
 					source_group_ids: [stageValueSource],
 					normalized_group_id: normalizedId,
 					normalized_group_label: 'Reviewed stage assessment'
@@ -206,7 +215,7 @@ describe('DecompositionPanel', () => {
 		expect(within(block).getByRole('link', { name: 'Stage II' })).toBeInTheDocument();
 		expect(within(block).getByText(`Source groups: ${stageSystemSource}`)).toBeInTheDocument();
 		expect(within(block).getByText(`Source groups: ${stageValueSource}`)).toBeInTheDocument();
-		expect(within(block).getByText(`Axis ambiguity: ${ambiguityId}`)).toBeInTheDocument();
+		expect(within(block).getAllByText('Ambiguous axis')).toHaveLength(2);
 	});
 
 	it('handles null constituents gracefully', async () => {
@@ -233,11 +242,15 @@ describe('DecompositionPanel', () => {
 					filler: 'C40384',
 					filler_label: null,
 					axis_source: 'parent',
+					source_roles: [],
 					most_specific: false,
-					axis_ambiguity_group_id: null,
+					needs_review: false,
+					axis_ambiguous: false,
 					source_group_ids: [],
 					normalized_group_id: null,
-					normalized_group_label: null
+					normalized_group_label: null,
+					source_definition_ids: [],
+					upstream: []
 				}
 			]
 		});

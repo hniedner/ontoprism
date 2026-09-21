@@ -108,7 +108,7 @@ def _constituent_from_row(
         ),
         most_specific=_as_bool(row.get("mostSpecific")),
         needs_review=_as_bool(row.get("needsReview")),
-        axis_ambiguity_group_id=row.get("axisAmbiguityGroup"),
+        axis_ambiguous=_as_bool(row.get("axisAmbiguous")),
         source_group_ids=(
             (source_group,)
             if (source_group := row.get("sourceStructuralGroup"))

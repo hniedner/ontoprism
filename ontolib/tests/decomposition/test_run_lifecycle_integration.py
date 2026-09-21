@@ -542,7 +542,7 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                     axis_source="role",
                     most_specific=True,
                     needs_review=True,
-                    axis_ambiguity_group_id="R101",
+                    axis_ambiguous=True,
                     source_group_ids=(restriction_group_id,),
                     source_definition_ids=(restriction_id,),
                 )
@@ -705,11 +705,11 @@ async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
             await conn.execute(
                 "INSERT INTO decomp_constituent "
                 "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
-                "most_specific, needs_review, axis_ambiguity_group_id, "
+                "most_specific, needs_review, axis_ambiguous, "
                 "source_group_ids, normalized_group_id, normalized_group_label, "
                 "source_definition_ids) SELECT run_id, concept_code, 'op:Extra', "
                 "'C999999', axis_source, source_roles, most_specific, needs_review, "
-                "axis_ambiguity_group_id, source_group_ids, normalized_group_id, "
+                "axis_ambiguous, source_group_ids, normalized_group_id, "
                 "normalized_group_label, source_definition_ids "
                 "FROM decomp_constituent "
                 "WHERE run_id = $1 AND concept_code = 'C0' LIMIT 1",

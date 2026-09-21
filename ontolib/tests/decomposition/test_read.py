@@ -23,7 +23,7 @@ def _row(**kw: str) -> dict[str, str | None]:
                 "axis",
                 "filler",
                 "mostSpecific",
-                "axisAmbiguityGroup",
+                "axisAmbiguous",
                 "sourceStructuralGroup",
                 "normalizedProjectionGroup",
                 "normalizedProjectionGroupLabel",
@@ -203,7 +203,7 @@ def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
         "axis": _ncit("R101"),
         "filler": _ncit("C12400"),
         "axisSource": "role",
-        "axisAmbiguityGroup": "anatomy-1",
+        "axisAmbiguous": "true",
         "sourceStructuralGroup": "a" * 64,
         "normalizedProjectionGroup": "c" * 64,
         "normalizedProjectionGroupLabel": "Reviewed anatomy grouping",
@@ -219,7 +219,7 @@ def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
 
     assert len(d.constituents) == 1
     constituent = d.constituents[0]
-    assert constituent.axis_ambiguity_group_id == "anatomy-1"
+    assert constituent.axis_ambiguous is True
     assert constituent.source_group_ids == ("a" * 64,)
     assert constituent.normalized_group_id == "c" * 64
     assert constituent.normalized_group_label == "Reviewed anatomy grouping"
@@ -246,6 +246,20 @@ def test_distinct_source_groups_of_one_constituent_are_merged_in_canonical_order
     )
 
     assert [c.source_group_ids for c in d.constituents] == [("a" * 64, "b" * 64)]
+
+
+@pytest.mark.unit
+def test_read_constituent_canonicalizes_set_like_source_fields() -> None:
+    constituent = DecompositionConstituent(
+        axis="op:PrimarySite",
+        filler="C12400",
+        axis_source="role",
+        source_roles=("R101", "R100", "R101"),
+        source_group_ids=("b" * 64, "a" * 64, "b" * 64),
+    )
+
+    assert constituent.source_roles == ("R100", "R101")
+    assert constituent.source_group_ids == ("a" * 64, "b" * 64)
 
 
 @pytest.mark.unit
@@ -298,8 +312,8 @@ def test_conflicting_rows_for_one_constituent_fail_closed() -> None:
         decomposition_from_rows(
             "C1",
             [
-                _row(**common, axisAmbiguityGroup="one"),
-                _row(**common, axisAmbiguityGroup="two"),
+                _row(**common, axisAmbiguous="true"),
+                _row(**common, axisAmbiguous="false"),
             ],
         )
 

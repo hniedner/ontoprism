@@ -51,9 +51,7 @@ class ConstituentSnapshot(_StrictModel):
     source_roles: tuple[str, ...]
     most_specific: bool
     needs_review: bool
-    axis_ambiguity_group_id: str | None = Field(
-        default=None, pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$"
-    )
+    axis_ambiguous: bool
     source_group_ids: tuple[str, ...]
     normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
     normalized_group_label: str | None
@@ -88,7 +86,7 @@ class ConstituentSnapshot(_StrictModel):
             source_roles=row.source_roles,
             most_specific=row.most_specific,
             needs_review=row.needs_review,
-            axis_ambiguity_group_id=row.axis_ambiguity_group_id,
+            axis_ambiguous=row.axis_ambiguous,
             source_group_ids=row.source_group_ids,
             normalized_group_id=row.normalized_group_id,
             normalized_group_label=row.normalized_group_label,
@@ -332,7 +330,7 @@ class MetadataTransitionCounts(_StrictModel):
 class MixedChainCorrectedProjection(_StrictModel):
     """Content-addressed evidence; deliberately not a decomposition run."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     evidence_kind: Literal["corrected-projection-not-a-run"] = (
         "corrected-projection-not-a-run"
     )
@@ -904,13 +902,13 @@ def _metadata_transition_counts(
         ),
         group_changed=sum(
             (
-                before.axis_ambiguity_group_id,
+                before.axis_ambiguous,
                 before.source_group_ids,
                 before.normalized_group_id,
                 before.normalized_group_label,
             )
             != (
-                after.axis_ambiguity_group_id,
+                after.axis_ambiguous,
                 after.source_group_ids,
                 after.normalized_group_id,
                 after.normalized_group_label,
@@ -945,7 +943,7 @@ def _corrected_projection_payload(
     metadata_counts: MetadataTransitionCounts,
 ) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "evidence_kind": "corrected-projection-not-a-run",
         "source_run_id": source_run_id,
         "source_report_identity": source_report_identity,

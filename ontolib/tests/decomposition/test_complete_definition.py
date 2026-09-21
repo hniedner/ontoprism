@@ -1667,7 +1667,7 @@ def test_complete_record_matches_structural_golden_contract() -> None:
             filler_code=item["filler"],
             axis_source=item["axis_source"],
             source_roles=(item["source_role"],),
-            axis_ambiguity_group_id=(item["axis"] if item["group"] else None),
+            axis_ambiguous=item["group"] is not None,
             source_group_ids=tuple(
                 sorted(
                     {
@@ -1709,7 +1709,7 @@ def test_complete_record_matches_structural_golden_contract() -> None:
     assert decomposition.projected_fact_count == expected["projected_fact_count"]
     assert decomposition.projection_loss_count == expected["projection_loss_count"]
     assert all(len(item.source_definition_ids) == 1 for item in traced)
-    assert traced[0].axis_ambiguity_group_id == "op:AssociatedRegion"
+    assert traced[0].axis_ambiguous is True
     assert traced[1].needs_review is True
 
 

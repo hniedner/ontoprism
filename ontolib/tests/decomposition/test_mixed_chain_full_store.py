@@ -132,7 +132,7 @@ async def test_corrected_projection_replays_from_bounded_persisted_state() -> No
     assert actual == expected
     assert actual.source_report_identity == inventory.source_report_identity
     assert actual.projection_identity == (
-        "361db1ef8bc78317d07022a9242baf3ff908cd5af50da91917316a3eb341010b"
+        "4cce6fd1e8ee4f7dade200a4331e833bf5e435535ee3f550e3573076b61770ce"
     )
 
 

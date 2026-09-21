@@ -75,7 +75,7 @@ def test_routed_occurrence_plan_drives_query_groups_and_r82_dispositions() -> No
         (
             row.axis,
             row.filler_code,
-            row.axis_ambiguity_group_id,
+            row.axis_ambiguous,
             row.needs_review,
             row.most_specific,
             row.source_occurrence_ids,
@@ -85,13 +85,13 @@ def test_routed_occurrence_plan_drives_query_groups_and_r82_dispositions() -> No
         (
             "op:AssociatedLineageClassification",
             "C12705",
-            None,
+            False,
             False,
             False,
             ("d" * 64,),
         ),
-        ("op:AssociatedRegion", "C13063", None, False, True, ("c" * 64,)),
-        ("op:PrimarySite", "C12400", None, False, False, ("a" * 64,)),
+        ("op:AssociatedRegion", "C13063", False, False, True, ("c" * 64,)),
+        ("op:PrimarySite", "C12400", False, False, False, ("a" * 64,)),
     ]
     by_occurrence = {row.source_occurrence_id: row for row in result.dispositions}
     assert by_occurrence["a" * 64].kind == "retained-routed"
@@ -273,7 +273,7 @@ def test_mixed_chain_collapses_to_terminal_with_truthful_path() -> None:
 
 
 @pytest.mark.unit
-def test_known_nonexempt_ambiguity_has_axis_bound_review_group() -> None:
+def test_known_nonexempt_ambiguity_is_review_bearing() -> None:
     plan = build_routed_plan(
         (
             _restriction("C1", role="R105", fact="1" * 64, occurrence="1" * 64),
@@ -286,9 +286,9 @@ def test_known_nonexempt_ambiguity_has_axis_bound_review_group() -> None:
 
     result = _reduce_routed_plan(plan, lambda _broader, _narrower: False)
 
-    assert {
-        (row.needs_review, row.axis_ambiguity_group_id) for row in result.constituents
-    } == {(True, "op:CellType")}
+    assert {(row.needs_review, row.axis_ambiguous) for row in result.constituents} == {
+        (True, True)
+    }
 
 
 @pytest.mark.unit
