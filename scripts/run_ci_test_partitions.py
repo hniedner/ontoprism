@@ -411,26 +411,40 @@ def _tooling_changed() -> bool:
     git = shutil.which("git")
     if git is None:
         return True
+    base = _git_stdout(
+        git, ["log", "--first-parent", "--merges", "--format=%H", "-1", "HEAD"]
+    )
+    if base is None:
+        return True
+    if not base:
+        base = _git_stdout(git, ["merge-base", "main", "HEAD"])
+    if not base:
+        return True
     changed: set[str] = set()
     for arguments in (
-        [git, "diff", "--name-only", "HEAD^...HEAD"],
+        [git, "diff", "--name-only", f"{base}...HEAD"],
         [git, "diff", "--name-only"],
         [git, "diff", "--name-only", "--cached"],
     ):
-        result = subprocess.run(  # noqa: S603 - resolved git executable
-            arguments,
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
+        output = _git_stdout(git, arguments[1:])
+        if output is None:
             return True
-        changed.update((result.stdout or "").splitlines())
+        changed.update(output.splitlines())
     prefixes = ("scripts/validation/", "test_support/", "tooling_tests/")
     return "conftest.py" in changed or any(
         path.startswith(prefixes) for path in changed
     )
+
+
+def _git_stdout(git: str, arguments: list[str]) -> str | None:
+    result = subprocess.run(  # noqa: S603 - resolved git executable
+        [git, *arguments],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return (result.stdout or "").strip() if result.returncode == 0 else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

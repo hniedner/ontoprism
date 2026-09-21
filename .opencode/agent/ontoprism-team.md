@@ -162,6 +162,7 @@ permission:
     "git diff --name-only * *...HEAD": deny
     "*--pathspec-fr*": deny
     "*--output*": deny
+    "pdm run ci-test-measure-integration --output tmp/*": allow
     "*--no-index*": deny
     "*--ext-diff*": deny
     "*{*,*}*": deny

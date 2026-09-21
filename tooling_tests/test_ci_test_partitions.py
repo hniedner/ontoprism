@@ -1260,6 +1260,33 @@ def test_tooling_change_detection_is_explicit_or_path_scoped(
     assert not runner._tooling_changed()
 
 
+def test_tooling_change_detection_includes_every_issue_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.delenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", raising=False)
+    monkeypatch.setattr(runner.shutil, "which", lambda command: f"/bin/{command}")
+
+    def fake_run(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[1] == "log":
+            return subprocess.CompletedProcess(command, 0, stdout="issue-base\n")
+        if command[-1] == "issue-base...HEAD":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="scripts/validation/changed_in_first_commit.py\n",
+            )
+        return subprocess.CompletedProcess(command, 0, stdout="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner._tooling_changed()
+    assert ["/bin/git", "diff", "--name-only", "issue-base...HEAD"] in commands
+
+
 @pytest.mark.parametrize(
     "relative",
     [
