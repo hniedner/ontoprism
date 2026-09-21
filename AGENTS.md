@@ -27,7 +27,7 @@ steps but reaches `main` through its own reviewed PR; it is never merged locally
    reason, make the least change to GREEN, then refactor with targeted tests green.
 4. Commit. Pre-commit runs automatically. Before merging, run `pdm run lint` as a fast
    fail and `pdm run verify` once. If `.opencode/agent/*.md` changed, also run
-   `pdm run agent-test backend/tests/test_agent_permission_safety.py`; a skip is not a
+   `pdm run agent-test tooling_tests/test_agent_permission_safety.py`; a skip is not a
    pass.
 5. Check out the milestone branch, merge locally with
    `pdm run agent-git merge-no-ff <issue-branch>`, then delete the branch with

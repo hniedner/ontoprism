@@ -30,7 +30,7 @@ import yaml
 
 pytestmark = pytest.mark.unit
 
-_ROOT = Path(__file__).parents[2]
+_ROOT = Path(__file__).parents[1]
 _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"

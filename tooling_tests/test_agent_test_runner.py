@@ -22,7 +22,11 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def owned_test_root(tmp_path: Path) -> Path:
-    for relative in ("backend/tests/test_safe.py", "ontolib/tests/test_safe.py"):
+    for relative in (
+        "backend/tests/test_safe.py",
+        "ontolib/tests/test_safe.py",
+        "tooling_tests/test_safe.py",
+    ):
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("def test_safe():\n    assert True\n")

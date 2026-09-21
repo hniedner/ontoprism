@@ -31,7 +31,7 @@ from ontolib.core.data_build_tools import (
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[1]
 _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37"

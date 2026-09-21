@@ -16,7 +16,7 @@ from test_support.integration_resources import ResourceOwnershipError
 
 @pytest.mark.integration
 def test_plain_compose_config_preserves_active_podman_project_and_volume() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     docker = shutil.which("docker")
     assert docker is not None
     result = subprocess.run(  # noqa: S603

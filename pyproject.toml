@@ -78,7 +78,7 @@ pre_run = "python -m scripts.validation.validate_python_runtime"
 # (backend unit/api/security + frontend vitest). `pdm run test --all` adds the slow
 # suites (disposable integration, e2e). Coverage is the separate `test-ci` gate.
 test = "python scripts/test_runner.py"
-test-unit = "pytest ontolib/tests backend/tests -m unit -n auto"
+test-unit = "pytest ontolib/tests backend/tests tooling_tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
 test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build'"
 test-integration-full-store = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_store'"
@@ -86,9 +86,8 @@ test-integration-full-build = "pytest --require-full-store ontolib/tests backend
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
-# Local parity runs the same four CI matrix children sequentially, validates their
-# receipts/identities, and combines only the four exact coverage files. It is a parity
-# contract, not a local speed optimization.
+# Local parity runs the same four CI matrix children concurrently, validates their
+# receipts/identities, and combines only the four exact coverage files.
 test-ci = "python scripts/run_ci_test_partitions.py all"
 ci-test-partition = "python scripts/run_ci_test_partitions.py partition"
 ci-test-measure-integration = "python scripts/run_ci_test_partitions.py measure-integration"
@@ -105,7 +104,7 @@ ci-test-measure-integration = "python scripts/run_ci_test_partitions.py measure-
 # path-gated.
 verify = "python -m scripts.validation.run_verify"
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
-coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
+coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest tooling_tests/test_coverage_hierarchy.py -q" }
 coverage-identity = "python scripts/validation/coverage_hierarchy.py identity"
 coverage-verify-identities = "python scripts/validation/coverage_hierarchy.py verify-identities"
 coverage-report-python = "python scripts/validation/coverage_hierarchy.py python-report"
@@ -187,7 +186,7 @@ markers = [
 [tool.ruff]
 target-version = "py314"
 line-length = 88
-src = ["ontolib/src", "backend/src", "ontolib/tests", "backend/tests"]
+src = ["ontolib/src", "backend/src", "ontolib/tests", "backend/tests", "tooling_tests"]
 
 [tool.ruff.lint]
 select = [
@@ -218,6 +217,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**/*.py" = ["S101", "PLR2004"]
+"tooling_tests/*.py" = ["S101", "PLR2004"]
 "scripts/dev/reconstruct_versions.py" = [
        "S603",    # subprocess args are literals from the module-level MILESTONES tuple
        "S607",    # `git` from PATH — this is a developer script, not a runtime component

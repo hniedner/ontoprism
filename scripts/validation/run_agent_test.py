@@ -23,7 +23,11 @@ SAFE_K_EXPRESSION = re.compile(r"[A-Za-z0-9_ .()\-]+")
 SAFE_VITEST_NAME = re.compile(r"[A-Za-z0-9_ .():,\-/]+")
 MAX_VITEST_NAME_LENGTH = 200
 MAXFAIL = re.compile(r"--maxfail=([1-9][0-9]*)")
-OWNED_TEST_ROOTS = (PurePosixPath("backend/tests"), PurePosixPath("ontolib/tests"))
+OWNED_TEST_ROOTS = (
+    PurePosixPath("backend/tests"),
+    PurePosixPath("ontolib/tests"),
+    PurePosixPath("tooling_tests"),
+)
 FRONTEND_TEST_ROOTS = (PurePosixPath("frontend/src"),)
 FRONTEND_TEST_NAME = re.compile(r".+\.(?:test|spec)\.(?:js|jsx|ts|tsx)$")
 MAX_FRONTEND_FAILURE_NAMES = 10

@@ -564,7 +564,7 @@ def test_an_exemption_for_a_missing_file_is_reported(tmp_path: Path) -> None:
 
 
 def test_repository_coverage_config_exclusions_are_owned() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)
     config = load_coverage_config(repo_root / "pyproject.toml")
 
@@ -813,7 +813,7 @@ branchless()
 
 
 def test_repository_manifest_is_complete_and_owned() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)
 
     assert validate_manifest(manifest, repo_root) == []
@@ -826,7 +826,7 @@ def test_repository_manifest_is_complete_and_owned() -> None:
 
 
 def test_python_report_keeps_unmeasured_release_workflow_visible() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)
     raw = {
         "meta": {"format": 3, "version": "7.15.2", "branch_coverage": True},
@@ -1189,7 +1189,7 @@ def test_manifest_rejects_unowned_coverage_config_regex(tmp_path: Path) -> None:
 
 
 def test_python_raw_report_rejects_empty_coverage_data(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)
 
     with pytest.raises(ValueError, match="no measured files"):

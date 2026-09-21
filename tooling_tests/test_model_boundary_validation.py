@@ -281,6 +281,6 @@ def test_validator_rejects_named_serialized_dataclass_document(tmp_path: Path) -
 
 
 def test_repository_has_no_model_boundary_violations() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
 
     assert validate_model_boundaries(root) == []
