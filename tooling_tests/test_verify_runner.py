@@ -94,14 +94,14 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     for _command, options in runner.calls:
         assert options == {
             "check": False,
-            "cwd": Path(__file__).resolve().parents[2],
+            "cwd": Path(__file__).resolve().parents[1],
             "env": {"SAFE": "retained"},
             "shell": False,
             "text": True,
         }
 
     pyproject = tomllib.loads(
-        (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
             encoding="utf-8"
         )
     )
@@ -111,6 +111,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     assert scripts["verify"] == "python -m scripts.validation.run_verify"
     assert "test-ci" in scripts
     assert scripts["test-ci"] == "python scripts/run_ci_test_partitions.py all"
+    assert "tooling_tests" in scripts["test-unit"]
 
 
 @pytest.mark.unit
@@ -257,7 +258,7 @@ def test_runtime_validator_module_rejects_wrong_process_version() -> None:
 
     result = subprocess.run(  # noqa: S603
         command,
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
         check=False,

@@ -768,7 +768,7 @@ def test_verify_qlever_owner_rejects_malformed_mounts(
 
 @pytest.mark.unit
 def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
@@ -1009,7 +1009,7 @@ class TestWrites:
 
 @pytest.mark.unit
 def test_every_detected_persistent_mutator_is_in_the_ownership_manifest() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
@@ -1021,7 +1021,7 @@ def test_every_detected_persistent_mutator_is_in_the_ownership_manifest() -> Non
 
 @pytest.mark.unit
 def test_default_integration_command_excludes_explicit_full_store_contracts() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
 
@@ -1038,7 +1038,7 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
 @pytest.mark.unit
 def test_pdm_commands_load_repo_local_certified_tool_paths() -> None:
     """Every PDM entry point must receive the same durable Jena/ROBOT defaults."""
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         scripts = tomllib.load(stream)["tool"]["pdm"]["scripts"]
     env_example = (root / ".env.example").read_text()
@@ -1057,7 +1057,7 @@ def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> Non
     every mutating test connects with an unpoisoned application environment.
     `test_all_runner_keeps_full_store_contracts_explicit` below covers the other
     dispatch path, `scripts/test_runner.py`'s `pdm run test --all`."""
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     scripts = project["tool"]["pdm"]["scripts"]
@@ -1076,7 +1076,7 @@ def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> Non
 def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) -> None:
     pytest_executable = shutil.which("pytest")
     assert pytest_executable is not None
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     environment = {
         **os.environ,
         "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
@@ -1111,7 +1111,7 @@ def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) 
 def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
     pytest_executable = shutil.which("pytest")
     assert pytest_executable is not None
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
 
     result = subprocess.run(  # noqa: S603
         [
@@ -1147,7 +1147,7 @@ def test_collection_hook_rejects_real_noncompliant_tests_end_to_end() -> None:
     same live tree while other tests execute concurrently on other workers, and
     must never observe the probe mid-write as an unmanifested mutator.
     """
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     probe = root / "backend/tests/test_zz_collection_hook_probe.py"
     with _exclusive_tree_scan():
         probe.write_text(
@@ -1219,7 +1219,7 @@ def test_all_runner_keeps_full_store_contracts_explicit() -> None:
 
 @pytest.mark.unit
 def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["integration-tests"]
     steps = job["steps"]
@@ -1239,6 +1239,9 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     }
     assert test_step["env"] == {
         "COVERAGE_CONFIG_SET": "python-combined",
+        "ONTOPRISM_INCLUDE_TOOLING_TESTS": (
+            "${{ needs.changes.outputs.tooling == 'true' && '1' || '0' }}"
+        ),
         "OUTPUT_DIR": "${{ runner.temp }}/partition-integration-${{ matrix.index }}",
     }
     assert "pdm run ci-test-partition" in test_step["run"]

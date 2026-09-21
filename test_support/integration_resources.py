@@ -712,7 +712,11 @@ def find_persistent_mutator_tests(
 ) -> dict[str, dict[str, tuple[str, ...]]]:
     """Find persistent-write signals for each integration test function."""
     result: dict[str, dict[str, tuple[str, ...]]] = {}
-    for test_root in (root / "backend/tests", root / "ontolib/tests"):
+    for test_root in (
+        root / "backend/tests",
+        root / "ontolib/tests",
+        root / "tooling_tests",
+    ):
         if not test_root.exists():
             continue
         for path in test_root.rglob("test_*.py"):

@@ -30,7 +30,7 @@ import yaml
 
 pytestmark = pytest.mark.unit
 
-_ROOT = Path(__file__).parents[2]
+_ROOT = Path(__file__).parents[1]
 _AGENT_DIR = _ROOT / ".opencode" / "agent"
 _AGENTS = sorted(path.stem for path in _AGENT_DIR.glob("*.md"))
 _PRIMARY = "ontoprism-team"
@@ -253,6 +253,8 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run agent-test backend/tests/test_x.py::test_y -v",
         "pdm run test-unit",
         "pdm run verify",
+        "pdm run ci-test-measure-integration --output "
+        "tmp/integration-file-durations.toml",
         "pdm run python tmp/scratch/inspect_run.py",
         "python tmp/scratch/inspect_run.py",
         "python3 tmp/scratch/inspect_run.py",

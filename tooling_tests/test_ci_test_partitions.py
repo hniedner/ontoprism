@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import tomllib
 from itertools import combinations
 from pathlib import Path
@@ -214,7 +215,6 @@ default_weight_seconds = 5.0
 "backend/tests/test_current.py" = 12.0
 """.lstrip()
     )
-
     records = _records(
         "backend/tests/test_current.py",
         "backend/tests/test_new_a.py",
@@ -241,6 +241,24 @@ default_weight_seconds = 5.0
             "backend/tests/test_new_b.py",
         )
     )
+
+
+def test_integration_weight_manifest_accepts_tooling_test_paths() -> None:
+    manifest = partitions.IntegrationWeightManifest(
+        schema_version=1,
+        measured_commit="a" * 40,
+        measurement_date="2026-09-21",
+        measurement_worktree_dirty=False,
+        measurement_command=(
+            "pdm run ci-test-measure-integration --output tmp/timings.toml"
+        ),
+        selected_count=1,
+        module_count=1,
+        default_weight_seconds=1.0,
+        weights={"tooling_tests/test_safe_integration_lane.py": 1.0},
+    )
+
+    assert set(manifest.weights) == {"tooling_tests/test_safe_integration_lane.py"}
 
 
 def test_selection_warns_which_integration_files_took_the_default_weight(
@@ -331,6 +349,34 @@ def test_duration_capture_requires_clean_complete_calls_and_writes_metadata(
         "tests/test_b.py": 5.5,
     }
     assert generated["default_weight_seconds"] == 3.375
+
+
+def test_integration_measurement_includes_the_tooling_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    output = tmp_path / "timings.toml"
+    monkeypatch.setattr(
+        runner,
+        "_integration_tool_environment",
+        lambda environment: environment,
+    )
+
+    def fake_run(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[1:3] == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(command, 0, stdout="")
+        output.write_text("measurement")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner.measure_integration(output) >= 0
+    measurement = commands[-1]
+    assert "tooling_tests" in measurement
+    assert "--ignore=tooling_tests" not in measurement
 
 
 @pytest.mark.parametrize("outcome", ["skipped", "xfailed", "failed"])
@@ -495,14 +541,51 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
 
 
 def test_runner_uses_exported_fixed_roots_and_rejects_checkout_outputs() -> None:
-    command = runner._pytest_command("backend", collect_only=True, coverage_xml=None)
-    assert command[1:3] == list(partitions.FIXED_TEST_ROOTS)
+    product = runner._pytest_command(
+        "backend", collect_only=True, coverage_xml=None, include_tooling=False
+    )
+    tooling = runner._pytest_command(
+        "backend", collect_only=True, coverage_xml=None, include_tooling=True
+    )
+    assert product[1:5] == [*partitions.FIXED_TEST_ROOTS, "--ignore=tooling_tests"]
+    assert tooling[1:4] == list(partitions.FIXED_TEST_ROOTS)
     with pytest.raises(ValueError, match="outside the checkout"):
         runner.run_partition(
             "backend",
             "0",
-            output_dir=Path(__file__).resolve().parents[2] / "tmp/partition",
+            output_dir=Path(__file__).resolve().parents[1] / "tmp/partition",
         )
+
+
+def test_partition_runs_collection_and_execution_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, kwargs))
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        receipt = Path(environment["ONTOPRISM_TEST_PARTITION_RECEIPT"])
+        receipt.write_text("{}")
+        Path(environment["COVERAGE_FILE"]).write_text("coverage")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "load_receipt", lambda _path: object())
+    monkeypatch.setattr(runner, "_write_identity", lambda _path, _layer: object())
+    output = tmp_path / "outside"
+    monkeypatch.setattr(runner, "ROOT", tmp_path / "checkout")
+
+    assert runner.run_partition("backend", "0", output_dir=output) >= 0
+    assert len(calls) == 1
+    command, options = calls[0]
+    assert "--collect-only" not in command
+    environment = options["env"]
+    assert isinstance(environment, dict)
+    assert environment["ONTOPRISM_TEST_PARTITION_PHASE"] == "run"
 
 
 def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
@@ -525,8 +608,8 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
         (
             "integration",
             ("integration",),
-            ("full_store", "full_build", "slow"),
-            "integration and not full_store and not full_build and not slow",
+            ("full_store", "full_build"),
+            "integration and not full_store and not full_build",
         ),
     )
     for selector in partitions.LANE_SELECTORS:
@@ -539,7 +622,7 @@ def test_lane_selectors_match_eligibility_for_all_marker_combinations() -> None:
                 "integration" not in markers
                 if selector.lane == "backend"
                 else "integration" in markers
-                and not markers.intersection({"full_store", "full_build", "slow"})
+                and not markers.intersection({"full_store", "full_build"})
             )
             assert partitions._eligible(record, selector.lane) is expected
 
@@ -579,7 +662,7 @@ def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> No
                 "-m",
                 selector.marker_expression,
             ],
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=Path(__file__).resolve().parents[1],
             env={
                 **os.environ,
                 "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
@@ -713,10 +796,10 @@ def _run_plugin_suite(
             "-q",
             *(["--collect-only"] if phase == "collect" else []),
         ],
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=Path(__file__).resolve().parents[1],
         env={
             **os.environ,
-            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
             "ONTOPRISM_TEST_PARTITION_LANE": "backend",
             "ONTOPRISM_TEST_PARTITION_SHARD": "0",
             "ONTOPRISM_TEST_PARTITION_COUNT": "2",
@@ -1038,7 +1121,9 @@ def test_run_all_removes_stale_root_coverage_and_uses_exact_combine_paths(
         shard: ShardId,
         *,
         output_dir: Path,
+        include_tooling: bool = False,
     ) -> float:
+        del include_tooling
         spec = partitions.partition_spec(lane, shard)
         coverage_file = output_dir / spec.coverage_name
         coverage_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1108,3 +1193,109 @@ def test_run_all_failure_leaves_no_stale_root_coverage(
     with pytest.raises(subprocess.CalledProcessError):
         runner.run_all()
     assert not stale.exists()
+
+
+def test_run_all_starts_the_four_partitions_concurrently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    barrier = threading.Barrier(len(partitions.PARTITION_SPECS))
+    entered: list[tuple[Lane, ShardId]] = []
+
+    def concurrent_partition(
+        lane: Lane,
+        shard: ShardId,
+        *,
+        output_dir: Path,
+        include_tooling: bool = False,
+    ) -> float:
+        del include_tooling
+        entered.append((lane, shard))
+        spec = partitions.partition_spec(lane, shard)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / spec.coverage_name).write_text("coverage")
+        barrier.wait(timeout=2)
+        return 0.1
+
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner, "run_partition", concurrent_partition)
+    monkeypatch.setattr(
+        runner,
+        "_validate_local_outputs",
+        lambda _output: tuple(
+            SimpleNamespace(layer=spec.layer) for spec in partitions.PARTITION_SPECS
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "load_receipt",
+        lambda _path: SimpleNamespace(
+            selected_nodeids=("a.py::test",), selected_count=1
+        ),
+    )
+
+    def fake_run(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "combine" in command:
+            data_argument = next(
+                value for value in command if value.startswith("--data-file=")
+            )
+            Path(data_argument.partition("=")[2]).write_text("combined")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner.run_all() == 0
+    assert set(entered) == {
+        (spec.lane, spec.shard_id) for spec in partitions.PARTITION_SPECS
+    }
+
+
+def test_tooling_change_detection_is_explicit_or_path_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", "1")
+    assert runner._tooling_changed()
+    monkeypatch.setenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", "0")
+    assert not runner._tooling_changed()
+
+
+def test_tooling_change_detection_includes_every_issue_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.delenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", raising=False)
+    monkeypatch.setattr(runner.shutil, "which", lambda command: f"/bin/{command}")
+
+    def fake_run(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[1] == "log":
+            return subprocess.CompletedProcess(command, 0, stdout="issue-base\n")
+        if command[-1] == "issue-base...HEAD":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="scripts/validation/changed_in_first_commit.py\n",
+            )
+        return subprocess.CompletedProcess(command, 0, stdout="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner._tooling_changed()
+    assert ["/bin/git", "diff", "--name-only", "issue-base...HEAD"] in commands
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "ontolib/tests/terminologies/test_ncit_activation_integration.py",
+        "backend/tests/test_integration_resources_integration.py",
+        "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py",
+    ],
+)
+def test_expensive_integration_modules_are_slow(relative: str) -> None:
+    source = (Path(__file__).resolve().parents[1] / relative).read_text()
+
+    assert "pytest.mark.slow" in source

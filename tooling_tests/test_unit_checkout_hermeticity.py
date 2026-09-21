@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
 
-_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
 
 
@@ -217,7 +217,7 @@ def test_temporary_manifest(tmp_path: Path) -> None:
 def test_detector_resolves_segmented_repository_anchors() -> None:
     source = """
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 def test_manifest() -> None:
     (ROOT / "private-corpus" / "manifest.json").read_text()
 """
@@ -750,6 +750,7 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "--",
                 "ontolib/tests",
                 "backend/tests",
+                "tooling_tests",
             ),
             tmp_path,
             10.0,
@@ -763,6 +764,7 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "--",
                 "ontolib/tests",
                 "backend/tests",
+                "tooling_tests",
             ),
             tmp_path,
             10.0,

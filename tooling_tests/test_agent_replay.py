@@ -145,7 +145,7 @@ def _publish_readiness_detector_chain(tmp_path: Path) -> tuple[ArtifactManifest,
     )
 
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[1]
 _R101_REPORT = (
     _ROOT / "ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz"
 )

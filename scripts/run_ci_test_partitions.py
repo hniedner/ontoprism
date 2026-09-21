@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run fixed Python CI partitions or the sequential local parity gate."""
+"""Run fixed Python CI partitions or the concurrent local parity gate."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
@@ -71,13 +72,17 @@ def _pytest_command(
     collect_only: bool,
     coverage_xml: Path | None,
     with_coverage: bool = True,
+    include_tooling: bool = False,
 ) -> list[str]:
     pytest = shutil.which("pytest")
     if pytest is None:
         raise RuntimeError("pytest console script is required")
     selector = next(selector for selector in LANE_SELECTORS if selector.lane == lane)
     marker = selector.marker_expression
-    arguments = [*FIXED_TEST_ROOTS, "-m", marker]
+    arguments = [*FIXED_TEST_ROOTS]
+    if not include_tooling:
+        arguments.append("--ignore=tooling_tests")
+    arguments.extend(("-m", marker))
     if collect_only:
         arguments.append("--collect-only")
     elif with_coverage:
@@ -154,8 +159,9 @@ def run_partition(
     shard: str,
     *,
     output_dir: Path,
+    include_tooling: bool = False,
 ) -> float:
-    """Collect, receipt, then execute one validated fixed partition."""
+    """Collect, receipt, and execute one fixed partition in a single pytest run."""
     started = time.monotonic()
     spec = _partition_contract(lane, shard)
     if output_dir.is_symlink():
@@ -185,44 +191,37 @@ def run_partition(
         "ONTOPRISM_TEST_PARTITION_SHARD": shard,
         "ONTOPRISM_TEST_PARTITION_COUNT": "2",
         "ONTOPRISM_TEST_PARTITION_RECEIPT": str(receipt.resolve()),
-        "ONTOPRISM_TEST_PARTITION_PHASE": "collect",
+        "ONTOPRISM_TEST_PARTITION_PHASE": "run",
         "ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": "1",
+        "COVERAGE_FILE": str(coverage_file.resolve()),
     }
     if lane == "integration":
         environment = _integration_tool_environment(environment)
     preflight_finished = time.monotonic()
     subprocess.run(  # noqa: S603 - fixed repository test command
-        _pytest_command(lane, collect_only=True, coverage_xml=None),
+        _pytest_command(
+            lane,
+            collect_only=False,
+            coverage_xml=coverage_xml,
+            include_tooling=include_tooling,
+        ),
         cwd=ROOT,
         env=environment,
         check=True,
     )
     load_receipt(receipt)
-    collection_finished = time.monotonic()
-    execution_environment = {
-        **environment,
-        "ONTOPRISM_TEST_PARTITION_PHASE": "execute",
-        "COVERAGE_FILE": str(coverage_file.resolve()),
-    }
-    subprocess.run(  # noqa: S603 - fixed repository test command
-        _pytest_command(lane, collect_only=False, coverage_xml=coverage_xml),
-        cwd=ROOT,
-        env=execution_environment,
-        check=True,
-    )
     _write_identity(identity, spec.layer)
     finished = time.monotonic()
     print(
         f"partition phases {lane}/{shard}: "
         f"preflight={preflight_finished - started:.1f}s, "
-        f"collection={collection_finished - preflight_finished:.1f}s, "
-        f"tests+identity={finished - collection_finished:.1f}s"
+        f"tests+receipt+identity={finished - preflight_finished:.1f}s"
     )
     return finished - started
 
 
 def measure_integration(output: Path) -> float:
-    """Measure the eligible safe lane, excluding slow/full-store/full-build tests."""
+    """Measure the CI-safe lane, excluding full-store and full-build tests."""
     git = shutil.which("git")
     if git is None:
         raise RuntimeError("git is required to identify timing evidence")
@@ -246,6 +245,7 @@ def measure_integration(output: Path) -> float:
             collect_only=False,
             coverage_xml=None,
             with_coverage=False,
+            include_tooling=True,
         ),
         cwd=ROOT,
         env=environment,
@@ -306,7 +306,7 @@ def _validate_local_outputs(output: Path) -> tuple[ArtifactIdentity, ...]:
 
 
 def run_all() -> int:
-    """Run CI's children sequentially; parity is semantic, not a speed claim."""
+    """Run CI's independent children concurrently, then validate combined evidence."""
     root_coverage = ROOT / ".coverage"
     pending_coverage = ROOT / ".coverage.pending"
     root_coverage.unlink(missing_ok=True)
@@ -319,11 +319,20 @@ def run_all() -> int:
             artifact = output / spec.artifact_name
             coverage_file = artifact / spec.coverage_name
             coverage_paths.append(coverage_file)
-            durations[f"{spec.lane}/{spec.shard_id}"] = run_partition(
-                spec.lane,
-                spec.shard_id,
-                output_dir=artifact,
-            )
+        include_tooling = _tooling_changed()
+        with ThreadPoolExecutor(max_workers=len(PARTITION_SPECS)) as executor:
+            futures = {
+                spec: executor.submit(
+                    run_partition,
+                    spec.lane,
+                    spec.shard_id,
+                    output_dir=output / spec.artifact_name,
+                    include_tooling=include_tooling,
+                )
+                for spec in PARTITION_SPECS
+            }
+            for spec, future in futures.items():
+                durations[f"{spec.lane}/{spec.shard_id}"] = future.result()
         identities = _validate_local_outputs(output)
         combined = output / ".coverage"
         # Local equivalent of CI's explicit four-path coverage combine.
@@ -392,6 +401,50 @@ def run_all() -> int:
         finally:
             pending_coverage.unlink(missing_ok=True)
     return 0
+
+
+def _tooling_changed() -> bool:
+    """Include the tooling root when the current change touches its implementation."""
+    explicit = os.environ.get("ONTOPRISM_INCLUDE_TOOLING_TESTS")
+    if explicit is not None:
+        return explicit == "1"
+    git = shutil.which("git")
+    if git is None:
+        return True
+    base = _git_stdout(
+        git, ["log", "--first-parent", "--merges", "--format=%H", "-1", "HEAD"]
+    )
+    if base is None:
+        return True
+    if not base:
+        base = _git_stdout(git, ["merge-base", "main", "HEAD"])
+    if not base:
+        return True
+    changed: set[str] = set()
+    for arguments in (
+        [git, "diff", "--name-only", f"{base}...HEAD"],
+        [git, "diff", "--name-only"],
+        [git, "diff", "--name-only", "--cached"],
+    ):
+        output = _git_stdout(git, arguments[1:])
+        if output is None:
+            return True
+        changed.update(output.splitlines())
+    prefixes = ("scripts/validation/", "test_support/", "tooling_tests/")
+    return "conftest.py" in changed or any(
+        path.startswith(prefixes) for path in changed
+    )
+
+
+def _git_stdout(git: str, arguments: list[str]) -> str | None:
+    result = subprocess.run(  # noqa: S603 - resolved git executable
+        [git, *arguments],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return (result.stdout or "").strip() if result.returncode == 0 else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

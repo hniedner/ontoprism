@@ -13,7 +13,7 @@ import pytest
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[1]
 _GENERATED_CHANGELOG: Final[str] = "CHANGELOG.md"
 _CHANGELOG_HISTORY_MARKER: Final[bytes] = b"<!-- version list -->"
 _RETIRED_ENGINE = bytes.fromhex("636f6c696d61").decode()

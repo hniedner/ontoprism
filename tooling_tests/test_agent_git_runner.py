@@ -339,7 +339,7 @@ def test_branch_validation_uses_a_fixed_full_local_branch_ref(tmp_path: Path) ->
 
 @pytest.mark.parametrize("branch", ["bad.lock", "feat/trailing."])
 def test_agent_git_cli_reports_git_rejected_branch_as_invalid(branch: str) -> None:
-    script = Path(__file__).parents[2] / "scripts" / "validation" / "run_agent_git.py"
+    script = Path(__file__).parents[1] / "scripts" / "validation" / "run_agent_git.py"
 
     result = subprocess.run(  # noqa: S603 - fixed repository script
         [sys.executable, str(script), "switch-new", branch],

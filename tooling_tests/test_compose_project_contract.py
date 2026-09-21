@@ -8,7 +8,7 @@ from scripts.validation.run_agent_replay import _PODMAN_PROJECT
 
 @pytest.mark.unit
 def test_compose_source_declares_the_governed_podman_project() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     inspected_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (

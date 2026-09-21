@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from ontolib.decomposition.provenance_models import NcitSourceSnapshot
     from ontolib.terminologies.ncit.owl_download import OwlArtifactPairManifest
 
+pytestmark = pytest.mark.slow
+
 _ONTOLOGY_IRI = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl"
 _VERSION = "26.test"
 _INFERRED = f"""<?xml version="1.0"?>
