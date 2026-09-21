@@ -5,7 +5,7 @@ description = "Current enhanced NCIt storage, exploration, alignment, and decomp
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Hannes Niedner" }]
+authors = [{ name = "R. Hannes Niedner" }]
 
 # Runtime deps for the ontology vertical slice lifted from fairdata.
 # Deliberately trimmed: no AWS/bedrock/redis/opensearch/mlxtend — those belong to
