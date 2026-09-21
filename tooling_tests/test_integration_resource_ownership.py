@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import ast
-import fcntl
 import inspect
 import json
 import os
 import shutil
 import subprocess
-import tempfile
 import textwrap
 import tomllib
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,12 +34,13 @@ from test_support.integration_resources import (
     validate_mutator_manifest_entries,
     validate_mutator_manifest_files,
 )
+from test_support.tree_scan_lock import exclusive_tree_scan
 
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.xref.store import XrefStore
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
     _DockerRunner = DockerRun
     _ContainerInspector = Callable[
@@ -64,20 +62,6 @@ if TYPE_CHECKING:
 # concurrently on other workers, so a transient probe write can be observed by a
 # concurrently-executing scanner as an unmanifested mutator. A cross-process file
 # lock — every worker is a separate OS process — is the correct fix for that.
-_TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
-
-
-@contextmanager
-def _exclusive_tree_scan() -> Iterator[None]:
-    """Serialize real-tree scans against the collection-hook probe test."""
-    with _TREE_SCAN_LOCK.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
 def _declared_markers_and_fixtures(source: str) -> tuple[set[str], set[str]]:
     tree = ast.parse(source)
     markers: set[str] = set()
@@ -772,7 +756,7 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         detected = find_persistent_mutators(root)
 
     assert entries
@@ -1015,7 +999,7 @@ def test_every_detected_persistent_mutator_is_in_the_ownership_manifest() -> Non
         entries = tomllib.load(stream)["mutator"]
     manifested = frozenset(entry["path"] for entry in entries)
 
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         assert find_unmanifested_mutators(root, manifested_paths=manifested) == {}
 
 
@@ -1086,20 +1070,21 @@ def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) 
         ),
     }
 
-    result = subprocess.run(  # noqa: S603
-        [
-            pytest_executable,
-            "--require-full-store",
-            "backend/tests/test_migrations_integration.py::"
-            "test_migration_matches_cloned_db_schema",
-            "-q",
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    with exclusive_tree_scan():
+        result = subprocess.run(  # noqa: S603
+            [
+                pytest_executable,
+                "--require-full-store",
+                "backend/tests/test_migrations_integration.py::"
+                "test_migration_matches_cloned_db_schema",
+                "-q",
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     assert result.returncode != 0
     assert "full-store gate rejected 1 skipped contract" in (
@@ -1113,21 +1098,22 @@ def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
     assert pytest_executable is not None
     root = Path(__file__).resolve().parents[1]
 
-    result = subprocess.run(  # noqa: S603
-        [
-            pytest_executable,
-            "--require-full-store",
-            "backend/tests/test_migrations_integration.py",
-            "-k",
-            "no_such_contract",
-            "-q",
-        ],
-        cwd=root,
-        env={**os.environ, "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    with exclusive_tree_scan():
+        result = subprocess.run(  # noqa: S603
+            [
+                pytest_executable,
+                "--require-full-store",
+                "backend/tests/test_migrations_integration.py",
+                "-k",
+                "no_such_contract",
+                "-q",
+            ],
+            cwd=root,
+            env={**os.environ, "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     assert result.returncode == 1
     assert "full-store gate ran no contracts" in result.stdout + result.stderr
@@ -1149,7 +1135,7 @@ def test_collection_hook_rejects_real_noncompliant_tests_end_to_end() -> None:
     """
     root = Path(__file__).resolve().parents[1]
     probe = root / "backend/tests/test_zz_collection_hook_probe.py"
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         probe.write_text(
             """
 import pytest

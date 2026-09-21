@@ -30,6 +30,7 @@ from scripts.validation.test_partitions import (
     build_receipt,
     validate_partition_receipts,
 )
+from test_support.tree_scan_lock import exclusive_tree_scan
 
 
 def _records(*paths: str) -> tuple[CollectionRecord, ...]:
@@ -651,26 +652,27 @@ def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> No
     )
 
     for selector in partitions.LANE_SELECTORS:
-        completed = subprocess.run(  # noqa: S603 - pinned environment executable
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                str(suite),
-                "--collect-only",
-                "-q",
-                "-m",
-                selector.marker_expression,
-            ],
-            cwd=Path(__file__).resolve().parents[1],
-            env={
-                **os.environ,
-                "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
-            },
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        with exclusive_tree_scan():
+            completed = subprocess.run(  # noqa: S603 - pinned environment executable
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    str(suite),
+                    "--collect-only",
+                    "-q",
+                    "-m",
+                    selector.marker_expression,
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={
+                    **os.environ,
+                    "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
         assert completed.returncode == 0, completed.stdout + completed.stderr
         collected_indices = {
             int(line.rpartition("test_markers_")[2])
@@ -689,25 +691,26 @@ def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> No
 
 def test_pre_resume_full_store_module_stays_out_of_backend_lane() -> None:
     module = "ontolib/tests/decomposition/test_pre_resume_full_store.py"
-    completed = subprocess.run(  # noqa: S603 - pinned environment executable
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            module,
-            "--collect-only",
-            "-m",
-            "not integration or not full_store",
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
-        },
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    with exclusive_tree_scan():
+        completed = subprocess.run(  # noqa: S603 - pinned environment executable
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                module,
+                "--collect-only",
+                "-m",
+                "not integration or not full_store",
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            env={
+                **os.environ,
+                "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
     assert completed.returncode == pytest.ExitCode.NO_TESTS_COLLECTED, (
         completed.stdout + completed.stderr
@@ -811,33 +814,34 @@ def _run_plugin_suite(
     fixed_roots: str = "0",
     xdist: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - pinned environment executable
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-p",
-            "scripts.validation.test_partitions",
-            str(suite),
-            *(["-n", "2"] if xdist else []),
-            "-q",
-            *(["--collect-only"] if phase == "collect" else []),
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        env={
-            **os.environ,
-            "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
-            "ONTOPRISM_TEST_PARTITION_LANE": "backend",
-            "ONTOPRISM_TEST_PARTITION_SHARD": "0",
-            "ONTOPRISM_TEST_PARTITION_COUNT": "2",
-            "ONTOPRISM_TEST_PARTITION_RECEIPT": str(receipt),
-            "ONTOPRISM_TEST_PARTITION_PHASE": phase,
-            "ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": fixed_roots,
-        },
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    with exclusive_tree_scan():
+        return subprocess.run(  # noqa: S603 - pinned environment executable
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "scripts.validation.test_partitions",
+                str(suite),
+                *(["-n", "2"] if xdist else []),
+                "-q",
+                *(["--collect-only"] if phase == "collect" else []),
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            env={
+                **os.environ,
+                "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                "ONTOPRISM_TEST_PARTITION_LANE": "backend",
+                "ONTOPRISM_TEST_PARTITION_SHARD": "0",
+                "ONTOPRISM_TEST_PARTITION_COUNT": "2",
+                "ONTOPRISM_TEST_PARTITION_RECEIPT": str(receipt),
+                "ONTOPRISM_TEST_PARTITION_PHASE": phase,
+                "ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": fixed_roots,
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 def test_execute_phase_requires_an_existing_receipt(tmp_path: Path) -> None:
