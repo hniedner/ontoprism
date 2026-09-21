@@ -175,7 +175,7 @@ from four plain criteria into a corpus-wide acceptance contract.
   a finding becomes" in `AGENTS.md`.)*
 - The OpenCode config validators and their tests are deleted, and the tests that assert
   documentation wording are removed here and in #339.
-  `backend/tests/test_agent_permission_safety.py` keeps the part that matters: the bash
+  `tooling_tests/test_agent_permission_safety.py` keeps the part that matters: the bash
   permission layer refuses destructive, bypassing and out-of-repository commands for
   every agent, the catch-all is pinned, and only the primary can stage, commit or
   publish. The primary's scratch-script lane (`pdm run python tmp/scratch/*`) is the
@@ -401,8 +401,8 @@ pr-create ...` and `pdm run agent-github pr-edit ...`. The wrappers fix `origin`
 `hniedner/ontoprism`, validate branch and repository identity, reject unclean or mismatched
 worktrees, and fail closed when a mutation outcome is unknown. Their behavioral contracts
 execute successfully, including noninteractive remote Git and refusal to edit closed or merged
-pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
-agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+pull requests (`pdm run agent-test tooling_tests/test_agent_git_runner.py -v` and `pdm run
+agent-test tooling_tests/test_agent_github_runner.py -v`, 2026-09-04).
 
 The scanner's `DELETE(?![-_])` alternative excludes `DELETE` followed immediately by a
 hyphen or underscore; `delete-merged` was the operation name that triggered the false match
@@ -443,7 +443,7 @@ spelling sensitivity or prescribe this representation. Semantically, the
 metadata rejects 3.13.99 and 3.15 while accepting 3.14.0, 3.14.1, Dependabot's installed
 3.14.5, and the operational 3.14.7 patch
 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 The local selector, hosted workflows, pre-commit's observed interpreter, Ruff,
@@ -452,14 +452,14 @@ the tool-specific 3.14 target where patch spelling is unavailable). Python 3.14.
 the only certified and supported local, CI, integration, data-build, and container
 runtime; the metadata lower bound remains in the same minor series and is no higher
 than that runtime (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 PDM's global `pre_run` hook now reads `.python-version` and rejects any executing
 interpreter other than its exact value before every repository-owned named PDM script,
 including `verify`, `test-ci`, `agent-test`, `lint`, `data-build`, and the `migrate` family
 (`pdm run agent-test
-backend/tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
-backend/tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
+tooling_tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
+tooling_tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
 -v`, 2026-09-04). This operational gate does not narrow package metadata.
 
 The broadened lock resolved networkx 3.6 on 2026-09-04 rather than 3.6.1 because 3.6.1
@@ -468,7 +468,7 @@ excludes Python 3.14.1, which the project metadata accepts (`git diff
 -- pdm.lock`, 2026-09-04). The lock contract requires networkx to remain present and
 checks eligibility of every locked data-build package on 3.14.1 without freezing a
 future compatible networkx update (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 Dependabot run 33839863700 rejected the patch-floor `>=3.14.7,<3.15` while running
@@ -481,7 +481,7 @@ remains unverified until a post-merge Dependency Graph run succeeds (`gh run vie
 33839863700 --log-failed`, 2026-09-04). PR #321's post-merge Dependency Graph result must
 be checked before this work is considered externally validated, and any failure must be
 fixed before new work under the hard post-merge rule in `AGENTS.md` (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 ## 2026-09-03 — Python 3.14.7 is the sole runtime
@@ -492,7 +492,7 @@ backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exac
 and lock statements below are historical observations from 2026-09-03, not descriptions
 of the current repository. The patch-exact operational runtime decision remains current
 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 **Decision at adoption:** Python 3.14.7 was the only supported local, hosted-CI, integration,
@@ -1017,7 +1017,7 @@ share the certified NCIt QLever index; Uberon and its Cell Ontology content use 
 separate certified QLever index. Postgres remains authoritative for mutable proposed
 NCIt identity, revisions, lifecycle, evidence, and RDF projections (D65). There is no
 runtime Oxigraph dependency (`pdm run pytest
-backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
+tooling_tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
 -q`, 2026-08-10).
 
 The official EVS 26.07d folder exposes flat text plus stated and inferred RDF/XML OWL,
@@ -1083,7 +1083,7 @@ metadata, or observed version differs from the pin.
 
 The target shape and fail-closed behavior are enforced by the focused supply-chain and
 candidate-manifest contracts (`pdm run pytest
-ontolib/tests/core/test_data_build_tools.py backend/tests/test_supply_chain_contract.py
+ontolib/tests/core/test_data_build_tools.py tooling_tests/test_supply_chain_contract.py
 ontolib/tests/terminologies/test_ncit_sibling_store.py -q`, 2026-08-09), the real
 reasoner contract (`PATH=/private/tmp/ontoprism-robot-163:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/bin:/usr/bin:/bin
 ONTOPRISM_ROBOT_DIR=/private/tmp/ontoprism-robot-163 pdm run pytest

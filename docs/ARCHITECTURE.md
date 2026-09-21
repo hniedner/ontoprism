@@ -81,7 +81,7 @@ enhanced view intentionally need not contain every official assertion.
   ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration and
   full_store' -v`, 2026-08-10). The runtime dependency contract rejects any active
   Oxigraph package/import/service (`pdm run pytest
-  backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
+  tooling_tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
   -q`, 2026-08-10). Decomposition RDF and proposal RDF remain additive projections,
   never source graph mutations.
 
