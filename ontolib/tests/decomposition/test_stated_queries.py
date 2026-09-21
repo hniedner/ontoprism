@@ -30,6 +30,7 @@ from ontolib.decomposition.stated_queries import (
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    r82_fact_identity,
     read_complete_genus_chain,
     resolve_morphology_filler,
     resolve_morphology_fillers,
@@ -220,6 +221,146 @@ async def test_candidate_path_resolution_rejects_missing_evidence_binding() -> N
     with pytest.raises(ValueError, match="missing a binding"):
         await resolve_part_of_paths(
             MissingRestriction(), (("C1", "C2"),), source_identity="a" * 64
+        )
+
+
+@pytest.mark.unit
+async def test_candidate_path_resolution_preserves_direct_stated_evidence() -> None:
+    source_identity = "a" * 64
+
+    class DirectPath:
+        calls = 0
+
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            self.calls += 1
+            assert "VALUES (?part ?whole)" in query
+            assert set(required_variables) == {
+                "part",
+                "whole",
+                "assertedPart",
+                "restriction",
+            }
+            return [
+                {
+                    "part": _iri("C1"),
+                    "whole": _iri("C2"),
+                    "assertedPart": _iri("C9"),
+                    "restriction": "_:r82-direct",
+                }
+            ]
+
+    client = DirectPath()
+    result = await resolve_part_of_paths(
+        client, (("C1", "C2"),), source_identity=source_identity
+    )
+
+    assert client.calls == 1
+    assert result.query_count == 1
+    assert result.max_pair_batch_size == 1
+    edge = result.paths[("C1", "C2")].edges[0]
+    assert (
+        edge.part_code,
+        edge.asserted_part_code,
+        edge.whole_code,
+        edge.restriction_node_id,
+        edge.source_identity,
+    ) == ("C1", "C9", "C2", "_:r82-direct", source_identity)
+    assert edge.fact_identity == r82_fact_identity(
+        source_identity, "C9", "C2", "_:r82-direct"
+    )
+
+
+@pytest.mark.unit
+async def test_candidate_path_duplicate_evidence_selection_is_deterministic() -> None:
+    source_identity = "b" * 64
+    rows = [
+        {
+            "part": _iri("C1"),
+            "whole": _iri("C2"),
+            "assertedPart": _iri("C1"),
+            "restriction": restriction,
+        }
+        for restriction in ("_:first", "_:second")
+    ]
+
+    class DuplicatePaths:
+        def __init__(self, response: list[dict[str, str]]) -> None:
+            self.response = response
+
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            del query, required_variables
+            return self.response
+
+    forward = await resolve_part_of_paths(
+        DuplicatePaths(rows), (("C1", "C2"),), source_identity=source_identity
+    )
+    reverse = await resolve_part_of_paths(
+        DuplicatePaths(list(reversed(rows))),
+        (("C1", "C2"),),
+        source_identity=source_identity,
+    )
+
+    assert forward.paths == reverse.paths
+    selected = forward.paths[("C1", "C2")].edges[0]
+    assert selected.fact_identity == min(
+        r82_fact_identity(source_identity, "C1", "C2", row["restriction"])
+        for row in rows
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (
+            {
+                "part": _iri("C1"),
+                "whole": _iri("C3"),
+                "assertedPart": _iri("C1"),
+                "restriction": "_:unexpected",
+            },
+            "unrequested pair",
+        ),
+        (
+            {
+                "part": "https://example.org/C1",
+                "whole": _iri("C2"),
+                "assertedPart": _iri("C1"),
+                "restriction": "_:external",
+            },
+            "not NCIt-bound",
+        ),
+    ],
+)
+async def test_candidate_path_resolution_rejects_invalid_source_rows(
+    row: dict[str, str], message: str
+) -> None:
+    class InvalidPath:
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            del query, required_variables
+            return [row]
+
+    with pytest.raises(ValueError, match=message):
+        await resolve_part_of_paths(
+            InvalidPath(), (("C1", "C2"),), source_identity="c" * 64
+        )
+
+
+@pytest.mark.unit
+async def test_candidate_path_resolution_rejects_invalid_source_identity() -> None:
+    class UnusedClient:
+        async def select_once(self, query: str, *, required_variables=()):
+            raise AssertionError((query, required_variables))
+
+    with pytest.raises(ValueError, match="source identity must be SHA-256"):
+        await resolve_part_of_paths(
+            UnusedClient(), (("C1", "C2"),), source_identity="not-a-sha256"
         )
 
 

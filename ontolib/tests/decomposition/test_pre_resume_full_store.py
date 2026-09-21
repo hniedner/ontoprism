@@ -35,6 +35,8 @@ from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
+pytestmark = [pytest.mark.integration, pytest.mark.full_store]
+
 if TYPE_CHECKING:
     from collections.abc import Collection
 
@@ -206,8 +208,6 @@ class _CountingClient:
         )
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_completed_full_run_candidate_denominator_matches_reachability() -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -237,8 +237,6 @@ async def test_completed_full_run_candidate_denominator_matches_reachability() -
     assert evidence.qlever_reads > 0
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
     output = tmp_path / "proof.json"
     common = [
@@ -256,8 +254,6 @@ def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
     assert not output.exists()
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
     tmp_path,
 ) -> None:
@@ -283,8 +279,6 @@ def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
     assert not second.exists()
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -317,8 +311,6 @@ async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> N
     assert boundary.validation.authorizable is False
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries() -> (
     None
 ):
@@ -394,8 +386,6 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
             assert counted.select_once_count <= baseline.select_once_r82_count_budget
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() -> None:
     manifest = validate_ncit_sibling_manifest(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
