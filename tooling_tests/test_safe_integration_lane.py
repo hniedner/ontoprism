@@ -30,7 +30,7 @@ def test_plain_compose_config_preserves_active_podman_project_and_volume() -> No
 
     assert config["name"] == _PODMAN_PROJECT
     assert config["volumes"]["ontoprism_pg_data"]["name"] == (
-        "ontoprism-podman-poc_ontoprism_pg_data"
+        "ontoprism_ontoprism_pg_data"
     )
 
 

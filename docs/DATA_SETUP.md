@@ -271,9 +271,14 @@ verification gate. A successful verification under any other selected runtime is
 presented as Podman verification.
 `podman-compose-down` accepts a partial owned stack, refuses any present wrong-owner
 resource, performs project-scoped cleanup without `-v`, and then inspects the exact
-`ontoprism-podman-poc_ontoprism_pg_data` identity and owner labels to prove the populated
+`ontoprism_ontoprism_pg_data` identity and owner labels to prove the populated
 volume still exists. QLever continues to use the repository's existing bind-mounted
 indexes.
+
+The 2026-09-22 project rename from `ontoprism-podman-poc` to `ontoprism` intentionally
+created the new `ontoprism_ontoprism_pg_data` volume. The previous
+`ontoprism-podman-poc_ontoprism_pg_data` volume was retained rather than migrated or
+deleted; recovering data from it is a separate operator action.
 
 Run `podman-app-smoke` only after `podman-compose-down`. It enforces availability of fixed
 ports 5433, 7888, 7889, and 8080; refuses existing primary-stack containers; verifies the

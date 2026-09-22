@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import ast
+import fcntl
 import json
 import re
 import secrets
 import shutil
 import subprocess
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urlsplit
 
@@ -19,7 +22,6 @@ from ontolib.core.data_build_tools import POSTGRES_IMAGE, QLEVER_IMAGE
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
-    from pathlib import Path
 
 _NONCE = re.compile(r"[0-9a-f]{32}")
 _SOCKET_ADDRESS_PARTS = 2
@@ -72,6 +74,9 @@ _DEAD_DATABASE_URL: Final = (
 )
 _DEAD_HTTP_URL: Final = "http://127.0.0.1:9"
 _QLEVER_DATA_DIR_PREFIX: Final = "ontoprism-qlever-"
+_RESOURCE_LIFECYCLE_LOCK = (
+    Path(tempfile.gettempdir()) / "ontoprism-integration-resource-lifecycle.lock"
+)
 
 
 class ResourceOwnershipError(RuntimeError):
@@ -90,6 +95,18 @@ class DockerRun(Protocol):
     def __call__(
         self, *args: str, check: bool = ...
     ) -> subprocess.CompletedProcess[str]: ...
+
+
+@contextmanager
+def integration_resource_lease(*, exclusive: bool = False) -> Iterator[None]:
+    """Serialize cleanup against the full lifetime of disposable resources."""
+    with _RESOURCE_LIFECYCLE_LOCK.open("a") as handle:
+        operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        fcntl.flock(handle, operation)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def run_docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -132,6 +149,56 @@ def remove_owned_container_by_name(
     label = labels.get("org.ontoprism.test-owner") if isinstance(labels, dict) else None
     owner.verify_container_label(label)
     docker_run("rm", "--force", container_id)
+
+
+def inspect_owned_container(
+    owner: IntegrationResourceOwner,
+    container_id: str,
+    *,
+    docker_run: DockerRun = run_docker,
+) -> dict[str, object]:
+    """Inspect a container by exact ID and verify its independent owner label."""
+    inspected = docker_run("inspect", container_id)
+    details: dict[str, object] = json.loads(inspected.stdout)[0]
+    if details["Id"] != container_id:
+        raise ResourceOwnershipError("container ID changed before teardown")
+    config = details["Config"]
+    if not isinstance(config, dict):
+        raise ResourceOwnershipError("container configuration is malformed")
+    labels = config["Labels"]
+    label = labels.get("org.ontoprism.test-owner") if isinstance(labels, dict) else None
+    owner.verify_container_label(label)
+    return details
+
+
+def verify_qlever_owner(
+    owner: IntegrationResourceOwner,
+    container_id: str,
+    data_dir: Path,
+    *,
+    docker_run: DockerRun = run_docker,
+) -> None:
+    """Verify a QLever container's ID, label, mount, directory, and marker."""
+    details = inspect_owned_container(owner, container_id, docker_run=docker_run)
+    mounts = details["Mounts"]
+    if not isinstance(mounts, list):
+        raise ResourceOwnershipError("QLever container mounts are malformed")
+    mounted_data_dir = next(
+        (Path(mount["Source"]) for mount in mounts if mount["Destination"] == "/data"),
+        None,
+    )
+    file_marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
+    owner.verify_qlever(
+        mounted_data_dir=mounted_data_dir,
+        expected_data_dir=data_dir,
+        file_marker=file_marker,
+    )
+
+
+def verify_qlever_data_dir(owner: IntegrationResourceOwner, data_dir: Path) -> None:
+    """Verify a QLever data directory's exact path and independent marker."""
+    marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
+    owner.verify_qlever_data_dir(data_dir, marker)
 
 
 @dataclass(slots=True)

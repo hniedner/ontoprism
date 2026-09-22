@@ -918,7 +918,7 @@ def test_podman_compose_up_uses_exact_project_files_provider_and_wait(
     compose = [
         "/opt/homebrew/bin/docker-compose",
         "--project-name",
-        "ontoprism-podman-poc",
+        "ontoprism",
         "--file",
         str(tmp_path / "docker-compose.yml"),
     ]
@@ -976,7 +976,7 @@ class _ComposeCheckRunner(_PodmanApiRunner):
             "/opt/homebrew/bin/docker",
             "volume",
             "inspect",
-            "ontoprism-podman-poc_ontoprism_pg_data",
+            "ontoprism_ontoprism_pg_data",
         ]:
             self.calls.append((arguments, kwargs))
             return _Result(
@@ -984,9 +984,9 @@ class _ComposeCheckRunner(_PodmanApiRunner):
                 stdout=json.dumps(
                     [
                         {
-                            "Name": "ontoprism-podman-poc_ontoprism_pg_data",
+                            "Name": "ontoprism_ontoprism_pg_data",
                             "Labels": {
-                                "com.docker.compose.project": "ontoprism-podman-poc",
+                                "com.docker.compose.project": "ontoprism",
                                 "com.docker.compose.volume": "ontoprism_pg_data",
                             },
                         }
@@ -1000,7 +1000,7 @@ class _ComposeCheckRunner(_PodmanApiRunner):
                 "/var/lib/postgresql/data" if service == "postgres" else "/data"
             )
             source = (
-                "ontoprism-podman-poc_ontoprism_pg_data"
+                "ontoprism_ontoprism_pg_data"
                 if service == "postgres"
                 else str(self.socket_path.parents[1] / f"data/{service}")
             )
@@ -1011,7 +1011,7 @@ class _ComposeCheckRunner(_PodmanApiRunner):
                 "qlever-uberon": "7889",
             }[service]
             labels = {
-                "com.docker.compose.project": "ontoprism-podman-poc",
+                "com.docker.compose.project": "ontoprism",
                 "com.docker.compose.service": service,
             }
             self.calls.append((arguments, kwargs))
@@ -1771,7 +1771,7 @@ def test_ensure_podman_stack_rejects_arguments(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("service", "source"),
     [
-        ("postgres", "ontoprism-podman-poc_ontoprism_pg_data-backup"),
+        ("postgres", "ontoprism_ontoprism_pg_data-backup"),
         ("qlever-ncit", "decoy/qlever-ncit"),
         ("qlever-uberon", "data/not-qlever-uberon"),
     ],
@@ -1819,7 +1819,7 @@ def test_podman_compose_check_validates_health_labels_mounts_ports_and_dns(
             "ps",
             "--all",
             "--filter",
-            "label=com.docker.compose.project=ontoprism-podman-poc",
+            "label=com.docker.compose.project=ontoprism",
             "--format",
             '{{.Label "com.docker.compose.service"}}',
         ],
@@ -1911,7 +1911,7 @@ def test_podman_compose_down_checks_exact_ownership_before_scoped_cleanup(
     assert runner.calls[-2][0] == [
         "/opt/homebrew/bin/docker-compose",
         "--project-name",
-        "ontoprism-podman-poc",
+        "ontoprism",
         "--file",
         str(tmp_path / "docker-compose.yml"),
         "down",
@@ -1963,11 +1963,9 @@ def test_podman_compose_down_accepts_partial_owned_stack_and_verifies_volume(
                     stdout=json.dumps(
                         [
                             {
-                                "Name": "ontoprism-podman-poc_ontoprism_pg_data",
+                                "Name": "ontoprism_ontoprism_pg_data",
                                 "Labels": {
-                                    "com.docker.compose.project": (
-                                        "ontoprism-podman-poc"
-                                    ),
+                                    "com.docker.compose.project": ("ontoprism"),
                                     "com.docker.compose.volume": "ontoprism_pg_data",
                                 },
                             }
@@ -1982,7 +1980,7 @@ def test_podman_compose_down_accepts_partial_owned_stack_and_verifies_volume(
         "/opt/homebrew/bin/docker",
         "volume",
         "inspect",
-        "ontoprism-podman-poc_ontoprism_pg_data",
+        "ontoprism_ontoprism_pg_data",
     ]
 
 

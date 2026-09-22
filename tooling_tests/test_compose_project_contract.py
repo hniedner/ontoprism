@@ -17,6 +17,7 @@ def test_compose_source_declares_the_governed_podman_project() -> None:
         )
     )
 
+    assert _PODMAN_PROJECT == "ontoprism"
     assert f"name: {_PODMAN_PROJECT}" in inspected_text
     assert "ontoprism_pg_data:" in inspected_text
     assert "down -v" not in inspected_text

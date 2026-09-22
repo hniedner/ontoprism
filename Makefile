@@ -1,14 +1,15 @@
-.PHONY: help install test test-unit test-integration test-ci lint fmt api-dev web-dev up down
+.PHONY: help install test test-unit test-integration test-ci lint fmt clean-workspace api-dev web-dev up down
 
 help:
 	@echo "ontoprism — common targets:"
-	@echo "  install         PDM install (accepts Python >=3.14,<3.15 metadata; operational runtime 3.14.7) + editable local packages"
+	@echo "  install         PDM install (Python 3.14.x) + editable local packages"
 	@echo "  test            Run the full test suite (pdm run test)"
 	@echo "  test-unit       Unit tests only"
 	@echo "  test-integration  Integration tests (owned disposable services)"
 	@echo "  test-ci         Tests with coverage (xml + term-missing)"
 	@echo "  lint            ruff check + basedpyright"
 	@echo "  fmt             ruff format"
+	@echo "  clean-workspace Remove verified test containers, QLever dirs, and coverage shards"
 	@echo "  api-dev         Run the FastAPI backend (uvicorn, reload)"
 	@echo "  web-dev         Run the SvelteKit frontend dev server"
 	@echo "  up / down       docker compose data services (fresh-machine recipe)"
@@ -33,6 +34,9 @@ lint:
 
 fmt:
 	pdm run fmt
+
+clean-workspace:
+	pdm run python -m scripts.dev.cleanup_workspace
 
 api-dev:
 	pdm run uvicorn backend.main:app --reload --port 8011
