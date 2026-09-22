@@ -47,8 +47,13 @@ updates:
     commit-message:
       prefix: "build"
     groups:
+      # Vitest packages pin one another to exact versions, so they must move in
+      # lockstep. Keep this before the general minor/patch group and include majors.
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        update-types: ["major", "minor", "patch"]
       # Batch minor/patch npm updates into one PR. Major updates are intentionally
-      # left ungrouped so each lands as its own reviewable PR (up to the limit above).
+      # left ungrouped unless a package family requires lockstep upgrades above.
       frontend-minor-patch:
         update-types: ["minor", "patch"]
 
