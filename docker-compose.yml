@@ -72,3 +72,4 @@ services:
 
 volumes:
   ontoprism_pg_data:
+    name: ontoprism-podman-poc_ontoprism_pg_data

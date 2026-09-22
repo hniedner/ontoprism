@@ -30,7 +30,11 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, assert_neve
 
 import yaml
 
-from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT
+from ontolib.decomposition.artifact_contract import (
+    COMPOSE_PROJECT,
+    POSTGRES_VOLUME,
+    POSTGRES_VOLUME_PROJECT,
+)
 from ontolib.decomposition.run_artifacts import (
     ArtifactManifest,
     ArtifactUnavailableRecord,
@@ -78,7 +82,7 @@ _MAX_DIAGNOSTIC_CHARS = 8_192
 _GENERATION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = COMPOSE_PROJECT
-_PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
+_PODMAN_VOLUME = POSTGRES_VOLUME
 _PODMAN_MACHINE = "ontoprism-vm"
 _PODMAN_DOCKER_CONTEXT = "ontoprism-podman"
 _PODMAN_DOCKER_CONTEXT_DESCRIPTION = "OntoPrism rootless Podman machine"
@@ -3451,7 +3455,7 @@ def _validate_owned_volume(output: str) -> None:
     if name != _PODMAN_VOLUME:
         raise AgentReplayInputError("named volume identity predicate failed")
     if (
-        labels.get("com.docker.compose.project") != _PODMAN_PROJECT
+        labels.get("com.docker.compose.project") != POSTGRES_VOLUME_PROJECT
         or labels.get("com.docker.compose.volume") != "ontoprism_pg_data"
     ):
         raise AgentReplayInputError("named volume ownership predicate failed")
