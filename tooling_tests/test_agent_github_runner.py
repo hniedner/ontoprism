@@ -51,10 +51,9 @@ def test_main_required_checks_ruleset_update_is_fixed_and_has_no_bypass(
                         "name": "main integrity",
                         "target": "branch",
                         "enforcement": "active",
-                        "bypass_actors": [],
                         "conditions": {
                             "ref_name": {
-                                "include": ["refs/heads/main"],
+                                "include": ["~DEFAULT_BRANCH"],
                                 "exclude": [],
                             }
                         },
@@ -94,6 +93,9 @@ def test_main_required_checks_ruleset_update_is_fixed_and_has_no_bypass(
     ]
     payload = json.loads(str(calls[1][1]["input"]))
     assert payload["bypass_actors"] == []
+    assert payload["conditions"] == {
+        "ref_name": {"include": ["refs/heads/main"], "exclude": []}
+    }
     required = next(
         rule for rule in payload["rules"] if rule["type"] == "required_status_checks"
     )
@@ -108,6 +110,39 @@ def test_main_required_checks_ruleset_update_is_fixed_and_has_no_bypass(
             {"context": "CodeQL"},
         ],
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("bypass_actors", [{"actor_id": 1, "actor_type": "Team"}]),
+        (
+            "conditions",
+            {"ref_name": {"include": ["refs/heads/release"], "exclude": []}},
+        ),
+    ],
+)
+def test_main_required_checks_refuses_changed_scope_or_bypass(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    current = {
+        "id": 18832085,
+        "name": "main integrity",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}],
+        field: value,
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner([Result(0, json.dumps(current))], calls)
+
+    with pytest.raises(AgentGitHubInputError, match="identity or scope changed"):
+        run_agent_github(
+            ["main-required-checks"], tmp_path, read_only=False, runner=runner
+        )
+
+    assert len(calls) == 1
 
 
 def test_main_required_checks_refuses_changed_existing_rules(tmp_path: Path) -> None:

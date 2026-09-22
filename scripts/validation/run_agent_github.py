@@ -1096,6 +1096,26 @@ def _milestone_mutation(
     )
 
 
+def _validate_main_ruleset_scope(current: dict[str, Any]) -> dict[str, Any]:
+    expected = {
+        "id": MAIN_RULESET_ID,
+        "name": "main integrity",
+        "target": "branch",
+        "enforcement": "active",
+    }
+    if any(current.get(key) != value for key, value in expected.items()):
+        raise AgentGitHubInputError("main ruleset identity or scope changed")
+    if current.get("bypass_actors", []) != []:
+        raise AgentGitHubInputError("main ruleset identity or scope changed")
+    desired_conditions = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+    normalized_conditions = {
+        "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}
+    }
+    if current.get("conditions") not in (desired_conditions, normalized_conditions):
+        raise AgentGitHubInputError("main ruleset identity or scope changed")
+    return desired_conditions
+
+
 def _main_required_checks(
     arguments: list[str], root: Path, runner: CommandRunner
 ) -> Any:
@@ -1104,16 +1124,7 @@ def _main_required_checks(
     current = _api("GET", f"{API_ROOT}/rulesets/{MAIN_RULESET_ID}", root, runner)
     if not isinstance(current, dict):
         raise AgentGitHubProcessError("main ruleset response is invalid")
-    expected = {
-        "id": MAIN_RULESET_ID,
-        "name": "main integrity",
-        "target": "branch",
-        "enforcement": "active",
-        "bypass_actors": [],
-        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-    }
-    if any(current.get(key) != value for key, value in expected.items()):
-        raise AgentGitHubInputError("main ruleset identity or scope changed")
+    desired_conditions = _validate_main_ruleset_scope(current)
     required_parameters = {
         "strict_required_status_checks_policy": False,
         "do_not_enforce_on_create": False,
@@ -1152,7 +1163,7 @@ def _main_required_checks(
         "target": "branch",
         "enforcement": "active",
         "bypass_actors": [],
-        "conditions": expected["conditions"],
+        "conditions": desired_conditions,
         "rules": desired_rules,
     }
     return _api(
