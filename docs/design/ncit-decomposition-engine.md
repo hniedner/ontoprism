@@ -277,7 +277,10 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   The engine still records exact source occurrences and R101 dispositions. Until #417 adds the
   per-run D74 check, readiness reports unexplained R101 loss as `not-evaluated` and owned by #417.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, source_roles,
+most_specific, needs_review, axis_ambiguous, source_group_ids,
+normalized_group_id, normalized_group_label, source_definition_ids,
+source_occurrence_ids)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 

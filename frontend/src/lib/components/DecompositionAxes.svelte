@@ -20,7 +20,7 @@
 		const blocks = new SvelteMap<string, DisplayConstituent[]>();
 		for (const group of axes) {
 			for (const item of group.items) {
-				const key = item.normalized_group_id ?? `outside-policy:${item.axis}`;
+				const key = item.normalized_group_id ?? `outside-policy:${group.label}:${item.axis}`;
 				blocks.set(key, [...(blocks.get(key) ?? []), { axisLabel: group.label, item }]);
 			}
 		}

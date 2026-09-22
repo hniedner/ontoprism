@@ -319,7 +319,6 @@ def run_all() -> int:
             artifact = output / spec.artifact_name
             coverage_file = artifact / spec.coverage_name
             coverage_paths.append(coverage_file)
-        include_tooling = _tooling_changed()
         with ThreadPoolExecutor(max_workers=len(PARTITION_SPECS)) as executor:
             futures = {
                 spec: executor.submit(
@@ -327,7 +326,7 @@ def run_all() -> int:
                     spec.lane,
                     spec.shard_id,
                     output_dir=output / spec.artifact_name,
-                    include_tooling=include_tooling,
+                    include_tooling=True,
                 )
                 for spec in PARTITION_SPECS
             }
@@ -401,50 +400,6 @@ def run_all() -> int:
         finally:
             pending_coverage.unlink(missing_ok=True)
     return 0
-
-
-def _tooling_changed() -> bool:
-    """Include the tooling root when the current change touches its implementation."""
-    explicit = os.environ.get("ONTOPRISM_INCLUDE_TOOLING_TESTS")
-    if explicit is not None:
-        return explicit == "1"
-    git = shutil.which("git")
-    if git is None:
-        return True
-    base = _git_stdout(
-        git, ["log", "--first-parent", "--merges", "--format=%H", "-1", "HEAD"]
-    )
-    if base is None:
-        return True
-    if not base:
-        base = _git_stdout(git, ["merge-base", "main", "HEAD"])
-    if not base:
-        return True
-    changed: set[str] = set()
-    for arguments in (
-        [git, "diff", "--name-only", f"{base}...HEAD"],
-        [git, "diff", "--name-only"],
-        [git, "diff", "--name-only", "--cached"],
-    ):
-        output = _git_stdout(git, arguments[1:])
-        if output is None:
-            return True
-        changed.update(output.splitlines())
-    prefixes = ("scripts/validation/", "test_support/", "tooling_tests/")
-    return "conftest.py" in changed or any(
-        path.startswith(prefixes) for path in changed
-    )
-
-
-def _git_stdout(git: str, arguments: list[str]) -> str | None:
-    result = subprocess.run(  # noqa: S603 - resolved git executable
-        [git, *arguments],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return (result.stdout or "").strip() if result.returncode == 0 else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

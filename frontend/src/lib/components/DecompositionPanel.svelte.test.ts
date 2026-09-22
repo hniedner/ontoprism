@@ -159,6 +159,35 @@ describe('DecompositionPanel', () => {
 		expect(screen.getAllByText('R88')).toHaveLength(1);
 	});
 
+	it('keeps distinct labels for the same outside-policy axis separate', async () => {
+		mock.mockResolvedValue({
+			...decomposed,
+			constituents: [
+				{
+					...decomposed.constituents[0],
+					filler: 'C1',
+					filler_label: 'First',
+					axis_label: 'First reading',
+					normalized_group_id: null,
+					normalized_group_label: null
+				},
+				{
+					...decomposed.constituents[0],
+					filler: 'C2',
+					filler_label: 'Second',
+					axis_label: 'Second reading',
+					normalized_group_id: null,
+					normalized_group_label: null
+				}
+			]
+		});
+
+		render(DecompositionPanel, { code: 'C6135' });
+
+		expect(await screen.findByRole('group', { name: 'First reading' })).toBeInTheDocument();
+		expect(screen.getByRole('group', { name: 'Second reading' })).toBeInTheDocument();
+	});
+
 	it('groups within an axis by normalized policy and exposes separate provenance', async () => {
 		mock.mockResolvedValue({
 			...decomposed,

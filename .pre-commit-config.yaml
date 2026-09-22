@@ -183,10 +183,3 @@ repos:
         language: system
         files: pyproject\.toml$
         pass_filenames: false
-
-      - id: readme-code-stats
-        name: README code statistics are current
-        entry: pdm run python -m scripts.dev.update_readme_code_stats --check
-        language: system
-        pass_filenames: false
-        always_run: true

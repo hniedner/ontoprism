@@ -139,7 +139,8 @@ IDs and independent owner labels verify, requires the QLever mount and file mark
 agree, then removes correctly owner-marked `data/ontoprism-qlever-*` test directories
 only when neither test-container name exists in any state. It also removes stray
 `.coverage.*` shards and never traverses the general `tmp/` tree. Failed ownership
-checks are reported and preserved for operator review.
+checks are reported and preserved for operator review, and unresolved skips make the
+command exit nonzero.
 
 ## Managed cleanup and recovery
 

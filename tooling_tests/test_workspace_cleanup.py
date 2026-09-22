@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+import scripts.dev.cleanup_workspace as cleanup_module
 from scripts.dev.cleanup_workspace import (
+    CleanupCandidate,
     cleanup_workspace,
     workspace_cleanup_candidates,
 )
@@ -68,6 +72,16 @@ class _DockerRunner:
         raise AssertionError(args)
 
 
+class _EmptyDockerRunner:
+    def __call__(
+        self, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del check
+        if args == ("ps", "--all", "--format", "{{.Names}}"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise AssertionError(args)
+
+
 @pytest.mark.unit
 def test_workspace_cleanup_targets_only_known_leaks(tmp_path: Path) -> None:
     nonce = "1" * 32
@@ -85,12 +99,12 @@ def test_workspace_cleanup_targets_only_known_leaks(tmp_path: Path) -> None:
         path.write_text("data", encoding="utf-8")
 
     assert workspace_cleanup_candidates(tmp_path) == (
-        root_coverage,
-        leaked_store,
-        tmp_coverage,
+        CleanupCandidate("coverage", root_coverage),
+        CleanupCandidate("qlever", leaked_store),
+        CleanupCandidate("coverage", tmp_coverage),
     )
 
-    report = cleanup_workspace(tmp_path, container_names=frozenset())
+    report = cleanup_workspace(tmp_path, docker_run=_EmptyDockerRunner())
 
     assert report.removed == (root_coverage, leaked_store, tmp_coverage)
     assert report.skipped == ()
@@ -112,7 +126,7 @@ def test_workspace_cleanup_keeps_unverified_qlever_directory(
     if marker is not None:
         (leaked_store / ".ontoprism-test-owner").write_text(marker, encoding="utf-8")
 
-    report = cleanup_workspace(tmp_path, container_names=frozenset())
+    report = cleanup_workspace(tmp_path, docker_run=_EmptyDockerRunner())
 
     assert report.removed == ()
     assert len(report.skipped) == 1
@@ -122,27 +136,16 @@ def test_workspace_cleanup_keeps_unverified_qlever_directory(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("service", ["qlever", "postgres"])
-def test_workspace_cleanup_keeps_directory_while_its_container_exists(
-    tmp_path: Path, service: str
-) -> None:
-    nonce = "1" * 32
-    leaked_store = tmp_path / f"data/ontoprism-qlever-{nonce}-fixture"
-    leaked_store.mkdir(parents=True)
-    (leaked_store / ".ontoprism-test-owner").write_text(nonce, encoding="utf-8")
+def test_workspace_cleanup_keeps_malformed_qlever_directory(tmp_path: Path) -> None:
+    malformed = tmp_path / "data/ontoprism-qlever-not-a-nonce"
+    malformed.mkdir(parents=True)
 
-    report = cleanup_workspace(
-        tmp_path,
-        container_names=frozenset({f"ontoprism-{service}-test-{nonce}"}),
-    )
+    report = cleanup_workspace(tmp_path, docker_run=_EmptyDockerRunner())
 
     assert report.removed == ()
-    assert len(report.skipped) == 1
-    assert report.skipped[0].path == leaked_store
-    assert report.skipped[0].reason == (
-        f"container exists: ontoprism-{service}-test-{nonce}"
-    )
-    assert leaked_store.is_dir()
+    assert report.skipped[0].path == malformed
+    assert report.skipped[0].reason == "QLever directory name is invalid"
+    assert malformed.is_dir()
 
 
 @pytest.mark.unit
@@ -182,6 +185,53 @@ def test_workspace_cleanup_keeps_unverified_container_and_data(tmp_path: Path) -
     assert len(report.skipped) == 1
     assert "container exists" in report.skipped[0].reason
     assert leaked_store.is_dir()
+
+
+@pytest.mark.unit
+def test_workspace_cleanup_holds_exclusive_lease_before_docker_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def lease(*, exclusive: bool = False) -> Iterator[None]:
+        assert exclusive is True
+        events.append("lease-entered")
+        yield
+        events.append("lease-exited")
+
+    class OrderedDocker(_EmptyDockerRunner):
+        def __call__(
+            self, *args: str, check: bool = True
+        ) -> subprocess.CompletedProcess[str]:
+            assert events[0] == "lease-entered"
+            assert "lease-exited" not in events
+            events.append("docker-access")
+            return super().__call__(*args, check=check)
+
+    monkeypatch.setattr(cleanup_module, "integration_resource_lease", lease)
+
+    cleanup_workspace(tmp_path, docker_run=OrderedDocker())
+
+    assert events == ["lease-entered", "docker-access", "docker-access", "lease-exited"]
+
+
+@pytest.mark.unit
+def test_workspace_cleanup_exit_is_nonzero_when_resources_are_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    skipped_path = (
+        Path(cleanup_module.__file__).resolve().parents[2] / "data/unverified"
+    )
+    skipped = cleanup_module.CleanupReport(
+        removed=(),
+        skipped=(cleanup_module.SkippedCleanup(skipped_path, "reason"),),
+    )
+    monkeypatch.setattr(cleanup_module, "cleanup_workspace", lambda _root: skipped)
+
+    assert cleanup_module.main() == 1
+    assert "skipped-paths=1" in capsys.readouterr().out
 
 
 @pytest.mark.unit

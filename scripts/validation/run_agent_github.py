@@ -1114,36 +1114,46 @@ def _main_required_checks(
     }
     if any(current.get(key) != value for key, value in expected.items()):
         raise AgentGitHubInputError("main ruleset identity or scope changed")
+    required_parameters = {
+        "strict_required_status_checks_policy": False,
+        "do_not_enforce_on_create": False,
+        "required_status_checks": [
+            {"context": "CI summary"},
+            {"context": "quality (pre-commit parity)"},
+            {"context": "conventional commit subject"},
+            {"context": "dependency review"},
+            {"context": "CodeQL"},
+        ],
+    }
+    desired_rules = [
+        {"type": "deletion"},
+        {"type": "non_fast_forward"},
+        {"type": "required_status_checks", "parameters": required_parameters},
+    ]
     rules = current.get("rules")
     if not isinstance(rules, list):
         raise AgentGitHubProcessError("main ruleset rules are invalid")
-    rule_types = {rule.get("type") for rule in rules if isinstance(rule, dict)}
-    if rule_types != {"deletion", "non_fast_forward"}:
+    if not all(isinstance(rule, dict) for rule in rules):
+        raise AgentGitHubProcessError("main ruleset rules are invalid")
+    typed_rules = [rule for rule in rules if isinstance(rule, dict)]
+    rule_types = {rule.get("type") for rule in typed_rules}
+    pre_state = {"deletion", "non_fast_forward"}
+    post_state = {*pre_state, "required_status_checks"}
+    if rule_types not in (pre_state, post_state):
         raise AgentGitHubInputError("main ruleset rules changed")
+    if rule_types == post_state:
+        current_required = next(
+            rule for rule in typed_rules if rule.get("type") == "required_status_checks"
+        )
+        if current_required.get("parameters") != required_parameters:
+            raise AgentGitHubInputError("main required checks changed")
     payload = {
         "name": "main integrity",
         "target": "branch",
         "enforcement": "active",
         "bypass_actors": [],
         "conditions": expected["conditions"],
-        "rules": [
-            {"type": "deletion"},
-            {"type": "non_fast_forward"},
-            {
-                "type": "required_status_checks",
-                "parameters": {
-                    "strict_required_status_checks_policy": False,
-                    "do_not_enforce_on_create": False,
-                    "required_status_checks": [
-                        {"context": "CI summary"},
-                        {"context": "quality (pre-commit parity)"},
-                        {"context": "conventional commit subject"},
-                        {"context": "dependency review"},
-                        {"context": "CodeQL"},
-                    ],
-                },
-            },
-        ],
+        "rules": desired_rules,
     }
     return _api(
         "PUT",

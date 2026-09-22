@@ -135,6 +135,45 @@ def test_main_required_checks_refuses_changed_existing_rules(tmp_path: Path) -> 
     assert len(calls) == 1
 
 
+def test_main_required_checks_can_reapply_the_desired_ruleset(tmp_path: Path) -> None:
+    required = {
+        "strict_required_status_checks_policy": False,
+        "do_not_enforce_on_create": False,
+        "required_status_checks": [
+            {"context": "CI summary"},
+            {"context": "quality (pre-commit parity)"},
+            {"context": "conventional commit subject"},
+            {"context": "dependency review"},
+            {"context": "CodeQL"},
+        ],
+    }
+    current = {
+        "id": 18832085,
+        "name": "main integrity",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "rules": [
+            {"type": "deletion"},
+            {"type": "non_fast_forward"},
+            {"type": "required_status_checks", "parameters": required},
+        ],
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps(current)), Result(0, json.dumps(current))], calls
+    )
+
+    assert (
+        run_agent_github(
+            ["main-required-checks"], tmp_path, read_only=False, runner=runner
+        )
+        == 0
+    )
+    assert len(calls) == 2
+
+
 def test_main_required_checks_is_unavailable_in_read_only_mode(tmp_path: Path) -> None:
     with pytest.raises(AgentGitHubInputError, match="read-only"):
         run_agent_github(["main-required-checks"], tmp_path, read_only=True)

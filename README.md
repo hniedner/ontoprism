@@ -410,26 +410,6 @@ review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integra
 Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md),
 with the newest decision listed first, and in the [decomposition design series](docs/design/).
 
-<!-- CODEBASE_LINE_COUNT_TABLE:START -->
-## Codebase Line Count
-
-_This table is regenerated in pull requests and checked by CI._
-
-| Language | Files | Lines |
-| --- | ---: | ---: |
-| Python | 471 | 203,015 |
-| JSON | 41 | 112,514 |
-| Markdown | 38 | 14,340 |
-| TypeScript | 127 | 10,005 |
-| Svelte | 78 | 4,589 |
-| CSS | 3 | 1,993 |
-| YAML | 9 | 1,302 |
-| TOML | 7 | 1,147 |
-| JavaScript | 1 | 38 |
-| HTML | 1 | 21 |
-| **Total** | **776** | **348,964** |
-<!-- CODEBASE_LINE_COUNT_TABLE:END -->
-
 ## Provenance
 
 ONTOPRISM lifts the ontology vertical slice from the sibling `fairdata` codebase
