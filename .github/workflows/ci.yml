@@ -422,6 +422,9 @@ jobs:
         env:
           COVERAGE_CONFIG_SET: python-combined
           OUTPUT_DIR: ${{ runner.temp }}/partition-integration-${{ matrix.index }}
+          # The read-only GitHub pulls contract (agent-git squash-merge check) must
+          # run here, not skip; the workflow token is contents: read.
+          GH_TOKEN: ${{ github.token }}
         run: |
           pdm run ci-test-partition \
             --lane integration \

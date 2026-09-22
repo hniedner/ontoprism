@@ -1176,6 +1176,8 @@ def test_real_github_answer_proves_a_known_squash_merge(tmp_path: Path) -> None:
     if status.returncode != 0:
         pytest.skip("GitHub CLI is not authenticated")
 
+    # Both branches report PR #424's head as their tip on purpose: if the query
+    # ignored the head filter, the unknown branch would then "match" #424.
     def run(arguments: list[str], **kwargs: object) -> object:
         if arguments[:2] == ["git", "rev-parse"]:
             return Result(0, f"{_MERGED_HEAD}\n")
