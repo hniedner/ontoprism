@@ -483,7 +483,8 @@ def run_agent_git(
     operation_class = operation_class_for(operation_spec.command_kind)
     result = _invoke(command, resolved_root, runner, operation_class=operation_class)
     if result.returncode < 0:
-        # Killed by a signal: Git may have committed the change before it died.
+        # Killed by a signal: Git may have applied the change before it died, so
+        # report the same unknown outcome as a timeout.
         raise AgentGitProcessError(OPERATION_CLASS_SPECS[operation_class].timeout_error)
     _require_success(
         result,
