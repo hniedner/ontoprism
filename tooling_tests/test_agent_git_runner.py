@@ -1058,3 +1058,21 @@ def test_delete_merged_names_an_unpushed_upstream_as_a_refusal_cause(
 
     assert "upstream" in str(raised.value)
     assert git(repository, "branch", "--list", "feat/i-1").strip() == "feat/i-1"
+
+
+def test_a_mutation_killed_by_a_signal_reports_an_unknown_outcome(
+    tmp_path: Path,
+) -> None:
+    killed = scripted_runner(
+        [
+            Result(0),
+            Result(0),
+            Result(0, "main\n"),
+            Result(0, ""),
+            Result(0),
+            Result(-9),
+        ]
+    )
+
+    with pytest.raises(AgentGitProcessError, match="outcome is unknown"):
+        run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=killed)

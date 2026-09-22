@@ -96,9 +96,10 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     ),
     "delete-merged": OperationSpec(
         "branch",
-        # Git refuses before changing anything. The pre-checks cannot see every
-        # refusal: commits not on the branch's upstream (`-d` checks the upstream,
-        # not HEAD), a paused rebase or bisect, or a ref lock held elsewhere.
+        # Git exits nonzero before changing anything (a signal death is reported
+        # separately). The pre-checks cannot see every refusal: commits not on the
+        # branch's upstream (when one is set, `-d` checks it instead of HEAD), a
+        # paused rebase or bisect, or a ref lock held elsewhere.
         "Git refused to delete the branch; nothing was deleted. Causes include "
         "commits not on its upstream, a rebase or bisect in some worktree "
         "(git worktree list), or a held ref lock",
@@ -479,13 +480,13 @@ def run_agent_git(
         )
     else:
         assert_never(operation_spec.command_kind)
+    operation_class = operation_class_for(operation_spec.command_kind)
+    result = _invoke(command, resolved_root, runner, operation_class=operation_class)
+    if result.returncode < 0:
+        # Killed by a signal: Git may have committed the change before it died.
+        raise AgentGitProcessError(OPERATION_CLASS_SPECS[operation_class].timeout_error)
     _require_success(
-        _invoke(
-            command,
-            resolved_root,
-            runner,
-            operation_class=operation_class_for(operation_spec.command_kind),
-        ),
+        result,
         operation_spec.failure,
     )
     return 0
