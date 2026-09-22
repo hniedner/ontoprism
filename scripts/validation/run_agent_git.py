@@ -96,8 +96,10 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     ),
     "delete-merged": OperationSpec(
         "branch",
-        "Git branch deletion failed and may have changed repository state; "
-        "inspect git status",
+        # Git refuses before changing anything; a paused rebase or bisect on the
+        # branch in some worktree is the refusal the pre-checks cannot see.
+        "Git refused to delete the branch; it may be in use by a rebase or bisect "
+        "in some worktree (see git worktree list)",
     ),
     "merge-no-ff": OperationSpec(
         "branch",
@@ -354,8 +356,8 @@ def _prepare_delete_command(
     merged_tip = _github_squash_merged_tip(branch, full_ref, root, runner)
     if merged_tip is not None:
         # Re-read the tip after the (slow) GitHub query so a commit added meanwhile
-        # is refused. `branch -D` keeps Git's refusal to delete a branch checked out
-        # in any worktree and removes the branch's configuration.
+        # is refused. `branch -D` still refuses a branch that a worktree checked out
+        # after `_require_not_checked_out`, and removes the branch's configuration.
         if _branch_tip(full_ref, root, runner) != merged_tip:
             raise AgentGitInputError(
                 "branch changed after the GitHub merge check; it was not deleted"
@@ -367,16 +369,16 @@ def _prepare_delete_command(
 
 
 def _require_not_checked_out(full_ref: str, root: Path, runner: CommandRunner) -> None:
-    # Git would refuse too, but only after the fact and with an error the wrapper
-    # cannot tell apart from a broken repository.
+    # Git would refuse too, but only as a failed mutation, which the wrapper cannot
+    # tell apart from other deletion failures.
     listed = _invoke(
-        ["git", "worktree", "list", "--porcelain"],
+        ["git", "worktree", "list", "--porcelain", "-z"],
         root,
         runner,
         operation_class="read",
     )
     _require_success(listed, "Git worktree list failed")
-    if f"branch {full_ref}" in listed.stdout.splitlines():
+    if f"branch {full_ref}" in listed.stdout.split("\0"):
         raise AgentGitInputError(
             "branch is checked out in another worktree; it was not deleted"
         )

@@ -535,8 +535,8 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
                 Result(0),
                 Result(9),
             ],
-            "Git branch deletion failed and may have changed repository state; "
-            "inspect git status",
+            "Git refused to delete the branch; it may be in use by a rebase or "
+            "bisect in some worktree (see git worktree list)",
         ),
     ],
 )
@@ -988,3 +988,48 @@ def test_delete_merged_removes_the_branch_configuration_with_the_branch(
     )
 
     assert git(tmp_path, "config", "--get-regexp", "^branch", check=False) == ""
+
+
+def test_delete_merged_explains_a_refusal_for_a_branch_under_rebase(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    other = tmp_path / "other"
+    git(repository, "worktree", "add", str(other), "feat/squashed")
+    # A paused rebase detaches HEAD, so the worktree list no longer names the branch.
+    git(other, "rebase", "--exec", "false", "HEAD~1", check=False)
+
+    with pytest.raises(AgentGitProcessError, match="rebase or bisect"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            repository,
+            runner=_github_answers([_pull(tip)], []),
+        )
+
+    assert git(repository, "rev-parse", "feat/squashed") == tip
+
+
+def test_delete_merged_is_not_fooled_by_a_worktree_path_containing_newlines(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    git(repository, "branch", "decoy")
+    git(
+        repository,
+        "worktree",
+        "add",
+        str(tmp_path / "x\nbranch refs/heads/feat/squashed"),
+        "decoy",
+    )
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        repository,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(repository, "branch", "--list", "feat/squashed") == ""
