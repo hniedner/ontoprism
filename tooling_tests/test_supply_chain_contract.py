@@ -790,6 +790,8 @@ def test_backend_and_integration_partitions_are_not_path_gated() -> None:
 
     assert "if" not in workflow["jobs"]["backend-tests"]
     assert "if" not in workflow["jobs"]["integration-tests"]
+    assert "needs" not in workflow["jobs"]["backend-tests"]
+    assert "needs" not in workflow["jobs"]["integration-tests"]
 
 
 def test_frontend_transitive_security_and_install_script_policy() -> None:

@@ -553,7 +553,7 @@ def test_runner_uses_exported_fixed_roots_and_rejects_checkout_outputs() -> None
         )
 
 
-def test_partition_cli_includes_tooling_tests(
+def test_partition_cli_delegates_to_run_partition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[Path] = []

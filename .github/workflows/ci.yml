@@ -124,7 +124,6 @@ jobs:
 
   backend-tests:
     name: backend tests (shard ${{ matrix.shard }}/2)
-    needs: [changes]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -361,7 +360,6 @@ jobs:
   # test harness; application endpoints remain dead sentinels until a test opts in.
   integration-tests:
     name: integration tests (services, shard ${{ matrix.shard }}/2)
-    needs: [changes]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
