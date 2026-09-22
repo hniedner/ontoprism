@@ -1,6 +1,6 @@
 # OntoPrism data services. Immutable ontology indexes are served by bounded QLever
 # processes; mutable curation and application state live in PostgreSQL.
-name: ontoprism-podman-poc
+name: ontoprism
 
 services:
   qlever-ncit:
