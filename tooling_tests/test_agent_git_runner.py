@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import fields
@@ -902,8 +903,7 @@ def test_delete_merged_keeps_a_branch_github_did_not_merge_at_its_tip(
 def test_delete_merged_fails_closed_when_github_cannot_answer(
     tmp_path: Path, answer: str
 ) -> None:
-    tip = _squash_repository(tmp_path)
-    del tip
+    _squash_repository(tmp_path)
 
     def run(arguments: list[str], **kwargs: object) -> object:
         if arguments[0] == "gh":
@@ -1060,19 +1060,133 @@ def test_delete_merged_names_an_unpushed_upstream_as_a_refusal_cause(
     assert git(repository, "branch", "--list", "feat/i-1").strip() == "feat/i-1"
 
 
-def test_a_mutation_killed_by_a_signal_reports_an_unknown_outcome(
+def test_a_deletion_killed_by_a_signal_reports_an_unknown_outcome(
     tmp_path: Path,
 ) -> None:
-    killed = scripted_runner(
+    tip = _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            return Result(0, json.dumps([_pull(tip)]))
+        if arguments[:3] == ["git", "branch", "-D"]:
+            return Result(-9)
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match="outcome is unknown; inspect git"):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+
+
+@pytest.mark.parametrize("operation", ["push-origin", "pull-origin"])
+def test_a_remote_mutation_killed_by_a_signal_requires_remote_inspection(
+    tmp_path: Path, operation: str
+) -> None:
+    runner = scripted_runner(
         [
             Result(0),
-            Result(0),
-            Result(0, "main\n"),
+            Result(0, "https://github.com/hniedner/ontoprism"),
+            Result(0, "feat/x\n"),
             Result(0, ""),
-            Result(0),
             Result(-9),
         ]
     )
 
-    with pytest.raises(AgentGitProcessError, match="outcome is unknown"):
-        run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=killed)
+    with pytest.raises(
+        AgentGitProcessError,
+        match=r"^Git operation outcome is unknown; inspect repository and remote "
+        r"state before retrying$",
+    ):
+        run_agent_git([operation, "feat/x"], tmp_path, runner=runner)
+
+
+def test_delete_merged_fails_closed_when_the_worktree_list_fails(
+    tmp_path: Path,
+) -> None:
+    _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[:3] == ["git", "worktree", "list"]:
+            return Result(128)
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match=r"^Git worktree list failed$"):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (FileNotFoundError("gh"), "^GitHub CLI could not start$"),
+        (
+            subprocess.TimeoutExpired(["gh"], 30),
+            "^GitHub pull-request query timed out$",
+        ),
+    ],
+)
+def test_delete_merged_names_the_github_cli_when_it_cannot_run(
+    tmp_path: Path, failure: BaseException, message: str
+) -> None:
+    _squash_repository(tmp_path)
+    timeouts: list[object] = []
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            timeouts.append(kwargs.get("timeout"))
+            raise failure
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match=message):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert timeouts == [30]
+    assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+def test_a_sibling_branch_checked_out_elsewhere_does_not_block_deletion(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    git(repository, "branch", "feat/squashed-2")
+    git(repository, "worktree", "add", str(tmp_path / "sibling"), "feat/squashed-2")
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        repository,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(repository, "branch", "--list", "feat/squashed") == ""
+
+
+# PR #424 squash-merged this branch into main at this head (read 2026-09-22).
+_MERGED_BRANCH = "feat/m0-r0-1-recovery-followon"
+_MERGED_HEAD = "4c5a132ad3046393a719c98fd98410fcef884fb2"
+
+
+@pytest.mark.integration
+def test_real_github_answer_proves_a_known_squash_merge(tmp_path: Path) -> None:
+    """Contract: the live pulls query filters by head and carries the read fields."""
+    gh = shutil.which("gh")
+    if gh is None:
+        pytest.skip("GitHub CLI is not installed")
+    status = subprocess.run(  # noqa: S603 - resolved gh executable, fixed arguments
+        [gh, "auth", "status"], capture_output=True, check=False
+    )
+    if status.returncode != 0:
+        pytest.skip("GitHub CLI is not authenticated")
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[:2] == ["git", "rev-parse"]:
+            return Result(0, f"{_MERGED_HEAD}\n")
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    merged = agent_git._github_squash_merged_tip(
+        _MERGED_BRANCH, f"refs/heads/{_MERGED_BRANCH}", tmp_path, run
+    )
+    unknown = agent_git._github_squash_merged_tip(
+        "no/such-branch-ever", "refs/heads/no/such-branch-ever", tmp_path, run
+    )
+
+    assert merged == _MERGED_HEAD
+    assert unknown is None
