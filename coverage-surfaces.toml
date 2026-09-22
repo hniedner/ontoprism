@@ -66,7 +66,6 @@ required_production_paths = [
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",
-  "scripts/dev/update_readme_code_stats.py",
   "migrations/env.py",
   ".github/workflows/release.yml",
 ]
@@ -250,10 +249,6 @@ pattern = "scripts/dev/reconstruct_versions.py"
 group = "release-workflows"
 
 [[assignment]]
-pattern = "scripts/dev/update_readme_code_stats.py"
-group = "release-workflows"
-
-[[assignment]]
 pattern = "scripts/research/**"
 group = "research"
 
@@ -358,15 +353,6 @@ owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
 behavioral_test = "ontolib/tests/terminologies/test_retry_backoff.py"
 review_issue = 169
-review_after = "2027-01-25"
-
-[[exemption]]
-path = "scripts/dev/update_readme_code_stats.py"
-kind = "pragma-no-cover"
-owner = "release automation maintainers"
-rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
-behavioral_test = "ontolib/tests/dev/test_update_readme_code_stats.py"
-review_issue = 172
 review_after = "2027-01-25"
 
 [[exemption]]

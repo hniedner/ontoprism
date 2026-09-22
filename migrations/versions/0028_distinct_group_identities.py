@@ -42,21 +42,17 @@ def upgrade() -> None:
         """
     )
     op.execute(
+        "ALTER TABLE decomp_constituent RENAME COLUMN relationship_group "
+        "TO axis_ambiguity_group_id"
+    )
+    op.execute(
         """
         ALTER TABLE decomp_constituent
-        ADD COLUMN axis_ambiguous boolean NOT NULL DEFAULT false,
         ADD COLUMN source_group_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
         ADD COLUMN normalized_group_id text,
         ADD COLUMN normalized_group_label text
         """
     )
-    op.execute(
-        """
-        UPDATE decomp_constituent
-        SET axis_ambiguous = relationship_group IS NOT NULL
-        """
-    )
-    op.execute("ALTER TABLE decomp_constituent DROP COLUMN relationship_group")
     op.execute(
         """
         UPDATE decomp_constituent c
@@ -93,6 +89,9 @@ def upgrade() -> None:
         """
         ALTER TABLE decomp_constituent
         ALTER COLUMN source_group_ids DROP DEFAULT,
+        ADD CONSTRAINT ck_decomp_constituent_axis_ambiguity_group CHECK (
+            axis_ambiguity_group_id IS NULL OR length(axis_ambiguity_group_id) > 0
+        ),
         ADD CONSTRAINT ck_decomp_constituent_source_group_ids CHECK (
             is_canonical_sha256_jsonb_array(source_group_ids)
         ),
@@ -106,23 +105,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE decomp_constituent ADD COLUMN relationship_group text")
-    op.execute(
-        """
-        UPDATE decomp_constituent
-        SET relationship_group = axis
-        WHERE axis_ambiguous
-        """
-    )
     op.execute(
         """
         ALTER TABLE decomp_constituent
+        DROP CONSTRAINT ck_decomp_constituent_axis_ambiguity_group,
         DROP CONSTRAINT ck_decomp_constituent_source_group_ids,
         DROP CONSTRAINT ck_decomp_constituent_normalized_group,
-        DROP COLUMN axis_ambiguous,
         DROP COLUMN source_group_ids,
         DROP COLUMN normalized_group_id,
         DROP COLUMN normalized_group_label
         """
+    )
+    op.execute(
+        "ALTER TABLE decomp_constituent RENAME COLUMN axis_ambiguity_group_id "
+        "TO relationship_group"
     )
     op.execute("DROP FUNCTION is_canonical_sha256_jsonb_array(jsonb)")

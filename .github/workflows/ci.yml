@@ -37,7 +37,6 @@ jobs:
       pull-requests: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
-      tooling: ${{ steps.filter.outputs.tooling }}
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
       embeddings: ${{ steps.filter.outputs.embeddings }}
@@ -65,13 +64,6 @@ jobs:
               - '.opencode/**'
               - 'frontend/src/**'
               - '**/*.md'
-              - '.github/workflows/ci.yml'
-            tooling:
-              - 'scripts/validation/**'
-              - 'test_support/**'
-              - 'tooling_tests/**'
-              - 'conftest.py'
-              - 'pyproject.toml'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
@@ -151,7 +143,6 @@ jobs:
   backend-tests:
     name: backend tests (shard ${{ matrix.shard }}/2)
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.tooling == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -183,7 +174,7 @@ jobs:
         # collection is serial, then workers inherit the same selector.
         env:
           COVERAGE_CONFIG_SET: python-combined
-          ONTOPRISM_INCLUDE_TOOLING_TESTS: ${{ needs.changes.outputs.tooling == 'true' && '1' || '0' }}
+          ONTOPRISM_INCLUDE_TOOLING_TESTS: "1"
           OUTPUT_DIR: ${{ runner.temp }}/partition-backend-${{ matrix.index }}
         run: |
           pdm run ci-test-partition \
@@ -390,7 +381,6 @@ jobs:
   integration-tests:
     name: integration tests (services, shard ${{ matrix.shard }}/2)
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.tooling == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -452,7 +442,7 @@ jobs:
       - name: Integration file partition (disposable resources)
         env:
           COVERAGE_CONFIG_SET: python-combined
-          ONTOPRISM_INCLUDE_TOOLING_TESTS: ${{ needs.changes.outputs.tooling == 'true' && '1' || '0' }}
+          ONTOPRISM_INCLUDE_TOOLING_TESTS: "1"
           OUTPUT_DIR: ${{ runner.temp }}/partition-integration-${{ matrix.index }}
         run: |
           pdm run ci-test-partition \

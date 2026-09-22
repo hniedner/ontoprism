@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from test_support.integration_resources import (
     DockerRun,
@@ -30,22 +30,38 @@ class SkippedCleanup(NamedTuple):
     reason: str
 
 
+class SkippedContainer(NamedTuple):
+    name: str
+    reason: str
+
+
+class CleanupCandidate(NamedTuple):
+    kind: Literal["coverage", "qlever"]
+    path: Path
+
+
 class CleanupReport(NamedTuple):
     removed: tuple[Path, ...]
     skipped: tuple[SkippedCleanup, ...]
     removed_containers: tuple[str, ...] = ()
-    skipped_containers: tuple[SkippedCleanup, ...] = ()
+    skipped_containers: tuple[SkippedContainer, ...] = ()
 
 
-def workspace_cleanup_candidates(root: Path) -> tuple[Path, ...]:
+def workspace_cleanup_candidates(root: Path) -> tuple[CleanupCandidate, ...]:
     """Return bounded coverage shards and test QLever directories under *root*."""
     root = root.resolve()
     candidates = [
-        *root.glob(".coverage.*"),
-        *(root / "data").glob("ontoprism-qlever-*"),
-        *(root / "tmp").glob(".coverage.*"),
+        *(CleanupCandidate("coverage", path) for path in root.glob(".coverage.*")),
+        *(
+            CleanupCandidate("qlever", path)
+            for path in (root / "data").glob("ontoprism-qlever-*")
+        ),
+        *(
+            CleanupCandidate("coverage", path)
+            for path in (root / "tmp").glob(".coverage.*")
+        ),
     ]
-    return tuple(sorted(candidates))
+    return tuple(sorted(candidates, key=lambda candidate: candidate.path))
 
 
 def _container_names(docker_run: DockerRun) -> frozenset[str]:
@@ -82,9 +98,9 @@ def _remove_verified_test_containers(
     root: Path,
     names: frozenset[str],
     docker_run: DockerRun,
-) -> tuple[tuple[str, ...], tuple[SkippedCleanup, ...]]:
+) -> tuple[tuple[str, ...], tuple[SkippedContainer, ...]]:
     removed: list[str] = []
-    skipped: list[SkippedCleanup] = []
+    skipped: list[SkippedContainer] = []
     data_root = (root / "data").resolve()
     for name in sorted(names):
         match = _TEST_CONTAINER.fullmatch(name)
@@ -117,7 +133,7 @@ def _remove_verified_test_containers(
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            skipped.append(SkippedCleanup(Path(name), str(error)))
+            skipped.append(SkippedContainer(name, str(error)))
         else:
             removed.append(name)
     return tuple(removed), tuple(skipped)
@@ -126,34 +142,28 @@ def _remove_verified_test_containers(
 def cleanup_workspace(
     root: Path,
     *,
-    container_names: frozenset[str] | None = None,
     docker_run: DockerRun = run_docker,
 ) -> CleanupReport:
     """Remove verified test containers first, then their marked inactive data."""
     root = root.resolve()
     with integration_resource_lease(exclusive=True):
-        names = (
-            _container_names(docker_run) if container_names is None else container_names
+        names = _container_names(docker_run)
+        removed_containers, skipped_containers = _remove_verified_test_containers(
+            root, names, docker_run
         )
-        removed_containers: tuple[str, ...] = ()
-        skipped_containers: tuple[SkippedCleanup, ...] = ()
-        if container_names is None:
-            removed_containers, skipped_containers = _remove_verified_test_containers(
-                root, names, docker_run
-            )
-        remaining_names = (
-            _container_names(docker_run)
-            if container_names is None
-            else names.difference(removed_containers)
-        )
+        remaining_names = _container_names(docker_run)
 
         removed: list[Path] = []
         skipped: list[SkippedCleanup] = []
-        for path in workspace_cleanup_candidates(root):
-            match = _QLEVER_DIRECTORY.fullmatch(path.name)
-            if match is None:
+        for candidate in workspace_cleanup_candidates(root):
+            path = candidate.path
+            if candidate.kind == "coverage":
                 path.unlink()
                 removed.append(path)
+                continue
+            match = _QLEVER_DIRECTORY.fullmatch(path.name)
+            if match is None:
+                skipped.append(SkippedCleanup(path, "QLever directory name is invalid"))
                 continue
             nonce = match.group(1)
             owner = IntegrationResourceOwner(nonce=nonce)
@@ -183,12 +193,12 @@ def cleanup_workspace(
 
 
 def main() -> int:
-    root = Path.cwd().resolve()
+    root = Path(__file__).resolve().parents[2]
     report = cleanup_workspace(root)
     for name in report.removed_containers:
         print(f"removed container: {name}")
     for item in report.skipped_containers:
-        print(f"skipped container: {item.path}: {item.reason}")
+        print(f"skipped container: {item.name}: {item.reason}")
     for path in report.removed:
         print(f"removed path: {path.relative_to(root)}")
     for item in report.skipped:
@@ -198,7 +208,7 @@ def main() -> int:
         f"skipped-containers={len(report.skipped_containers)} "
         f"removed-paths={len(report.removed)} skipped-paths={len(report.skipped)}"
     )
-    return 0
+    return int(bool(report.skipped or report.skipped_containers))
 
 
 if __name__ == "__main__":

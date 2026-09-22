@@ -820,11 +820,16 @@ def test_frontend_vitest_manifest_matches_coverage_peer_and_lock() -> None:
     vitest_lock = lock["packages"]["node_modules/vitest"]
     coverage_lock = lock["packages"]["node_modules/@vitest/coverage-v8"]
 
-    assert package["devDependencies"]["vitest"] == "^5.0.0"
-    assert package["devDependencies"]["@vitest/coverage-v8"] == "^5.0.0"
+    declared = package["devDependencies"]["vitest"]
+    assert declared == package["devDependencies"]["@vitest/coverage-v8"]
+    assert declared.startswith("^")
     assert root_lock == package["devDependencies"]
     assert vitest_lock["version"] == coverage_lock["version"]
     assert coverage_lock["peerDependencies"]["vitest"] == vitest_lock["version"]
+    minimum = Version(declared.removeprefix("^"))
+    resolved = Version(vitest_lock["version"])
+    assert resolved.major == minimum.major
+    assert resolved >= minimum
 
 
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
@@ -1067,25 +1072,6 @@ def test_main_automation_never_pushes_commits_and_release_is_tag_only() -> None:
         "changelog": False,
         "vcs_release": True,
         "build": False,
-    }
-
-
-def test_readme_code_stats_are_checked_in_pull_request_quality() -> None:
-    pre_commit = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text())
-    hooks = {
-        hook["id"]: hook
-        for repo in pre_commit["repos"]
-        if repo["repo"] == "local"
-        for hook in repo["hooks"]
-    }
-
-    assert hooks["readme-code-stats"] == {
-        "id": "readme-code-stats",
-        "name": "README code statistics are current",
-        "entry": "pdm run python -m scripts.dev.update_readme_code_stats --check",
-        "language": "system",
-        "pass_filenames": False,
-        "always_run": True,
     }
 
 

@@ -1282,42 +1282,6 @@ def test_run_all_starts_the_four_partitions_concurrently(
     }
 
 
-def test_tooling_change_detection_is_explicit_or_path_scoped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", "1")
-    assert runner._tooling_changed()
-    monkeypatch.setenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", "0")
-    assert not runner._tooling_changed()
-
-
-def test_tooling_change_detection_includes_every_issue_commit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    commands: list[list[str]] = []
-    monkeypatch.delenv("ONTOPRISM_INCLUDE_TOOLING_TESTS", raising=False)
-    monkeypatch.setattr(runner.shutil, "which", lambda command: f"/bin/{command}")
-
-    def fake_run(
-        command: list[str], **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
-        if command[1] == "log":
-            return subprocess.CompletedProcess(command, 0, stdout="issue-base\n")
-        if command[-1] == "issue-base...HEAD":
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="scripts/validation/changed_in_first_commit.py\n",
-            )
-        return subprocess.CompletedProcess(command, 0, stdout="")
-
-    monkeypatch.setattr(runner.subprocess, "run", fake_run)
-
-    assert runner._tooling_changed()
-    assert ["/bin/git", "diff", "--name-only", "issue-base...HEAD"] in commands
-
-
 @pytest.mark.parametrize(
     "relative",
     [
@@ -1327,6 +1291,27 @@ def test_tooling_change_detection_includes_every_issue_commit(
     ],
 )
 def test_expensive_integration_modules_are_slow(relative: str) -> None:
-    source = (Path(__file__).resolve().parents[1] / relative).read_text()
+    with exclusive_tree_scan():
+        completed = subprocess.run(  # noqa: S603 - pinned environment executable
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                relative,
+                "--collect-only",
+                "-m",
+                "not slow",
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            env={
+                **os.environ,
+                "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
+            },
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
-    assert "pytest.mark.slow" in source
+    assert completed.returncode == pytest.ExitCode.NO_TESTS_COLLECTED, (
+        completed.stdout + completed.stderr
+    )
