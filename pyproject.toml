@@ -243,8 +243,8 @@ reportMissingImports = true
 
 # --- Automated versioning (.github/workflows/release.yml) -----------------------
 # python-semantic-release computes the next version from Conventional Commit
-# subjects since the last tag, stamps it into every manifest below, regenerates
-# CHANGELOG.md, tags, and cuts a GitHub release.
+# subjects since the last tag, tags the validated main commit, and creates a GitHub
+# release. It does not write a release commit to protected main.
 #
 # Pre-1.0 policy (SemVer §4: "Major version zero is for initial development;
 # anything MAY change at any time; the public API SHOULD NOT be considered
@@ -268,37 +268,6 @@ tag_format = "v{version}"
 allow_zero_version = true
 major_on_zero = false
 minor_on_zero = true
-commit_message = "chore(release): {version} [skip ci]"
-commit_author = "ontoprism-bot <noreply@ontoprism.invalid>"
-
-# The root project is `distribution = false` (a PDM workspace, not a wheel), so
-# there is nothing to build or upload. (`upload_to_pypi` is NOT set: it was removed
-# in python-semantic-release v8 and is silently ignored today — fairdata's config
-# still carries it, where it does nothing.)
-#
-# The "build" step instead re-stamps `pdm.lock`, which pins the two editable local
-# packages (`ontolib`, `ontoprism-backend`) by version. `pdm sync` reconciles the
-# working set *to the lock*, so without this every release leaves the lock naming the
-# old version and `pdm sync` reports a bogus "Update ontolib 0.7.1 -> 0.1.0".
-# A full `pdm lock` would also silently re-resolve third-party deps into the release
-# commit; the script edits only those two fields. See its docstring.
-build_command = "python scripts/dev/stamp_lock_version.py"
-
-# Files beyond the version manifests to include in the release commit.
-assets = ["pdm.lock"]
-
-# One commit stamps all five manifests. fairdata needs a second `sync_versions.py`
-# commit for this, which then has to be filtered back out of the next changelog;
-# letting semantic-release own every version file avoids both problems.
-version_toml = [
-    "pyproject.toml:project.version",
-    "ontolib/pyproject.toml:project.version",
-    "backend/pyproject.toml:project.version",
-]
-version_variables = [
-    "ontolib/src/ontolib/__init__.py:__version__",
-    "frontend/package.json:version",
-]
 
 [tool.semantic_release.branches.main]
 match = "main"

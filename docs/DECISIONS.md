@@ -63,11 +63,11 @@ If either condition fails, the authorization does not apply. A changed head, tit
 base means the checks and the review run again, not that the owner is asked again; the
 merge pins the reviewed head (since #401 through the `sha` field of GitHub's merge API,
 not `--match-head-commit`). A base change means the PR was retargeted; new commits on
-`main`, such as the release and README bot commits, do not void a run; a skew between
-two PRs shows in the CI run on `main` after the merge, and #405 decides whether GitHub
-should require up-to-date branches. `--admin`, auto-merge and merge queues stay
-forbidden. GitHub does not yet enforce required checks on `main` (#405); until it does,
-the check rule is kept by the agent.
+`main` do not void a run, and a skew between two PRs shows in the CI run on `main` after
+the merge. The #405 ruleset deliberately leaves strict base freshness off. `--admin`,
+auto-merge and merge queues stay forbidden. GitHub enforces the five required checks on
+`main` through the `main integrity` ruleset (#405); the agent still validates their
+current-head/current-base results before invoking the pinned merge wrapper.
 
 The repository's squash message was set to `BLANK` on 2026-09-19, so a squash commit's
 body is empty and only the PR title drives releases. Merges pass no body. *(Addendum
@@ -3028,13 +3028,16 @@ methodology as D14/D15/D17. Full evidence: `docs/design/ncit-decomposition-engin
 
 ## 2026-07-08 — automated semantic versioning
 
-### D18. Automated releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
+### D18. Automated tag-only releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
 The repo had 27 merged PRs, no tags, a hand-maintained `CHANGELOG.md` `[Unreleased]`
 section that had drifted behind reality, and five version fields (root/`ontolib`/
 `backend` `pyproject.toml`, `ontolib/__init__.py`, `frontend/package.json`) that
 disagreed (`0.1.0` vs `0.0.1`). **Decision:** adopt `python-semantic-release`, driven by
 Conventional Commits, triggered by a `workflow_run` on a **successful CI run of a push
-to main** — i.e. a PR merge whose merged tree is green.
+to main** — i.e. a PR merge whose merged tree is green. Since #405, release automation
+tags that validated commit and creates the GitHub release without committing generated
+version or changelog changes to protected `main`; repository version fields describe the
+source snapshot and the Git tag is the release version of record.
 
 Deliberate departures from the sibling `fairdata` workflow this was modelled on:
 - **`major_on_zero = false`.** SemVer §4 reserves `0.y.z` for initial development. A
@@ -3045,9 +3048,9 @@ Deliberate departures from the sibling `fairdata` workflow this was modelled on:
   not-a-prerelease. Plain `0.y.z` says the same thing without the contradiction.
   `1.0.0` will be cut by hand (`semantic-release version --major`) when README's goals
   are met and the HTTP API is frozen.
-- **One commit stamps all five manifests** via `version_toml`/`version_variables`,
-  rather than fairdata's second `sync_versions.py` commit — which then has to be
-  filtered back out of the next changelog via `exclude_commit_patterns`.
+- **No release commit is created.** The action uses `commit: false`, `tag: true`,
+  `push: true`, `changelog: false`, and `build: false`, so required checks cannot block
+  a release bot's direct branch update because no such update exists.
 - **Release detection uses the action's `released` output**, not fairdata's
   `git describe --tags` probe, which reports `released=true` whenever *any* tag exists,
   including when no release was made.

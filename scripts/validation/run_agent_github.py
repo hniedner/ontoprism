@@ -43,6 +43,7 @@ MUTATION_OPERATIONS = frozenset(
         "pr-create",
         "pr-edit",
         "pr-merge",
+        "main-required-checks",
     }
 )
 PROCESS_TIMEOUT_SECONDS = 30
@@ -52,6 +53,7 @@ MAX_TITLE_LENGTH = 256
 MAX_NAME_LENGTH = 100
 MAX_LIST_LIMIT = 100
 MAX_GITHUB_NUMBER = 2_147_483_647
+MAIN_RULESET_ID = 18_832_085
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 SAFE_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}\Z")
 FULL_SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -1094,6 +1096,64 @@ def _milestone_mutation(
     )
 
 
+def _main_required_checks(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> Any:
+    if arguments:
+        raise AgentGitHubInputError("main-required-checks accepts no arguments")
+    current = _api("GET", f"{API_ROOT}/rulesets/{MAIN_RULESET_ID}", root, runner)
+    if not isinstance(current, dict):
+        raise AgentGitHubProcessError("main ruleset response is invalid")
+    expected = {
+        "id": MAIN_RULESET_ID,
+        "name": "main integrity",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+    }
+    if any(current.get(key) != value for key, value in expected.items()):
+        raise AgentGitHubInputError("main ruleset identity or scope changed")
+    rules = current.get("rules")
+    if not isinstance(rules, list):
+        raise AgentGitHubProcessError("main ruleset rules are invalid")
+    rule_types = {rule.get("type") for rule in rules if isinstance(rule, dict)}
+    if rule_types != {"deletion", "non_fast_forward"}:
+        raise AgentGitHubInputError("main ruleset rules changed")
+    payload = {
+        "name": "main integrity",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": expected["conditions"],
+        "rules": [
+            {"type": "deletion"},
+            {"type": "non_fast_forward"},
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": False,
+                    "do_not_enforce_on_create": False,
+                    "required_status_checks": [
+                        {"context": "CI summary"},
+                        {"context": "quality (pre-commit parity)"},
+                        {"context": "conventional commit subject"},
+                        {"context": "dependency review"},
+                        {"context": "CodeQL"},
+                    ],
+                },
+            },
+        ],
+    }
+    return _api(
+        "PUT",
+        f"{API_ROOT}/rulesets/{MAIN_RULESET_ID}",
+        root,
+        runner,
+        payload=payload,
+    )
+
+
 def run_agent_github(
     arguments: list[str],
     root: Path,
@@ -1121,6 +1181,8 @@ def run_agent_github(
         value = _pr_edit(arguments[1:], resolved_root, command_runner)
     elif operation == "pr-merge":
         value = _pr_merge(arguments[1:], resolved_root, command_runner)
+    elif operation == "main-required-checks":
+        value = _main_required_checks(arguments[1:], resolved_root, command_runner)
     else:
         value = _milestone_mutation(
             operation, arguments[1:], resolved_root, command_runner

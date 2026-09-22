@@ -76,7 +76,9 @@ and passes. Whether a `main` merge released is not judged here (#131).
   `gh pr checks <n> --json name,event,bucket`. Every PR expects `CI summary`,
   `quality (pre-commit parity)`, `conventional commit subject` and `dependency review`.
   A PR to `main` also expects CodeQL and Analyze jobs. For dependency/workflow-only PRs,
-  neutral aggregate CodeQL with no Analyze jobs is the documented exception.
+  neutral aggregate CodeQL with no Analyze jobs is the documented exception. GitHub's
+  `main integrity` ruleset enforces the five aggregate checks; it does not require the
+  branch to be up to date, matching the base-skew rule above.
 - No dead code or internal legacy compatibility. The product is pre-production: rebuild
   internal data rather than preserving old-schema readers or fallbacks.
 - Never signal a process you did not start or select one by port/name. Record the PID

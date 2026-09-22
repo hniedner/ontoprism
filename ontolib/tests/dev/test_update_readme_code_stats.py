@@ -274,7 +274,8 @@ class TestMain:
 
     def test_returns_1_with_check_and_changed(self, tmp_path: Path) -> None:
         readme = tmp_path / "README.md"
-        readme.write_text(f"prefix\n{START_MARKER}\nold\n{END_MARKER}\nsuffix\n")
+        original = f"prefix\n{START_MARKER}\nold\n{END_MARKER}\nsuffix\n"
+        readme.write_text(original)
         with (
             patch(
                 "scripts.dev.update_readme_code_stats._tracked_files", return_value=[]
@@ -283,6 +284,7 @@ class TestMain:
         ):
             rc = main()
         assert rc == 1
+        assert readme.read_text() == original
 
     def test_returns_0_with_check_and_unchanged(self, tmp_path: Path) -> None:
         readme = tmp_path / "README.md"

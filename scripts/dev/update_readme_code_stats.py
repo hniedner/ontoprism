@@ -94,7 +94,7 @@ def build_table() -> str:
     lines = [
         "## Codebase Line Count",
         "",
-        "_This table is auto-updated by CI after successful builds on `main`._",
+        "_This table is regenerated in pull requests and checked by CI._",
         "",
         "| Language | Files | Lines |",
         "| --- | ---: | ---: |",
@@ -105,7 +105,8 @@ def build_table() -> str:
     return "\n".join(lines)
 
 
-def update_readme(readme_path: Path) -> bool:
+def rendered_readme(readme_path: Path) -> str:
+    """Return README content with the current generated table."""
     content = readme_path.read_text(encoding="utf-8")
     start_index = content.find(START_MARKER)
     end_index = content.find(END_MARKER)
@@ -122,7 +123,12 @@ def update_readme(readme_path: Path) -> bool:
         ],
     )
     end_marker_end = end_index + len(END_MARKER)
-    updated = content[:start_index] + replacement + content[end_marker_end:]
+    return content[:start_index] + replacement + content[end_marker_end:]
+
+
+def update_readme(readme_path: Path) -> bool:
+    content = readme_path.read_text(encoding="utf-8")
+    updated = rendered_readme(readme_path)
     if updated == content:
         return False
     readme_path.write_text(updated, encoding="utf-8")
@@ -147,9 +153,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    changed = update_readme(args.readme.resolve())
-    if args.check and changed:
-        return 1
+    readme = args.readme.resolve()
+    if args.check:
+        return int(rendered_readme(readme) != readme.read_text(encoding="utf-8"))
+    update_readme(readme)
     return 0
 
 

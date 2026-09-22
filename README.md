@@ -413,21 +413,21 @@ with the newest decision listed first, and in the [decomposition design series](
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->
 ## Codebase Line Count
 
-_This table is auto-updated by CI after successful builds on `main`._
+_This table is regenerated in pull requests and checked by CI._
 
 | Language | Files | Lines |
 | --- | ---: | ---: |
-| Python | 477 | 215,230 |
-| JSON | 42 | 112,678 |
-| Markdown | 37 | 14,853 |
-| TypeScript | 127 | 9,975 |
+| Python | 471 | 203,015 |
+| JSON | 41 | 112,514 |
+| Markdown | 38 | 14,340 |
+| TypeScript | 127 | 10,005 |
 | Svelte | 78 | 4,589 |
 | CSS | 3 | 1,993 |
-| YAML | 10 | 1,346 |
-| TOML | 7 | 1,187 |
+| YAML | 9 | 1,302 |
+| TOML | 7 | 1,147 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **783** | **361,910** |
+| **Total** | **776** | **348,964** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
