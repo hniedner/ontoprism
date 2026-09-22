@@ -417,6 +417,7 @@ def test_delete_merged_distinguishes_not_merged_from_operational_error(
             Result(0),
             Result(0),
             Result(0, "main\n"),
+            Result(0, ""),
             Result(1),
             Result(0, f"{'a' * 40}\n"),
             Result(0, "[]"),
@@ -426,12 +427,14 @@ def test_delete_merged_distinguishes_not_merged_from_operational_error(
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=not_merged)
 
     operational = scripted_runner(
-        [Result(0), Result(0), Result(0, "main\n"), Result(2)]
+        [Result(0), Result(0), Result(0, "main\n"), Result(0, ""), Result(2)]
     )
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=operational)
 
-    signaled = scripted_runner([Result(0), Result(0), Result(0, "main\n"), Result(-9)])
+    signaled = scripted_runner(
+        [Result(0), Result(0), Result(0, "main\n"), Result(0, ""), Result(-9)]
+    )
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=signaled)
 
@@ -524,7 +527,14 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
         ),
         (
             ["delete-merged", "feat/x"],
-            [Result(0), Result(0), Result(0, "main\n"), Result(0), Result(9)],
+            [
+                Result(0),
+                Result(0),
+                Result(0, "main\n"),
+                Result(0, ""),
+                Result(0),
+                Result(9),
+            ],
             "Git branch deletion failed and may have changed repository state; "
             "inspect git status",
         ),
@@ -943,15 +953,18 @@ def test_delete_merged_refuses_when_the_branch_moved_after_the_github_check(
     assert git(tmp_path, "log", "-1", "--format=%s", "feat/squashed") == "later"
 
 
-def test_delete_merged_keeps_a_squash_merged_branch_checked_out_elsewhere(
-    tmp_path: Path,
+@pytest.mark.parametrize("merged_by", ["squash", "ancestry"])
+def test_delete_merged_refuses_a_branch_checked_out_in_another_worktree(
+    tmp_path: Path, merged_by: str
 ) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
     tip = _squash_repository(repository)
+    if merged_by == "ancestry":
+        git(repository, "merge", "--ff-only", "feat/squashed")
     git(repository, "worktree", "add", str(tmp_path / "other"), "feat/squashed")
 
-    with pytest.raises(AgentGitProcessError):
+    with pytest.raises(AgentGitInputError, match="checked out in another worktree"):
         run_agent_git(
             ["delete-merged", "feat/squashed"],
             repository,

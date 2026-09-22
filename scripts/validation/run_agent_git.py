@@ -340,6 +340,7 @@ def _prepare_delete_command(
     _require_success(current)
     if current.stdout.strip() == branch:
         raise AgentGitInputError("current branch cannot be deleted")
+    _require_not_checked_out(full_ref, root, runner)
     merged = _invoke(
         ["git", "merge-base", "--is-ancestor", full_ref, "HEAD"],
         root,
@@ -363,6 +364,22 @@ def _prepare_delete_command(
     raise AgentGitInputError(
         "branch is not merged into HEAD or squash-merged into main"
     )
+
+
+def _require_not_checked_out(full_ref: str, root: Path, runner: CommandRunner) -> None:
+    # Git would refuse too, but only after the fact and with an error the wrapper
+    # cannot tell apart from a broken repository.
+    listed = _invoke(
+        ["git", "worktree", "list", "--porcelain"],
+        root,
+        runner,
+        operation_class="read",
+    )
+    _require_success(listed, "Git worktree list failed")
+    if f"branch {full_ref}" in listed.stdout.splitlines():
+        raise AgentGitInputError(
+            "branch is checked out in another worktree; it was not deleted"
+        )
 
 
 def _branch_tip(full_ref: str, root: Path, runner: CommandRunner) -> str:
