@@ -556,16 +556,15 @@ def test_runner_uses_exported_fixed_roots_and_rejects_checkout_outputs() -> None
 def test_partition_cli_delegates_to_run_partition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[Path] = []
+    calls: list[tuple[str, str, Path]] = []
 
     def fake_run_partition(
-        _lane: str,
-        _shard: str,
+        lane: str,
+        shard: str,
         *,
         output_dir: Path,
     ) -> float:
-        assert output_dir == tmp_path
-        calls.append(output_dir)
+        calls.append((lane, shard, output_dir))
         return 0.0
 
     monkeypatch.setattr(runner, "run_partition", fake_run_partition)
@@ -584,7 +583,7 @@ def test_partition_cli_delegates_to_run_partition(
         )
         == 0
     )
-    assert calls == [tmp_path]
+    assert calls == [("backend", "0", tmp_path)]
 
 
 def test_partition_runs_collection_and_execution_once(
