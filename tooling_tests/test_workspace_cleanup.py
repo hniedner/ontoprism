@@ -149,6 +149,25 @@ def test_workspace_cleanup_keeps_malformed_qlever_directory(tmp_path: Path) -> N
 
 
 @pytest.mark.unit
+def test_workspace_cleanup_reports_non_file_coverage_candidate_and_continues(
+    tmp_path: Path,
+) -> None:
+    invalid = tmp_path / ".coverage.directory"
+    valid = tmp_path / ".coverage.worker"
+    invalid.mkdir()
+    valid.write_text("data", encoding="utf-8")
+
+    report = cleanup_workspace(tmp_path, docker_run=_EmptyDockerRunner())
+
+    assert report.removed == (valid,)
+    assert report.skipped == (
+        cleanup_module.SkippedCleanup(invalid, "coverage shard is not a regular file"),
+    )
+    assert invalid.is_dir()
+    assert not valid.exists()
+
+
+@pytest.mark.unit
 def test_workspace_cleanup_removes_verified_containers_before_their_data(
     tmp_path: Path,
 ) -> None:
@@ -232,6 +251,26 @@ def test_workspace_cleanup_exit_is_nonzero_when_resources_are_skipped(
 
     assert cleanup_module.main() == 1
     assert "skipped-paths=1" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_workspace_cleanup_exit_is_nonzero_when_container_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    skipped = cleanup_module.CleanupReport(
+        removed=(),
+        skipped=(),
+        skipped_containers=(
+            cleanup_module.SkippedContainer("ontoprism-qlever-test-invalid", "reason"),
+        ),
+    )
+    monkeypatch.setattr(cleanup_module, "cleanup_workspace", lambda _root: skipped)
+
+    assert cleanup_module.main() == 1
+    output = capsys.readouterr().out
+    assert "skipped container: ontoprism-qlever-test-invalid: reason" in output
+    assert "skipped-containers=1" in output
 
 
 @pytest.mark.unit

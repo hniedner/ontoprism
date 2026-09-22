@@ -542,20 +542,49 @@ def test_partition_specs_are_the_single_correlated_four_partition_contract() -> 
 
 
 def test_runner_uses_exported_fixed_roots_and_rejects_checkout_outputs() -> None:
-    product = runner._pytest_command(
-        "backend", collect_only=True, coverage_xml=None, include_tooling=False
-    )
-    tooling = runner._pytest_command(
-        "backend", collect_only=True, coverage_xml=None, include_tooling=True
-    )
-    assert product[1:5] == [*partitions.FIXED_TEST_ROOTS, "--ignore=tooling_tests"]
-    assert tooling[1:4] == list(partitions.FIXED_TEST_ROOTS)
+    command = runner._pytest_command("backend", collect_only=True, coverage_xml=None)
+    assert command[1:4] == list(partitions.FIXED_TEST_ROOTS)
+    assert "--ignore=tooling_tests" not in command
     with pytest.raises(ValueError, match="outside the checkout"):
         runner.run_partition(
             "backend",
             "0",
             output_dir=Path(__file__).resolve().parents[1] / "tmp/partition",
         )
+
+
+def test_partition_cli_includes_tooling_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Path] = []
+
+    def fake_run_partition(
+        _lane: str,
+        _shard: str,
+        *,
+        output_dir: Path,
+    ) -> float:
+        assert output_dir == tmp_path
+        calls.append(output_dir)
+        return 0.0
+
+    monkeypatch.setattr(runner, "run_partition", fake_run_partition)
+
+    assert (
+        runner.main(
+            [
+                "partition",
+                "--lane",
+                "backend",
+                "--shard",
+                "0",
+                "--output-dir",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    assert calls == [tmp_path]
 
 
 def test_partition_runs_collection_and_execution_once(
@@ -1152,9 +1181,7 @@ def test_run_all_removes_stale_root_coverage_and_uses_exact_combine_paths(
         shard: ShardId,
         *,
         output_dir: Path,
-        include_tooling: bool = False,
     ) -> float:
-        del include_tooling
         spec = partitions.partition_spec(lane, shard)
         coverage_file = output_dir / spec.coverage_name
         coverage_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1237,9 +1264,7 @@ def test_run_all_starts_the_four_partitions_concurrently(
         shard: ShardId,
         *,
         output_dir: Path,
-        include_tooling: bool = False,
     ) -> float:
-        del include_tooling
         entered.append((lane, shard))
         spec = partitions.partition_spec(lane, shard)
         output_dir.mkdir(parents=True, exist_ok=True)

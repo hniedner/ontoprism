@@ -139,6 +139,24 @@ def _remove_verified_test_containers(
     return tuple(removed), tuple(skipped)
 
 
+def _remove_coverage_candidate(
+    path: Path, removed: list[Path], skipped: list[SkippedCleanup]
+) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if not path.is_file() and not path.is_symlink():
+        skipped.append(SkippedCleanup(path, "coverage shard is not a regular file"))
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        skipped.append(SkippedCleanup(path, f"removal failed: {error}"))
+        return
+    removed.append(path)
+
+
 def cleanup_workspace(
     root: Path,
     *,
@@ -158,8 +176,7 @@ def cleanup_workspace(
         for candidate in workspace_cleanup_candidates(root):
             path = candidate.path
             if candidate.kind == "coverage":
-                path.unlink()
-                removed.append(path)
+                _remove_coverage_candidate(path, removed, skipped)
                 continue
             match = _QLEVER_DIRECTORY.fullmatch(path.name)
             if match is None:
@@ -182,7 +199,11 @@ def cleanup_workspace(
             except (OSError, ResourceOwnershipError) as error:
                 skipped.append(SkippedCleanup(path, f"owner marker invalid: {error}"))
                 continue
-            shutil.rmtree(path)
+            try:
+                shutil.rmtree(path)
+            except OSError as error:
+                skipped.append(SkippedCleanup(path, f"removal failed: {error}"))
+                continue
             removed.append(path)
     return CleanupReport(
         removed=tuple(removed),

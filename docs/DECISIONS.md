@@ -455,10 +455,10 @@ than that runtime (`pdm run agent-test
 tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 PDM's global `pre_run` hook now reads `.python-version` and rejects any executing
-interpreter other than its exact value before every repository-owned named PDM script,
+interpreter outside its minor series before every repository-owned named PDM script,
 including `verify`, `test-ci`, `agent-test`, `lint`, `data-build`, and the `migrate` family
 (`pdm run agent-test
-tooling_tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
+tooling_tests/test_verify_runner.py::test_operational_runtime_validator_accepts_python_314_patch_releases
 tooling_tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
 -v`, 2026-09-04). This operational gate does not narrow package metadata.
 

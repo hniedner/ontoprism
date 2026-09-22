@@ -172,6 +172,14 @@ def test_main_required_checks_can_reapply_the_desired_ruleset(tmp_path: Path) ->
         == 0
     )
     assert len(calls) == 2
+    assert json.loads(str(calls[1][1]["input"])) == {
+        "name": current["name"],
+        "target": current["target"],
+        "enforcement": current["enforcement"],
+        "bypass_actors": current["bypass_actors"],
+        "conditions": current["conditions"],
+        "rules": current["rules"],
+    }
 
 
 def test_main_required_checks_is_unavailable_in_read_only_mode(tmp_path: Path) -> None:

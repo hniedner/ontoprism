@@ -1225,7 +1225,6 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     }
     assert test_step["env"] == {
         "COVERAGE_CONFIG_SET": "python-combined",
-        "ONTOPRISM_INCLUDE_TOOLING_TESTS": "1",
         "OUTPUT_DIR": "${{ runner.temp }}/partition-integration-${{ matrix.index }}",
     }
     assert "pdm run ci-test-partition" in test_step["run"]
