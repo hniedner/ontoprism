@@ -72,7 +72,6 @@ def _pytest_command(
     collect_only: bool,
     coverage_xml: Path | None,
     with_coverage: bool = True,
-    include_tooling: bool = False,
 ) -> list[str]:
     pytest = shutil.which("pytest")
     if pytest is None:
@@ -80,8 +79,6 @@ def _pytest_command(
     selector = next(selector for selector in LANE_SELECTORS if selector.lane == lane)
     marker = selector.marker_expression
     arguments = [*FIXED_TEST_ROOTS]
-    if not include_tooling:
-        arguments.append("--ignore=tooling_tests")
     arguments.extend(("-m", marker))
     if collect_only:
         arguments.append("--collect-only")
@@ -159,7 +156,6 @@ def run_partition(
     shard: str,
     *,
     output_dir: Path,
-    include_tooling: bool = False,
 ) -> float:
     """Collect, receipt, and execute one fixed partition in a single pytest run."""
     started = time.monotonic()
@@ -203,7 +199,6 @@ def run_partition(
             lane,
             collect_only=False,
             coverage_xml=coverage_xml,
-            include_tooling=include_tooling,
         ),
         cwd=ROOT,
         env=environment,
@@ -245,7 +240,6 @@ def measure_integration(output: Path) -> float:
             collect_only=False,
             coverage_xml=None,
             with_coverage=False,
-            include_tooling=True,
         ),
         cwd=ROOT,
         env=environment,
@@ -326,7 +320,6 @@ def run_all() -> int:
                     spec.lane,
                     spec.shard_id,
                     output_dir=output / spec.artifact_name,
-                    include_tooling=True,
                 )
                 for spec in PARTITION_SPECS
             }

@@ -492,7 +492,7 @@ pdm run decompose \
 
 A full run takes about fifteen hours, so by default it is preceded by a preflight: the
 branch's tracked stratified SME sample (for neoplasm
-`samples/ncit-26.07d-m1-review.json`, 20 concepts across every review stratum) is
+`samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
 rehearsed through the same pipeline, including the final metrics report, to
 `data/ncit_decomposed.ttl.preflight` without loading the graph. The rehearsal is a
 throwaway run: it is admitted afresh every time, it borrows only the sample's codes (the
