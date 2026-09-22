@@ -7,16 +7,19 @@ import { flushSync } from 'svelte';
 vi.mock('$app/environment', () => ({ browser: true }));
 vi.hoisted(() => {
 	const store = new Map<string, string>();
-	globalThis.localStorage = {
-		getItem: (k: string) => store.get(k) ?? null,
-		setItem: (k: string, v: string) => void store.set(k, String(v)),
-		removeItem: (k: string) => void store.delete(k),
-		clear: () => store.clear(),
-		key: () => null,
-		get length() {
-			return store.size;
-		}
-	} as Storage;
+	Object.defineProperty(globalThis, 'localStorage', {
+		configurable: true,
+		value: {
+			getItem: (k: string) => store.get(k) ?? null,
+			setItem: (k: string, v: string) => void store.set(k, String(v)),
+			removeItem: (k: string) => void store.delete(k),
+			clear: () => store.clear(),
+			key: () => null,
+			get length() {
+				return store.size;
+			}
+		} as Storage
+	});
 });
 
 import { theme } from './theme.svelte';

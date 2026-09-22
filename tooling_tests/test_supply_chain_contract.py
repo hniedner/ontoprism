@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import json
 import os
 import re
@@ -95,6 +96,24 @@ def _digest_pin_identity(image: str) -> str:
     if "/" not in repository:
         repository = f"docker.io/library/{repository}"
     return f"{repository}{separator}{digest}"
+
+
+def test_dependabot_groups_all_vitest_major_updates_together() -> None:
+    config = yaml.safe_load((_ROOT / ".github/dependabot.yml").read_text())
+    npm_update = next(
+        update
+        for update in config["updates"]
+        if update["package-ecosystem"] == "npm" and update["directory"] == "/frontend"
+    )
+
+    group = npm_update["groups"].get("vitest")
+    assert group is not None, "Dependabot needs a dedicated Vitest dependency group"
+    patterns = group.get("patterns", ())
+    assert all(
+        any(fnmatch.fnmatchcase(package, pattern) for pattern in patterns)
+        for package in ("vitest", "@vitest/coverage-v8", "@vitest/ui")
+    )
+    assert "update-types" not in group or "major" in group["update-types"]
 
 
 def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
@@ -798,14 +817,14 @@ def test_frontend_vitest_manifest_matches_coverage_peer_and_lock() -> None:
         (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
     )
     root_lock = lock["packages"][""]["devDependencies"]
+    vitest_lock = lock["packages"]["node_modules/vitest"]
     coverage_lock = lock["packages"]["node_modules/@vitest/coverage-v8"]
 
-    assert package["devDependencies"]["vitest"] == "^4.1.11"
-    assert package["devDependencies"]["@vitest/coverage-v8"] == "^4.1.11"
+    assert package["devDependencies"]["vitest"] == "^5.0.0"
+    assert package["devDependencies"]["@vitest/coverage-v8"] == "^5.0.0"
     assert root_lock == package["devDependencies"]
-    assert lock["packages"]["node_modules/vitest"]["version"] == "4.1.11"
-    assert coverage_lock["version"] == "4.1.11"
-    assert coverage_lock["peerDependencies"]["vitest"] == "4.1.11"
+    assert vitest_lock["version"] == coverage_lock["version"]
+    assert coverage_lock["peerDependencies"]["vitest"] == vitest_lock["version"]
 
 
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
