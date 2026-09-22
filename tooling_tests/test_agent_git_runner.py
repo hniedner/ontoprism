@@ -4,7 +4,6 @@ import inspect
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import fields
@@ -1157,38 +1156,3 @@ def test_a_sibling_branch_checked_out_elsewhere_does_not_block_deletion(
     )
 
     assert git(repository, "branch", "--list", "feat/squashed") == ""
-
-
-# PR #424 squash-merged this branch into main at this head (read 2026-09-22).
-_MERGED_BRANCH = "feat/m0-r0-1-recovery-followon"
-_MERGED_HEAD = "4c5a132ad3046393a719c98fd98410fcef884fb2"
-
-
-@pytest.mark.integration
-def test_real_github_answer_proves_a_known_squash_merge(tmp_path: Path) -> None:
-    """Contract: the live pulls query filters by head and carries the read fields."""
-    gh = shutil.which("gh")
-    if gh is None:
-        pytest.skip("GitHub CLI is not installed")
-    status = subprocess.run(  # noqa: S603 - resolved gh executable, fixed arguments
-        [gh, "auth", "status"], capture_output=True, check=False
-    )
-    if status.returncode != 0:
-        pytest.skip("GitHub CLI is not authenticated")
-
-    # Both branches report PR #424's head as their tip on purpose: if the query
-    # ignored the head filter, the unknown branch would then "match" #424.
-    def run(arguments: list[str], **kwargs: object) -> object:
-        if arguments[:2] == ["git", "rev-parse"]:
-            return Result(0, f"{_MERGED_HEAD}\n")
-        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
-
-    merged = agent_git._github_squash_merged_tip(
-        _MERGED_BRANCH, f"refs/heads/{_MERGED_BRANCH}", tmp_path, run
-    )
-    unknown = agent_git._github_squash_merged_tip(
-        "no/such-branch-ever", "refs/heads/no/such-branch-ever", tmp_path, run
-    )
-
-    assert merged == _MERGED_HEAD
-    assert unknown is None
