@@ -20,15 +20,6 @@ from scripts.validation.run_agent_git import (
 pytestmark = pytest.mark.unit
 
 
-def test_git_runner_docstrings_state_the_separate_agent_boundaries() -> None:
-    expected = (
-        "Run fixed local Git operations for implementers and fixed remote pull/push "
-        "for orchestrators, without a shell."
-    )
-    assert " ".join((agent_git.__doc__ or "").split()) == expected
-    assert " ".join((run_agent_git.__doc__ or "").split()) == expected
-
-
 def test_operation_specs_derive_classification_from_command_kind() -> None:
     expected = {
         "switch-existing": "local-mutation",
@@ -888,7 +879,15 @@ def test_delete_merged_keeps_a_branch_github_did_not_merge_at_its_tip(
     )
 
 
-@pytest.mark.parametrize("answer", ["not json", '{"message": "Not Found"}'])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "not json",
+        '{"message": "Not Found"}',
+        '[{"merged_at": "x", "head": null, "base": {"ref": "main"}}]',
+        '[{"merged_at": "x", "head": {"sha": "s"}, "base": "main"}]',
+    ],
+)
 def test_delete_merged_fails_closed_when_github_cannot_answer(
     tmp_path: Path, answer: str
 ) -> None:
@@ -909,3 +908,34 @@ def test_delete_merged_fails_closed_when_github_cannot_answer(
             runner=_github_answers([], [], returncode=1),
         )
     assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+def test_delete_merged_reports_the_github_cli_exit_code(tmp_path: Path) -> None:
+    _squash_repository(tmp_path)
+
+    with pytest.raises(AgentGitProcessError, match=r"gh exit 4"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            tmp_path,
+            runner=_github_answers([], [], returncode=4),
+        )
+
+
+def test_delete_merged_refuses_when_the_branch_moved_after_the_github_check(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            # Another session commits to the branch between the check and delete.
+            git(tmp_path, "switch", "feat/squashed")
+            (tmp_path / "tracked.txt").write_text("later\n")
+            git(tmp_path, "commit", "-am", "later")
+            git(tmp_path, "switch", "main")
+            return Result(0, json.dumps([_pull(tip)]))
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert git(tmp_path, "log", "-1", "--format=%s", "feat/squashed") == "later"

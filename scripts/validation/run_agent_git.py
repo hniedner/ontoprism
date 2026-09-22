@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run fixed local Git operations for implementers and fixed remote pull/push
-for orchestrators, without a shell.
+for orchestrators, without a shell. delete-merged may also run one read-only
+GitHub CLI pull-request query to recognise a squash-merged branch.
 """
 
 from __future__ import annotations
@@ -143,7 +144,8 @@ def operation_class_for(command_kind: CommandKind) -> OperationClass:
 
 
 def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
-    # Arguments are the fixed, validated Git invocation built above; never shell input.
+    # Arguments are the fixed, validated Git or GitHub CLI invocation built above;
+    # never shell input.
     return subprocess.run(  # noqa: S603, PLW1510
         arguments,
         **kwargs,  # type: ignore[arg-type,return-value]
@@ -308,7 +310,8 @@ def _prepare_branch_command(
 ) -> list[str]:
     _validate_branch(branch, root, runner)
     if operation == "switch-existing":
-        # Switching to main is safe: commit, merge and push refuse protected branches.
+        # Switching to main is safe: commit, merge and push refuse protected branches,
+        # so the only operation that changes main is pull-origin, fast-forward only.
         _require_local_branch(branch, root, runner)
         return ["git", "switch", branch]
     if operation == "switch-new":
@@ -341,8 +344,11 @@ def _prepare_branch_command(
         return ["git", "branch", "-d", branch]
     if merged.returncode != 1:
         raise AgentGitProcessError("Git merge ancestry check failed")
-    if _github_squash_merged_tip(branch, full_ref, root, runner):
-        return ["git", "branch", "-D", branch]
+    merged_tip = _github_squash_merged_tip(branch, full_ref, root, runner)
+    if merged_tip is not None:
+        # Delete only if the ref still holds the tip GitHub merged; a commit added
+        # after the check makes Git refuse instead of losing it.
+        return ["git", "update-ref", "-d", full_ref, merged_tip]
     raise AgentGitInputError(
         "branch is not merged into HEAD or squash-merged into main"
     )
@@ -350,11 +356,12 @@ def _prepare_branch_command(
 
 def _github_squash_merged_tip(
     branch: str, full_ref: str, root: Path, runner: CommandRunner
-) -> bool:
-    """Whether GitHub merged a PR into main whose head is exactly the local tip.
+) -> str | None:
+    """Return the local tip if GitHub merged a PR into main whose head is exactly it.
 
     A squash merge leaves no ancestry, so the merged PR's recorded head SHA is the
-    proof that nothing on the local branch is lost by deleting it.
+    proof that nothing on the local branch is lost by deleting it. Only the first
+    100 closed PRs for the branch are examined; a miss refuses the deletion.
     """
     tip = _invoke(["git", "rev-parse", full_ref], root, runner, operation_class="read")
     _require_success(tip, "Git branch tip could not be read")
@@ -371,20 +378,28 @@ def _github_squash_merged_tip(
         runner,
         operation_class="github-read",
     )
-    _require_success(answer, "GitHub pull-request query failed")
+    if answer.returncode != 0:
+        raise AgentGitProcessError(
+            f"GitHub pull-request query failed (gh exit {answer.returncode})"
+        )
     try:
         pulls = json.loads(answer.stdout)
     except json.JSONDecodeError as exc:
         raise AgentGitProcessError("GitHub pull-request query was malformed") from exc
     if not isinstance(pulls, list):
         raise AgentGitProcessError("GitHub pull-request query was malformed")
-    return any(
-        isinstance(pull, dict)
-        and pull.get("merged_at")
-        and pull.get("head", {}).get("sha") == local_tip
-        and pull.get("base", {}).get("ref") == "main"
-        for pull in pulls
-    )
+    for pull in pulls:
+        head = pull.get("head") if isinstance(pull, dict) else None
+        base = pull.get("base") if isinstance(pull, dict) else None
+        if not isinstance(head, dict) or not isinstance(base, dict):
+            raise AgentGitProcessError("GitHub pull-request query was malformed")
+        if (
+            pull.get("merged_at")
+            and head.get("sha") == local_tip
+            and base.get("ref") == "main"
+        ):
+            return local_tip
+    return None
 
 
 def run_agent_git(
@@ -394,7 +409,8 @@ def run_agent_git(
     runner: CommandRunner | None = None,
 ) -> int:
     """Run fixed local Git operations for implementers and fixed remote pull/push
-    for orchestrators, without a shell.
+    for orchestrators, without a shell. delete-merged may also run one read-only
+    GitHub CLI pull-request query to recognise a squash-merged branch.
     """
     runner = runner or _subprocess_runner
     if not arguments:
