@@ -1045,6 +1045,50 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
     _assert_ci_summary_allow_list(workflow)
 
 
+def test_main_automation_never_pushes_commits_and_release_is_tag_only() -> None:
+    workflows = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in (_ROOT / ".github/workflows").glob("*.yml")
+    }
+    release = yaml.safe_load(workflows["release.yml"])
+    release_step = next(
+        step
+        for step in release["jobs"]["release"]["steps"]
+        if step.get("name") == "Semantic release"
+    )
+
+    assert "update-readme-code-stats.yml" not in workflows
+    assert all("git push origin HEAD:main" not in text for text in workflows.values())
+    assert release_step["with"] == {
+        "github_token": "${{ secrets.GITHUB_TOKEN }}",
+        "commit": False,
+        "tag": True,
+        "push": True,
+        "changelog": False,
+        "vcs_release": True,
+        "build": False,
+    }
+
+
+def test_readme_code_stats_are_checked_in_pull_request_quality() -> None:
+    pre_commit = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text())
+    hooks = {
+        hook["id"]: hook
+        for repo in pre_commit["repos"]
+        if repo["repo"] == "local"
+        for hook in repo["hooks"]
+    }
+
+    assert hooks["readme-code-stats"] == {
+        "id": "readme-code-stats",
+        "name": "README code statistics are current",
+        "entry": "pdm run python -m scripts.dev.update_readme_code_stats --check",
+        "language": "system",
+        "pass_filenames": False,
+        "always_run": True,
+    }
+
+
 @pytest.mark.parametrize("legacy_kind", ["id", "display"])
 def test_ci_job_contract_rejects_a_legacy_compatibility_job(
     legacy_kind: str,

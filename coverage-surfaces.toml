@@ -66,11 +66,9 @@ required_production_paths = [
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",
-  "scripts/dev/stamp_lock_version.py",
   "scripts/dev/update_readme_code_stats.py",
   "migrations/env.py",
   ".github/workflows/release.yml",
-  ".github/workflows/update-readme-code-stats.yml",
 ]
 required_test_paths = [
   "frontend/src/lib/components/AlignmentLinks.svelte.test.ts",
@@ -252,10 +250,6 @@ pattern = "scripts/dev/reconstruct_versions.py"
 group = "release-workflows"
 
 [[assignment]]
-pattern = "scripts/dev/stamp_lock_version.py"
-group = "release-workflows"
-
-[[assignment]]
 pattern = "scripts/dev/update_readme_code_stats.py"
 group = "release-workflows"
 
@@ -321,10 +315,6 @@ group = "non-executable"
 
 [[assignment]]
 pattern = ".github/workflows/release.yml"
-group = "release-yaml"
-
-[[assignment]]
-pattern = ".github/workflows/update-readme-code-stats.yml"
 group = "release-yaml"
 
 # A `pragma-no-cover` exemption is keyed by file path: a file carries exactly as many
