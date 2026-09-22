@@ -25,7 +25,7 @@ def build_decomposition_query(concept_code: str) -> str:
     concept_uri = safe_iri(concept_code, NCIT_NS)
     return f"""
         SELECT ?status ?decomposedOn ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
-               ?axisAmbiguityGroup ?sourceStructuralGroup
+               ?axisAmbiguous ?sourceStructuralGroup
                ?normalizedProjectionGroup ?normalizedProjectionGroupLabel
                ?needsReview ?sourceDefinitionFact WHERE {{
             GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}> {{
@@ -38,7 +38,7 @@ def build_decomposition_query(concept_code: str) -> str:
                     OPTIONAL {{ ?c <{vocab.AXIS_SOURCE}> ?axisSource }}
                     OPTIONAL {{ ?c <{vocab.SOURCE_ROLE}> ?sourceRole }}
                     OPTIONAL {{ ?c <{vocab.MOST_SPECIFIC}> ?mostSpecific }}
-                    OPTIONAL {{ ?c <{vocab.AXIS_AMBIGUITY_GROUP}> ?axisAmbiguityGroup }}
+                    OPTIONAL {{ ?c <{vocab.AXIS_AMBIGUOUS}> ?axisAmbiguous }}
                     OPTIONAL {{
                         ?c <{vocab.SOURCE_STRUCTURAL_GROUP}> ?sourceStructuralGroup
                     }}

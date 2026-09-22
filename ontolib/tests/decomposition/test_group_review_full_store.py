@@ -16,9 +16,6 @@ async def test_group_review_boundary_matches_configured_authoritative_source(
     comparison = Path(
         "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json"
     )
-    r101 = Path(
-        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"
-    )
     source = await _source_snapshot(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json"),
         "http://localhost:7888",
@@ -26,7 +23,6 @@ async def test_group_review_boundary_matches_configured_authoritative_source(
     packet = group_review.generate_group_review_boundary(
         evidence_path=evidence,
         comparison_path=comparison,
-        r101_report_path=r101,
         output=tmp_path / "packet.json",
         workbook=tmp_path / "review.xlsx",
         correction_audit=tmp_path / "audit.xlsx",

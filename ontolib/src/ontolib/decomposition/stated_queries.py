@@ -8,6 +8,8 @@ in a ``GRAPH <STATED_GRAPH_IRI>`` clause, and reuse ``safe_iri`` for injection s
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -26,7 +28,6 @@ from ontolib.decomposition.models import (
     RestrictionDefinitionFact,
     RoleRestriction,
 )
-from ontolib.decomposition.r101_conservation import r82_fact_identity
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
@@ -63,6 +64,39 @@ _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
 _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def r82_fact_identity(
+    source_identity: str,
+    asserted_part_code: str,
+    whole_code: str,
+    restriction_node_id: str,
+) -> str:
+    """Identify one replayable stated R82 restriction from its exact bindings."""
+    return _sha256(
+        _canonical(
+            {
+                "asserted_part": asserted_part_code,
+                "restriction_node": restriction_node_id,
+                "role_code": "R82",
+                "source_identity": source_identity,
+                "whole": whole_code,
+            }
+        )
+    )
 
 
 class SelectRows(Protocol):
@@ -930,41 +964,6 @@ def build_morphology_query(concept_code: str) -> str:
             BIND(IF(?genus = ?first, 0, 1) AS ?depth)
         }}
     """
-
-
-def build_role_restrictions_query(concept_code: str) -> str:
-    """Role restrictions (``owl:someValuesFrom``) for *concept_code*, stated graph.
-
-    Projects ``?rel`` (property IRI), ``?relLabel`` (its name — the ``Excludes_*`` /
-    defining classification keys on), and ``?target`` (the filler concept IRI).
-
-    NOTE: this matches only restrictions hung **directly** off ``rdfs:subClassOf``. In
-    the stated build a pre-coordinated concept is a *defined class* whose roles live in
-    an ``owl:equivalentClass``/``owl:intersectionOf`` genus chain — those require the
-    recursive genus-chain traversal described in
-    ``docs/design/ncit-decomposition-engine.md`` §6.1 (next #4 increment). This builder
-    is the primitive-class building block for that traversal.
-
-    Raises:
-        ValueError: if *concept_code* is not injection-safe.
-    """
-    concept_uri = safe_iri(concept_code, NCIT_NS)
-    return f"""{_PREFIXES}
-        SELECT ?rel ?relLabel ?target WHERE {{
-            GRAPH <{STATED_GRAPH_IRI}> {{
-                <{concept_uri}> rdfs:subClassOf ?restriction .
-                ?restriction a owl:Restriction ;
-                             owl:onProperty ?rel ;
-                             owl:someValuesFrom ?target .
-                FILTER(STRSTARTS(STR(?target), "{NCIT_NS}"))
-            }}
-            # Resolve the property label from the DEFAULT graph (NCIt property
-            # definitions live there), not the stated named graph — otherwise the
-            # Excludes_* classification silently breaks if the stated graph carries only
-            # class axioms without property rdfs:labels.
-            OPTIONAL {{ ?rel rdfs:label ?relLabel }}
-        }}
-    """  # noqa: S608 — interpolated values are safe_iri-validated + module constants
 
 
 def build_semantic_type_query(concept_code: str) -> str:

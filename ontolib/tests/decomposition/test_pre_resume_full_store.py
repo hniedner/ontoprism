@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -9,7 +7,6 @@ import pytest
 from scripts.adjudication import main as adjudication_main
 from scripts.decompose import _make_label_lookup
 from scripts.research.current_evidence import CurrentEngineEvidence, _concepts
-from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -27,140 +24,26 @@ from ontolib.decomposition.pre_resume import (
     acquire_candidate_evidence,
     affected_missing_p106,
 )
-from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import WorkItemOutcome
-from ontolib.decomposition.r101_comparator import (
-    CurrentV5ComparatorFingerprint,
-    HistoricalV4ComparatorFingerprint,
-)
-from ontolib.decomposition.r101_conservation import (
-    load_r101_conservation_report,
-    r82_path_document,
-)
 from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import run_source_preflight
-from ontolib.decomposition.stated_queries import (
-    resolve_part_of_pairs,
-    resolve_part_of_paths,
-)
+from ontolib.decomposition.stated_queries import resolve_part_of_pairs
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
+pytestmark = [pytest.mark.integration, pytest.mark.full_store]
+
 if TYPE_CHECKING:
     from collections.abc import Collection
 
 RUN_ID = "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"
-PRECHANGE_FULL_RUN = "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820"
-CURRENT_FULL_RUN = "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016"
 COMPLETED_FULL_RUN = "completed-full-run"
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
-async def test_comparator_transport_uses_six_postgres_queries() -> None:
-    engine = make_engine(get_settings().database_url)
-    query_count = 0
-
-    def count_query(*_args: object) -> None:
-        nonlocal query_count
-        query_count += 1
-
-    event.listen(engine.sync_engine, "before_cursor_execute", count_query)
-    try:
-        store = ProvenanceStore(make_sessionmaker(engine))
-        await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
-        await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
-        await store.r101_occurrence_ledger(PRECHANGE_FULL_RUN, CURRENT_FULL_RUN)
-    finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", count_query)
-        await dispose_engine(engine)
-
-    assert query_count == 6
-
-
-@pytest.mark.integration
-@pytest.mark.full_store
-async def test_exact_comparator_pair_preserves_observed_fingerprints_and_worklist() -> (
-    None
-):
-    engine = make_engine(get_settings().database_url)
-    try:
-        store = ProvenanceStore(make_sessionmaker(engine))
-        old = await store.completed_comparator_run_for_evidence(PRECHANGE_FULL_RUN)
-        current = await store.completed_comparator_run_for_evidence(CURRENT_FULL_RUN)
-    finally:
-        await dispose_engine(engine)
-
-    assert isinstance(old.fingerprint, HistoricalV4ComparatorFingerprint)
-    assert isinstance(current.fingerprint, CurrentV5ComparatorFingerprint)
-    assert (
-        old.fingerprint_identity
-        == "3ee3c1f4d6b2b71606245c4471151b9eb43183f783a0c1919977871c7fa5ff57"
-    )
-    assert (
-        current.fingerprint_identity
-        == "aa392a7e9f58066e05094ae4adae6c2dd601f84a47310dca9af9c2ddac3b2fae"
-    )
-    assert old.worklist == current.worklist
-    assert len(old.worklist) == 15_633
-    worklist_identity = hashlib.sha256(
-        json.dumps(old.worklist, separators=(",", ":")).encode()
-    ).hexdigest()
-    assert (
-        worklist_identity
-        == "4213999a3488eee5a93f4f7e509e322a18ba37f3955a72295c700dea7382e6f7"
-    )
-    assert (
-        current.fingerprint.routing_implementation_identity
-        == "aa777510e0ffc0a7cfc8c3682506c046300ed6749598b78504eb1ce8a3888608"
-    )
-    assert (
-        current.fingerprint.mixed_chain_inventory_identity
-        == "3fc473e9ce049c2c619be8b714f5bfb4cbf2dd7297a10ff8e1bfa00feb1ba0cd"
-    )
-    assert (
-        current.fingerprint.stage_sequence_identity
-        == "336b24467d4f054a0a37e665cb3038a28061d8d0af772e3d0e5ebf4515670807"
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.full_store
-async def test_exact_full_v4_v5_pair_enumerates_every_typed_non_r101_delta() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        ledger = await ProvenanceStore(
-            make_sessionmaker(engine)
-        ).r101_occurrence_ledger(
-            PRECHANGE_FULL_RUN,
-            CURRENT_FULL_RUN,
-        )
-    finally:
-        await dispose_engine(engine)
-
-    assert ledger.postgres_query_count == 2
-    assert ledger.non_r101_delta_evidence.old_run_id == PRECHANGE_FULL_RUN
-    assert ledger.non_r101_delta_evidence.new_run_id == CURRENT_FULL_RUN
-    evidence = ledger.non_r101_delta_evidence
-    assert (
-        len(evidence.rows),
-        len(evidence.metadata_deltas),
-        len(evidence.classified_rows),
-        evidence.raw_typed_delta_count,
-    ) == (2_097, 38_648, 0, 79_393)
-    assert evidence.raw_typed_delta_count == (
-        len(evidence.rows)
-        + len(evidence.classified_rows)
-        + 2 * len(evidence.metadata_deltas)
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> None:
     manifest = validate_ncit_sibling_manifest(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
@@ -187,8 +70,6 @@ async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> 
     assert result.overflow_codes == ()
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() -> None:
     manifest = validate_ncit_sibling_manifest(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
@@ -327,8 +208,6 @@ class _CountingClient:
         )
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_completed_full_run_candidate_denominator_matches_reachability() -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -358,8 +237,6 @@ async def test_completed_full_run_candidate_denominator_matches_reachability() -
     assert evidence.qlever_reads > 0
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
     output = tmp_path / "proof.json"
     common = [
@@ -377,8 +254,6 @@ def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
     assert not output.exists()
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
     tmp_path,
 ) -> None:
@@ -404,8 +279,6 @@ def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
     assert not second.exists()
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -438,8 +311,6 @@ async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> N
     assert boundary.validation.authorizable is False
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries() -> (
     None
 ):
@@ -515,8 +386,6 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
             assert counted.select_once_count <= baseline.select_once_r82_count_budget
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
 async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() -> None:
     manifest = validate_ncit_sibling_manifest(
         Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
@@ -601,64 +470,3 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                     broader,
                 )
             ] * len(collapsed)
-
-
-@pytest.mark.integration
-@pytest.mark.full_store
-async def test_tied_highest_fanout_ledgers_and_paths_match_generated_report() -> None:
-    report = load_r101_conservation_report(
-        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz")
-    )
-    engine = make_engine(get_settings().database_url)
-    try:
-        source = await ProvenanceStore(
-            make_sessionmaker(engine)
-        ).r101_occurrence_ledger(report.old_run_id, report.new_run_id)
-        async with ncit_sparql_client("http://localhost:7888") as client:
-            for concept_code in ("C5356", "C5552"):
-                expected = tuple(
-                    item
-                    for item in report.occurrences
-                    if item.concept_code == concept_code
-                )
-                actual = tuple(
-                    item
-                    for item in source.occurrences
-                    if item.old_occurrence.concept_code == concept_code
-                )
-                candidates = tuple(
-                    sorted(
-                        {
-                            (retained.filler_code, old.filler_code)
-                            for item in actual
-                            if item.old_links and not item.new_links
-                            for old in item.old_links
-                            for retained in item.retained_new_r101_links
-                            if old.axis == retained.axis
-                        }
-                    )
-                )
-                paths = await resolve_part_of_paths(
-                    client, candidates, source_identity=report.source_identity
-                )
-
-                assert len(actual) == len(expected) == 16
-                assert tuple(
-                    item.old_occurrence.structural_key for item in actual
-                ) == tuple(item.structural_key for item in expected)
-                expected_paths = {
-                    (
-                        item.retained_r82_target.filler_code,
-                        item.old_links[0].filler_code,
-                    ): item.r82_path
-                    for item in expected
-                    if item.retained_r82_target is not None and len(item.old_links) == 1
-                }
-                assert {
-                    key: r82_path_document(value).edges
-                    for key, value in paths.paths.items()
-                } == expected_paths
-                assert paths.query_count <= 10
-                assert paths.max_pair_batch_size <= 8
-    finally:
-        await dispose_engine(engine)

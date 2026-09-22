@@ -1,4 +1,4 @@
-"""Persist truthful mixed-edge specificity collapse paths.
+"""Persist mixed-edge specificity paths with a minimum-length database check.
 
 Revision ID: 0026_mixed_specificity_paths
 Revises: 0025_disposition_invariants

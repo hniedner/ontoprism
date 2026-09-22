@@ -246,6 +246,32 @@ def test_inventory_distinguishes_missing_and_failed_tools_from_empty(
 
 
 @pytest.mark.unit
+def test_compose_inventory_queries_the_pinned_volume_by_exact_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _policy(tmp_path)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(artifacts.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def run(command: list[str], *_args: object, **_kwargs: object) -> object:
+        calls.append(command)
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(artifacts.subprocess, "run", run)
+
+    inventory_repository(tmp_path)
+
+    assert [
+        "/usr/bin/docker",
+        "volume",
+        "inspect",
+        "ontoprism-podman-poc_ontoprism_pg_data",
+        "--format",
+        "{{.Name}}|{{.Scope}}",
+    ] in calls
+
+
+@pytest.mark.unit
 def test_worktree_and_compose_audit_are_operator_only_and_protect_active_resources(
     tmp_path: Path,
 ) -> None:

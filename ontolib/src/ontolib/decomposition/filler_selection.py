@@ -1,9 +1,8 @@
 """Filler selection — choose the intended constituent(s) per axis (design §6).
 
-Working from the *stated* graph already eliminates most ancestor bleed; most-specific
-selection is defense-in-depth for hierarchy-comparable axes that still return multiple
-fillers. The selection is a pure function of the fillers and an injected
-``is_ancestor`` predicate, so it is fully unit-testable without a store.
+Most-specific selection compares routed fillers through caller-supplied is-a and R82
+relations. The module also records source-backed reduction dispositions and supports a
+separate non-emitting historical diagnostic path.
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ class RoutedSelection:
 
 
 class DiagnosticReductionPurpose(Enum):
-    """Closed authorization for a non-emitting unassessed diagnostic reduction."""
+    """Named purpose required by the non-emitting unassessed diagnostic API."""
 
     HISTORICAL_MIXED_CHAIN_RECONSTRUCTION = "historical-mixed-chain-reconstruction"
 
@@ -288,8 +287,6 @@ def _expand_routed_occurrences(
         )
     if len(facts) == 1:
         fact_by_occurrence = (facts[0],) * len(occurrences)
-    elif len(facts) == len(occurrences):
-        fact_by_occurrence = facts
     else:
         raise ValueError("source occurrence-to-fact binding is ambiguous")
     return tuple(
@@ -600,7 +597,7 @@ def _constituent_from_routed(
     unknown = _has_unknown_route(rows)
     known_retained_count = _known_retained_count(occurrences, collapsed)
     routed_exempt = axis_name in _REVIEW_EXEMPT_AXES
-    needs_review, group = _review_fields(
+    needs_review, axis_ambiguous = _review_fields(
         axis_name,
         retained_count=retained_count,
         known_retained_count=known_retained_count,
@@ -618,7 +615,7 @@ def _constituent_from_routed(
         source_roles=source_roles,
         most_specific=chosen_over_broader,
         needs_review=needs_review,
-        axis_ambiguity_group_id=group,
+        axis_ambiguous=axis_ambiguous,
         source_definition_ids=source_definition_ids,
         source_occurrence_ids=source_occurrence_ids,
     )
@@ -669,7 +666,7 @@ def _review_fields(
     unknown: bool,
     routed_exempt: bool,
     policy_protected_axis: bool,
-) -> tuple[bool, str | None]:
+) -> tuple[bool, bool]:
     return (
         _needs_review(
             known_retained_count,
@@ -677,7 +674,7 @@ def _review_fields(
             routed_exempt=routed_exempt,
             policy_protected_axis=policy_protected_axis,
         ),
-        _relationship_group(
+        _axis_is_ambiguous(
             axis_name,
             retained_count=retained_count,
             known_retained_count=known_retained_count,
@@ -702,7 +699,7 @@ def _needs_review(
     return not routed_exempt or policy_protected_axis
 
 
-def _relationship_group(
+def _axis_is_ambiguous(
     axis_name: str,
     *,
     retained_count: int,
@@ -710,16 +707,14 @@ def _relationship_group(
     unknown: bool,
     routed_exempt: bool,
     policy_protected_axis: bool,
-) -> str | None:
+) -> bool:
     if retained_count <= 1:
-        return None
+        return False
     if policy_protected_axis:
-        return axis_name
+        return True
     if routed_exempt and axis_name != axes.ASSOCIATED_LINEAGE_AXIS:
-        return axis_name
-    if _requires_ambiguity_group(unknown, routed_exempt, known_retained_count):
-        return axis_name
-    return None
+        return True
+    return _requires_ambiguity_group(unknown, routed_exempt, known_retained_count)
 
 
 def _requires_ambiguity_group(
@@ -828,7 +823,7 @@ def _reduce_routed_plan(
     *,
     is_part_of: IsPartOf | None = None,
 ) -> RoutedSelection:
-    """Reduce only within final routed partitions and disposition every occurrence."""
+    """Reduce within final routed partitions and record eligible source occurrences."""
     part_of = is_part_of or (lambda _part, _whole: False)
     by_axis: dict[str, list[RoutedOccurrence]] = defaultdict(list)
     for occurrence in plan.occurrences:

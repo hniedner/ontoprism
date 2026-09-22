@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run fixed Python CI partitions or the sequential local parity gate."""
+"""Run fixed Python CI partitions or the concurrent local parity gate."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
@@ -77,7 +78,8 @@ def _pytest_command(
         raise RuntimeError("pytest console script is required")
     selector = next(selector for selector in LANE_SELECTORS if selector.lane == lane)
     marker = selector.marker_expression
-    arguments = [*FIXED_TEST_ROOTS, "-m", marker]
+    arguments = [*FIXED_TEST_ROOTS]
+    arguments.extend(("-m", marker))
     if collect_only:
         arguments.append("--collect-only")
     elif with_coverage:
@@ -155,7 +157,7 @@ def run_partition(
     *,
     output_dir: Path,
 ) -> float:
-    """Collect, receipt, then execute one validated fixed partition."""
+    """Collect, receipt, and execute one fixed partition in a single pytest run."""
     started = time.monotonic()
     spec = _partition_contract(lane, shard)
     if output_dir.is_symlink():
@@ -185,44 +187,36 @@ def run_partition(
         "ONTOPRISM_TEST_PARTITION_SHARD": shard,
         "ONTOPRISM_TEST_PARTITION_COUNT": "2",
         "ONTOPRISM_TEST_PARTITION_RECEIPT": str(receipt.resolve()),
-        "ONTOPRISM_TEST_PARTITION_PHASE": "collect",
+        "ONTOPRISM_TEST_PARTITION_PHASE": "run",
         "ONTOPRISM_TEST_PARTITION_FIXED_ROOTS": "1",
+        "COVERAGE_FILE": str(coverage_file.resolve()),
     }
     if lane == "integration":
         environment = _integration_tool_environment(environment)
     preflight_finished = time.monotonic()
     subprocess.run(  # noqa: S603 - fixed repository test command
-        _pytest_command(lane, collect_only=True, coverage_xml=None),
+        _pytest_command(
+            lane,
+            collect_only=False,
+            coverage_xml=coverage_xml,
+        ),
         cwd=ROOT,
         env=environment,
         check=True,
     )
     load_receipt(receipt)
-    collection_finished = time.monotonic()
-    execution_environment = {
-        **environment,
-        "ONTOPRISM_TEST_PARTITION_PHASE": "execute",
-        "COVERAGE_FILE": str(coverage_file.resolve()),
-    }
-    subprocess.run(  # noqa: S603 - fixed repository test command
-        _pytest_command(lane, collect_only=False, coverage_xml=coverage_xml),
-        cwd=ROOT,
-        env=execution_environment,
-        check=True,
-    )
     _write_identity(identity, spec.layer)
     finished = time.monotonic()
     print(
         f"partition phases {lane}/{shard}: "
         f"preflight={preflight_finished - started:.1f}s, "
-        f"collection={collection_finished - preflight_finished:.1f}s, "
-        f"tests+identity={finished - collection_finished:.1f}s"
+        f"tests+receipt+identity={finished - preflight_finished:.1f}s"
     )
     return finished - started
 
 
 def measure_integration(output: Path) -> float:
-    """Measure the eligible safe lane, excluding slow/full-store/full-build tests."""
+    """Measure the CI-safe lane, excluding full-store and full-build tests."""
     git = shutil.which("git")
     if git is None:
         raise RuntimeError("git is required to identify timing evidence")
@@ -306,7 +300,7 @@ def _validate_local_outputs(output: Path) -> tuple[ArtifactIdentity, ...]:
 
 
 def run_all() -> int:
-    """Run CI's children sequentially; parity is semantic, not a speed claim."""
+    """Run CI's independent children concurrently, then validate combined evidence."""
     root_coverage = ROOT / ".coverage"
     pending_coverage = ROOT / ".coverage.pending"
     root_coverage.unlink(missing_ok=True)
@@ -319,11 +313,18 @@ def run_all() -> int:
             artifact = output / spec.artifact_name
             coverage_file = artifact / spec.coverage_name
             coverage_paths.append(coverage_file)
-            durations[f"{spec.lane}/{spec.shard_id}"] = run_partition(
-                spec.lane,
-                spec.shard_id,
-                output_dir=artifact,
-            )
+        with ThreadPoolExecutor(max_workers=len(PARTITION_SPECS)) as executor:
+            futures = {
+                spec: executor.submit(
+                    run_partition,
+                    spec.lane,
+                    spec.shard_id,
+                    output_dir=output / spec.artifact_name,
+                )
+                for spec in PARTITION_SPECS
+            }
+            for spec, future in futures.items():
+                durations[f"{spec.lane}/{spec.shard_id}"] = future.result()
         identities = _validate_local_outputs(output)
         combined = output / ".coverage"
         # Local equivalent of CI's explicit four-path coverage combine.

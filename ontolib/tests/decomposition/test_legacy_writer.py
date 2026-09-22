@@ -393,7 +393,7 @@ async def test_distinct_group_identities_are_rendered(tmp_path: Path) -> None:
                     filler_code="C12418",
                     axis_source="role",
                     source_roles=("R101",),
-                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    axis_ambiguous=True,
                     source_group_ids=("a" * 64,),
                     normalized_group_id="b" * 64,
                     normalized_group_label="Reviewed associated-region block",
@@ -403,7 +403,7 @@ async def test_distinct_group_identities_are_rendered(tmp_path: Path) -> None:
                     filler_code="C13063",
                     axis_source="role",
                     source_roles=("R101",),
-                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    axis_ambiguous=True,
                     source_group_ids=("a" * 64,),
                     normalized_group_id="b" * 64,
                     normalized_group_label="Reviewed associated-region block",
@@ -414,11 +414,11 @@ async def test_distinct_group_identities_are_rendered(tmp_path: Path) -> None:
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
     content = out.read_text()
-    assert vocab.AXIS_AMBIGUITY_GROUP in content
+    assert vocab.AXIS_AMBIGUOUS in content
     assert vocab.SOURCE_STRUCTURAL_GROUP in content
     assert vocab.NORMALIZED_PROJECTION_GROUP in content
     assert vocab.NORMALIZED_PROJECTION_GROUP_LABEL in content
-    assert '"op:AssociatedRegion"' in content
+    assert f"<{vocab.AXIS_AMBIGUOUS}> true" in content
 
 
 @pytest.mark.unit
@@ -435,7 +435,7 @@ async def test_no_group_triples_without_group_identities(tmp_path: Path) -> None
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
     content = out.read_text()
-    assert vocab.AXIS_AMBIGUITY_GROUP not in content
+    assert vocab.AXIS_AMBIGUOUS not in content
     assert vocab.SOURCE_STRUCTURAL_GROUP not in content
     assert vocab.NORMALIZED_PROJECTION_GROUP not in content
 
@@ -452,14 +452,14 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
                     filler_code="C12418",
                     axis_source="role",
                     source_roles=("R101",),
-                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    axis_ambiguous=True,
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
                     source_roles=("R101",),
-                    axis_ambiguity_group_id="op:AssociatedRegion",
+                    axis_ambiguous=True,
                 ),
             ],
         )
@@ -497,7 +497,7 @@ async def test_complete_definition_and_projection_trace_are_rendered(
                     filler_code="C27970",
                     axis_source="role",
                     needs_review=True,
-                    axis_ambiguity_group_id="R88",
+                    axis_ambiguous=True,
                     source_group_ids=(nested_group_id,),
                     source_definition_ids=(restriction_id,),
                 )

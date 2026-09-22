@@ -18,7 +18,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT
+from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT, POSTGRES_VOLUME
 from ontolib.decomposition.run_artifacts import (
     ArtifactManifest,
     load_artifact_record,
@@ -359,14 +359,15 @@ def _compose_listing(docker: str, root: Path, kind: str) -> dict[str, object]:
         command = [
             docker,
             "volume",
-            "ls",
-            "--filter",
-            f"label=com.docker.compose.project={COMPOSE_PROJECT}",
+            "inspect",
+            POSTGRES_VOLUME,
             "--format",
-            "{{.Name}}",
+            "{{.Name}}|{{.Scope}}",
         ]
     result = _run_command(command, root)
     if result.returncode != 0:
+        if kind == "volume" and "no such volume" in result.stderr.lower():
+            return {"status": "ok", "items": []}
         return {
             "status": "error",
             "error": f"{kind}: {result.stderr.strip()}",

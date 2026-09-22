@@ -337,7 +337,7 @@ choose(False)
 
 
 def test_repository_wires_strict_gate_into_local_and_ci_entrypoints() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = pyproject["tool"]["pdm"]["scripts"]
     test_ci = scripts["test-ci"]

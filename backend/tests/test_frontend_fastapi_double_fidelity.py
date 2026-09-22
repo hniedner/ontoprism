@@ -19,6 +19,7 @@ from backend.api.v1.icdo import (
     validate_icdo_grid_filters,
 )
 from backend.api.v1.ncit import ConceptMappings
+from backend.api.v1.ncit import router as production_ncit_router
 from backend.api.v1.refresh import RefreshReport
 from ontolib.decomposition.read_models import ConceptDecomposition
 from ontolib.repositories.cadsr.models import CdeSearchPage
@@ -350,8 +351,20 @@ def test_double_licensed_mappings_require_capability_and_entitlement(
 
 
 def test_double_decomposition_serves_every_field_production_serializes() -> None:
+    route_path = "/api/v1/ncit/concepts/{code}/decomposition"
+    double_route = next(
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path == route_path
+    )
+    production_route = next(
+        route
+        for route in production_ncit_router.routes
+        if isinstance(route, APIRoute) and route.path == route_path
+    )
     response = TestClient(app).get("/api/v1/ncit/concepts/C3262/decomposition")
 
     production = ConceptDecomposition.model_validate_json(response.text)
 
+    assert double_route.response_model == production_route.response_model
     assert response.json() == production.model_dump(mode="json")

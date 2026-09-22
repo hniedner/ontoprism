@@ -275,6 +275,12 @@ resource, performs project-scoped cleanup without `-v`, and then inspects the ex
 volume still exists. QLever continues to use the repository's existing bind-mounted
 indexes.
 
+The 2026-09-22 project rename from `ontoprism-podman-poc` to `ontoprism` intentionally
+keeps the existing `ontoprism-podman-poc_ontoprism_pg_data` volume through an explicit
+Compose volume name. Project renames therefore cannot silently select a different data
+volume. The temporary `ontoprism_ontoprism_pg_data` volume created while correcting the
+configuration was not deleted; its disposal remains an owner decision.
+
 Run `podman-app-smoke` only after `podman-compose-down`. It enforces availability of fixed
 ports 5433, 7888, 7889, and 8080; refuses existing primary-stack containers; verifies the
 retained volume's exact ownership before mounting it; and exercises Caddy root, the C3262
@@ -329,11 +335,14 @@ actual predecessor (`0001_embedding_tables`) and then upgrades through every lat
 migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
 
-Migration `0028_distinct_group_identities` renames the former relationship-group
-column to `axis_ambiguity_group_id`, backfills canonical `source_group_ids`, adds the
-paired nullable normalized-group fields, and installs database constraints for all
-three representations. For #274, no genuine configured-database backup was captured
-before migration 0028. A dump captured after 0028 is recovery material only and must
+Migration `0028_distinct_group_identities` preserves its released schema: it renames the
+former relationship-group column to `axis_ambiguity_group_id`, backfills canonical
+`source_group_ids`, adds the paired nullable normalized-group fields, and installs their
+database constraints. Migration `0029_boolean_axis_ambiguity` then converts the historical
+group label to the boolean `axis_ambiguous`; it also accepts a database rebuilt with the
+boolean form before 0029 existed. Migration `0030_axis_ambiguity_default` makes omitted
+flags default to `false`. For #274, no genuine configured-database backup was captured before
+migration 0028. A dump captured after 0028 is recovery material only and must
 not be represented as before/after migration evidence. Preservation is instead proved
 against a disposable pre-0028 database by:
 
@@ -341,9 +350,10 @@ against a disposable pre-0028 database by:
 pdm run agent-test --safe-integration backend/tests/test_migrations_integration.py::test_distinct_group_identity_migration_preserves_existing_runs -v
 ```
 
-That contract checks row counts and historical values across the upgrade, the ambiguity
-rename, source-group backfill, null normalized groups, and rejection of malformed group
-arrays. Do not infer preservation of the configured database from its post-0028 state.
+That contract pauses at the historical 0028 shape, then checks row counts and values
+across the 0029 ambiguity conversion, source-group backfill, null normalized groups, and
+rejection of malformed group arrays. Do not infer preservation from a post-migration
+configured-database snapshot alone.
 
 ## Rebuild from public sources
 
@@ -528,12 +538,12 @@ unavailable until its distinct component-bag algorithm is implemented. `--resume
 accepts only the same source, branch, root, scope algorithm, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
 drift before publication fails closed and invalidates every persisted result row. The
-`--out` TTL is staged, flushed, validated, and source-checked before publication. With
-`--load`, the CLI loads a unique staging graph and transactionally replaces the additive
-`ncit_decomposed` graph together with its publication marker. It then atomically replaces
-and directory-syncs the file before marking the run complete. Failures after publication
-intent is journaled but before completion remain separately visible and resumable;
-matching marker-ahead retries reconcile without replaying a committed graph update.
+`--out` TTL is staged, flushed, validated, and source-checked before publication. This is
+D53's journaled state machine, not a cross-system transaction. With `--load`, one graph
+update commits the staging graph and marker; the file is then atomically replaced and
+directory-synced; PostgreSQL records completion last. A failure may leave graph or file
+state ahead of PostgreSQL. Matching retries reconcile before replaying the same sealed
+bytes; there is no cross-system rollback guarantee.
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
 

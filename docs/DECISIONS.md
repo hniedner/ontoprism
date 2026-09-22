@@ -63,11 +63,11 @@ If either condition fails, the authorization does not apply. A changed head, tit
 base means the checks and the review run again, not that the owner is asked again; the
 merge pins the reviewed head (since #401 through the `sha` field of GitHub's merge API,
 not `--match-head-commit`). A base change means the PR was retargeted; new commits on
-`main`, such as the release and README bot commits, do not void a run; a skew between
-two PRs shows in the CI run on `main` after the merge, and #405 decides whether GitHub
-should require up-to-date branches. `--admin`, auto-merge and merge queues stay
-forbidden. GitHub does not yet enforce required checks on `main` (#405); until it does,
-the check rule is kept by the agent.
+`main` do not void a run, and a skew between two PRs shows in the CI run on `main` after
+the merge. The #405 ruleset deliberately leaves strict base freshness off. `--admin`,
+auto-merge and merge queues stay forbidden. GitHub enforces the five required checks on
+`main` through the `main integrity` ruleset (#405); the agent still validates their
+current-head/current-base results before invoking the pinned merge wrapper.
 
 The repository's squash message was set to `BLANK` on 2026-09-19, so a squash commit's
 body is empty and only the PR title drives releases. Merges pass no body. *(Addendum
@@ -175,7 +175,7 @@ from four plain criteria into a corpus-wide acceptance contract.
   a finding becomes" in `AGENTS.md`.)*
 - The OpenCode config validators and their tests are deleted, and the tests that assert
   documentation wording are removed here and in #339.
-  `backend/tests/test_agent_permission_safety.py` keeps the part that matters: the bash
+  `tooling_tests/test_agent_permission_safety.py` keeps the part that matters: the bash
   permission layer refuses destructive, bypassing and out-of-repository commands for
   every agent, the catch-all is pinned, and only the primary can stage, commit or
   publish. The primary's scratch-script lane (`pdm run python tmp/scratch/*`) is the
@@ -401,8 +401,8 @@ pr-create ...` and `pdm run agent-github pr-edit ...`. The wrappers fix `origin`
 `hniedner/ontoprism`, validate branch and repository identity, reject unclean or mismatched
 worktrees, and fail closed when a mutation outcome is unknown. Their behavioral contracts
 execute successfully, including noninteractive remote Git and refusal to edit closed or merged
-pull requests (`pdm run agent-test backend/tests/test_agent_git_runner.py -v` and `pdm run
-agent-test backend/tests/test_agent_github_runner.py -v`, 2026-09-04).
+pull requests (`pdm run agent-test tooling_tests/test_agent_git_runner.py -v` and `pdm run
+agent-test tooling_tests/test_agent_github_runner.py -v`, 2026-09-04).
 
 The scanner's `DELETE(?![-_])` alternative excludes `DELETE` followed immediately by a
 hyphen or underscore; `delete-merged` was the operation name that triggered the false match
@@ -443,7 +443,7 @@ spelling sensitivity or prescribe this representation. Semantically, the
 metadata rejects 3.13.99 and 3.15 while accepting 3.14.0, 3.14.1, Dependabot's installed
 3.14.5, and the operational 3.14.7 patch
 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 The local selector, hosted workflows, pre-commit's observed interpreter, Ruff,
@@ -452,14 +452,14 @@ the tool-specific 3.14 target where patch spelling is unavailable). Python 3.14.
 the only certified and supported local, CI, integration, data-build, and container
 runtime; the metadata lower bound remains in the same minor series and is no higher
 than that runtime (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 PDM's global `pre_run` hook now reads `.python-version` and rejects any executing
-interpreter other than its exact value before every repository-owned named PDM script,
+interpreter outside its minor series before every repository-owned named PDM script,
 including `verify`, `test-ci`, `agent-test`, `lint`, `data-build`, and the `migrate` family
 (`pdm run agent-test
-backend/tests/test_verify_runner.py::test_operational_runtime_validator_accepts_only_python_3147
-backend/tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
+tooling_tests/test_verify_runner.py::test_operational_runtime_validator_accepts_python_314_patch_releases
+tooling_tests/test_verify_runner.py::test_pdm_pre_run_failure_prevents_substantive_script
 -v`, 2026-09-04). This operational gate does not narrow package metadata.
 
 The broadened lock resolved networkx 3.6 on 2026-09-04 rather than 3.6.1 because 3.6.1
@@ -468,7 +468,7 @@ excludes Python 3.14.1, which the project metadata accepts (`git diff
 -- pdm.lock`, 2026-09-04). The lock contract requires networkx to remain present and
 checks eligibility of every locked data-build package on 3.14.1 without freezing a
 future compatible networkx update (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 Dependabot run 33839863700 rejected the patch-floor `>=3.14.7,<3.15` while running
@@ -481,7 +481,7 @@ remains unverified until a post-merge Dependency Graph run succeeds (`gh run vie
 33839863700 --log-failed`, 2026-09-04). PR #321's post-merge Dependency Graph result must
 be checked before this work is considered externally validated, and any failure must be
 fixed before new work under the hard post-merge rule in `AGENTS.md` (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 ## 2026-09-03 — Python 3.14.7 is the sole runtime
@@ -492,7 +492,7 @@ backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exac
 and lock statements below are historical observations from 2026-09-03, not descriptions
 of the current repository. The patch-exact operational runtime decision remains current
 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 **Decision at adoption:** Python 3.14.7 was the only supported local, hosted-CI, integration,
@@ -510,7 +510,7 @@ deliberate executable-name exception: it resolves
 the built API container and rejects any patch other than 3.14.7 before checking service
 health; that command ordering remains covered by the current supply-chain contract
 (`pdm run agent-test
-backend/tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
+tooling_tests/test_supply_chain_contract.py::test_python_metadata_floor_and_exact_operational_runtime_configuration
 -v`, 2026-09-04).
 
 Ordinary pytest runs fail both `DeprecationWarning` and `PendingDeprecationWarning`, with only
@@ -640,16 +640,10 @@ trust boundaries. Mixing them in one object graph makes it unclear whether const
 a domain operation or parsing untrusted data, and lets a wire-library behavior become an accidental
 semantic invariant.
 
-Applying this rule changed the R101 detector identity to
-`7ca7924792a82c1822a278bd817b41392587a30779d7431827b47cb926269f46` because shortest-path
-resolution now uses domain dataclasses and converts explicitly at the report boundary. A deterministic
-rebind of the tracked D77 payload changed only `detector_identity`, `json_identity`, and
-`report_identity`; all 43,414 occurrence rows, grouping rows, counts, query metrics, and the exact TSV
-identity remained equal
-(`pdm run python -c 'import gzip,json,pathlib,subprocess; old=subprocess.run(["git","show","f17fa44:ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"],check=True,capture_output=True).stdout; a=json.loads(gzip.decompress(old)); b=json.loads(gzip.decompress(pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz").read_bytes())); print({k for k in a.keys()|b.keys() if a.get(k)!=b.get(k)},a["occurrences"]==b["occurrences"],a["counts"]==b["counts"],a["query_metrics"]==b["query_metrics"],a["tsv_identity"]==b["tsv_identity"])'`,
-2026-08-22). Full regeneration from the historical database is blocked because its v3 baseline run
-stores obsolete fingerprint schema 2 and no `collapse_policy_identity`; current readers correctly
-fail closed rather than carrying a legacy compatibility reader.
+Applying this rule changed the historical R101 detector identity because shortest-path resolution
+used domain dataclasses and converted explicitly at the report boundary. That one-off detector and
+its tracked report were removed in #341 after the review decisions were transcribed into packaged
+policy data. Current readers do not carry a legacy compatibility reader.
 
 ## 2026-08-20 — R101 coverage review is human-centered and occurrence-bound
 
@@ -681,7 +675,7 @@ generated with `Exception?=No` and a blank rationale; this is a scope default wi
 its pattern is approved. Reviewers change only true exceptions to `Yes` and supply rationale. A
 missing or invalid value refuses import; every non-approve pattern must retain `No` and blank
 rationale
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q`, 2026-08-20). Hiddenness is not
+Hiddenness is not
 security: import regenerates every immutable visible cell from the separate packet. Benign XLSX
 container re-saves are accepted, while semantic cell edits, stale guidance/bindings, formulas,
 missing/duplicate/extra rows, macros, and external links refuse the whole import.
@@ -706,26 +700,20 @@ fields (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook(
 the detailed pilot counts cannot be durably certified here; that documentation remains blocked on
 independent evidence rather than being reconstructed from memory.
 
-The TEST-ONLY all-approve/no-exception import expanded to exactly 3,291 proposed atomic decisions
-and the dry run reported `writes_performed=false`; the tracked conservation report remained pending
-and publication-blocked
-(`pdm run adjudication import-r101-review-decisions --packet tmp/r101-review-packet-v3.json --reviewed-xlsx tmp/r101-review-workbook-v3-TEST-ONLY.xlsx --output tmp/r101-review-registry-v3-TEST-ONLY.json --provenance test-only && pdm run adjudication dry-run-r101-decision-expansion --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz --packet tmp/r101-review-packet-v3.json --registry tmp/r101-review-registry-v3-TEST-ONLY.json --output tmp/r101-review-preflight-v3-TEST-ONLY.json`,
-2026-08-20). Expansion creates a proposed decision registry, never a new packet, authorization, or
-publication artifact. This decision does not implement D75/#271.
+The historical TEST-ONLY import expanded to exactly 3,291 proposed atomic decisions and performed
+no publication write. The generator, import command, packet, and test-only registry were removed in
+#341 after the accepted decisions were transcribed into packaged policy data. This decision does
+not implement D75/#271.
 
 ## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
 
 ### D77. Bind every source occurrence and replayable stated-R82 edge before review
 
-The generated schema-3 artifact partitions 43,414 R101 occurrences into 30,040 projected,
+The historical schema-3 artifact partitioned 43,414 R101 occurrences into 30,040 projected,
 10,083 unchanged-unprojected, 1,954 one-step-R82 covered, 1,337 closure-only-R82 covered, and
-zero unresolved rows, with zero non-R101 delta
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
-2026-08-19). Every path edge records the traversal endpoints, asserted restriction subject,
+zero unresolved rows, with zero non-R101 delta. Every path edge recorded the traversal endpoints, asserted restriction subject,
 restriction node, exact source identity, and recomputed fact identity; the persisted compressed
-JSON and on-demand TSV roundtrip contract passes
-(`pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_full_structural_key_survives_model_json_and_lossless_tsv ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_r82_edge_carries_replayable_asserted_subject_and_validates_fact_identity -q`,
-2026-08-19).
+JSON and on-demand TSV roundtrip contract passed in the retired implementation.
 
 **Decision:** the conservation boundary is one deterministic gzip file containing a strict
 schema-3 occurrence inventory, with no raw-JSON compatibility reader. The lossless TSV projection
@@ -739,10 +727,10 @@ evidence is the canonical sorted row set bound to both run IDs and the exact SQL
 its count is derived from those rows rather than accepted as an independent scalar.
 
 Mechanical completion, content authorization, and publication eligibility are independent states.
-The tracked report currently records `complete`, `pending`, and `blocked`, respectively
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
-2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
-review remains a final M1.6 milestone decision before publication.
+The historical report recorded `complete`, `pending`, and `blocked`, respectively. #341 removed the
+two-run artifact and tooling after its review decisions were transcribed into packaged policy data;
+#417 owns the replacement per-run unexplained-loss check. This decision neither authorizes content
+nor changes D75/#271 semantics.
 
 ## 2026-08-17 — full-corpus routing attribution requires depth-matched evidence
 
@@ -752,8 +740,7 @@ The run inventory showed a full historical v3 baseline at walker depth 5 and a
 completed production v4 run at depth 7, with no full depth-matched counterpart
 (`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
 2026-08-17). The conservation generator correctly refused that comparison with
-`new run fingerprint dimension drift: walker_max_depth`
-(`pdm run adjudication generate-r101-conservation ...`, 2026-08-17). Historical
+`new run fingerprint dimension drift: walker_max_depth` (2026-08-17). Historical
 recovery inputs were inspected with `git cat-file -t f2800654...`, `git diff
 --name-status f2800654... -- pdm.lock pyproject.toml compose files migrations`,
 and `git grep -n 'walker-max-depth|walker_max_depth' f2800654...` (2026-08-17).
@@ -849,23 +836,18 @@ all five canonical metric names with their denominator rules, represents strict 
 improvement and #44's inclusive 0.9 indicators separately, and carries the closed
 semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
 states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
-2026-09-06). A zero delta from the R101-isolated comparison remains not evaluated for
-total full-corpus classification; primary-site cardinality and unexplained R101 loss
-are evaluated from their identity-bound evidence, while #274 owns the deferred axis,
+2026-09-06). The retired R101-isolated comparison did not classify total full-corpus delta;
+primary-site cardinality remains evaluated, while unexplained R101 loss is explicitly
+`not-evaluated` and owned by #417 until its per-run check lands. #274 owns the deferred axis,
 normalized-group, and golden-cohort detectors and #127 owns total delta classification
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
 2026-09-06). The current high-severity npm audit reports no vulnerabilities
 (`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
 
-**Current-status addition (2026-09-11):** `MachineReadinessReport` schema 3 and the R101
-conservation schema 4 no longer conflate complete enumeration with causal explanation. The exact
-v4→v5 pair certifies all 43,414 R101 occurrences and enumerates all 79,393 typed non-R101 delta
-rows exactly once, while explanation remains `incomplete`, semantic isolation remains
-`partial-unqualified`, execution comparability remains `unqualified`, causal attribution is
-prohibited, authorization is pending, and publication is blocked
-(`pdm run agent-replay inspect-r101-report ontolib/tests/decomposition/golden/neoplasm-r101-v5-conservation.json.gz`,
-2026-09-11). Inventory completeness is therefore evidence that the bounded populations were
-exhaustively represented, not evidence that the treatment caused any observed delta.
+**Current-status addition (2026-09-21):** #341 removed the historical two-run R101 report and
+inspection commands. Inventory completeness was evidence that bounded historical populations were
+represented, not evidence that the treatment caused any observed delta. #417 owns the replacement
+per-run conservation check required before publication.
 
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 
@@ -923,7 +905,7 @@ prepend Homebrew's keg-only OpenJDK directory while retaining the inherited `PAT
 installations; CI-provided variables retain precedence because PDM loads the file
 without override (`sed -n '220,275p' /opt/homebrew/Cellar/pdm/2.28.0/libexec/lib/python3.14/site-packages/pdm/cli/commands/run.py`,
 exit 0, 2026-08-11). A tracked contract pins the PDM option and both example paths
-(`pdm run pytest backend/tests/test_integration_resource_ownership.py::test_pdm_commands_load_repo_local_certified_tool_paths -q`, one passed, 2026-08-11).
+(`pdm run agent-test tooling_tests/test_integration_resource_ownership.py::test_pdm_commands_load_repo_local_certified_tool_paths -v`, one passed, 2026-08-11).
 
 The checked local configuration resolves and revalidates both installed tools without
 inline environment prefixes (`pdm run python -c` calling
@@ -1017,7 +999,7 @@ share the certified NCIt QLever index; Uberon and its Cell Ontology content use 
 separate certified QLever index. Postgres remains authoritative for mutable proposed
 NCIt identity, revisions, lifecycle, evidence, and RDF projections (D65). There is no
 runtime Oxigraph dependency (`pdm run pytest
-backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
+tooling_tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
 -q`, 2026-08-10).
 
 The official EVS 26.07d folder exposes flat text plus stated and inferred RDF/XML OWL,
@@ -1083,7 +1065,7 @@ metadata, or observed version differs from the pin.
 
 The target shape and fail-closed behavior are enforced by the focused supply-chain and
 candidate-manifest contracts (`pdm run pytest
-ontolib/tests/core/test_data_build_tools.py backend/tests/test_supply_chain_contract.py
+ontolib/tests/core/test_data_build_tools.py tooling_tests/test_supply_chain_contract.py
 ontolib/tests/terminologies/test_ncit_sibling_store.py -q`, 2026-08-09), the real
 reasoner contract (`PATH=/private/tmp/ontoprism-robot-163:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/bin:/usr/bin:/bin
 ONTOPRISM_ROBOT_DIR=/private/tmp/ontoprism-robot-163 pdm run pytest
@@ -2531,10 +2513,10 @@ with a 7-day **cooldown**, and a **zizmor** pre-commit hook catches workflow-sec
 Scorecard checks enforceable locally. The two secret-scanning sub-features (non-provider patterns,
 validity checks) require paid GitHub Secret Protection and are unavailable on a personal free
 account; three CodeQL `py/path-injection` alerts were verified false positives (guarded by
-`_resolve_allowed`'s allowlist + API-key auth) and dismissed with justification. Full require-PR/CI
-enforcement on `main` remains gated on a release-bot credential (D30).
+`_resolve_allowed`'s allowlist + API-key auth) and dismissed with justification. #405 later
+removed direct bot commits and enabled required checks without a bypass credential.
 
-### D30. `main` integrity is enforced by a ruleset; require-PR/CI is documented but gated on a bot credential
+### D30. `main` integrity rules began with deletion and force-push protection
 After the release-pipeline fix (#92) nothing *structurally* protected `main`. We hardened
 the repository's GitHub settings toward a safe public posture.
 
@@ -2544,15 +2526,15 @@ enabled; the default workflow `GITHUB_TOKEN` is read-only and Actions cannot app
 (already in place); merges remain squash-only with branch auto-delete. A `SECURITY.md`
 policy and `.github/dependabot.yml` (github-actions + npm version PRs) are tracked.
 
-**Why not also "require a PR + passing CI" on `main` yet:** the release automation
+**Historical constraint before #405:** the release automation
 (`release.yml` version commit/tag) and the README-stats bot (`update-readme-code-stats.yml`)
 push to `main` with the default `GITHUB_TOKEN`. On a **user-owned** repo the `github-actions`
 app cannot be added as a ruleset bypass actor, and a `GITHUB_TOKEN` push carries no
 bypassable role — so a require-PR/require-checks rule would block those pushes and re-break
 releases (exactly what #92 fixed). Enforcing it therefore requires either (a) a dedicated
 release-bot **GitHub App / PAT** added as a bypass actor, or (b) moving the repo under an
-organization. Deletion + force-push protection needs neither and is safe because the bots
-fast-forward-append (never force-push or delete).
+organization. #405 superseded this constraint by removing both direct branch-writing
+workflows, making releases tag-only, and adding the five required checks with no bypass.
 
 **Deferred to the public flip (free on public repos; unavailable/paid while private):**
 secret scanning + push protection, private vulnerability reporting, and fork-PR workflow
@@ -3046,13 +3028,16 @@ methodology as D14/D15/D17. Full evidence: `docs/design/ncit-decomposition-engin
 
 ## 2026-07-08 — automated semantic versioning
 
-### D18. Automated releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
+### D18. Automated tag-only releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
 The repo had 27 merged PRs, no tags, a hand-maintained `CHANGELOG.md` `[Unreleased]`
 section that had drifted behind reality, and five version fields (root/`ontolib`/
 `backend` `pyproject.toml`, `ontolib/__init__.py`, `frontend/package.json`) that
 disagreed (`0.1.0` vs `0.0.1`). **Decision:** adopt `python-semantic-release`, driven by
 Conventional Commits, triggered by a `workflow_run` on a **successful CI run of a push
-to main** — i.e. a PR merge whose merged tree is green.
+to main** — i.e. a PR merge whose merged tree is green. Since #405, release automation
+tags that validated commit and creates the GitHub release without committing generated
+version or changelog changes to protected `main`; repository version fields describe the
+source snapshot and the Git tag is the release version of record.
 
 Deliberate departures from the sibling `fairdata` workflow this was modelled on:
 - **`major_on_zero = false`.** SemVer §4 reserves `0.y.z` for initial development. A
@@ -3063,9 +3048,9 @@ Deliberate departures from the sibling `fairdata` workflow this was modelled on:
   not-a-prerelease. Plain `0.y.z` says the same thing without the contradiction.
   `1.0.0` will be cut by hand (`semantic-release version --major`) when README's goals
   are met and the HTTP API is frozen.
-- **One commit stamps all five manifests** via `version_toml`/`version_variables`,
-  rather than fairdata's second `sync_versions.py` commit — which then has to be
-  filtered back out of the next changelog via `exclude_commit_patterns`.
+- **No release commit is created.** The action uses `commit: false`, `tag: true`,
+  `push: true`, `changelog: false`, and `build: false`, so required checks cannot block
+  a release bot's direct branch update because no such update exists.
 - **Release detection uses the action's `released` output**, not fairdata's
   `git describe --tags` probe, which reports `released=true` whenever *any* tag exists,
   including when no release was made.

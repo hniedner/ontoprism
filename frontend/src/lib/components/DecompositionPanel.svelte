@@ -33,16 +33,18 @@
 		const order: string[] = [];
 		const byAxis: Record<string, DecompositionConstituent[]> = {};
 		for (const c of data?.constituents ?? []) {
-			if (!byAxis[c.axis]) {
-				byAxis[c.axis] = [];
-				order.push(c.axis);
+			const label = c.axis_label ?? c.axis;
+			const key = `${c.axis}:${label}`;
+			if (!byAxis[key]) {
+				byAxis[key] = [];
+				order.push(key);
 			}
-			byAxis[c.axis].push(c);
+			byAxis[key].push(c);
 		}
-		return order.map((axis) => ({
-			axis,
-			label: byAxis[axis][0].axis_label ?? axis,
-			items: byAxis[axis]
+		return order.map((key) => ({
+			axis: byAxis[key][0].axis,
+			label: byAxis[key][0].axis_label ?? byAxis[key][0].axis,
+			items: byAxis[key]
 		}));
 	});
 </script>

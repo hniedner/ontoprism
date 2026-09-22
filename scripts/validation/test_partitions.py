@@ -25,12 +25,12 @@ BACKEND_ALGORITHM_VERSION = "sha256-mod-v1"
 INTEGRATION_ALGORITHM_VERSION = "greedy-weighted-lpt-v1"
 RECEIPT_SCHEMA_VERSION = 1
 SHARD_COUNT = 2
-FIXED_TEST_ROOTS = ("ontolib/tests", "backend/tests")
+FIXED_TEST_ROOTS = ("ontolib/tests", "backend/tests", "tooling_tests")
 _ENV_PREFIX = "ONTOPRISM_TEST_PARTITION_"
 _TIMINGS_OUTPUT_ENV = "ONTOPRISM_TEST_TIMINGS_OUTPUT"
 _QLEVER_FIXTURE_FRAGMENT = "qlever"
 Lane = Literal["backend", "integration"]
-Phase = Literal["collect", "execute"]
+Phase = Literal["collect", "execute", "run"]
 ShardId = Literal["0", "1"]
 _timings: dict[str, float] = {}
 _timing_selected_nodeids: set[str] = set()
@@ -78,7 +78,7 @@ LANE_SELECTORS = (
     LaneSelector(
         lane="integration",
         required_markers=("integration",),
-        excluded_markers=("full_store", "full_build", "slow"),
+        excluded_markers=("full_store", "full_build"),
     ),
 )
 
@@ -233,8 +233,8 @@ class PartitionEnvironment(_Document):
         if lane_value not in {"backend", "integration"}:
             raise ValueError("invalid test partition lane")
         phase = required("PHASE")
-        if phase not in {"collect", "execute"}:
-            raise ValueError("test partition phase must be collect or execute")
+        if phase not in {"collect", "execute", "run"}:
+            raise ValueError("test partition phase must be collect, execute, or run")
         fixed_roots = required("FIXED_ROOTS")
         if fixed_roots not in {"0", "1"}:
             raise ValueError("test partition FIXED_ROOTS must be exactly 0 or 1")
@@ -362,7 +362,8 @@ class IntegrationWeightManifest(_Document):
         invalid = sorted(
             path
             for path in self.weights
-            if re.fullmatch(r"(?:ontolib|backend)/tests/.+\.py", path) is None
+            if re.fullmatch(r"(?:(?:ontolib|backend)/tests|tooling_tests)/.+\.py", path)
+            is None
         )
         if invalid:
             raise ValueError(f"integration weight paths are invalid: {invalid}")
@@ -935,7 +936,7 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         integration_weight_evidence=selection.weight_evidence,
     )
     receipt_path = environment.receipt
-    if environment.phase == "collect":
+    if environment.phase in {"collect", "run"}:
         _write_receipt(receipt_path, receipt)
         return
     if not receipt_path.is_file():

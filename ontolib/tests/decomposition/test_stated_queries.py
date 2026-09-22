@@ -1,5 +1,8 @@
 """Unit tests for the stated-graph SPARQL builders (string shape + injection guard)."""
 
+import json
+import subprocess
+import sys
 from collections.abc import Collection
 
 import pytest
@@ -13,8 +16,10 @@ from ontolib.decomposition.models import (
     canonical_definition_group_id,
 )
 from ontolib.decomposition.stated_queries import (
+    _advance_origin_paths,
     _intersection_hop_pattern,
     _is_staging_concept_label,
+    _make_r82_edge,
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
@@ -22,9 +27,9 @@ from ontolib.decomposition.stated_queries import (
     build_part_of_candidate_paths_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
-    build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    r82_fact_identity,
     read_complete_genus_chain,
     resolve_morphology_filler,
     resolve_morphology_fillers,
@@ -52,6 +57,93 @@ def _genus_fact(anchor: str, depth: int, genus: str) -> GenusDefinitionFact:
         genus_code=genus,
         is_defined=False,
     )
+
+
+@pytest.mark.unit
+def test_engine_imports_do_not_load_r101_review_tooling() -> None:
+    script = """
+import json
+import sys
+
+from ontolib.decomposition import provenance, run, stated_queries
+
+del provenance, run, stated_queries
+print(json.dumps(sorted(
+    name for name in sys.modules
+    if name in {
+        "ontolib.decomposition.r101_review",
+        "ontolib.decomposition.r101_conservation",
+        "ontolib.decomposition.r101_comparator",
+    }
+)))
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and source
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.unit
+def test_r82_path_tie_prefers_the_lexicographically_first_path() -> None:
+    source_identity = "a" * 64
+    first = _make_r82_edge("C1", "C2", ("C1", "_:first"), source_identity)
+    second = _make_r82_edge("C1", "C3", ("C1", "_:second"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2", "C3"},
+        {
+            "C2": {"C4": ("C2", "_:via-c2")},
+            "C3": {"C4": ("C3", "_:via-c3")},
+        },
+        set(),
+        {"C2": (first,), "C3": (second,)},
+        source_identity,
+    )
+
+    assert tuple(edge.part_code for edge in paths["C4"]) == ("C1", "C2")
+
+
+@pytest.mark.unit
+def test_r82_path_tie_replaces_a_later_lexicographic_candidate() -> None:
+    source_identity = "a" * 64
+    later = _make_r82_edge("C1", "C3", ("C1", "_:later"), source_identity)
+    earlier = _make_r82_edge("C1", "C2", ("C1", "_:earlier"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2", "C3"},
+        {
+            "C2": {"C4": ("C2", "_:via-c2")},
+            "C3": {"C4": ("C3", "_:via-c3")},
+        },
+        set(),
+        {"C2": (later,), "C3": (earlier,)},
+        source_identity,
+    )
+
+    assert tuple(edge.part_code for edge in paths["C4"]) == ("C1", "C3")
+
+
+@pytest.mark.unit
+def test_r82_path_search_does_not_revisit_a_reached_node() -> None:
+    source_identity = "a" * 64
+    first = _make_r82_edge("C1", "C2", ("C1", "_:first"), source_identity)
+
+    paths = _advance_origin_paths(
+        "C1",
+        {"C2"},
+        {"C2": {"C1": ("C2", "_:cycle"), "C3": ("C2", "_:forward")}},
+        {"C1"},
+        {"C2": (first,)},
+        source_identity,
+    )
+
+    assert set(paths) == {"C3"}
 
 
 @pytest.mark.unit
@@ -132,22 +224,143 @@ async def test_candidate_path_resolution_rejects_missing_evidence_binding() -> N
 
 
 @pytest.mark.unit
-def test_role_query_is_scoped_to_the_stated_graph() -> None:
-    q = build_role_restrictions_query("C6135")
-    assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
-    # The restriction-traversal pattern (roles are OWL someValuesFrom, not triples).
-    assert "owl:onProperty" in q
-    assert "owl:someValuesFrom" in q
-    # The concept IRI is interpolated safely.
-    assert "Thesaurus.owl#C6135" in q
+async def test_candidate_path_resolution_preserves_direct_stated_evidence() -> None:
+    source_identity = "a" * 64
+
+    class DirectPath:
+        calls = 0
+
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            self.calls += 1
+            assert "VALUES (?part ?whole)" in query
+            assert set(required_variables) == {
+                "part",
+                "whole",
+                "assertedPart",
+                "restriction",
+            }
+            return [
+                {
+                    "part": _iri("C1"),
+                    "whole": _iri("C2"),
+                    "assertedPart": _iri("C9"),
+                    "restriction": "_:r82-direct",
+                }
+            ]
+
+    client = DirectPath()
+    result = await resolve_part_of_paths(
+        client, (("C1", "C2"),), source_identity=source_identity
+    )
+
+    assert client.calls == 1
+    assert result.query_count == 1
+    assert result.max_pair_batch_size == 1
+    edge = result.paths[("C1", "C2")].edges[0]
+    assert (
+        edge.part_code,
+        edge.asserted_part_code,
+        edge.whole_code,
+        edge.restriction_node_id,
+        edge.source_identity,
+    ) == ("C1", "C9", "C2", "_:r82-direct", source_identity)
+    assert edge.fact_identity == r82_fact_identity(
+        source_identity, "C9", "C2", "_:r82-direct"
+    )
 
 
 @pytest.mark.unit
-def test_role_query_projects_role_label_and_target() -> None:
-    q = build_role_restrictions_query("C6135")
-    assert "?rel" in q
-    assert "?target" in q
-    assert "?relLabel" in q
+async def test_candidate_path_duplicate_evidence_selection_is_deterministic() -> None:
+    source_identity = "b" * 64
+    rows = [
+        {
+            "part": _iri("C1"),
+            "whole": _iri("C2"),
+            "assertedPart": _iri("C1"),
+            "restriction": restriction,
+        }
+        for restriction in ("_:first", "_:second")
+    ]
+
+    class DuplicatePaths:
+        def __init__(self, response: list[dict[str, str]]) -> None:
+            self.response = response
+
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            del query, required_variables
+            return self.response
+
+    forward = await resolve_part_of_paths(
+        DuplicatePaths(rows), (("C1", "C2"),), source_identity=source_identity
+    )
+    reverse = await resolve_part_of_paths(
+        DuplicatePaths(list(reversed(rows))),
+        (("C1", "C2"),),
+        source_identity=source_identity,
+    )
+
+    assert forward.paths == reverse.paths
+    selected = forward.paths[("C1", "C2")].edges[0]
+    assert selected.fact_identity == min(
+        r82_fact_identity(source_identity, "C1", "C2", row["restriction"])
+        for row in rows
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (
+            {
+                "part": _iri("C1"),
+                "whole": _iri("C3"),
+                "assertedPart": _iri("C1"),
+                "restriction": "_:unexpected",
+            },
+            "unrequested pair",
+        ),
+        (
+            {
+                "part": "https://example.org/C1",
+                "whole": _iri("C2"),
+                "assertedPart": _iri("C1"),
+                "restriction": "_:external",
+            },
+            "not NCIt-bound",
+        ),
+    ],
+)
+async def test_candidate_path_resolution_rejects_invalid_source_rows(
+    row: dict[str, str], message: str
+) -> None:
+    class InvalidPath:
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ) -> list[dict[str, str]]:
+            del query, required_variables
+            return [row]
+
+    with pytest.raises(ValueError, match=message):
+        await resolve_part_of_paths(
+            InvalidPath(), (("C1", "C2"),), source_identity="c" * 64
+        )
+
+
+@pytest.mark.unit
+async def test_candidate_path_resolution_rejects_invalid_source_identity() -> None:
+    class UnusedClient:
+        async def select_once(self, query: str, *, required_variables=()):
+            raise AssertionError((query, required_variables))
+
+    with pytest.raises(ValueError, match="source identity must be SHA-256"):
+        await resolve_part_of_paths(
+            UnusedClient(), (("C1", "C2"),), source_identity="not-a-sha256"
+        )
 
 
 @pytest.mark.unit
@@ -177,7 +390,7 @@ def test_ancestor_pairs_query_empty_set_is_valid_and_matches_nothing() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "builder",
-    [build_role_restrictions_query, build_semantic_type_query],
+    [build_semantic_type_query],
 )
 def test_builders_reject_injection_unsafe_codes(builder) -> None:  # type: ignore[no-untyped-def]
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):

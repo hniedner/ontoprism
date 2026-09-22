@@ -94,14 +94,14 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     for _command, options in runner.calls:
         assert options == {
             "check": False,
-            "cwd": Path(__file__).resolve().parents[2],
+            "cwd": Path(__file__).resolve().parents[1],
             "env": {"SAFE": "retained"},
             "shell": False,
             "text": True,
         }
 
     pyproject = tomllib.loads(
-        (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
             encoding="utf-8"
         )
     )
@@ -111,6 +111,7 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     assert scripts["verify"] == "python -m scripts.validation.run_verify"
     assert "test-ci" in scripts
     assert scripts["test-ci"] == "python scripts/run_ci_test_partitions.py all"
+    assert "tooling_tests" in scripts["test-unit"]
 
 
 @pytest.mark.unit
@@ -181,7 +182,7 @@ def test_verify_runner_discovers_pdm_only_when_verification_runs(
 
 
 @pytest.mark.unit
-def test_operational_runtime_validator_accepts_only_python_3147(
+def test_operational_runtime_validator_accepts_python_314_patch_releases(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert validate_python_runtime() == 0
@@ -190,10 +191,13 @@ def test_operational_runtime_validator_accepts_only_python_3147(
     assert validate_python_runtime((3, 14, 7)) == 0
     assert capsys.readouterr().err == ""
 
-    assert validate_python_runtime((3, 14, 6)) == 1
+    assert validate_python_runtime((3, 14, 6)) == 0
+    assert capsys.readouterr().err == ""
+
+    assert validate_python_runtime((3, 15, 0)) == 1
     assert capsys.readouterr().err == (
-        "OntoPrism operational workflows require Python 3.14.7; "
-        "executing interpreter is 3.14.6.\n"
+        "OntoPrism operational workflows require Python 3.14.x; "
+        "executing interpreter is 3.15.0.\n"
     )
 
 
@@ -249,7 +253,7 @@ def test_runtime_validator_module_rejects_wrong_process_version() -> None:
         "-c",
         (
             "import runpy, sys; "
-            "sys.version_info = (3, 14, 6); "
+            "sys.version_info = (3, 13, 9); "
             "runpy.run_module('scripts.validation.validate_python_runtime', "
             "run_name='__main__')"
         ),
@@ -257,7 +261,7 @@ def test_runtime_validator_module_rejects_wrong_process_version() -> None:
 
     result = subprocess.run(  # noqa: S603
         command,
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
         check=False,
@@ -266,8 +270,8 @@ def test_runtime_validator_module_rejects_wrong_process_version() -> None:
     assert result.returncode == 1
     assert result.stdout == ""
     assert result.stderr == (
-        "OntoPrism operational workflows require Python 3.14.7; "
-        "executing interpreter is 3.14.6.\n"
+        "OntoPrism operational workflows require Python 3.14.x; "
+        "executing interpreter is 3.13.9.\n"
     )
 
 

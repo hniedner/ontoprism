@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar, Literal, Protocol, get_args
 
-_TEST_ROOTS = ("ontolib/tests", "backend/tests")
+_TEST_ROOTS = ("ontolib/tests", "backend/tests", "tooling_tests")
 _PATH_READ_METHODS = frozenset({"open", "read_bytes", "read_text"})
 _INPUT_TERMS = ("input", "source", "manifest")
 _INPUT_CALL_TERMS = (*_INPUT_TERMS, "load", "parse", "read")

@@ -23,7 +23,7 @@ def test_query_projects_status_and_constituent_fields() -> None:
         "?filler",
         "?axisSource",
         "?mostSpecific",
-        "?axisAmbiguityGroup",
+        "?axisAmbiguous",
         "?sourceStructuralGroup",
         "?normalizedProjectionGroup",
         "?normalizedProjectionGroupLabel",

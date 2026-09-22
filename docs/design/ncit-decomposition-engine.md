@@ -54,31 +54,18 @@ same-typed concepts outside the disease hierarchy.
 
 **Out of scope:** the molecular-biology role families — Gene (14,662), Amino Acid/Peptide/Protein (9,942), Enzyme, Receptor. Their roles (`Gene_Plays_Role_In_Process`, etc.) express genuine biology, not label-level aggregation; decomposing them yields no benefit. The hierarchy population excludes unrelated families; the detector's semantic-type applicability gate is defense in depth. Regimens remain unavailable until their distinct component-bag algorithm is implemented.
 
-**Input graph:** the **stated** NCIt OWL, already loaded into the named graph `http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl` (`STATED_GRAPH_IRI`, `ontolib/terminologies/ncit/owl_load.py`). The inferred default graph is used only for validation (§10), never for extraction — this avoids the ancestor-closure bleed and the `Excludes_*` negative axioms documented in assessment §4.
+**Input graph:** the **stated** NCIt OWL in `STATED_GRAPH_IRI`. The inferred default
+graph is never an extraction, fidelity, or defined-class closure oracle; D21 alone governs
+round-trip closure from stated definitions or classification of stated OWL.
 
 ---
 
 ## 3. Module layout
 
-New package `ontolib/decomposition/`, pure/deterministic, no FastAPI or DB coupling in the core (persistence lives behind an interface). Mirrors the existing `terminologies/ncit/` style.
-
-```
-ontolib/src/ontolib/decomposition/
-├── __init__.py
-├── axes.py             # axis catalogue: role-code → semantic axis; projected/defining/excluded
-├── detector.py         # is-pre-coordinated scorer + semantic-type gate
-├── stated_queries.py   # SPARQL against the stated named graph (no inferred closure)
-├── filler_selection.py # routed-axis specificity; co-equal preservation; morphology-from-parent
-├── nlp_fallback.py     # label/synonym parser: laterality, with/without, staging version
-├── constituent_index.py# resolve constituents to existing concepts; flag the mint tail
-├── minting.py          # deterministic synthetic-id proposals for missing qualifiers
-├── legacy_writer.py    # deterministic RDF builder → ncit_decomposed named graph / TTL
-├── models.py           # Constituent, Decomposition, DecompRun, MintedConcept, CoverageReport
-├── provenance.py       # Postgres persistence for run manifest + constituents + minted
-└── run.py              # orchestrator + CLI (`pdm run decompose --branch neoplasm`)
-```
-
-The engine reads through the stated graph via a thin query layer (`stated_queries.py`) rather than reusing `role_queries.py` directly, because those builders query the default (inferred) graph and don't take a `GRAPH` clause. `stated_queries.py` reuses the same restriction-traversal *pattern* (`rdfs:subClassOf [ owl:onProperty ?r ; owl:someValuesFrom ?t ]`) wrapped in `GRAPH <STATED_GRAPH_IRI> { … }`, and reuses `safe_iri` for injection safety.
+The implemented package is `ontolib/src/ontolib/decomposition/`; the repository tree is
+its authoritative inventory. Principal boundaries are stated traversal, branch/scope
+contracts, axis routing, complete-definition capture, additive writing, PostgreSQL
+provenance, and recoverable publication. The CLI is `pdm run decompose`.
 
 ---
 
@@ -108,7 +95,11 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
 | `op:axis` | constituent node → the normalized `op:` axis IRI; only unknown roles retain their raw NCIt role code |
-| `op:group` | constituent node → a relationship-group id (D19), persisted and read back unchanged |
+| `op:sourceRole` | original NCIt role from which a constituent was derived |
+| `op:axisAmbiguous` | boolean indicating retained co-equal or unresolved axis values |
+| `op:sourceStructuralGroup` | source stated-OWL structural group identity |
+| `op:normalizedProjectionGroup` | reviewed normalized projection-group identity |
+| `op:normalizedProjectionGroupLabel` | human-readable normalized-group label |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler was chosen over an is-a ancestor (audit aid; R82-only collapse is not encoded by this flag) |
@@ -196,12 +187,14 @@ decomp_constituent
   run_id        text NOT NULL REFERENCES decomp_run(id)
   concept_code  text NOT NULL           -- the decomposed (source) concept
   axis          text NOT NULL           -- normalized op: axis (or unknown role)
-  source_role   text                    -- NCIt role that produced the projection
+  source_roles  jsonb NOT NULL          -- canonical NCIt roles that produced it
   filler_code   text NOT NULL           -- constituent concept (may be minted)
   axis_source   text NOT NULL           -- "role" | "nlp" | "parent"
   most_specific boolean NOT NULL
   needs_review  boolean NOT NULL
-  relationship_group text
+  axis_ambiguous boolean NOT NULL
+  source_group_ids jsonb NOT NULL       -- stated structural groups
+  normalized_group_id/normalized_group_label
   source_definition_ids jsonb NOT NULL
   PRIMARY KEY (run_id, concept_code, axis, filler_code)
 
@@ -222,12 +215,13 @@ minted_concept
   axis          text NOT NULL           -- e.g. op:Laterality
   label         text NOT NULL           -- "Left", "Without Pleural Effusion"
   source_signal text NOT NULL           -- the label span / rule that produced it
-  status        text NOT NULL DEFAULT 'proposed'  -- proposed | approved | rejected
+  status        text NOT NULL DEFAULT 'proposed'  -- proposed | locally-approved | submitted | accepted-in-ncit | rejected
 ```
 
 Creating a run and its ordered worklist is one transaction. A claim-token-fenced
 per-concept transaction replaces its constituents/proposals and marks it complete;
-failures roll back before bounded failure evidence is recorded. Resume accepts only a
+failed item transactions roll back before bounded item evidence is recorded. This is
+separate from D53 publication, which has no cross-system rollback. Resume accepts only a
 matching running/failed fingerprint and processes exactly non-complete items. If the
 source changes before publication, all partial result rows are invalidated before a retry.
 Only successful run completion promotes run-scoped proposals into `minted_concept`, whose
@@ -278,26 +272,15 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
-- **R101 change evidence (D77):** the v3→v4 boundary is a strict occurrence ledger keyed by the
-  complete persisted structural occurrence identity. A removed broader same-axis projection is
-  covered only by a retained new R101 link and a replayable directed stated-R82 path. One-step and
-  closure-only evidence remain distinct; report mechanics cannot authorize content or open the
-  publication gate. The tracked report is mechanically complete but content-pending and blocked
-  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_historical_r101_review_report; r=load_historical_r101_review_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
-  2026-08-19).
-- **R101 human review (D78):** the 3,291 R82-covered occurrences are frozen in a separate packet as
-  162 endpoint patterns and 2,800 disease propositions. The workbook contains no occurrence audit
-  sheet or internal IDs. Review asks only whether the retained more-specific site supplies
-  non-exclusive projection coverage of the broader site for listed disease/source occurrences;
-  source assertions remain preserved, multiple valid narrower sites remain independent, and no
-  equivalence, universal, complete, or exclusive claim is recorded. Pattern decisions expand over
-  immutable membership, with explicit reasoned disease exceptions. Import creates a proposed
-  occurrence-level registry, and preflight only replays decision expansion with
-  `writes_performed=false`; it cannot authorize or publish the pending report
-  (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q && pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_bounded_batches`,
-  2026-08-20).
+- **R101 conservation:** the historical two-run D77/D78 review, conservation, and comparator
+  tooling was removed in #341 after its decisions were transcribed into packaged policy data.
+  The engine still records exact source occurrences and R101 dispositions. Until #417 adds the
+  per-run D74 check, readiness reports unexplained R101 loss as `not-evaluated` and owned by #417.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, source_roles,
+most_specific, needs_review, axis_ambiguous, source_group_ids,
+normalized_group_id, normalized_group_label, source_definition_ids,
+source_occurrence_ids)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 
@@ -485,8 +468,9 @@ Uberon would close the gap generally.
    256 cumulatively expanded codes, 16 constant subjects per single-attempt request,
    and 64 such requests. Each query uses `LIMIT 257` and rejects more than 256 rows;
    cumulative accepted response rows above 4,096 or a query body above 65,536 bytes
-   also fail closed. The version-pinned `26.06e` contract is
-   `C12400 -> C13063 -> C12418`.
+   also fail closed. The historical 26.06e investigation observed
+   `C12400 -> C13063 -> C12418`; current behavior is bound to the exact candidate
+   manifest and source identity, presently the 26.07d M1 source.
 2. **Do not expect it to eliminate `needs_review` for R101.** The existing
    `needs_review` flag on a tied leaf set (already part of `filler_selection.py`'s
    design) is the right mechanism for the residual ties — accept some primary-site axes
@@ -718,10 +702,10 @@ TTL are reconstructed from the full persisted run, making fresh and resumed exec
 equivalent. Source identity is rechecked before publication; drift fails the run and
 invalidates every persisted result row. The `--out` TTL is rendered to a durable staging
 sibling and validated against the exact run. With `--load`, a unique staging graph is
-transactionally promoted with its source/representation marker; the file is then
-atomically replaced and directory-synced. Only after both requested publications succeed
-is the run complete. Failures after publication intent is journaled but before completion
-remain separately visible and retryable; a matching marker-ahead retry is idempotent.
+committed with its marker in one graph-store update; the file is then atomically replaced
+and directory-synced, and PostgreSQL records completion last. These are separate native
+boundaries, not one transaction, and no cross-system rollback is promised. Matching
+marker-ahead retries reconcile; conflicting states fail closed.
 Preflight failures fail the run, while post-completion lock-release failures only surface
 cleanup failure (D53).
 
@@ -794,15 +778,12 @@ Integration tests marked `@pytest.mark.integration` run against the live stated 
 
 ---
 
-## 12. Phasing & PR cadence
+## 12. Delivery status
 
-Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit:review-pr` to zero findings before merge (pre-PR protocol):
-
-- **PR 5a — detect + extract:** `axes.py`, `detector.py`, `stated_queries.py`, `filler_selection.py`, `models.py`, the golden-file spike over ~200 neoplasm concepts. Deliverable: a pure decomposition function + coverage numbers, no writes.
-- **PR 5b — write + persist + CLI:** `nlp_fallback.py`, `minting.py`, `constituent_index.py`, `legacy_writer.py`, `provenance.py`, migration `0003_decomposition`, `run.py` + CLI, additivity test, run manifest. Deliverable: `ncit_decomposed.ttl` + `decomp_run` for the neoplasm branch.
-
-The #9 read surface is implemented through the concept decomposition API, frontend API
-client, and `DecompositionPanel`; it reads only the published decomposition graph.
+Detector, extractor, additive writer, PostgreSQL provenance, publication state machine,
+CLI, API, and frontend read surface are implemented. Remaining semantics are tracked by
+their owning issues, notably #153 for proof-bearing equivalence. Workflow lives in
+`AGENTS.md`, not this design.
 
 ---
 
@@ -810,7 +791,7 @@ client, and `DecompositionPanel`; it reads only the published decomposition grap
 
 | Risk | Mitigation |
 |---|---|
-| Inferred-vs-stated confusion (ancestor bleed, `Excludes_*`) | Extract from the **stated** graph only; most-specific selection as defense-in-depth; inferred used solely as validation oracle |
+| Inferred-vs-stated confusion (ancestor bleed, `Excludes_*`) | Extract from stated OWL; inferred observations are never closure or fidelity evidence; D21 requires stated-definition closure or classification of stated OWL |
 | Most-specific errors on multi-parent anatomy | NCIt-hierarchy (is-a + `R82` part-of) cross-check, validated §6.4 as a real-but-partial fix; ambiguous cases flagged `needs_review`, not silently resolved; Uberon not validated as a general fix |
 | Semantic loss on "without/excludes" | Model absence explicitly as a minted qualifier + `polarity`; never drop the negation |
 | Consumer breakage | Stated and inferred NCIt remain untouched (`test_additive_no_deletions`); the output graph is marker-guarded and atomically replaced as one complete publication |
@@ -831,7 +812,7 @@ records the call and the rationale.
    Second, the gate itself: count **decomposable axes** = stated defining roles **+** morphology-from-parent (§6) **+** label-signalled axes (`label_multi_aspect`, §5). A concept with a single site role but a morphology-bearing taxonomic parent is genuinely 2-axis (site + morphology) and must qualify; a raw `role_count ≥ 2` test would wrongly drop it, while truly single-axis nodes (one role, atomic parent, no label signal) are still excluded. Config key stays `min_defining_roles` (default 2) for the role component; the axis-count framing is the detector's actual predicate.
 
 2. **Regimen branch — deferred, and it needs its own mini-design (not just a later run).**
-   `Chemotherapy_Regimen_Has_Component` (14,121 axioms) is **mereological** — a regimen *has drug components* — not the site/morphology/stage **axis** model this engine is built around. It does not fit the axis catalogue, most-specific-filler selection, or morphology-from-parent machinery, so folding it into 5a/5b would force two different decomposition semantics into `axes.py`/`filler_selection.py`. Keep it out of the first pass; when it lands it gets its own small design and a distinct `--branch regimen` decomposition kind. Neoplasm + disease first. **Mini-design:** [NCIt regimen decomposition](./ncit-regimen-decomposition.md) (PR 5c).
+   `Chemotherapy_Regimen_Has_Component` (14,121 axioms) is **mereological** — a regimen *has drug components* — not the site/morphology/stage **axis** model this engine implements. It does not fit the axis catalogue, specificity selection, or morphology-from-parent machinery. Regimen remains unavailable pending its distinct component-bag algorithm. **Mini-design:** [NCIt regimen decomposition](./ncit-regimen-decomposition.md).
 
 3. **Vocabulary namespace — `https://w3id.org/ontoprism/vocab#` (prefix `op:`).**
    Nothing in-repo pins `ontoprism.org`; the only canonical identifier is `github.com/hniedner/ontoprism`. A **w3id.org persistent identifier** is the right choice: it is community-standard for linked-data/OBO vocabularies, is made resolvable via a one-line redirect PR to the w3id registry, and does **not** depend on owning (or keeping) the `ontoprism.org` domain — matching the repo's existing use of a purl persistent identifier for `UBERON_NS` (`namespaces.py`). Set `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"`. *Only* switch to `https://ontoprism.org/vocab#` if that domain is actually owned and committed to long-term; a namespace IRI need not resolve to be valid, but a stable, controllable one avoids a future migration of every `op:` triple.

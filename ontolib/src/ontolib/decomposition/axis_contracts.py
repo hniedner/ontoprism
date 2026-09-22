@@ -253,17 +253,17 @@ _CONTRACT_SEQUENCE = (
 
 AXIS_CONTRACTS = {contract.axis: contract for contract in _CONTRACT_SEQUENCE}
 _SOURCE_ROLE_TO_AXIS = {
-    contract.source_roles[0]: contract.axis
-    for contract in _CONTRACT_SEQUENCE
-    if len(contract.source_roles) == 1
-    and contract.axis
-    not in {
-        "op:AssociatedRegion",
-        "op:AssociatedLineageClassification",
-        "op:PrimarySubsite",
-        "op:AssociatedPriorDisease",
-        "op:StageSystem",
-    }
+    "R88": "op:StageValue",
+    "R100": "op:AssociatedSite",
+    "R101": "op:PrimarySite",
+    "R102": "op:MetastaticSite",
+    "R103": "op:NormalTissueOrigin",
+    "R104": "op:CellOrigin",
+    "R105": "op:CellType",
+    "R106": "op:MolecularAbnormality",
+    "R107": "op:CytogeneticAbnormality",
+    "R108": "op:ClinicalFinding",
+    "R110": "op:Grade",
 }
 _CONTRACT_SOURCE_ROLES = frozenset(
     role for contract in _CONTRACT_SEQUENCE for role in contract.source_roles

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractContextManager
 
-pytestmark = pytest.mark.mutating_integration
+pytestmark = [pytest.mark.mutating_integration, pytest.mark.slow]
 
 
 def _qlever_data_dirs(owner: IntegrationResourceOwner) -> list[Path]:

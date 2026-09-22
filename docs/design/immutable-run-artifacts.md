@@ -121,12 +121,26 @@ preserved for operator resolution. The tool contains no worktree removal, prunin
 force, or directory-deletion operation. Missing Git, failed Git inspection, and an
 empty list are distinct statuses.
 
-The Compose project identity is `ontoprism-podman-poc`, matching the existing active
-containers and volume `ontoprism-podman-poc_ontoprism_pg_data`. This change does not
-rename or move resources. Inventory marks active services and volumes protected;
+The Compose project identity is `ontoprism`; its PostgreSQL volume is explicitly pinned
+to the pre-rename `ontoprism-podman-poc_ontoprism_pg_data` name so changing the project
+cannot silently select an empty volume. Inventory marks active services and volumes protected;
 missing Docker, command failure, and an empty project are distinct statuses. Cleanup
 never targets Compose, data roots, worktrees, or unmanaged paths and never invokes a
 volume-bearing down/remove operation.
+
+Before a manual retention pass over the broader ignored `tmp/` tree, run
+`pdm run artifacts inventory` and compare every proposed removal with the artifact list
+maintained in `ontoprism-preserved/`. Keep every listed artifact, every managed or
+referenced generation, and every path whose owner or retention status is unknown. Move
+only reviewed, unlisted candidates to quarantine first; delete them only after the
+operator verifies the preserved copy and confirms the cleanup scope. The bounded
+`make clean-workspace` target is separate: it removes only test containers whose exact
+IDs and independent owner labels verify, requires the QLever mount and file marker to
+agree, then removes correctly owner-marked `data/ontoprism-qlever-*` test directories
+only when neither test-container name exists in any state. It also removes stray
+`.coverage.*` shards and never traverses the general `tmp/` tree. Failed ownership
+checks are reported and preserved for operator review, and unresolved skips make the
+command exit nonzero.
 
 ## Managed cleanup and recovery
 

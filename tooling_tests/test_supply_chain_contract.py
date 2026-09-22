@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import json
 import os
 import re
@@ -31,7 +32,7 @@ from ontolib.core.data_build_tools import (
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[1]
 _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37"
@@ -95,6 +96,24 @@ def _digest_pin_identity(image: str) -> str:
     if "/" not in repository:
         repository = f"docker.io/library/{repository}"
     return f"{repository}{separator}{digest}"
+
+
+def test_dependabot_groups_all_vitest_major_updates_together() -> None:
+    config = yaml.safe_load((_ROOT / ".github/dependabot.yml").read_text())
+    npm_update = next(
+        update
+        for update in config["updates"]
+        if update["package-ecosystem"] == "npm" and update["directory"] == "/frontend"
+    )
+
+    group = npm_update["groups"].get("vitest")
+    assert group is not None, "Dependabot needs a dedicated Vitest dependency group"
+    patterns = group.get("patterns", ())
+    assert all(
+        any(fnmatch.fnmatchcase(package, pattern) for pattern in patterns)
+        for package in ("vitest", "@vitest/coverage-v8", "@vitest/ui")
+    )
+    assert "update-types" not in group or "major" in group["update-types"]
 
 
 def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
@@ -766,12 +785,13 @@ def test_frontend_hierarchy_runner_changes_trigger_frontend_ci() -> None:
     assert "scripts/validation/frontend_coverage_hierarchy.py" in filters["frontend"]
 
 
-def test_product_identity_inputs_trigger_backend_ci() -> None:
+def test_backend_and_integration_partitions_are_not_path_gated() -> None:
     workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
-    filters = yaml.safe_load(workflow["jobs"]["changes"]["steps"][1]["with"]["filters"])
 
-    assert "frontend/src/**" in filters["backend"]
-    assert "**/*.md" in filters["backend"]
+    assert "if" not in workflow["jobs"]["backend-tests"]
+    assert "if" not in workflow["jobs"]["integration-tests"]
+    assert "needs" not in workflow["jobs"]["backend-tests"]
+    assert "needs" not in workflow["jobs"]["integration-tests"]
 
 
 def test_frontend_transitive_security_and_install_script_policy() -> None:
@@ -798,14 +818,19 @@ def test_frontend_vitest_manifest_matches_coverage_peer_and_lock() -> None:
         (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
     )
     root_lock = lock["packages"][""]["devDependencies"]
+    vitest_lock = lock["packages"]["node_modules/vitest"]
     coverage_lock = lock["packages"]["node_modules/@vitest/coverage-v8"]
 
-    assert package["devDependencies"]["vitest"] == "^4.1.11"
-    assert package["devDependencies"]["@vitest/coverage-v8"] == "^4.1.11"
+    declared = package["devDependencies"]["vitest"]
+    assert declared == package["devDependencies"]["@vitest/coverage-v8"]
+    assert declared.startswith("^")
     assert root_lock == package["devDependencies"]
-    assert lock["packages"]["node_modules/vitest"]["version"] == "4.1.11"
-    assert coverage_lock["version"] == "4.1.11"
-    assert coverage_lock["peerDependencies"]["vitest"] == "4.1.11"
+    assert vitest_lock["version"] == coverage_lock["version"]
+    assert coverage_lock["peerDependencies"]["vitest"] == vitest_lock["version"]
+    minimum = Version(declared.removeprefix("^"))
+    resolved = Version(vitest_lock["version"])
+    assert resolved.major == minimum.major
+    assert resolved >= minimum
 
 
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
@@ -1024,6 +1049,31 @@ def test_python_metadata_floor_and_exact_operational_runtime_configuration() -> 
 
     _assert_api_image_python_patch(workflow)
     _assert_ci_summary_allow_list(workflow)
+
+
+def test_main_automation_never_pushes_commits_and_release_is_tag_only() -> None:
+    workflows = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in (_ROOT / ".github/workflows").glob("*.yml")
+    }
+    release = yaml.safe_load(workflows["release.yml"])
+    release_step = next(
+        step
+        for step in release["jobs"]["release"]["steps"]
+        if step.get("name") == "Semantic release"
+    )
+
+    assert "update-readme-code-stats.yml" not in workflows
+    assert all("git push origin HEAD:main" not in text for text in workflows.values())
+    assert release_step["with"] == {
+        "github_token": "${{ secrets.GITHUB_TOKEN }}",
+        "commit": False,
+        "tag": True,
+        "push": True,
+        "changelog": False,
+        "vcs_release": True,
+        "build": False,
+    }
 
 
 @pytest.mark.parametrize("legacy_kind", ["id", "display"])

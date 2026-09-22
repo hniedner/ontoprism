@@ -197,10 +197,10 @@ proof/validation step establishes exact reversibility (D19/D21/D43/D50).
 > pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
 > coverage guarantee exists to protect. GALEN attempted full elimination and was not
 > adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination. We
-> follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
-> reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
-> capture everything the source asserts?) and `residual_precoordination` (is what we
-> produced actually atomic?). The second is **detector-relative**: it measures reducibility
+> follow SNOMED. Success ultimately requires proof-derived `roundtrip_fidelity` for
+> completeness and detector-relative `residual_precoordination` for irreducibility. Today
+> only the latter is available; new runs persist `roundtrip_fidelity: null` until #153
+> validates exact reconstruction. The available measure is **detector-relative**: it measures reducibility
 > *as our detector sees it*, not ground-truth atomicity, so a better detector moves the
 > number with no ontology change. It is therefore pinned against the SME-curated golden set,
 > where drift becomes visible (D37).
@@ -407,28 +407,8 @@ review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integra
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D89)
-and the [decomposition design series](docs/design/).
-
-<!-- CODEBASE_LINE_COUNT_TABLE:START -->
-## Codebase Line Count
-
-_This table is auto-updated by CI after successful builds on `main`._
-
-| Language | Files | Lines |
-| --- | ---: | ---: |
-| Python | 477 | 215,230 |
-| JSON | 42 | 112,678 |
-| Markdown | 37 | 14,853 |
-| TypeScript | 127 | 9,975 |
-| Svelte | 78 | 4,589 |
-| CSS | 3 | 1,993 |
-| YAML | 10 | 1,346 |
-| TOML | 7 | 1,187 |
-| JavaScript | 1 | 38 |
-| HTML | 1 | 21 |
-| **Total** | **783** | **361,910** |
-<!-- CODEBASE_LINE_COUNT_TABLE:END -->
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md),
+with the newest decision listed first, and in the [decomposition design series](docs/design/).
 
 ## Provenance
 

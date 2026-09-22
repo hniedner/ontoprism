@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,8 +14,12 @@ from ontolib.decomposition.mixed_chain_inventory import (
     HistoricalMixedChainRunBinding,
     MixedChainCandidate,
     MixedChainInventory,
+    _decompress_report,
+    _mixed_chain_path,
+    _unique_json_object,
     load_historical_mixed_chain_source_report,
     load_mixed_chain_inventory,
+    mixed_chain_worklist_identity,
     require_mixed_chain_preflight,
     write_mixed_chain_inventory,
 )
@@ -323,6 +329,105 @@ def test_historical_mixed_chain_inventory_binds_available_report_evidence() -> N
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (b"", "invalid gzip report"),
+        (b"not-gzip", "invalid gzip report"),
+        (b"\x1f\x8b\x08\x00" + b"\xff" * 20, "invalid gzip report"),
+        (b"\x1f\x8b\x08\x00broken", "trailing data"),
+        (gzip.compress(b"{}", mtime=0) + b"trailing", "trailing data"),
+    ],
+)
+def test_historical_report_decompression_rejects_malformed_members(
+    payload: bytes, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _decompress_report(payload)
+
+
+@pytest.mark.unit
+def test_historical_report_json_rejects_duplicate_keys() -> None:
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        _unique_json_object([("rows", []), ("rows", [])])
+
+
+@pytest.mark.unit
+def test_historical_report_loader_rejects_wrong_file_identity(tmp_path: Path) -> None:
+    report = tmp_path / "historical.json.gz"
+    report.write_bytes(gzip.compress(b"{}", mtime=0))
+
+    with pytest.raises(ValueError, match="file identity differs"):
+        load_historical_mixed_chain_source_report(report)
+
+
+@pytest.mark.unit
+def test_historical_report_loader_rejects_wrong_embedded_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = tmp_path / "historical.json.gz"
+    content = gzip.compress(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "source_identity": "a" * 64,
+                "new_run_id": "neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722",
+                "report_identity": "0" * 64,
+                "non_r101_delta_evidence": {"rows": []},
+            }
+        ).encode(),
+        mtime=0,
+    )
+    report.write_bytes(content)
+    real_sha256 = hashlib.sha256
+
+    def accepted_file_hash(value: bytes = b"") -> object:
+        if value == content:
+            return SimpleNamespace(
+                hexdigest=lambda: (
+                    "f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f"
+                )
+            )
+        return real_sha256(value)
+
+    monkeypatch.setattr(
+        "ontolib.decomposition.mixed_chain_inventory.hashlib.sha256",
+        accepted_file_hash,
+    )
+
+    with pytest.raises(ValueError, match="report identity differs"):
+        load_historical_mixed_chain_source_report(report)
+
+
+@pytest.mark.unit
+def test_mixed_chain_preflight_rejects_source_identity_drift() -> None:
+    inventory = _inventory()
+
+    with pytest.raises(ValueError, match="source identity differs"):
+        require_mixed_chain_preflight(
+            inventory,
+            source_identity="f" * 64,
+            worklist_identity=inventory.worklist_identity,
+            worklist_count=inventory.worklist_count,
+        )
+
+
+@pytest.mark.unit
+def test_mixed_chain_path_parser_preserves_non_sequence_input() -> None:
+    sentinel = object()
+
+    assert _mixed_chain_path(sentinel) is sentinel
+
+
+@pytest.mark.unit
+def test_worklist_identity_preserves_order_and_duplicates() -> None:
+    ordered = mixed_chain_worklist_identity(("C1", "C2"))
+
+    assert mixed_chain_worklist_identity(("C2", "C1")) != ordered
+    assert mixed_chain_worklist_identity(("C1", "C2", "C2")) != ordered
+
+
+@pytest.mark.unit
 def test_historical_mixed_chain_run_binding_rejects_noncanonical_source_rows() -> None:
     fingerprint = {
         "schema_version": 4,
@@ -386,3 +491,13 @@ def test_historical_mixed_chain_run_binding_rejects_noncanonical_source_rows() -
                 }
             )
         )
+
+    accepted = HistoricalMixedChainRunBinding.model_validate_json(
+        json.dumps(
+            {
+                **binding,
+                "fingerprint_identity": fingerprint_identity,
+            }
+        )
+    )
+    assert accepted.materialized_worklist == ("C1",)

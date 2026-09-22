@@ -10,7 +10,6 @@ ahead of the shadowing outer `ontolib/` & `backend/` directories — under prepe
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import re
 import shutil
@@ -44,10 +43,14 @@ from test_support.integration_resources import (  # noqa: E402
     MutatorManifestEntry,
     ResourceOwnershipError,
     find_persistent_mutator_tests,
+    inspect_owned_container,
+    integration_resource_lease,
     remove_owned_container_by_name,
     run_docker,
     validate_integration_test_declaration,
     validate_mutator_manifest_files,
+    verify_qlever_data_dir,
+    verify_qlever_owner,
 )
 from test_support.qlever_graph import preserve_qlever_graph  # noqa: E402
 
@@ -355,17 +358,7 @@ def _inspect_owned_container(
     *,
     docker_run: DockerRun = run_docker,
 ) -> dict[str, object]:
-    inspected = docker_run("inspect", container_id)
-    details: dict[str, object] = json.loads(inspected.stdout)[0]
-    if details["Id"] != container_id:
-        raise ResourceOwnershipError("container ID changed before teardown")
-    config = details["Config"]
-    if not isinstance(config, dict):
-        raise ResourceOwnershipError("container configuration is malformed")
-    labels = config["Labels"]
-    label = labels.get("org.ontoprism.test-owner") if isinstance(labels, dict) else None
-    owner.verify_container_label(label)
-    return details
+    return inspect_owned_container(owner, container_id, docker_run=docker_run)
 
 
 def _start_owned_container(
@@ -424,28 +417,14 @@ def _verify_qlever_owner(
     *,
     docker_run: DockerRun = run_docker,
 ) -> None:
-    details = _inspect_owned_container(owner, container_id, docker_run=docker_run)
-    mounts = details["Mounts"]
-    if not isinstance(mounts, list):
-        raise ResourceOwnershipError("QLever container mounts are malformed")
-    mounted_data_dir = next(
-        (Path(mount["Source"]) for mount in mounts if mount["Destination"] == "/data"),
-        None,
-    )
-    file_marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
-    owner.verify_qlever(
-        mounted_data_dir=mounted_data_dir,
-        expected_data_dir=data_dir,
-        file_marker=file_marker,
-    )
+    verify_qlever_owner(owner, container_id, data_dir, docker_run=docker_run)
 
 
 def _verify_qlever_data_dir(
     owner: IntegrationResourceOwner,
     data_dir: Path,
 ) -> None:
-    marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
-    owner.verify_qlever_data_dir(data_dir, marker)
+    verify_qlever_data_dir(owner, data_dir)
 
 
 def _seed_qlever(url: str) -> None:
@@ -550,7 +529,7 @@ def _prepare_qlever_ntriples(
 
 
 @contextmanager
-def _provision_postgres(
+def _provision_postgres_unlocked(
     owner: IntegrationResourceOwner,
     *,
     migrate_database: Callable[[str], None] = _migrate_database,
@@ -595,7 +574,28 @@ def _provision_postgres(
 
 
 @contextmanager
-def _provision_qlever(
+def _provision_postgres(
+    owner: IntegrationResourceOwner,
+    *,
+    migrate_database: Callable[[str], None] = _migrate_database,
+    wait_for_postgres: Callable[[str], None] = _wait_for_postgres,
+    docker_run: DockerRun = run_docker,
+) -> Iterator[tuple[str, str]]:
+    """Provision Postgres while preventing concurrent workspace cleanup."""
+    with (
+        integration_resource_lease(),
+        _provision_postgres_unlocked(
+            owner,
+            migrate_database=migrate_database,
+            wait_for_postgres=wait_for_postgres,
+            docker_run=docker_run,
+        ) as resource,
+    ):
+        yield resource
+
+
+@contextmanager
+def _provision_qlever_unlocked(
     owner: IntegrationResourceOwner,
     *,
     seed_store: Callable[[str], None] = _seed_qlever,
@@ -649,6 +649,29 @@ def _provision_qlever(
         finally:
             _verify_qlever_data_dir(owner, data_dir)
             shutil.rmtree(data_dir)
+
+
+@contextmanager
+def _provision_qlever(
+    owner: IntegrationResourceOwner,
+    *,
+    seed_store: Callable[[str], None] = _seed_qlever,
+    before_start: Callable[[], None] | None = None,
+    wait_for_qlever: Callable[[str], None] = _wait_for_qlever,
+    docker_run: DockerRun = run_docker,
+) -> Iterator[tuple[str, str]]:
+    """Provision QLever while preventing concurrent workspace cleanup."""
+    with (
+        integration_resource_lease(),
+        _provision_qlever_unlocked(
+            owner,
+            seed_store=seed_store,
+            before_start=before_start,
+            wait_for_qlever=wait_for_qlever,
+            docker_run=docker_run,
+        ) as resource,
+    ):
+        yield resource
 
 
 @pytest.fixture(scope="session")

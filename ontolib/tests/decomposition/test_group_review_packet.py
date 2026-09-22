@@ -23,15 +23,12 @@ from scripts.research.group_review_packet import (
     load_group_review_packet,
 )
 
-from ontolib.decomposition.r101_conservation import load_historical_r101_review_report
-
 pytestmark = pytest.mark.unit
 
 _ROOT = Path(__file__).parents[3]
 _GOLDEN = Path(__file__).with_name("golden")
 _EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
-_R101 = _GOLDEN / "neoplasm-r101-v4-conservation.json.gz"
 
 APPROVE = "Approve intentional normalization"
 CORRECT = "Require source-reproducible correction"
@@ -52,11 +49,7 @@ def _inputs() -> tuple[CurrentEngineEvidence, CurrentComparison]:
 
 def _packet() -> GroupReviewPacket:
     evidence, comparison = _inputs()
-    return build_group_review_packet(
-        evidence=evidence,
-        comparison=comparison,
-        r101_report=load_historical_r101_review_report(_R101),
-    )
+    return build_group_review_packet(evidence=evidence, comparison=comparison)
 
 
 def test_packet_derives_current_cohort_metrics_and_controls() -> None:
@@ -106,7 +99,7 @@ def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> 
     assert set(packet.cohort.full_disagreement_codes) <= set(
         packet.cohort.policy_evidence_codes
     )
-    assert packet.schema_version == 4
+    assert packet.schema_version == 5
     assert any(item.pair_relations.expected_not_emitted for item in packet.concepts)
     assert any(item.pair_relations.current_only_scoreable for item in packet.concepts)
     assert {
@@ -273,7 +266,6 @@ def test_genus_groups_carry_fact_coordinates_without_fabricated_occurrences() ->
     packet = build_group_review_packet(
         evidence=CurrentEngineEvidence.model_validate_json(_EVIDENCE.read_bytes()),
         comparison=CurrentComparison.model_validate_json(_COMPARISON.read_bytes()),
-        r101_report=load_historical_r101_review_report(_R101),
     )
     concept = next(item for item in packet.concepts if item.code == "C27262")
     morphology = next(
@@ -335,7 +327,6 @@ def test_wrong_highest_fanout_normalized_partition_is_rejected() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=wrong,
-            r101_report=load_historical_r101_review_report(_R101),
         )
 
 
@@ -346,7 +337,6 @@ def test_packet_rejects_rebound_and_aliased_group_identity() -> None:
         build_group_review_packet(
             evidence=evidence,
             comparison=rebound,
-            r101_report=load_historical_r101_review_report(_R101),
         )
 
     packet = _packet()
@@ -362,7 +352,6 @@ def test_generator_writes_canonical_identity_checked_json(tmp_path: Path) -> Non
     generated = generate_group_review_packet(
         evidence_path=_EVIDENCE,
         comparison_path=_COMPARISON,
-        r101_report_path=_R101,
         output=output,
     )
 
@@ -381,13 +370,13 @@ def test_generator_writes_canonical_identity_checked_json(tmp_path: Path) -> Non
         load_group_review_packet(output)
 
 
-def test_current_loader_accepts_schema_4_and_rejects_historical_schema_3(
+def test_current_loader_accepts_schema_5_and_rejects_historical_schema_3(
     tmp_path: Path,
 ) -> None:
     current = tmp_path / "current.json"
     current.write_text(_packet().model_dump_json(), encoding="utf-8")
 
-    assert load_group_review_packet(current).schema_version == 4
+    assert load_group_review_packet(current).schema_version == 5
     with pytest.raises(ValidationError, match="schema_version"):
         load_group_review_packet(
             _ROOT / "evidence/group-review-packet-26.07d-schema3.json"
@@ -411,10 +400,6 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
             "evidence.json",
             "--current-comparison",
             "comparison.json",
-            "--r101-report",
-            "r101.json.gz",
-            "--historical-r101-report",
-            "historical-r101.json.gz",
             "--output",
             "packet.json",
             "--workbook",
@@ -428,7 +413,6 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
 
     assert args.current_evidence == Path("evidence.json")
     assert args.current_comparison == Path("comparison.json")
-    assert args.r101_report == Path("r101.json.gz")
     assert args.output == Path("packet.json")
     assert args.workbook == Path("review.xlsx")
     assert args.correction_audit == Path("audit.xlsx")
@@ -438,7 +422,7 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
 def _review_boundary():
     evidence, comparison = _inputs()
     return group_review.build_machine_group_review_packet(
-        evidence=evidence, comparison=comparison, r101_report_path=_R101
+        evidence=evidence, comparison=comparison
     )
 
 
@@ -470,7 +454,7 @@ def test_machine_rule_evidence_joins_exact_source_and_output_witnesses() -> None
         } == set(row.source_group_ids)
     assert any(row.output_group_ids for row in by_kind["co-assertion-preservation"])
     assert all(row.output_pairs for row in by_kind["routing"])
-    assert any(row.r82_path for row in by_kind["specificity-collapse"])
+    assert by_kind["specificity-collapse"]
     assert all(len(row.source_occurrence_ids) > 1 for row in by_kind["repeated-pairs"])
     assert all(
         row.proposed_partition and row.affected_co_membership
@@ -886,19 +870,6 @@ def test_group_concept_rejects_stored_common_pair_flags_that_drift() -> None:
 
 
 @pytest.mark.unit
-def test_rule_evidence_rejects_kind_specific_evidence_drift() -> None:
-    row = next(item for item in _review_boundary().rule_evidence if item.r82_path)
-    payload = row.model_dump(mode="python")
-    payload["kind"] = "routing"
-    payload["row_identity"] = group_review._identity(
-        {key: value for key, value in payload.items() if key != "row_identity"}
-    )
-
-    with pytest.raises(ValidationError, match="R82 path"):
-        group_review.RuleEvidenceRow.model_validate(payload)
-
-
-@pytest.mark.unit
 def test_highest_fanout_generation_loads_each_authoritative_source_once(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -915,7 +886,6 @@ def test_highest_fanout_generation_loads_each_authoritative_source_once(
     group_review.generate_group_review_boundary(
         evidence_path=_EVIDENCE,
         comparison_path=_COMPARISON,
-        r101_report_path=_R101,
         output=output,
         workbook=workbook,
         correction_audit=tmp_path / "audit.xlsx",
@@ -923,7 +893,6 @@ def test_highest_fanout_generation_loads_each_authoritative_source_once(
     )
     assert reads[_EVIDENCE.resolve()] == 1
     assert reads[_COMPARISON.resolve()] == 1
-    assert reads[_R101.resolve()] == 1
     assert output.is_file()
     assert workbook.is_file()
     assert (tmp_path / "audit.xlsx").is_file()
@@ -954,7 +923,6 @@ def test_group_review_boundary_restores_every_output_after_generation_failure(
         group_review.generate_group_review_boundary(
             evidence_path=_EVIDENCE,
             comparison_path=_COMPARISON,
-            r101_report_path=_R101,
             output=outputs[0],
             workbook=outputs[1],
             correction_audit=outputs[2],

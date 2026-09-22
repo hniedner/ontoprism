@@ -60,7 +60,6 @@ from ontolib.decomposition.stated_queries import (
     build_in_scope_concepts_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
-    build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
@@ -244,9 +243,6 @@ async def test_stated_query_builders_parse_against_disposable_store(
     isolated_qlever_url: str,
 ) -> None:
     async with ncit_sparql_client(isolated_qlever_url) as client:
-        assert isinstance(
-            await client.select(build_role_restrictions_query("C6135")), list
-        )
         assert isinstance(await client.select(build_semantic_type_query("C6135")), list)
         assert isinstance(
             await client.select(build_ancestor_pairs_query(["C12400", "C12401"])), list
@@ -1236,7 +1232,7 @@ async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
         is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
     )
     assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
-    assert all(item.axis_ambiguity_group_id is None for item in constituents)
+    assert all(not item.axis_ambiguous for item in constituents)
 
 
 @pytest.mark.integration
@@ -1763,7 +1759,7 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
         if constituent.axis == "op:AssociatedRegion"
     ]
     assert all(
-        constituent.axis_ambiguity_group_id is None
+        constituent.axis_ambiguous is False
         and constituent.source_roles == ("R101",)
         and constituent.source_definition_ids
         and constituent.needs_review is False
@@ -1844,8 +1840,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
             "C33209",
         }, grouped.constituents
         assert all(
-            constituent.axis_ambiguity_group_id == "op:AssociatedRegion"
-            and constituent.source_definition_ids
+            constituent.axis_ambiguous and constituent.source_definition_ids
             for constituent in grouped_regions
         )
 

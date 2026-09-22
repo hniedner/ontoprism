@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import ast
-import fcntl
 import inspect
 import json
 import os
 import shutil
 import subprocess
-import tempfile
 import textwrap
 import tomllib
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,12 +34,13 @@ from test_support.integration_resources import (
     validate_mutator_manifest_entries,
     validate_mutator_manifest_files,
 )
+from test_support.tree_scan_lock import exclusive_tree_scan
 
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.xref.store import XrefStore
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
     _DockerRunner = DockerRun
     _ContainerInspector = Callable[
@@ -64,20 +62,6 @@ if TYPE_CHECKING:
 # concurrently on other workers, so a transient probe write can be observed by a
 # concurrently-executing scanner as an unmanifested mutator. A cross-process file
 # lock — every worker is a separate OS process — is the correct fix for that.
-_TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
-
-
-@contextmanager
-def _exclusive_tree_scan() -> Iterator[None]:
-    """Serialize real-tree scans against the collection-hook probe test."""
-    with _TREE_SCAN_LOCK.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
 def _declared_markers_and_fixtures(source: str) -> tuple[set[str], set[str]]:
     tree = ast.parse(source)
     markers: set[str] = set()
@@ -768,11 +752,11 @@ def test_verify_qlever_owner_rejects_malformed_mounts(
 
 @pytest.mark.unit
 def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         detected = find_persistent_mutators(root)
 
     assert entries
@@ -1009,19 +993,19 @@ class TestWrites:
 
 @pytest.mark.unit
 def test_every_detected_persistent_mutator_is_in_the_ownership_manifest() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
     manifested = frozenset(entry["path"] for entry in entries)
 
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         assert find_unmanifested_mutators(root, manifested_paths=manifested) == {}
 
 
 @pytest.mark.unit
 def test_default_integration_command_excludes_explicit_full_store_contracts() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
 
@@ -1038,7 +1022,7 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
 @pytest.mark.unit
 def test_pdm_commands_load_repo_local_certified_tool_paths() -> None:
     """Every PDM entry point must receive the same durable Jena/ROBOT defaults."""
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         scripts = tomllib.load(stream)["tool"]["pdm"]["scripts"]
     env_example = (root / ".env.example").read_text()
@@ -1057,7 +1041,7 @@ def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> Non
     every mutating test connects with an unpoisoned application environment.
     `test_all_runner_keeps_full_store_contracts_explicit` below covers the other
     dispatch path, `scripts/test_runner.py`'s `pdm run test --all`."""
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     with (root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     scripts = project["tool"]["pdm"]["scripts"]
@@ -1076,7 +1060,7 @@ def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> Non
 def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) -> None:
     pytest_executable = shutil.which("pytest")
     assert pytest_executable is not None
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     environment = {
         **os.environ,
         "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1",
@@ -1086,20 +1070,21 @@ def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) 
         ),
     }
 
-    result = subprocess.run(  # noqa: S603
-        [
-            pytest_executable,
-            "--require-full-store",
-            "backend/tests/test_migrations_integration.py::"
-            "test_migration_matches_cloned_db_schema",
-            "-q",
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    with exclusive_tree_scan():
+        result = subprocess.run(  # noqa: S603
+            [
+                pytest_executable,
+                "--require-full-store",
+                "backend/tests/test_migrations_integration.py::"
+                "test_migration_matches_cloned_db_schema",
+                "-q",
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     assert result.returncode != 0
     assert "full-store gate rejected 1 skipped contract" in (
@@ -1111,23 +1096,24 @@ def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) 
 def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
     pytest_executable = shutil.which("pytest")
     assert pytest_executable is not None
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
 
-    result = subprocess.run(  # noqa: S603
-        [
-            pytest_executable,
-            "--require-full-store",
-            "backend/tests/test_migrations_integration.py",
-            "-k",
-            "no_such_contract",
-            "-q",
-        ],
-        cwd=root,
-        env={**os.environ, "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    with exclusive_tree_scan():
+        result = subprocess.run(  # noqa: S603
+            [
+                pytest_executable,
+                "--require-full-store",
+                "backend/tests/test_migrations_integration.py",
+                "-k",
+                "no_such_contract",
+                "-q",
+            ],
+            cwd=root,
+            env={**os.environ, "ONTOPRISM_TEST_PARTITION_NESTED_BYPASS": "1"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     assert result.returncode == 1
     assert "full-store gate ran no contracts" in result.stdout + result.stderr
@@ -1147,9 +1133,9 @@ def test_collection_hook_rejects_real_noncompliant_tests_end_to_end() -> None:
     same live tree while other tests execute concurrently on other workers, and
     must never observe the probe mid-write as an unmanifested mutator.
     """
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     probe = root / "backend/tests/test_zz_collection_hook_probe.py"
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         probe.write_text(
             """
 import pytest
@@ -1219,7 +1205,7 @@ def test_all_runner_keeps_full_store_contracts_explicit() -> None:
 
 @pytest.mark.unit
 def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["integration-tests"]
     steps = job["steps"]

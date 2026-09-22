@@ -38,6 +38,8 @@ from ontolib.terminologies.ncit.sibling_store import (
     validate_ncit_sibling_manifest,
 )
 
+pytestmark = pytest.mark.slow
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
     from contextlib import AbstractContextManager

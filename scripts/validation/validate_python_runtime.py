@@ -44,7 +44,7 @@ def main(
     version_info: tuple[int, ...] | None = None,
     selector: Path = _RUNTIME_SELECTOR,
 ) -> int:
-    """Return success only for the repository's exact operational Python runtime."""
+    """Return success for the repository's operational Python minor series."""
     selected = (
         sys.version_info[:_VERSION_PART_COUNT] if version_info is None else version_info
     )
@@ -60,9 +60,9 @@ def main(
     required_runtime = _required_runtime(selector)
     if required_runtime is None:
         return 1
-    if selected == required_runtime:
+    if selected[:2] == required_runtime[:2]:
         return 0
-    required_text = ".".join(map(str, required_runtime))
+    required_text = ".".join(map(str, required_runtime[:2])) + ".x"
     actual_text = ".".join(map(str, selected))
     print(
         f"OntoPrism operational workflows require Python {required_text}; "

@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from rich.console import Console
 
-_RUNNER_PATH = Path(__file__).resolve().parents[2] / "scripts" / "test_runner.py"
+_RUNNER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "test_runner.py"
 _spec = importlib.util.spec_from_file_location("summary_runner", _RUNNER_PATH)
 assert _spec is not None
 assert _spec.loader is not None

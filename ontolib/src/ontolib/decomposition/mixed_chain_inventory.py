@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import zlib
 from itertools import pairwise
 from pathlib import Path
 from typing import Literal, Self
@@ -20,13 +21,10 @@ from pydantic import (
 
 from ontolib.decomposition.atomic_write import atomic_write_bytes
 from ontolib.decomposition.models import SemanticRoute
-from ontolib.decomposition.r101_conservation import (
-    _decompress_report,
-    _unique_json_object,
-)
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _RUN_ID = r"^neoplasm-[0-9a-f-]+$"
+_GZIP_HEADER_SIZE = 10
 _REQUIRED_CANARIES = frozenset({"C102570", "C161649", "C175329", "C27381"})
 _HISTORICAL_REPORT_FILE_IDENTITY = (
     "f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f"
@@ -34,6 +32,32 @@ _HISTORICAL_REPORT_FILE_IDENTITY = (
 HISTORICAL_MIXED_CHAIN_SELECTOR_IDENTITY = (
     "aa777510e0ffc0a7cfc8c3682506c046300ed6749598b78504eb1ce8a3888608"
 )
+
+
+def _decompress_report(compressed: bytes) -> bytes:
+    if (
+        len(compressed) < _GZIP_HEADER_SIZE
+        or compressed[:3] != b"\x1f\x8b\x08"
+        or compressed[3] != 0
+    ):
+        raise ValueError("invalid gzip report")
+    decompressor = zlib.decompressobj(wbits=31)
+    try:
+        content = decompressor.decompress(compressed) + decompressor.flush()
+    except zlib.error as error:
+        raise ValueError("invalid gzip report") from error
+    if not decompressor.eof or decompressor.unused_data:
+        raise ValueError("gzip report contains trailing data or multiple members")
+    return content
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 class _StrictModel(BaseModel):

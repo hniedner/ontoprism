@@ -66,11 +66,8 @@ required_production_paths = [
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",
-  "scripts/dev/stamp_lock_version.py",
-  "scripts/dev/update_readme_code_stats.py",
   "migrations/env.py",
   ".github/workflows/release.yml",
-  ".github/workflows/update-readme-code-stats.yml",
 ]
 required_test_paths = [
   "frontend/src/lib/components/AlignmentLinks.svelte.test.ts",
@@ -252,14 +249,6 @@ pattern = "scripts/dev/reconstruct_versions.py"
 group = "release-workflows"
 
 [[assignment]]
-pattern = "scripts/dev/stamp_lock_version.py"
-group = "release-workflows"
-
-[[assignment]]
-pattern = "scripts/dev/update_readme_code_stats.py"
-group = "release-workflows"
-
-[[assignment]]
 pattern = "scripts/research/**"
 group = "research"
 
@@ -323,10 +312,6 @@ group = "non-executable"
 pattern = ".github/workflows/release.yml"
 group = "release-yaml"
 
-[[assignment]]
-pattern = ".github/workflows/update-readme-code-stats.yml"
-group = "release-yaml"
-
 # A `pragma-no-cover` exemption is keyed by file path: a file carries exactly as many
 # inline ignore markers as it has such exemptions. `review_issue` names the issue that
 # reviewed the exemption (it may be closed); `review_after` is the date by which it must
@@ -346,7 +331,7 @@ path = "if TYPE_CHECKING:"
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "TYPE_CHECKING blocks are static typing imports and do not execute in production."
-behavioral_test = "backend/tests/test_coverage_hierarchy.py"
+behavioral_test = "tooling_tests/test_coverage_hierarchy.py"
 review_issue = 169
 review_after = "2027-01-25"
 configured_in = "pyproject.toml"
@@ -356,7 +341,7 @@ path = "raise NotImplementedError"
 kind = "coverage-exclude-regex"
 owner = "Python maintainers"
 rationale = "Abstract-interface sentinel branches are not executable implementation behavior; the manifest validator detects drift in this exclusion."
-behavioral_test = "backend/tests/test_coverage_hierarchy.py"
+behavioral_test = "tooling_tests/test_coverage_hierarchy.py"
 review_issue = 169
 review_after = "2027-01-25"
 configured_in = "pyproject.toml"
@@ -368,15 +353,6 @@ owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
 behavioral_test = "ontolib/tests/terminologies/test_retry_backoff.py"
 review_issue = 169
-review_after = "2027-01-25"
-
-[[exemption]]
-path = "scripts/dev/update_readme_code_stats.py"
-kind = "pragma-no-cover"
-owner = "release automation maintainers"
-rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
-behavioral_test = "ontolib/tests/dev/test_update_readme_code_stats.py"
-review_issue = 172
 review_after = "2027-01-25"
 
 [[exemption]]

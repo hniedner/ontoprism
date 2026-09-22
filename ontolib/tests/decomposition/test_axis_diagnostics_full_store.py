@@ -12,6 +12,7 @@ from ontolib.decomposition.axis_diagnostics import (
     disjoint_pairs_from_rows,
     read_axis_diagnostic_source,
 )
+from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
@@ -98,6 +99,14 @@ async def test_ncit_26_07d_stated_all_disjoint_classes_shape_is_complete() -> No
             for set_id in sets
         )
     )
+    participants = tuple(
+        value
+        for row in rows
+        for binding in ("left", "right", "first")
+        if (value := row.get(binding)) is not None
+    )
+    assert participants
+    assert all(value.startswith(NCIT_NS) for value in participants)
     observed = (
         manifest.ontology_version,
         manifest.source_identity,

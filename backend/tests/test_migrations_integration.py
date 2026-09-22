@@ -643,7 +643,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0028_distinct_group_identities"
+    assert revision == "0030_axis_ambiguity_default"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -718,7 +718,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     assert {
         "needs_review": "boolean",
         "source_roles": "jsonb",
-        "axis_ambiguity_group_id": "text",
+        "axis_ambiguous": "boolean",
         "source_group_ids": "jsonb",
         "normalized_group_id": "text",
         "normalized_group_label": "text",
@@ -1024,6 +1024,20 @@ async def _definition_presence_is_absent(dsn: str) -> bool:
         await conn.close()
 
 
+async def _historical_0028_ambiguity_values(
+    dsn: str,
+) -> list[tuple[str, str | None]]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        rows = await conn.fetch(
+            "SELECT axis,axis_ambiguity_group_id FROM decomp_constituent "
+            "WHERE run_id='preserved-run' ORDER BY axis"
+        )
+        return [(row["axis"], row["axis_ambiguity_group_id"]) for row in rows]
+    finally:
+        await conn.close()
+
+
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 @pytest.mark.usefixtures("isolated_migration_postgres_settings")
@@ -1139,11 +1153,13 @@ def test_distinct_group_identity_migration_preserves_existing_runs() -> None:
         finally:
             await conn.close()
 
-    async def migrated_values() -> tuple[int, int, list[tuple[object, ...]], bool]:
+    async def migrated_values() -> tuple[
+        int, int, list[tuple[object, ...]], bool, str | None
+    ]:
         conn = await asyncpg.connect(dsn)
         try:
             rows = await conn.fetch(
-                "SELECT axis,axis_ambiguity_group_id,source_group_ids,"
+                "SELECT axis,axis_ambiguous,source_group_ids,"
                 "normalized_group_id,normalized_group_label FROM decomp_constituent "
                 "WHERE run_id='preserved-run' ORDER BY axis"
             )
@@ -1166,7 +1182,7 @@ def test_distinct_group_identity_migration_preserves_existing_runs() -> None:
                 sorted(
                     (
                         row["axis"],
-                        row["axis_ambiguity_group_id"],
+                        row["axis_ambiguous"],
                         json.loads(row["source_group_ids"]),
                         row["normalized_group_id"],
                         row["normalized_group_label"],
@@ -1174,6 +1190,11 @@ def test_distinct_group_identity_migration_preserves_existing_runs() -> None:
                     for row in rows
                 ),
                 rejected,
+                await conn.fetchval(
+                    "SELECT column_default FROM information_schema.columns "
+                    "WHERE table_name='decomp_constituent' "
+                    "AND column_name='axis_ambiguous'"
+                ),
             )
         finally:
             await conn.close()
@@ -1181,15 +1202,19 @@ def test_distinct_group_identity_migration_preserves_existing_runs() -> None:
     try:
         command.downgrade(cfg, "0027_full_run_admission")
         before = asyncio.run(seed_and_read())
+        command.upgrade(cfg, "0028_distinct_group_identities")
+        historical = asyncio.run(_historical_0028_ambiguity_values(dsn))
         command.upgrade(cfg, "head")
         after = asyncio.run(migrated_values())
     finally:
         command.upgrade(cfg, "head")
 
     assert before == (1, 2)
+    assert historical == [("op:Morphology", "ambiguity-a"), ("R1", None)]
     assert after[:2] == before
     assert after[2] == [
-        ("R1", None, [group_b], None, None),
-        ("op:Morphology", "ambiguity-a", [group_a], None, None),
+        ("R1", False, [group_b], None, None),
+        ("op:Morphology", True, [group_a], None, None),
     ]
     assert after[3] is True
+    assert after[4] == "false"

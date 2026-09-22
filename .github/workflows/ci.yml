@@ -36,7 +36,6 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
       embeddings: ${{ steps.filter.outputs.embeddings }}
@@ -48,23 +47,6 @@ jobs:
         id: filter
         with:
           filters: |
-            backend:
-              - 'ontolib/**'
-              - 'backend/**'
-              - 'scripts/**'
-              - 'test_support/**'
-              - 'migrations/**'
-              - 'data/**'
-              - 'conftest.py'
-              - 'alembic.ini'
-              - 'pyproject.toml'
-              - 'coverage-surfaces.toml'
-              - 'pdm.lock'
-              - '.pre-commit-config.yaml'
-              - '.opencode/**'
-              - 'frontend/src/**'
-              - '**/*.md'
-              - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
               - 'coverage-surfaces.toml'
@@ -142,8 +124,6 @@ jobs:
 
   backend-tests:
     name: backend tests (shard ${{ matrix.shard }}/2)
-    needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -380,8 +360,6 @@ jobs:
   # test harness; application endpoints remain dead sentinels until a test opts in.
   integration-tests:
     name: integration tests (services, shard ${{ matrix.shard }}/2)
-    needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

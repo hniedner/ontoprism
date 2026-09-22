@@ -598,23 +598,13 @@ def apply_normalized_group_policy(
         return NotApplicable(decomposition=decomposition)
     _validate_decomposition_input(decomposition, row)
     _validate_genus_evidence(decomposition, row)
-    evidence_by_pair = {item.pair: item for item in row.source_pair_evidence}
     grouped = []
     for item in decomposition.constituents:
         pair = (item.axis, item.filler_code)
         block = row.block_for(pair)
-        pair_evidence = evidence_by_pair[pair]
         grouped.append(
             replace(
                 item,
-                source_group_ids=tuple(
-                    sorted(
-                        {
-                            coordinate.source_group_id
-                            for coordinate in pair_evidence.source_coordinates
-                        }
-                    )
-                ),
                 normalized_group_id=block.normalized_group_id,
                 normalized_group_label=block.normalized_group_label,
             )

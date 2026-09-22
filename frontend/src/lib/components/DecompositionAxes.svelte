@@ -20,7 +20,7 @@
 		const blocks = new SvelteMap<string, DisplayConstituent[]>();
 		for (const group of axes) {
 			for (const item of group.items) {
-				const key = item.normalized_group_id ?? `outside-policy:${item.axis}:${item.filler}`;
+				const key = item.normalized_group_id ?? `outside-policy:${group.label}:${item.axis}`;
 				blocks.set(key, [...(blocks.get(key) ?? []), { axisLabel: group.label, item }]);
 			}
 		}
@@ -28,10 +28,12 @@
 	}
 </script>
 
-{#snippet constituent(display: DisplayConstituent)}
+{#snippet constituent(display: DisplayConstituent, showAxis: boolean)}
 	{@const c = display.item}
 	<li class="flex items-center gap-2 text-sm">
-		<span class="font-mono text-xs uppercase tracking-wide text-muted">{display.axisLabel}</span>
+		{#if showAxis}
+			<span class="font-mono text-xs uppercase tracking-wide text-muted">{display.axisLabel}</span>
+		{/if}
 		<a
 			href={resolve('/repositories/ncit/[code]', { code: c.filler })}
 			class="min-w-0 truncate text-secondary no-underline hover:text-primary-600"
@@ -47,21 +49,19 @@
 		{#if c.source_group_ids.length}
 			<span class="text-xs text-subtle">Source groups: {c.source_group_ids.join(', ')}</span>
 		{/if}
-		{#if c.axis_ambiguity_group_id}
-			<span class="text-xs text-subtle">Axis ambiguity: {c.axis_ambiguity_group_id}</span>
+		{#if c.axis_ambiguous}
+			<span class="text-xs text-subtle">Ambiguous axis</span>
 		{/if}
 	</li>
 {/snippet}
 
 {#snippet normalizedBlock(block: DisplayConstituent[])}
 	{@const label = block[0].item.normalized_group_label}
-	<div role="group" aria-label={label ?? `Ungrouped ${block[0].axisLabel}`}>
-	{#if label}
-		<div class="text-xs font-medium text-muted">{label}</div>
-	{/if}
+	<div role="group" aria-label={label ?? block[0].axisLabel}>
+		<div class="text-xs font-medium text-muted">{label ?? block[0].axisLabel}</div>
 	<ul class="flex flex-col gap-1">
 		{#each block as item (item.item.axis + item.item.filler)}
-			{@render constituent(item)}
+			{@render constituent(item, label !== null)}
 		{/each}
 	</ul>
 	</div>

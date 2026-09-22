@@ -7,18 +7,15 @@ name: Release
 #   - `pull_request: closed` fires on the PR head, not the merge commit, so the
 #     released tree would not be what actually landed on main.
 #   - `workflow_run` on a successful CI run of a `push` to main means the pushed
-#     tree is green, whether it arrived through a PR or a permitted direct push.
+#     tree is green after its required PR checks and post-merge push CI.
 #
-# Main's ruleset prevents force-pushes and deletion but does not yet require PRs or
-# CI, so a direct push would also land here. That is safe: the guard step below refuses
-# to release anything that is no longer main's tip, so a fast follow-up merge (or
-# a direct push racing a merge) can never be released twice or rewound. Protecting
-# main and requiring CI would make the invariant structural rather than incidental.
+# Main's ruleset requires the PR checks. This workflow adds only a release tag and a
+# GitHub release to the already-validated main commit; it never pushes a commit to main.
 
 on:
   # Manual escape hatch. The automatic path below DEFERS whenever main has advanced
-  # past the CI-validated commit with non-README changes, on the assumption that the
-  # newer update's own CI run will release. Two updates landing within ~a minute of each
+  # past the CI-validated commit, on the assumption that the newer update's own CI run
+  # will release. Two updates landing within ~a minute of each
   # other can defeat that: the first defers to the second, and if the second's release
   # run does not fire, the release is simply lost — silently, with a green main. That
   # happened to v0.14.1 (the fix(search) relevance fix merged 40s before a docs PR).
@@ -27,9 +24,8 @@ on:
   workflow_dispatch:
 
   # zizmor: ignore[dangerous-triggers] — workflow_run is used deliberately and
-  # safely here: the guard step below requires the CI-validated commit or a successor
-  # that differs only in README.md; manual dispatch relies on an operator check. The
-  # job never checks out untrusted PR code.
+  # safely here: the guard step below requires the CI-validated commit; manual dispatch
+  # relies on an operator check. The job never checks out untrusted PR code.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -53,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write   # push the version commit + tag, create the GitHub release
+      contents: write   # push the tag and create the GitHub release
       id-token: write   # OIDC, required by python-semantic-release
     outputs:
       released: ${{ steps.release.outputs.released }}
@@ -73,14 +69,6 @@ jobs:
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
-          subject="$(git log -1 --pretty=%s)"
-          case "$subject" in
-            'chore(release):'*)
-              echo "Head is semantic-release's own version commit; nothing to do."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-              ;;
-          esac
           if [ -z "${VALIDATED_SHA:-}" ]; then
             # Manual dispatch: there is no workflow_run to validate against, so the
             # operator is asserting that main's tip is good. That is the point of the
@@ -92,22 +80,9 @@ jobs:
             exit 0
           fi
           if [ "$head" != "$VALIDATED_SHA" ]; then
-            # main advanced past the CI-validated commit. The "Update README Code
-            # Stats" workflow runs after each push to main and commits when stats change.
-            # Its commits use the default GITHUB_TOKEN, so they never trigger their own
-            # CI/release run. The old "defer, its CI will release it" assumption stranded
-            # every release after v0.7.3. Releasing HEAD is safe as long as the only drift
-            # from the CI-validated tree is README.md; any other change means a genuine newer
-            # main update is in flight, whose own (real) CI run will release it.
-            drift="$(git diff --name-only "$VALIDATED_SHA" "$head" --)"
-            non_readme="$(printf '%s\n' "$drift" | grep -vxF 'README.md' || true)"
-            if [ -n "$non_readme" ]; then
-              echo "main advanced past $VALIDATED_SHA with non-README changes; deferring to that update's own CI run."
-              printf '%s\n' "$non_readme" | sed 's/^/  drift: /'
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "main advanced past $VALIDATED_SHA only in README.md (or not at all); safe to release HEAD."
+            echo "main advanced past $VALIDATED_SHA; deferring to that update's own CI run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
@@ -117,8 +92,12 @@ jobs:
         uses: python-semantic-release/python-semantic-release@9a026e9303981c866c3425723009becb2437c757  # v10.6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          git_committer_name: ontoprism-bot
-          git_committer_email: noreply@ontoprism.invalid
+          commit: false
+          tag: true
+          push: true
+          changelog: false
+          vcs_release: true
+          build: false
 
       - name: Summary
         if: always()
@@ -132,7 +111,7 @@ jobs:
             echo "## Release"
             echo
             if [ "$SKIPPED" = "true" ]; then
-              echo "Skipped — head is a release commit, or main advanced past the validated commit with non-README changes (that update's own CI will release it)."
+              echo "Skipped — main advanced past the validated commit; that update's own CI run will release it."
             elif [ "$RELEASED" = "true" ]; then
               echo "Released **$TAG** — $LINK"
             else

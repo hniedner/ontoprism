@@ -38,7 +38,7 @@ from ontolib.decomposition.normalized_group_policy import (
 )
 
 _MIN_DIAGNOSIS_PAIRS = 2
-_CURRENT_PACKET_SCHEMA_VERSION = 4
+_CURRENT_PACKET_SCHEMA_VERSION = 5
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
@@ -73,7 +73,7 @@ def _concept_semantics_without_groups(
     for concept in evidence.concepts:
         payload = concept.model_dump(mode="json")
         for constituent in payload["constituents"]:
-            constituent.pop("axis_ambiguity_group_id")
+            constituent.pop("axis_ambiguous")
             constituent.pop("source_group_ids")
             constituent.pop("source_facts")
             constituent.pop("normalized_group_id")

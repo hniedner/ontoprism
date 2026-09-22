@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import fcntl
 import os
 import pathlib
 import subprocess
-import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, get_args
 
@@ -28,28 +25,17 @@ from scripts.validation.unit_checkout_hermeticity import (
     mixed_test_marker_violations,
     unit_test_surface_violations,
 )
+from test_support.tree_scan_lock import exclusive_tree_scan
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Sequence
 
 
-_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _inventory(*files: str) -> TrackedInventory:
     return TrackedInventory.from_files(frozenset(files))
-
-
-@contextmanager
-def _exclusive_tree_scan() -> Iterator[None]:
-    """Serialize the real-tree gate against the collection-hook probe test."""
-    with _TREE_SCAN_LOCK.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _git(root: Path, *arguments: str) -> None:
@@ -217,7 +203,7 @@ def test_temporary_manifest(tmp_path: Path) -> None:
 def test_detector_resolves_segmented_repository_anchors() -> None:
     source = """
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 def test_manifest() -> None:
     (ROOT / "private-corpus" / "manifest.json").read_text()
 """
@@ -750,6 +736,7 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "--",
                 "ontolib/tests",
                 "backend/tests",
+                "tooling_tests",
             ),
             tmp_path,
             10.0,
@@ -763,6 +750,7 @@ def test_surface_batches_deterministic_git_inventory_commands(tmp_path: Path) ->
                 "--",
                 "ontolib/tests",
                 "backend/tests",
+                "tooling_tests",
             ),
             tmp_path,
             10.0,
@@ -1039,7 +1027,7 @@ def test_input_semantics_override_output_words_and_allow_spaced_paths(
 
 @pytest.mark.unit
 def test_repository_unit_surface_uses_only_tracked_checkout_inputs() -> None:
-    with _exclusive_tree_scan():
+    with exclusive_tree_scan():
         violations = unit_test_surface_violations(_ROOT)
     assert violations == (), "\n".join(
         f"{item.path}:{getattr(item, 'line', '-')}: {item.message}"

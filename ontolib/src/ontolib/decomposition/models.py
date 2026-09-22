@@ -550,9 +550,9 @@ class RoleRestriction:
     ``role_code`` is the NCIt property code (e.g. ``R105``); ``role_label`` is its
     human-readable name (e.g. ``Disease_Has_Abnormal_Cell``) when resolvable — the
     label is what the ``Excludes_*`` / defining classification keys on.
-    ``anchoring_genus`` is the genus code on which this restriction was found during
-    the DAG walk (populated by PR-B; ``None`` on the flat path). Source IDs bind a
-    projected restriction to its canonical stated fact and occurrences when available.
+    ``anchoring_genus`` is the genus code on which this restriction was found; it is
+    absent when no traversal anchor is available. Source IDs record the selected stated
+    fact and occurrences when available.
     """
 
     role_code: str
@@ -587,9 +587,9 @@ class Constituent:
     ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
     ``source_roles`` preserves every defining NCIt role independently. ``most_specific``
     records that the filler was chosen over a strictly broader is-a candidate;
-    ``needs_review`` flags an unresolved ordinary axis. Group identities are
-    deliberately separate: axis ambiguity, source OWL structure, and reviewed
-    normalized projection.
+    ``needs_review`` flags an unresolved ordinary axis. ``axis_ambiguous`` records
+    retained co-equal values without pretending the axis name is a group identity.
+    Source OWL structure and reviewed normalized projection retain real identities.
     """
 
     axis: str
@@ -598,7 +598,7 @@ class Constituent:
     source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
-    axis_ambiguity_group_id: str | None = None
+    axis_ambiguous: bool = False
     source_group_ids: tuple[str, ...] = ()
     normalized_group_id: str | None = None
     normalized_group_label: str | None = None
@@ -654,7 +654,7 @@ class SpecificityPathEdge:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OccurrenceDisposition:
-    """The engine's exact route/reduction verdict for one source occurrence."""
+    """A route/reduction verdict for one eligible persisted source occurrence."""
 
     kind: R101DispositionKind
     source_occurrence_id: str

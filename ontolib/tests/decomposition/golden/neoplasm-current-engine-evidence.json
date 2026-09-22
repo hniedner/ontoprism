@@ -236,7 +236,7 @@
       "constituents": [
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C41063",
           "needs_review": false,
           "normalized_group_id": "589caf9899703fdc3dace554a91cead8ec918887d2bf035f666760e8667093ba",
@@ -281,7 +281,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36220",
           "needs_review": true,
           "normalized_group_id": "e8cc9ca32a0a00914a44b26a7ce9e3ce147dd10681a730b4aed0a533616fbc10",
@@ -326,7 +326,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C41397",
           "needs_review": true,
           "normalized_group_id": "e8cc9ca32a0a00914a44b26a7ce9e3ce147dd10681a730b4aed0a533616fbc10",
@@ -371,7 +371,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C35501",
           "needs_review": false,
           "normalized_group_id": null,
@@ -398,7 +398,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9290",
           "needs_review": false,
           "normalized_group_id": null,
@@ -425,7 +425,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C13051",
           "needs_review": false,
           "normalized_group_id": "afd4818cd24d8227f590b446e1cb7fd8dbd30bcf4bc260376fc0eabd43b72183",
@@ -470,7 +470,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12431",
           "needs_review": false,
           "normalized_group_id": "8b4977a17a9b4451af174706b1d4eb905c0a5c7b50c26687b3fda0e58d16de6d",
@@ -861,7 +861,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedSite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12321",
           "needs_review": false,
           "normalized_group_id": "27a6825c346663f432f0a3ee5e21ddc078c2e24f4b15ba3d35e1ef5900c59656",
@@ -906,7 +906,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36903",
           "needs_review": false,
           "normalized_group_id": "143c1eb07a01debfe75709cac2b59b12e22a3bdc171faca18c1927d66b67a49e",
@@ -951,7 +951,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C156460",
           "needs_review": false,
           "normalized_group_id": "296761d27581f824f058ecee48444fafe828f3008207041fc45639a79ecb2859",
@@ -996,7 +996,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C121619",
           "needs_review": false,
           "normalized_group_id": null,
@@ -1023,7 +1023,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C39986",
           "needs_review": false,
           "normalized_group_id": null,
@@ -1495,7 +1495,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C54224",
           "needs_review": false,
           "normalized_group_id": "ae1c5eef48ddec1f3182a4463de0d18aa7977058caff51aa86242cf0868261d4",
@@ -1540,7 +1540,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36771",
           "needs_review": false,
           "normalized_group_id": "7dfcac90e085beda32333beff26e911edfe18a4d4238946069b74584a7b032dc",
@@ -1585,7 +1585,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C42690",
           "needs_review": false,
           "normalized_group_id": "6bb972523638b63ee5a1196aabb15ed99945ea3ef17e3d673c064848bdb8f703",
@@ -1612,7 +1612,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9315",
           "needs_review": false,
           "normalized_group_id": "b1e8f2f586bf03f973b0ff6b96e3111fbc30f213b7f05f0bb85884a5e082e860",
@@ -1650,7 +1650,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": "op:StageSystem",
+          "axis_ambiguous": true,
           "filler": "C90529",
           "needs_review": false,
           "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
@@ -1695,7 +1695,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": "op:StageSystem",
+          "axis_ambiguous": true,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
@@ -1740,7 +1740,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-d104509874ed",
           "needs_review": false,
           "normalized_group_id": "ecd442d4af539b4302a7b58882b23af8e9df19ef91b051d1b066263dbc4a1987",
@@ -1752,7 +1752,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27966",
           "needs_review": false,
           "normalized_group_id": "b379aa04e16b54cf0e7bc5f48551f0ba31eb796dce13501c1c0e6f9f950dc161",
@@ -2559,7 +2559,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12704",
           "needs_review": false,
           "normalized_group_id": "d48cb53950fda89866aa8fbc9caa3d7365a5e3dbc51452d537dc182ae0d25232",
@@ -2604,7 +2604,7 @@
         },
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12705",
           "needs_review": false,
           "normalized_group_id": "d48cb53950fda89866aa8fbc9caa3d7365a5e3dbc51452d537dc182ae0d25232",
@@ -2649,7 +2649,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C13063",
           "needs_review": false,
           "normalized_group_id": "5c7fe7feae3410ff0c204c3515d170964bd132607d750cab8359f1b07f8aaeca",
@@ -2694,7 +2694,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36836",
           "needs_review": false,
           "normalized_group_id": "3b780fa71baf0d1a28502bb8f58bed5d9224b27a7561841e2bcacd5ec8c8f75c",
@@ -2739,7 +2739,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C188014",
           "needs_review": true,
           "normalized_group_id": "b961f093ce51af621ad625c86d18dd3c3f6366d1354a076fcccd766c1ff1e036",
@@ -2784,7 +2784,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C47806",
           "needs_review": true,
           "normalized_group_id": "657c55b6ef965cd953ea44a0feca334c9c17845c2b5d559108d24c25f970da58",
@@ -2829,7 +2829,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C47817",
           "needs_review": true,
           "normalized_group_id": "e99bd96941b26882c211d20cdc34674db586412bbaca5e5809b68da1d5294b87",
@@ -2874,7 +2874,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C7153",
           "needs_review": false,
           "normalized_group_id": "88706c2233ffae993de00da24f84401833122dff24ff723f97c1a5c543502977",
@@ -2901,7 +2901,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C33782",
           "needs_review": false,
           "normalized_group_id": "f3cd7233b6c10f1740ce9a194f265491f9c10c2cae2617d990ba45bb47a636ca",
@@ -2946,7 +2946,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12400",
           "needs_review": false,
           "normalized_group_id": "71e8c28ec3bd6799c0e146e5a5a29b41cfbd05eff3cad09c83aa31fdffedef3e",
@@ -2991,7 +2991,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C140961",
           "needs_review": false,
           "normalized_group_id": "f44e8375c054be5ba69054566902fe284ecda9635aa584e952d8acf3eb672536",
@@ -3036,7 +3036,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "normalized_group_id": "a9ff671803bdeb0228c57c3cb1d7f01b40c014e87b97e5b2af350fb213de5b37",
@@ -3048,7 +3048,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27966",
           "needs_review": false,
           "normalized_group_id": "f44e8375c054be5ba69054566902fe284ecda9635aa584e952d8acf3eb672536",
@@ -3734,7 +3734,7 @@
       "constituents": [
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C40557",
           "needs_review": true,
           "normalized_group_id": "3108b81201b006cf4cb292fde6573eefdf7093146e3703c2560d8f8e3ef1a476",
@@ -3779,7 +3779,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C40989",
           "needs_review": true,
           "normalized_group_id": "b76e4a8a459fa8c63194d1be3b50798d7f378ce5217babe1ba06932d72216dba",
@@ -3824,7 +3824,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C41444",
           "needs_review": true,
           "normalized_group_id": "cbbbbabb3df624849e6c252bb3b9625341d319a321073aa986fe0398816f7182",
@@ -3869,7 +3869,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C48322",
           "needs_review": true,
           "normalized_group_id": "4e165ac3a05e9869ab39c6be45ff76eee9b82e6f8c84486b663b9615ece6ab70",
@@ -3914,7 +3914,7 @@
         },
         {
           "axis": "op:MetastaticSite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C32298",
           "needs_review": false,
           "normalized_group_id": "c564dd7217d326c66b653b25971d44e6e6c84d7803ebe2ebd6b3ab549fe1fff0",
@@ -3959,7 +3959,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C8566",
           "needs_review": false,
           "normalized_group_id": "aecb07847211811c01e4183d78c0343b1df6cfe23a98905f5a4d4982cdcfef69",
@@ -3986,7 +3986,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C132248",
           "needs_review": false,
           "normalized_group_id": "bef73e9f0d61bd8f593423cc29cf0d33c900bd55896e54f77fce88e0e7b1e0e4",
@@ -4031,7 +4031,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-4563e6974906",
           "needs_review": false,
           "normalized_group_id": "f1664fc7f42e6975bf01f275602662efee408dd495ec20ee6dc3f6d16da64ac2",
@@ -4043,7 +4043,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27970",
           "needs_review": false,
           "normalized_group_id": "bef73e9f0d61bd8f593423cc29cf0d33c900bd55896e54f77fce88e0e7b1e0e4",
@@ -4657,7 +4657,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12402",
           "needs_review": false,
           "normalized_group_id": "54df547e048324ad64aaf4ab1ef0207fa883b76a7fa0d6a6c83932b4e482de90",
@@ -4702,7 +4702,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36753",
           "needs_review": false,
           "normalized_group_id": "eaaf0f6e346d5320334ffb3ffcea0e176d43b2f3505c7116c9c47e141d8f2aaa",
@@ -4747,7 +4747,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9039",
           "needs_review": false,
           "normalized_group_id": "9b68c14f97b176773d4c3a535718acbcc43ab610cb749d2534c16b52279a426f",
@@ -4774,7 +4774,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C49218",
           "needs_review": false,
           "normalized_group_id": "0ab1d0e97a21349ee9529a2a9b7c11de9301839a49c9db8bb37806c04db3ea74",
@@ -4819,7 +4819,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12311",
           "needs_review": false,
           "normalized_group_id": "4b4d7b931d0508649971ce94e77b76bb36194ef62997d130287244f795536b3a",
@@ -4864,7 +4864,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C180901",
           "needs_review": false,
           "normalized_group_id": "cdc4d1db2bfb4d4dd9c39d0625e787fb5ccf265823499e7f30118993e0fe6347",
@@ -4909,7 +4909,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-27f8060dd413",
           "needs_review": false,
           "normalized_group_id": "536c8a049c17577370be3c048ab78fcf5c2b23e14e7c803d2d65b1b276d9aed8",
@@ -4921,7 +4921,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27966",
           "needs_review": false,
           "normalized_group_id": "d20fdee0e094394ca8816bb72b5aaf0842266de9b349f3efce232634c2dd8cbe",
@@ -5535,7 +5535,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12402",
           "needs_review": false,
           "normalized_group_id": "d9a38b4a84ce0927db4c0e628a66a4ce8a922ea70b1788b7d3d43ebe80eaf47c",
@@ -5580,7 +5580,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36753",
           "needs_review": false,
           "normalized_group_id": "46a997eb727fb2c98b312b8fd49bb3f39502c80f77d91112b6d6a338d5d28f30",
@@ -5625,7 +5625,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9039",
           "needs_review": false,
           "normalized_group_id": "c6896780624e1d005cf39ca72200430cf1639c73a28dd0ea2eaa432180dd30dc",
@@ -5652,7 +5652,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C49218",
           "needs_review": false,
           "normalized_group_id": "dd5063c2e72ec86a2239d73b6deb8ecd531b4ccf691414232f2d27642e24380e",
@@ -5697,7 +5697,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12311",
           "needs_review": false,
           "normalized_group_id": "df13890c6d3f1815afecb8b0701c20136c7bb74a1bf9bd6a35f591c2dab813c4",
@@ -5742,7 +5742,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C186618",
           "needs_review": false,
           "normalized_group_id": "d9c3c8d6aa2948857c6327cda6921849d80a8ef66b7d71db97104eab74530b24",
@@ -5787,7 +5787,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27966",
           "needs_review": false,
           "normalized_group_id": "bd87c1965e4afbb518e22b6c05626101907efea13e79448afde5caaa62eb05f0",
@@ -6401,7 +6401,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12402",
           "needs_review": false,
           "normalized_group_id": "09483bed3e6d5439368b46e7f00ba6a8e06d1fcb623e5d98950f02d12cbde371",
@@ -6446,7 +6446,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36753",
           "needs_review": false,
           "normalized_group_id": "17a5c9eae50cdbf11f90060c82ea3ca16b5bb0c7c419eb25527622a43ab59410",
@@ -6491,7 +6491,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9039",
           "needs_review": false,
           "normalized_group_id": "6cc51ecebc42a3564268dd87ef47edae58e2a62431be1dbbfd5f1884c13e9ba1",
@@ -6518,7 +6518,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C49218",
           "needs_review": false,
           "normalized_group_id": "9be87b9529ac39587d6c67c964b7add4a13c434aa4cbe8031c549af4e3cc6aa7",
@@ -6563,7 +6563,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12311",
           "needs_review": false,
           "normalized_group_id": "58db12a6f44c52fff966d1f889e29ab3a7aa63d0f47f8484ff61f15a8431d4bf",
@@ -6608,7 +6608,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C186617",
           "needs_review": false,
           "normalized_group_id": "eae55cbe985feefd0bff886c79a51ce594143051076c25a3448e939d7383aa26",
@@ -6653,7 +6653,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C96244",
           "needs_review": false,
           "normalized_group_id": "297314d5ad8bbf290f408a3295d22157271c56223c51b5404eb0bfcd0efe5c6b",
@@ -7222,7 +7222,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12402",
           "needs_review": false,
           "normalized_group_id": "0136fa32262eae4a50e6d68b02c9c6f69e86dde3ac4053392545b9028fe854cf",
@@ -7267,7 +7267,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36753",
           "needs_review": false,
           "normalized_group_id": "ff1cf4b4fd2e2a9ad8e131528b5f162087369141f070769295a599a516d93317",
@@ -7312,7 +7312,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C7558",
           "needs_review": false,
           "normalized_group_id": "42b6bbdf4d1887a2e0e05cc30b49c3c3962c6afcae792a090b80bf9389f4e389",
@@ -7339,7 +7339,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12313",
           "needs_review": false,
           "normalized_group_id": "9ee943a7c3e35c1c2d23de9ebe727628c22498f5c44752ef81a4e9843119693d",
@@ -7384,7 +7384,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12316",
           "needs_review": false,
           "normalized_group_id": "5e4af1013ed34718e4f13ff940dd0dc07bd2e5f2e02b82de014aaa519204fbea",
@@ -7429,7 +7429,7 @@
         },
         {
           "axis": "op:PrimarySubsite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C32514",
           "needs_review": false,
           "normalized_group_id": "23b8695cb7e27eb597322ee25abb3c4d18f753c72b570980446f21e07d874766",
@@ -7474,7 +7474,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C206211",
           "needs_review": false,
           "normalized_group_id": "f3e7da41260049c2ab7368394df470bdbf7b2a09e8f358ba2ed964fb46e0e655",
@@ -7519,7 +7519,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C96244",
           "needs_review": false,
           "normalized_group_id": "f3e7da41260049c2ab7368394df470bdbf7b2a09e8f358ba2ed964fb46e0e655",
@@ -8206,7 +8206,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12746",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8251,7 +8251,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12914",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8323,7 +8323,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C60644",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8368,7 +8368,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3168",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8395,7 +8395,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C4005",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8433,7 +8433,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C13049",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8478,7 +8478,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12431",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8523,7 +8523,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C198023",
           "needs_review": false,
           "normalized_group_id": null,
@@ -8568,7 +8568,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C198022",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9125,7 +9125,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedSite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C137974",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9170,7 +9170,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36862",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9215,7 +9215,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36027",
           "needs_review": true,
           "normalized_group_id": null,
@@ -9260,7 +9260,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C8326",
           "needs_review": true,
           "normalized_group_id": null,
@@ -9305,7 +9305,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C204977",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9332,7 +9332,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C32365",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9377,7 +9377,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12341",
           "needs_review": false,
           "normalized_group_id": null,
@@ -9993,7 +9993,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedPriorDisease",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3270",
           "needs_review": false,
           "normalized_group_id": "95d101ca521b728286776cc739f606adbccc24b2d2b1ae905d7308bf9cc8cc9c",
@@ -10038,7 +10038,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": "op:AssociatedRegion",
+          "axis_ambiguous": true,
           "filler": "C12413",
           "needs_review": false,
           "normalized_group_id": "d0b962caf6820379151f65798e3574fc68c65434df8e33004ed1376a156c0ebe",
@@ -10083,7 +10083,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": "op:AssociatedRegion",
+          "axis_ambiguous": true,
           "filler": "C49274",
           "needs_review": false,
           "normalized_group_id": "99ea1c8b579586063c21da44e59a269294dc5c102c13ec674e31df145dbac1a2",
@@ -10128,7 +10128,7 @@
         },
         {
           "axis": "op:AssociatedSite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C61107",
           "needs_review": false,
           "normalized_group_id": "aab670298ca03e35342d9364f9adb5cffd95d2d93ac69940d6f4c2e660087598",
@@ -10173,7 +10173,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36773",
           "needs_review": false,
           "normalized_group_id": "cba502835a7cb5d48cf14b35aaceced00b1ee2df15d9688bfc3446ca57265d53",
@@ -10218,7 +10218,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9385",
           "needs_review": false,
           "normalized_group_id": "da4c2bd59f5627947ced38cd0c9a28001683bc7d0e116f4c402ddb592f4b4092",
@@ -10245,7 +10245,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C49276",
           "needs_review": false,
           "normalized_group_id": "b9daeef82573d2ec7dc212a4a15302c1978e3b0eb825717aa792b0f785e90b1f",
@@ -10290,7 +10290,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12415",
           "needs_review": false,
           "normalized_group_id": "39784801085b66aa6c76059f570dba8ae408ff2bf5ea14dc3f82856df44f1ca4",
@@ -10335,7 +10335,7 @@
         },
         {
           "axis": "op:WithFinding",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3270",
           "needs_review": false,
           "normalized_group_id": "f1ac02a722357c1ad70e0a09b4a9096a66b37be5308137153bbecd25e2a0363a",
@@ -11411,7 +11411,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12704",
           "needs_review": false,
           "normalized_group_id": "c5de98c18bdf5c348e4cbbe39ed0e5a032e1530b60a76ae76c5987fda78bb323",
@@ -11483,7 +11483,7 @@
         },
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12705",
           "needs_review": false,
           "normalized_group_id": "46b1fc759bc48c03469d9b70eb335e4ebaad03b3282d0e61c8d9debfd38945cb",
@@ -11528,7 +11528,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C13063",
           "needs_review": false,
           "normalized_group_id": "b239204fd0890675947c38e2ba308f894de460674f3e67987d7c1beb40f52c81",
@@ -11573,7 +11573,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36825",
           "needs_review": false,
           "normalized_group_id": "46199eb532c420151c2966b14e7524dd3299b5d6ef3da6a00273917d520346dc",
@@ -11618,7 +11618,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C155863",
           "needs_review": true,
           "normalized_group_id": "ba117e56636a7127075f3531498a84d1450b23efd14480d9af727d9103e62aef",
@@ -11663,7 +11663,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C207031",
           "needs_review": true,
           "normalized_group_id": "0284f91bada51834709dd17fcabfb883f620c3618827875a04c452c14676f558",
@@ -11708,7 +11708,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C41457",
           "needs_review": true,
           "normalized_group_id": "0c1039e3badd312bcf08a9ab30890e1c481b40888e0a91bc784273ece2add699",
@@ -11753,7 +11753,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C43574",
           "needs_review": true,
           "normalized_group_id": "1f45c63e129c1c56b93070f366fa01a02376963bed317e3eae917a142aefa30a",
@@ -11798,7 +11798,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C47804",
           "needs_review": true,
           "normalized_group_id": "f36231fcc7241d8a4c5cda34e88c933c054bba2182ee66b74611ac91e52a2a4c",
@@ -11843,7 +11843,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C47807",
           "needs_review": true,
           "normalized_group_id": "981dbc7aabcabcaedfc4c7ea43ffbfece3a386b3ae84ecb3bf9bca9e5ec5c319",
@@ -11888,7 +11888,7 @@
         },
         {
           "axis": "op:MolecularAbnormality",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C129702",
           "needs_review": false,
           "normalized_group_id": "93a22fd5965d592e398f306899f4f4f12a79087b13c283bcfda4e37b3783e66e",
@@ -11933,7 +11933,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3879",
           "needs_review": false,
           "normalized_group_id": "bb94055b6413b7a046417340cb663ef9374202fa404530e2a8af425aa334b008",
@@ -11960,7 +11960,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C33782",
           "needs_review": false,
           "normalized_group_id": "b46ca418af82efaae36b84be0053b866907c548e2be5b7a8723d95a0b73af600",
@@ -12005,7 +12005,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12400",
           "needs_review": false,
           "normalized_group_id": "86d7a4e790afea58ce7d307a4defc2bc62846f6c2d2153b7329ed2ff82da4161",
@@ -12050,7 +12050,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": "2549fbc65fa2d2a112e20053549ab467b5a779f8b3f0fc614643ce0965c040d5",
@@ -12095,7 +12095,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "normalized_group_id": "a2eb1b333731a3ebd96ddb2c274f01e55bb0e96d9112c1da3aff0eaaae09d9c8",
@@ -12107,7 +12107,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27970",
           "needs_review": false,
           "normalized_group_id": "2549fbc65fa2d2a112e20053549ab467b5a779f8b3f0fc614643ce0965c040d5",
@@ -13184,7 +13184,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": "op:AssociatedRegion",
+          "axis_ambiguous": true,
           "filler": "C12471",
           "needs_review": false,
           "normalized_group_id": "b37f3720aeadd8947432a910c422579600c736b08a46f70fa9adf2b7b067a09a",
@@ -13256,7 +13256,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": "op:AssociatedRegion",
+          "axis_ambiguous": true,
           "filler": "C12905",
           "needs_review": false,
           "normalized_group_id": "97f16274d713148a3bb49c9e557f80480e46524e63cd3a8a3c83a1a9a5710c17",
@@ -13301,7 +13301,7 @@
         },
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": "op:AssociatedRegion",
+          "axis_ambiguous": true,
           "filler": "C13004",
           "needs_review": false,
           "normalized_group_id": "678b6817028e7ddb35e46f772d1fa5896454dbc49371bcb1228889052cbba4aa",
@@ -13346,7 +13346,7 @@
         },
         {
           "axis": "op:AssociatedSite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C13004",
           "needs_review": false,
           "normalized_group_id": "946adbf9dbcf90d604942ba61a528895348db5fdafe6a2dc3083e46fbc1e9372",
@@ -13391,7 +13391,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": "op:CellType",
+          "axis_ambiguous": true,
           "filler": "C36899",
           "needs_review": true,
           "normalized_group_id": "3fcd992d1d49d46465631ef02da5d12a58720db87e1f9a640e28d5ba7d1305f4",
@@ -13436,7 +13436,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": "op:CellType",
+          "axis_ambiguous": true,
           "filler": "C36954",
           "needs_review": true,
           "normalized_group_id": "3fcd992d1d49d46465631ef02da5d12a58720db87e1f9a640e28d5ba7d1305f4",
@@ -13481,7 +13481,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C35998",
           "needs_review": true,
           "normalized_group_id": "faf4e9567de5a7136a7b91c06115b523f1e7b4e942e77b0c16f3383ad7f36d72",
@@ -13526,7 +13526,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36105",
           "needs_review": true,
           "normalized_group_id": "6eb5b2794c15fbaa2b363b9be3977afdc975c8989ef5b2839ea5a77ff857618c",
@@ -13571,7 +13571,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36122",
           "needs_review": true,
           "normalized_group_id": "906b31d2356520f8f75aeedecfbc45b6429ce90f38709f7ab5929a752b29bc60",
@@ -13616,7 +13616,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C53583",
           "needs_review": true,
           "normalized_group_id": "c6b32611c5c4f79d779aee28ef3420d4ab3a9bddc6f3b6f8c102f89e20b50d3c",
@@ -13661,7 +13661,7 @@
         },
         {
           "axis": "op:Laterality",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C25229",
           "needs_review": false,
           "normalized_group_id": "6706b4340261b24d359ce1f86954defc8729a97cf24c6941b1150188ff79ff93",
@@ -13673,7 +13673,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3499",
           "needs_review": false,
           "normalized_group_id": "17bd71e494247978e875e1f139de46a315b96994f7c0ca109f8d8551b5ea8f2f",
@@ -13700,7 +13700,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12869",
           "needs_review": false,
           "normalized_group_id": "d1e5f9fb25721711e723943afec0fc37468daada109d6c3390ba3169e33b994c",
@@ -15363,7 +15363,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12704",
           "needs_review": false,
           "normalized_group_id": null,
@@ -15435,7 +15435,7 @@
         },
         {
           "axis": "op:AssociatedLineageClassification",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12705",
           "needs_review": false,
           "normalized_group_id": null,
@@ -15480,7 +15480,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36820",
           "needs_review": false,
           "normalized_group_id": null,
@@ -15525,7 +15525,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C155863",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15570,7 +15570,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C207031",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15615,7 +15615,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C3331",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15660,7 +15660,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36129",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15705,7 +15705,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C36184",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15750,7 +15750,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C43574",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15795,7 +15795,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C54209",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15840,7 +15840,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C55817",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15885,7 +15885,7 @@
         },
         {
           "axis": "op:ClinicalFinding",
-          "axis_ambiguity_group_id": "op:ClinicalFinding",
+          "axis_ambiguous": true,
           "filler": "C60308",
           "needs_review": true,
           "normalized_group_id": null,
@@ -15930,7 +15930,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C4878",
           "needs_review": false,
           "normalized_group_id": null,
@@ -15968,7 +15968,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C4917",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16006,7 +16006,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C9049",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16033,7 +16033,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12468",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16105,7 +16105,7 @@
         },
         {
           "axis": "op:PrimarySubsite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12683",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16150,7 +16150,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16195,7 +16195,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "normalized_group_id": null,
@@ -16207,7 +16207,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": "op:StageValue",
+          "axis_ambiguous": true,
           "filler": "C27978",
           "needs_review": true,
           "normalized_group_id": null,
@@ -16252,7 +16252,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": "op:StageValue",
+          "axis_ambiguous": true,
           "filler": "C28064",
           "needs_review": true,
           "normalized_group_id": null,
@@ -16297,7 +16297,7 @@
         },
         {
           "axis": "op:WithFinding",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3331",
           "needs_review": false,
           "normalized_group_id": null,
@@ -17498,7 +17498,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C54189",
           "needs_review": false,
           "normalized_group_id": "5c1215bc9ce189e0704254ead2f31afcec1d706c8eae70ae983bc1317458c466",
@@ -17543,7 +17543,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36753",
           "needs_review": false,
           "normalized_group_id": "b6c6f8ae7eadb97f40bb12e761e13618627288126e4e0af026f01dd436847a38",
@@ -17588,7 +17588,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C2955",
           "needs_review": false,
           "normalized_group_id": "83884470f083284652de40b1334be42fa144188306690b6de2a585983dcd5118",
@@ -17626,7 +17626,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C4910",
           "needs_review": false,
           "normalized_group_id": "477115581acbb560a2b2b674e4a4434fbbc20a8d683dee9b5f263f7c5545dc50",
@@ -17653,7 +17653,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C32926",
           "needs_review": false,
           "normalized_group_id": "4d67987f5682c2a8b363ba7f05c080579d0d10a123fa180c5db3f4c6b0d0e643",
@@ -17698,7 +17698,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12382",
           "needs_review": false,
           "normalized_group_id": "0801a535818987d67038ce96e714bc16c95f4aa4c433ca390519011a1517e9bf",
@@ -17743,7 +17743,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": "d8878121ddff72956996e30278367b3107c8d07b67a9221c9ef7b605c1441bf7",
@@ -17788,7 +17788,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "normalized_group_id": "c1e30c370d5dcda923777335527b745ab3968f17ba81153ecc99289e8644ae96",
@@ -17800,7 +17800,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27970",
           "needs_review": false,
           "normalized_group_id": "d8878121ddff72956996e30278367b3107c8d07b67a9221c9ef7b605c1441bf7",
@@ -18369,7 +18369,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12722",
           "needs_review": false,
           "normalized_group_id": "97323a5b331f2bb72a9412fdf476dfe1b2fdece26b0b1ef6a139e2181cbc4544",
@@ -18414,7 +18414,7 @@
         },
         {
           "axis": "op:CellType",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C36903",
           "needs_review": false,
           "normalized_group_id": "719f0355abc77a582fc4126d5d8fdced2c1db1fc68060ee3173713cdea2a0ce7",
@@ -18459,7 +18459,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C5027",
           "needs_review": false,
           "normalized_group_id": "58e703a9d49afe79eeab9de0a3217fba5f3ede0269576a9fc1bc357d895a0706",
@@ -18486,7 +18486,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C7251",
           "needs_review": false,
           "normalized_group_id": "7428e4e161753b69ba59362c22f168642bb2abce6692306196a0b103ccfd5456",
@@ -18524,7 +18524,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12412",
           "needs_review": false,
           "normalized_group_id": "683a860852503fedeaf298099ff81ee564ab10843854566a7af86a7cbccc84dc",
@@ -18569,7 +18569,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": "op:StageSystem",
+          "axis_ambiguous": true,
           "filler": "C90529",
           "needs_review": false,
           "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
@@ -18614,7 +18614,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": "op:StageSystem",
+          "axis_ambiguous": true,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
@@ -18659,7 +18659,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-d104509874ed",
           "needs_review": false,
           "normalized_group_id": "28b4dce83c60c3b50905117b02843aa15039aabb04e188a52be04b351498ca26",
@@ -18671,7 +18671,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27970",
           "needs_review": false,
           "normalized_group_id": "8fb1309bfc8980cbf34520ab12eca824c5d92a9ed23c28cf004beac4d8e04247",
@@ -19212,7 +19212,7 @@
       "constituents": [
         {
           "axis": "op:AssociatedRegion",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12378",
           "needs_review": false,
           "normalized_group_id": "51fa39f74fb4febee1535165c735b8a4d706a9043c530dc057a0109db1c87c44",
@@ -19257,7 +19257,7 @@
         },
         {
           "axis": "op:Morphology",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C3513",
           "needs_review": false,
           "normalized_group_id": "15affff88b44b1ec5c31f173bbfe6a63c25887ee9536533ffd88330ec5b13840",
@@ -19284,7 +19284,7 @@
         },
         {
           "axis": "op:NormalTissueOrigin",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C49221",
           "needs_review": false,
           "normalized_group_id": "04e034bf5ee92fcbf03ffc0d5c501f89613d4c8326c9499a229d26ad67253697",
@@ -19329,7 +19329,7 @@
         },
         {
           "axis": "op:PrimarySite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C203674",
           "needs_review": false,
           "normalized_group_id": "e3746d5d7f445badd852f580588dfc5322f8d595fc2702928d7199642828d792",
@@ -19374,7 +19374,7 @@
         },
         {
           "axis": "op:PrimarySubsite",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C12389",
           "needs_review": false,
           "normalized_group_id": "b5582faaf4dccf8b59c553a68059bf64b2afa6c4045517bda74a784581372197",
@@ -19419,7 +19419,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C90530",
           "needs_review": false,
           "normalized_group_id": "3965fa8aadd0c230f4336e9a5f87e630c5ce946b953b5c73b3b340e80af07885",
@@ -19464,7 +19464,7 @@
         },
         {
           "axis": "op:StageSystem",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "MINT-8512b41a844d",
           "needs_review": false,
           "normalized_group_id": "73fba955e3d0e69b8649ebd35fb67d1222ff46a72fc0f8c0837ceb583504d5b2",
@@ -19476,7 +19476,7 @@
         },
         {
           "axis": "op:StageValue",
-          "axis_ambiguity_group_id": null,
+          "axis_ambiguous": false,
           "filler": "C27976",
           "needs_review": false,
           "normalized_group_id": "3965fa8aadd0c230f4336e9a5f87e630c5ce946b953b5c73b3b340e80af07885",
@@ -19725,7 +19725,7 @@
     }
   ],
   "detector_identity": "149a975b5b0531c710da99e8976eb5cad2c037aea4b64ea2e307b3757df06645",
-  "evidence_identity": "85ffd2de0cbcbb519c140a828725acba826935178e018d90bf7297778ef8dfca",
+  "evidence_identity": "9386acb3ae33f788c196fbbf0fc7af47cac0c0007e9fe14606ebdf805f3e622a",
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1",
@@ -19735,7 +19735,7 @@
   "run_fingerprint_identity": "c57b635463c4e752030d936870cd17f9e0d0b7143a30b55152b81ab0d1353046",
   "run_id": "neoplasm-4b18c7e5-70ee-4123-ae38-c57e8a552f51",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
-  "schema_version": 4,
+  "schema_version": 5,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
   "walker_max_depth": 7
 }

@@ -19,6 +19,7 @@ from ontolib.decomposition import run as run_module
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
     AxisHierarchyEvidence,
+    UnknownAxisEvidence,
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
@@ -26,12 +27,18 @@ from ontolib.decomposition.complete_definition import (
     UnsupportedDefinitionConstructorError,
 )
 from ontolib.decomposition.minting import MintedConcept
-from ontolib.decomposition.models import CompleteDefinition, Constituent, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    RoleRestriction,
+)
 from ontolib.decomposition.normalized_group_policy import (
     ActiveNormalizedGroupPolicy,
     _constituent_evidence_identity,
     load_packaged_normalized_group_policy,
 )
+from ontolib.decomposition.projection_validity import decide_projection
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -98,6 +105,34 @@ def _diagnostic_source() -> AxisDiagnosticSource:
             disjoint_pairs=(),
         )
     )
+
+
+@pytest.mark.unit
+def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
+    plan = run_module.fs.build_routed_plan(
+        (RoleRestriction("R176", "C10"),),
+        concept_code="C1",
+        source_identity="a" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    assessments = run_module._projection_assessments(
+        plan, _diagnostic_source(), "b" * 64
+    )
+    assessment = assessments[("R176", "C10")]
+    decision = decide_projection(assessment)
+
+    assert assessment.axis_range == UnknownAxisEvidence(
+        status="unknown",
+        axis="R176",
+        filler_code="C10",
+        range_code="C10",
+        source_identity="a" * 64,
+        reason="unknown-axis",
+    )
+    assert decision.outcome == "accepted"
+    assert decision.review_bearing is True
+    assert decision.reasons == ("axis-range-unknown", "atomicity-unknown")
 
 
 def _role(rel: str, label: str, target: str) -> dict[str, str | None]:
@@ -1516,34 +1551,6 @@ async def test_run_pipeline_nlp_aspect_resolves_via_label_lookup() -> None:
 
 
 @pytest.mark.unit
-async def test_run_pipeline_resume_skips_already_processed_codes() -> None:
-    client = _FakeClient(pages=[["C1", "C2"]])
-    provenance = _mock_provenance()
-    _set_resume_worklist(
-        provenance,
-        worklist=("C1", "C2"),
-        pending=["C2"],
-    )
-    config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
-    metrics = await run_pipeline(config, client, provenance)
-    # Only C2 is newly processed; C1 is skipped. Neither is in scope here (no roles),
-    # so this exercises the skip path rather than the extraction path.
-    assert metrics.total_in_scope == 2
-    provenance.admit_run.assert_awaited_once()
-    provenance.create_run.assert_not_awaited()
-
-
-@pytest.mark.unit
-async def test_run_pipeline_resume_with_matching_version_proceeds() -> None:
-    client = _FakeClient(pages=[[]], version="26.02d")
-    provenance = _mock_provenance()
-    config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
-    metrics = await run_pipeline(config, client, provenance)
-    assert metrics.total_in_scope == 0
-    provenance.admit_run.assert_awaited_once()
-
-
-@pytest.mark.unit
 async def test_metrics_validation_failure_is_recorded_on_the_metrics_stage() -> None:
     provenance = _mock_provenance()
     provenance._test_state["atomic_noop"] = 1
@@ -1618,35 +1625,6 @@ async def test_completed_checkpoint_requires_a_sealed_output(
 
     with pytest.raises(RunStateError, match="is not complete"):
         await run_module._completed_stage_output(provenance, "run", "metrics")
-
-
-@pytest.mark.unit
-async def test_completed_concept_checkpoint_skips_concept_processing() -> None:
-    provenance = MagicMock()
-    provenance.claim_stage = AsyncMock(return_value=None)
-    provenance.run_stages = AsyncMock(
-        return_value=(
-            MagicMock(
-                stage="concept-workset",
-                state="complete",
-                output_identity="b" * 64,
-                output_payload={"complete_count": 1},
-            ),
-        )
-    )
-
-    identity = await run_module._concept_workset_stage(
-        _checkpoint_setup(),
-        RunConfig(branch="neoplasm"),
-        MagicMock(),
-        provenance,
-        AsyncMock(return_value=None),
-        None,
-        "a" * 64,
-    )
-
-    assert identity == "b" * 64
-    provenance.pending_codes.assert_not_called()
 
 
 @pytest.mark.unit

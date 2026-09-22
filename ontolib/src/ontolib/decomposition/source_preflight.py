@@ -1,4 +1,4 @@
-"""Fail-fast complete-definition constructor census for an exact workset."""
+"""Complete-definition constructor census for a worklist and one-hop dependencies."""
 
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ _NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
 
 
 class ClosureBudgetExceededError(RuntimeError):
-    """The worklist's dependency closure is larger than the preflight budget."""
+    """The worklist's queued one-hop dependencies exceed the preflight budget."""
 
 
 class SourcePreflightResult(BaseModel):
-    """Identity-bound census output, including every rejected source code."""
+    """Census output with caller-supplied source and implementation identifiers."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -146,12 +146,13 @@ async def run_source_preflight(
     max_nodes: int,
     mixed_chain_inventory_identity: str = _NO_MIXED_CHAIN_INVENTORY_IDENTITY,
 ) -> SourcePreflightResult:
-    """Census exact roots plus conservative defined-genus and filler closure.
+    """Census exact roots plus their defined-genus and filler dependencies.
 
     ``max_nodes`` bounds the dependency concepts outside the worklist, shared by the
-    whole worklist; when the worklist needs more, the census stops with
-    ``ClosureBudgetExceededError``. ``overflow_codes`` holds only concepts whose own
-    complete definition exceeds a reader bound (``DefinitionBoundExceededError``).
+    whole worklist. Dependencies are read once and are not recursively expanded. The
+    queue is drained even after unsupported constructors are recorded; only malformed
+    or over-bound definitions make ``concept_work_allowed`` false. ``overflow_codes``
+    holds concepts whose own complete definition exceeds a reader bound.
     """
     # A worklist concept carries its 1-based position; a dependency carries None and
     # is read but not expanded.
