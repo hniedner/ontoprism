@@ -121,8 +121,9 @@ preserved for operator resolution. The tool contains no worktree removal, prunin
 force, or directory-deletion operation. Missing Git, failed Git inspection, and an
 empty list are distinct statuses.
 
-The Compose project identity is `ontoprism`; its named PostgreSQL volume is
-`ontoprism_ontoprism_pg_data`. Inventory marks active services and volumes protected;
+The Compose project identity is `ontoprism`; its PostgreSQL volume is explicitly pinned
+to the pre-rename `ontoprism-podman-poc_ontoprism_pg_data` name so changing the project
+cannot silently select an empty volume. Inventory marks active services and volumes protected;
 missing Docker, command failure, and an empty project are distinct statuses. Cleanup
 never targets Compose, data roots, worktrees, or unmanaged paths and never invokes a
 volume-bearing down/remove operation.
