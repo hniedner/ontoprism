@@ -79,11 +79,11 @@ def test_agent_git_rejects_unsafe_operations(
         run_agent_git(arguments, tmp_path)
 
 
-def git(repository: Path, *arguments: str) -> str:
+def git(repository: Path, *arguments: str, check: bool = True) -> str:
     result = subprocess.run(  # noqa: S603 - fixed Git test helper
         ["/usr/bin/git", *arguments],
         cwd=repository,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
@@ -936,6 +936,42 @@ def test_delete_merged_refuses_when_the_branch_moved_after_the_github_check(
             return Result(0, json.dumps([_pull(tip)]))
         return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
 
-    with pytest.raises(AgentGitProcessError):
+    with pytest.raises(
+        AgentGitInputError, match="changed after the GitHub merge check"
+    ):
         run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
     assert git(tmp_path, "log", "-1", "--format=%s", "feat/squashed") == "later"
+
+
+def test_delete_merged_keeps_a_squash_merged_branch_checked_out_elsewhere(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    git(repository, "worktree", "add", str(tmp_path / "other"), "feat/squashed")
+
+    with pytest.raises(AgentGitProcessError):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            repository,
+            runner=_github_answers([_pull(tip)], []),
+        )
+
+    assert git(repository, "rev-parse", "feat/squashed") == tip
+    assert git(tmp_path / "other", "branch", "--show-current") == "feat/squashed"
+
+
+def test_delete_merged_removes_the_branch_configuration_with_the_branch(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+    git(tmp_path, "config", "branch.feat/squashed.remote", "origin")
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        tmp_path,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(tmp_path, "config", "--get-regexp", "^branch", check=False) == ""

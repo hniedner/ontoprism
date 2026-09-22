@@ -322,6 +322,12 @@ def _prepare_branch_command(
         full_ref = _require_local_branch(branch, root, runner)
         _require_mutable_current_branch(root, runner)
         return ["git", "merge", "--no-ff", full_ref]
+    return _prepare_delete_command(branch, root, runner)
+
+
+def _prepare_delete_command(
+    branch: str, root: Path, runner: CommandRunner
+) -> list[str]:
     if branch in PROTECTED_BRANCHES:
         raise AgentGitInputError("protected branch cannot be deleted")
     full_ref = _require_local_branch(branch, root, runner)
@@ -346,12 +352,23 @@ def _prepare_branch_command(
         raise AgentGitProcessError("Git merge ancestry check failed")
     merged_tip = _github_squash_merged_tip(branch, full_ref, root, runner)
     if merged_tip is not None:
-        # Delete only if the ref still holds the tip GitHub merged; a commit added
-        # after the check makes Git refuse instead of losing it.
-        return ["git", "update-ref", "-d", full_ref, merged_tip]
+        # Re-read the tip after the (slow) GitHub query so a commit added meanwhile
+        # is refused. `branch -D` keeps Git's refusal to delete a branch checked out
+        # in any worktree and removes the branch's configuration.
+        if _branch_tip(full_ref, root, runner) != merged_tip:
+            raise AgentGitInputError(
+                "branch changed after the GitHub merge check; it was not deleted"
+            )
+        return ["git", "branch", "-D", branch]
     raise AgentGitInputError(
         "branch is not merged into HEAD or squash-merged into main"
     )
+
+
+def _branch_tip(full_ref: str, root: Path, runner: CommandRunner) -> str:
+    tip = _invoke(["git", "rev-parse", full_ref], root, runner, operation_class="read")
+    _require_success(tip, "Git branch tip could not be read")
+    return tip.stdout.strip()
 
 
 def _github_squash_merged_tip(
@@ -361,11 +378,9 @@ def _github_squash_merged_tip(
 
     A squash merge leaves no ancestry, so the merged PR's recorded head SHA is the
     proof that nothing on the local branch is lost by deleting it. Only the first
-    100 closed PRs for the branch are examined; a miss refuses the deletion.
+    100 closed PRs from the branch into main are examined; a miss refuses deletion.
     """
-    tip = _invoke(["git", "rev-parse", full_ref], root, runner, operation_class="read")
-    _require_success(tip, "Git branch tip could not be read")
-    local_tip = tip.stdout.strip()
+    local_tip = _branch_tip(full_ref, root, runner)
     owner = REPOSITORY.split("/", maxsplit=1)[0]
     answer = _invoke(
         [
