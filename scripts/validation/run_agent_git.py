@@ -96,10 +96,12 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     ),
     "delete-merged": OperationSpec(
         "branch",
-        # Git refuses before changing anything; a paused rebase or bisect on the
-        # branch in some worktree is the refusal the pre-checks cannot see.
-        "Git refused to delete the branch; it may be in use by a rebase or bisect "
-        "in some worktree (see git worktree list)",
+        # Git refuses before changing anything. The pre-checks cannot see every
+        # refusal: commits not on the branch's upstream (`-d` checks the upstream,
+        # not HEAD), a paused rebase or bisect, or a ref lock held elsewhere.
+        "Git refused to delete the branch; nothing was deleted. Causes include "
+        "commits not on its upstream, a rebase or bisect in some worktree "
+        "(git worktree list), or a held ref lock",
     ),
     "merge-no-ff": OperationSpec(
         "branch",

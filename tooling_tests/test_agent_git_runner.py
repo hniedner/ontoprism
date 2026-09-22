@@ -535,12 +535,13 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
                 Result(0),
                 Result(9),
             ],
-            "Git refused to delete the branch; it may be in use by a rebase or "
-            "bisect in some worktree (see git worktree list)",
+            "Git refused to delete the branch; nothing was deleted. Causes include "
+            "commits not on its upstream, a rebase or bisect in some worktree "
+            "(git worktree list), or a held ref lock",
         ),
     ],
 )
-def test_mutating_nonzero_reports_operation_specific_unknown_state(
+def test_mutating_nonzero_reports_operation_specific_failure(
     tmp_path: Path,
     arguments: list[str],
     results: list[object],
@@ -1033,3 +1034,27 @@ def test_delete_merged_is_not_fooled_by_a_worktree_path_containing_newlines(
     )
 
     assert git(repository, "branch", "--list", "feat/squashed") == ""
+
+
+def test_delete_merged_names_an_unpushed_upstream_as_a_refusal_cause(
+    tmp_path: Path,
+) -> None:
+    remote = tmp_path / "remote.git"
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    initialize_repository(repository)
+    git(tmp_path, "init", "--bare", str(remote))
+    git(repository, "remote", "add", "origin", str(remote))
+    git(repository, "switch", "-c", "feat/i-1")
+    git(repository, "push", "--set-upstream", "origin", "feat/i-1")
+    (repository / "tracked.txt").write_text("after push\n")
+    git(repository, "commit", "-am", "after push")
+    git(repository, "switch", "main")
+    git(repository, "switch", "-c", "feat/m1-milestone")
+    git(repository, "merge", "--no-ff", "-m", "merge", "feat/i-1")
+
+    with pytest.raises(AgentGitProcessError, match="nothing was deleted") as raised:
+        run_agent_git(["delete-merged", "feat/i-1"], repository)
+
+    assert "upstream" in str(raised.value)
+    assert git(repository, "branch", "--list", "feat/i-1").strip() == "feat/i-1"
