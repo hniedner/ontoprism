@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import re
 import subprocess
@@ -17,15 +18,6 @@ from scripts.validation.run_agent_git import (
 )
 
 pytestmark = pytest.mark.unit
-
-
-def test_git_runner_docstrings_state_the_separate_agent_boundaries() -> None:
-    expected = (
-        "Run fixed local Git operations for implementers and fixed remote pull/push "
-        "for orchestrators, without a shell."
-    )
-    assert " ".join((agent_git.__doc__ or "").split()) == expected
-    assert " ".join((run_agent_git.__doc__ or "").split()) == expected
 
 
 def test_operation_specs_derive_classification_from_command_kind() -> None:
@@ -87,11 +79,11 @@ def test_agent_git_rejects_unsafe_operations(
         run_agent_git(arguments, tmp_path)
 
 
-def git(repository: Path, *arguments: str) -> str:
+def git(repository: Path, *arguments: str, check: bool = True) -> str:
     result = subprocess.run(  # noqa: S603 - fixed Git test helper
         ["/usr/bin/git", *arguments],
         cwd=repository,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
@@ -107,23 +99,22 @@ def initialize_repository(tmp_path: Path) -> None:
     git(tmp_path, "commit", "-m", "initial")
 
 
-def test_switch_rejects_main_but_switch_new_leaves_main(
+def test_switch_existing_returns_to_main_where_mutations_stay_refused(
     tmp_path: Path,
 ) -> None:
     initialize_repository(tmp_path)
-
-    with pytest.raises(AgentGitInputError, match="protected branch"):
-        run_agent_git(["switch-existing", "main"], tmp_path)
     assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    assert git(tmp_path, "branch", "--show-current") == "feat/safe"
 
-    branch = subprocess.run(
-        ["/usr/bin/git", "branch", "--show-current"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert branch.stdout.strip() == "feat/safe"
+    assert run_agent_git(["switch-existing", "main"], tmp_path) == 0
+
+    assert git(tmp_path, "branch", "--show-current") == "main"
+    (tmp_path / "tracked.txt").write_text("changed\n")
+    git(tmp_path, "add", "tracked.txt")
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(["commit-staged", "--message", "fix: no"], tmp_path)
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(["merge-no-ff", "feat/safe"], tmp_path)
 
 
 def test_commit_staged_rejects_main_and_commits_on_feature(tmp_path: Path) -> None:
@@ -421,17 +412,29 @@ def test_local_branch_check_classifies_return_codes_without_raw_output(
 def test_delete_merged_distinguishes_not_merged_from_operational_error(
     tmp_path: Path,
 ) -> None:
-    not_merged = scripted_runner([Result(0), Result(0), Result(0, "main\n"), Result(1)])
+    not_merged = scripted_runner(
+        [
+            Result(0),
+            Result(0),
+            Result(0, "main\n"),
+            Result(0, ""),
+            Result(1),
+            Result(0, f"{'a' * 40}\n"),
+            Result(0, "[]"),
+        ]
+    )
     with pytest.raises(AgentGitInputError, match="not merged"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=not_merged)
 
     operational = scripted_runner(
-        [Result(0), Result(0), Result(0, "main\n"), Result(2)]
+        [Result(0), Result(0), Result(0, "main\n"), Result(0, ""), Result(2)]
     )
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=operational)
 
-    signaled = scripted_runner([Result(0), Result(0), Result(0, "main\n"), Result(-9)])
+    signaled = scripted_runner(
+        [Result(0), Result(0), Result(0, "main\n"), Result(0, ""), Result(-9)]
+    )
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=signaled)
 
@@ -524,13 +527,21 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
         ),
         (
             ["delete-merged", "feat/x"],
-            [Result(0), Result(0), Result(0, "main\n"), Result(0), Result(9)],
-            "Git branch deletion failed and may have changed repository state; "
-            "inspect git status",
+            [
+                Result(0),
+                Result(0),
+                Result(0, "main\n"),
+                Result(0, ""),
+                Result(0),
+                Result(9),
+            ],
+            "Git refused to delete the branch; nothing was deleted. Causes include "
+            "commits not on its upstream, a rebase or bisect in some worktree "
+            "(git worktree list), or a held ref lock",
         ),
     ],
 )
-def test_mutating_nonzero_reports_operation_specific_unknown_state(
+def test_mutating_nonzero_reports_operation_specific_failure(
     tmp_path: Path,
     arguments: list[str],
     results: list[object],
@@ -794,3 +805,354 @@ def test_remote_operations_reject_arbitrary_arguments_before_git(
 
     with pytest.raises(AgentGitInputError):
         run_agent_git(arguments, tmp_path, runner=must_not_run)
+
+
+def _squash_repository(tmp_path: Path) -> str:
+    """Leave an unmerged-by-ancestry feature branch and return its tip."""
+    initialize_repository(tmp_path)
+    git(tmp_path, "switch", "-c", "feat/squashed")
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "commit", "-am", "feature")
+    tip = git(tmp_path, "rev-parse", "HEAD")
+    git(tmp_path, "switch", "main")
+    return tip
+
+
+def _github_answers(pulls: object, calls: list[list[str]], returncode: int = 0):
+    """Run Git for real; answer only the GitHub pull-request query."""
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            calls.append(arguments)
+            return Result(returncode, json.dumps(pulls))
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    return run
+
+
+def _pull(tip: str, *, merged: bool = True, base: str = "main") -> dict[str, object]:
+    return {
+        "merged_at": "2026-09-22T19:08:16Z" if merged else None,
+        "head": {"sha": tip, "ref": "feat/squashed"},
+        "base": {"ref": base},
+    }
+
+
+def test_delete_merged_deletes_a_branch_whose_exact_tip_github_squash_merged(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+    calls: list[list[str]] = []
+
+    result = run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        tmp_path,
+        runner=_github_answers([_pull(tip)], calls),
+    )
+
+    assert result == 0
+    assert git(tmp_path, "branch", "--list", "feat/squashed") == ""
+    assert calls == [
+        [
+            "gh",
+            "api",
+            "repos/hniedner/ontoprism/pulls?state=closed&base=main"
+            "&head=hniedner:feat/squashed&per_page=100",
+        ]
+    ]
+
+
+@pytest.mark.parametrize(
+    "pulls",
+    [
+        [],
+        [_pull("b" * 40)],
+        [_pull("TIP", merged=False)],
+        [_pull("TIP", base="feat/m0-other")],
+    ],
+    ids=["no-pull", "tip-moved-after-merge", "closed-unmerged", "other-base"],
+)
+def test_delete_merged_keeps_a_branch_github_did_not_merge_at_its_tip(
+    tmp_path: Path, pulls: list[dict[str, object]]
+) -> None:
+    tip = _squash_repository(tmp_path)
+    answered = json.loads(json.dumps(pulls).replace("TIP", tip))
+
+    with pytest.raises(AgentGitInputError, match="not merged"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            tmp_path,
+            runner=_github_answers(answered, []),
+        )
+
+    assert git(tmp_path, "branch", "--list", "feat/squashed").strip("* ") == (
+        "feat/squashed"
+    )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "not json",
+        '{"message": "Not Found"}',
+        '[{"merged_at": "x", "head": null, "base": {"ref": "main"}}]',
+        '[{"merged_at": "x", "head": {"sha": "s"}, "base": "main"}]',
+    ],
+)
+def test_delete_merged_fails_closed_when_github_cannot_answer(
+    tmp_path: Path, answer: str
+) -> None:
+    _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            return Result(0, answer)
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match="GitHub"):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    with pytest.raises(AgentGitProcessError, match="GitHub"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            tmp_path,
+            runner=_github_answers([], [], returncode=1),
+        )
+    assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+def test_delete_merged_reports_the_github_cli_exit_code(tmp_path: Path) -> None:
+    _squash_repository(tmp_path)
+
+    with pytest.raises(AgentGitProcessError, match=r"gh exit 4"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            tmp_path,
+            runner=_github_answers([], [], returncode=4),
+        )
+
+
+def test_delete_merged_refuses_when_the_branch_moved_after_the_github_check(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            # Another session commits to the branch between the check and delete.
+            git(tmp_path, "switch", "feat/squashed")
+            (tmp_path / "tracked.txt").write_text("later\n")
+            git(tmp_path, "commit", "-am", "later")
+            git(tmp_path, "switch", "main")
+            return Result(0, json.dumps([_pull(tip)]))
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(
+        AgentGitInputError, match="changed after the GitHub merge check"
+    ):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert git(tmp_path, "log", "-1", "--format=%s", "feat/squashed") == "later"
+
+
+@pytest.mark.parametrize("merged_by", ["squash", "ancestry"])
+def test_delete_merged_refuses_a_branch_checked_out_in_another_worktree(
+    tmp_path: Path, merged_by: str
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    if merged_by == "ancestry":
+        git(repository, "merge", "--ff-only", "feat/squashed")
+    git(repository, "worktree", "add", str(tmp_path / "other"), "feat/squashed")
+
+    with pytest.raises(AgentGitInputError, match="checked out in another worktree"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            repository,
+            runner=_github_answers([_pull(tip)], []),
+        )
+
+    assert git(repository, "rev-parse", "feat/squashed") == tip
+    assert git(tmp_path / "other", "branch", "--show-current") == "feat/squashed"
+
+
+def test_delete_merged_removes_the_branch_configuration_with_the_branch(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+    git(tmp_path, "config", "branch.feat/squashed.remote", "origin")
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        tmp_path,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(tmp_path, "config", "--get-regexp", "^branch", check=False) == ""
+
+
+def test_delete_merged_explains_a_refusal_for_a_branch_under_rebase(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    other = tmp_path / "other"
+    git(repository, "worktree", "add", str(other), "feat/squashed")
+    # A paused rebase detaches HEAD, so the worktree list no longer names the branch.
+    git(other, "rebase", "--exec", "false", "HEAD~1", check=False)
+
+    with pytest.raises(AgentGitProcessError, match="rebase or bisect"):
+        run_agent_git(
+            ["delete-merged", "feat/squashed"],
+            repository,
+            runner=_github_answers([_pull(tip)], []),
+        )
+
+    assert git(repository, "rev-parse", "feat/squashed") == tip
+
+
+def test_delete_merged_is_not_fooled_by_a_worktree_path_containing_newlines(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    git(repository, "branch", "decoy")
+    git(
+        repository,
+        "worktree",
+        "add",
+        str(tmp_path / "x\nbranch refs/heads/feat/squashed"),
+        "decoy",
+    )
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        repository,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(repository, "branch", "--list", "feat/squashed") == ""
+
+
+def test_delete_merged_names_an_unpushed_upstream_as_a_refusal_cause(
+    tmp_path: Path,
+) -> None:
+    remote = tmp_path / "remote.git"
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    initialize_repository(repository)
+    git(tmp_path, "init", "--bare", str(remote))
+    git(repository, "remote", "add", "origin", str(remote))
+    git(repository, "switch", "-c", "feat/i-1")
+    git(repository, "push", "--set-upstream", "origin", "feat/i-1")
+    (repository / "tracked.txt").write_text("after push\n")
+    git(repository, "commit", "-am", "after push")
+    git(repository, "switch", "main")
+    git(repository, "switch", "-c", "feat/m1-milestone")
+    git(repository, "merge", "--no-ff", "-m", "merge", "feat/i-1")
+
+    with pytest.raises(AgentGitProcessError, match="nothing was deleted") as raised:
+        run_agent_git(["delete-merged", "feat/i-1"], repository)
+
+    assert "upstream" in str(raised.value)
+    assert git(repository, "branch", "--list", "feat/i-1").strip() == "feat/i-1"
+
+
+def test_a_deletion_killed_by_a_signal_reports_an_unknown_outcome(
+    tmp_path: Path,
+) -> None:
+    tip = _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            return Result(0, json.dumps([_pull(tip)]))
+        if arguments[:3] == ["git", "branch", "-D"]:
+            return Result(-9)
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match="outcome is unknown; inspect git"):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+
+
+@pytest.mark.parametrize("operation", ["push-origin", "pull-origin"])
+def test_a_remote_mutation_killed_by_a_signal_requires_remote_inspection(
+    tmp_path: Path, operation: str
+) -> None:
+    runner = scripted_runner(
+        [
+            Result(0),
+            Result(0, "https://github.com/hniedner/ontoprism"),
+            Result(0, "feat/x\n"),
+            Result(0, ""),
+            Result(-9),
+        ]
+    )
+
+    with pytest.raises(
+        AgentGitProcessError,
+        match=r"^Git operation outcome is unknown; inspect repository and remote "
+        r"state before retrying$",
+    ):
+        run_agent_git([operation, "feat/x"], tmp_path, runner=runner)
+
+
+def test_delete_merged_fails_closed_when_the_worktree_list_fails(
+    tmp_path: Path,
+) -> None:
+    _squash_repository(tmp_path)
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[:3] == ["git", "worktree", "list"]:
+            return Result(128)
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match=r"^Git worktree list failed$"):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (FileNotFoundError("gh"), "^GitHub CLI could not start$"),
+        (
+            subprocess.TimeoutExpired(["gh"], 30),
+            "^GitHub pull-request query timed out$",
+        ),
+    ],
+)
+def test_delete_merged_names_the_github_cli_when_it_cannot_run(
+    tmp_path: Path, failure: BaseException, message: str
+) -> None:
+    _squash_repository(tmp_path)
+    timeouts: list[object] = []
+
+    def run(arguments: list[str], **kwargs: object) -> object:
+        if arguments[0] == "gh":
+            timeouts.append(kwargs.get("timeout"))
+            raise failure
+        return subprocess.run(arguments, **kwargs)  # noqa: PLW1510, S603
+
+    with pytest.raises(AgentGitProcessError, match=message):
+        run_agent_git(["delete-merged", "feat/squashed"], tmp_path, runner=run)
+    assert timeouts == [30]
+    assert git(tmp_path, "branch", "--list", "feat/squashed") != ""
+
+
+def test_a_sibling_branch_checked_out_elsewhere_does_not_block_deletion(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    tip = _squash_repository(repository)
+    git(repository, "branch", "feat/squashed-2")
+    git(repository, "worktree", "add", str(tmp_path / "sibling"), "feat/squashed-2")
+
+    run_agent_git(
+        ["delete-merged", "feat/squashed"],
+        repository,
+        runner=_github_answers([_pull(tip)], []),
+    )
+
+    assert git(repository, "branch", "--list", "feat/squashed") == ""

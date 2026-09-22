@@ -1226,6 +1226,7 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     assert test_step["env"] == {
         "COVERAGE_CONFIG_SET": "python-combined",
         "OUTPUT_DIR": "${{ runner.temp }}/partition-integration-${{ matrix.index }}",
+        "GH_TOKEN": "${{ github.token }}",
     }
     assert "pdm run ci-test-partition" in test_step["run"]
     assert "--lane integration" in test_step["run"]
