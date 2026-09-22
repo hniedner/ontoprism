@@ -5,6 +5,7 @@ for orchestrators, without a shell.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from typing import Literal, Protocol, assert_never
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 UNSAFE_MESSAGE_CHARACTERS = frozenset("&;|><`$\\")
 PROTECTED_BRANCHES = frozenset({"main", "master"})
+REPOSITORY = "hniedner/ontoprism"
 ACCEPTED_ORIGIN_URLS = frozenset(
     {
         "https://github.com/hniedner/ontoprism",
@@ -26,8 +28,9 @@ OPERATION_ARGUMENT_COUNT = 2
 COMMIT_ARGUMENT_COUNT = 3
 MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
+GITHUB_READ_TIMEOUT_SECONDS = 30
 MUTATION_TIMEOUT_SECONDS = 600
-OperationClass = Literal["read", "local-mutation", "remote-mutation"]
+OperationClass = Literal["read", "github-read", "local-mutation", "remote-mutation"]
 CommandKind = Literal["branch", "commit", "remote"]
 
 
@@ -51,6 +54,12 @@ OPERATION_CLASS_SPECS: dict[OperationClass, OperationClassSpec] = {
         decode_error="Git produced undecodable output",
         timeout_error="Git operation timed out",
         os_error="Git process could not start",
+    ),
+    "github-read": OperationClassSpec(
+        timeout=GITHUB_READ_TIMEOUT_SECONDS,
+        decode_error="GitHub produced undecodable output",
+        timeout_error="GitHub pull-request query timed out",
+        os_error="GitHub CLI could not start",
     ),
     "local-mutation": OperationClassSpec(
         timeout=MUTATION_TIMEOUT_SECONDS,
@@ -299,8 +308,7 @@ def _prepare_branch_command(
 ) -> list[str]:
     _validate_branch(branch, root, runner)
     if operation == "switch-existing":
-        if branch in PROTECTED_BRANCHES:
-            raise AgentGitInputError("cannot switch to a protected branch")
+        # Switching to main is safe: commit, merge and push refuse protected branches.
         _require_local_branch(branch, root, runner)
         return ["git", "switch", branch]
     if operation == "switch-new":
@@ -329,11 +337,54 @@ def _prepare_branch_command(
         runner,
         operation_class="read",
     )
-    if merged.returncode == 1:
-        raise AgentGitInputError("branch is not merged into HEAD")
-    if merged.returncode != 0:
+    if merged.returncode == 0:
+        return ["git", "branch", "-d", branch]
+    if merged.returncode != 1:
         raise AgentGitProcessError("Git merge ancestry check failed")
-    return ["git", "branch", "-d", branch]
+    if _github_squash_merged_tip(branch, full_ref, root, runner):
+        return ["git", "branch", "-D", branch]
+    raise AgentGitInputError(
+        "branch is not merged into HEAD or squash-merged into main"
+    )
+
+
+def _github_squash_merged_tip(
+    branch: str, full_ref: str, root: Path, runner: CommandRunner
+) -> bool:
+    """Whether GitHub merged a PR into main whose head is exactly the local tip.
+
+    A squash merge leaves no ancestry, so the merged PR's recorded head SHA is the
+    proof that nothing on the local branch is lost by deleting it.
+    """
+    tip = _invoke(["git", "rev-parse", full_ref], root, runner, operation_class="read")
+    _require_success(tip, "Git branch tip could not be read")
+    local_tip = tip.stdout.strip()
+    owner = REPOSITORY.split("/", maxsplit=1)[0]
+    answer = _invoke(
+        [
+            "gh",
+            "api",
+            f"repos/{REPOSITORY}/pulls?state=closed&base=main"
+            f"&head={owner}:{branch}&per_page=100",
+        ],
+        root,
+        runner,
+        operation_class="github-read",
+    )
+    _require_success(answer, "GitHub pull-request query failed")
+    try:
+        pulls = json.loads(answer.stdout)
+    except json.JSONDecodeError as exc:
+        raise AgentGitProcessError("GitHub pull-request query was malformed") from exc
+    if not isinstance(pulls, list):
+        raise AgentGitProcessError("GitHub pull-request query was malformed")
+    return any(
+        isinstance(pull, dict)
+        and pull.get("merged_at")
+        and pull.get("head", {}).get("sha") == local_tip
+        and pull.get("base", {}).get("ref") == "main"
+        for pull in pulls
+    )
 
 
 def run_agent_git(
