@@ -158,8 +158,9 @@ full run only after several fixes and with owner agreement.
 ## Review
 
 Review runs once per milestone before its PR, or once for a change belonging to no
-milestone before its PR. Round 1 runs all five: correctness
-(`pr-code-reviewer`), silent failures (`pr-silent-failure-hunter`), comment accuracy
+milestone before its PR. Each dimension runs as its own reviewer agent; the implementing
+agent never writes a verdict itself, and the PR body identifies each reviewer run.
+Round 1 runs all five: correctness (`pr-code-reviewer`), silent failures (`pr-silent-failure-hunter`), comment accuracy
 (`pr-comment-analyzer`) and type design (`pr-type-design-analyzer`) in parallel, then
 test validity (`pr-test-analyzer`) alone. Only the test analyzer may mutate tracked
 files, using `pdm run agent-pristine save|restore|discard`; restore is one-shot. A
