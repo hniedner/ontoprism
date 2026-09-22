@@ -170,8 +170,10 @@ with/without <finding>, staging-manual version). The `neoplasm` (`C3262`) and `d
 including defined-class genus edges; disease contains neoplasm. Both use the same
 axis-qualified algorithm and its semantic-type applicability gate. Regimen is reserved
 for a distinct component-bag algorithm; gene/protein role families remain excluded.
-Extraction runs off the **stated** OWL (DECISIONS D4/D51); the inferred store is used
-only for validation/closure.
+Extraction runs off the **stated** OWL (DECISIONS D4/D51). The inferred store may support
+bounded non-fidelity observations, but it is never a round-trip or defined-class closure
+oracle. D21 alone governs fidelity closure: derive it from stated definitions or classify
+the stated OWL with an identified reasoner.
 
 The human-facing view is a deliberately **lossy curated projection**. The representation
 of record separately preserves the complete stated multi-parent definition DAG, every

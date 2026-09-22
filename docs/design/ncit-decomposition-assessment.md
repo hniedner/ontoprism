@@ -1,9 +1,8 @@
 # Decomposing Pre-Coordinated NCIt Concepts — Feasibility, Strategy & Level of Effort
 
-**Status:** Foundational assessment (the "why" behind OntoPrism) · **Author:** Hannes Niedner · **Date:** 2026-07-03
-**Data basis:** Running NCIt store (Oxigraph, `localhost:7878`, inferred build **26.05d**,
-12,836,426 triples) + mounted `Thesaurus.FLAT.txt` (211,957 concepts). Every headline
-figure below was computed directly against that store during the analysis.
+**Status:** Historical foundational assessment · **Author:** Hannes Niedner · **Date:** 2026-07-03
+**Data basis:** These figures describe the 2026-07-03 Oxigraph/26.05d observation
+(12,836,426 triples) and mounted FLAT file; they are not current runtime or release counts.
 
 This is the empirical foundation for OntoPrism's distinctive purpose — producing a
 decomposed (non-pre-coordinated) NCIt. The implementable build derived from it is the
@@ -150,8 +149,8 @@ for decomposition:
    `Disease_Excludes_Finding` disjointness restrictions (35,662 + 30,009 of them). These are
    **not constituents** and must be filtered out; they explain why some concepts show 80+ "roles".
 
-**Action:** obtain/regenerate the **stated** NCIt OWL (or the OWLF "flat roles" export) for the
-production pipeline, and treat the inferred store only for validation/closure checks.
+**Current rule:** extract from stated NCIt OWL. The inferred store may support bounded
+observations, but D21 forbids it as a fidelity or defined-class closure oracle.
 
 ---
 
@@ -170,12 +169,10 @@ decomposable. Three exemplars (full data in `data/pilot_neoplasm.json`):
   carries a distinct AJCC v8 assertion; the two concepts are not semantically equivalent
   (D39).
 
-**Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`)** decomposes to
-Stage IIIB + AJCC v7 + Lung + Small Cell Carcinoma + Pleural Effusion, and sits in a **sibling
-explosion**: Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`),
-Stage IIIB Lung Small Cell Carcinoma without Pleural Effusion AJCC v7 (`C35757`), Stage IIIB
-Lung Small Cell Carcinoma AJCC v7 (`C6681`), and Stage III Lung Small Cell Carcinoma
-(`C6679`) — four enumerated concepts for one axis of variation.
+**Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7 (`C35756`)** exposes
+Stage IIIB, AJCC v7, Lung, Small Cell Carcinoma, and positive Pleural Effusion. Related
+concepts vary across finding presence and stage value. Under D39 they are distinct, not
+duplicates or equivalent replacements; sibling links are navigation only.
 
 **Illustrative, non-exhaustive Left Atrial Myxoma (`C4791`) projection:** primary site =
 Left Atrium (`C12869`), morphology = Myxoma, abnormal cell includes Neoplastic Spindle
@@ -200,18 +197,14 @@ Proposed model (additive — no deletions):
 1. **Flag, don't delete.** Add an annotation on each decomposed concept, e.g.
    `:representationStatus "legacy-precoordinated"` and `:decomposedOn "2026-…"`. The concept remains
    `owl:Class`, retains all existing axioms, so downstream systems continue to resolve it.
-2. **Explicit constituent links.** Introduce one non-defining association property,
-   `:hasConstituentConcept`, plus the *typed* axis it fills, so consumers can read both the flat
-   list and the semantics:
+2. **Explicit constituent links.** Use implemented `op:hasConstituent` nodes with
+   normalized axes and separate source-role provenance:
    ```
-   C6135 :representationStatus "legacy-precoordinated" ;
-         :hasConstituent [ :axis Disease_Is_Stage             ; :filler C27970 ] ;
-         :hasConstituent [ :axis Disease_Has_Primary_Anatomic_Site ; :filler C12400 ] ;
-         :hasConstituent [ :axis Disease_Has_Abnormal_Cell    ; :filler C36761 ] ;
-         :hasConstituent [ :axis :Morphology                  ; :filler <Medullary Carcinoma> ] .
+   ncit:C6135 op:representationStatus "legacy-precoordinated" ;
+         op:hasConstituent [ op:axis op:StageValue ; op:sourceRole ncit:R88 ; op:filler ncit:C27970 ] ;
+         op:hasConstituent [ op:axis op:PrimarySite ; op:sourceRole ncit:R101 ; op:filler ncit:C12400 ] .
    ```
-   (Reuse existing role properties as the `:axis` value where one exists; this keeps the links
-   semantically self-describing and lets the existing role restrictions remain untouched.)
+   Normalized axes state effective meaning; `op:sourceRole` preserves NCIt provenance.
 3. **Create only the genuinely missing constituents** (laterality/absence qualifiers, a handful of
    value-set nodes), then link them the same way. Coverage analysis shows this set is small.
 4. **Future post-coordination equivalence.** D43 supersedes the original optional-emission
@@ -271,8 +264,6 @@ backward-compatibility guarantee for enhanced-product behavior.
 
 ---
 
-*Reproducibility: the headline figures were derived by SPARQL queries against the live
-NCIt Oxigraph store (build 26.05d) and an NLP scan of `Thesaurus.FLAT.txt`. The raw
-analysis working set (per-metric JSON dumps and the query/method checkpoint) lived in a
-local, untracked scratch area during the assessment; the numbers it
-produced are reproduced inline throughout this document.*
+*Historical provenance: the figures were observed on 2026-07-03 against the then-running
+Oxigraph 26.05d store and mounted FLAT file. Scratch inputs were not retained, so these
+are historical observations, not currently reproducible or certified corpus results.*

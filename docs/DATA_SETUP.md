@@ -482,7 +482,7 @@ pdm run decompose \
 
 A full run takes about fifteen hours, so by default it is preceded by a preflight: the
 branch's tracked stratified SME sample (for neoplasm
-`samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
+`samples/ncit-26.07d-m1-review.json`, 20 concepts across every review stratum) is
 rehearsed through the same pipeline, including the final metrics report, to
 `data/ncit_decomposed.ttl.preflight` without loading the graph. The rehearsal is a
 throwaway run: it is admitted afresh every time, it borrows only the sample's codes (the
@@ -528,12 +528,12 @@ unavailable until its distinct component-bag algorithm is implemented. `--resume
 accepts only the same source, branch, root, scope algorithm, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
 drift before publication fails closed and invalidates every persisted result row. The
-`--out` TTL is staged, flushed, validated, and source-checked before publication. With
-`--load`, the CLI loads a unique staging graph and transactionally replaces the additive
-`ncit_decomposed` graph together with its publication marker. It then atomically replaces
-and directory-syncs the file before marking the run complete. Failures after publication
-intent is journaled but before completion remain separately visible and resumable;
-matching marker-ahead retries reconcile without replaying a committed graph update.
+`--out` TTL is staged, flushed, validated, and source-checked before publication. This is
+D53's journaled state machine, not a cross-system transaction. With `--load`, one graph
+update commits the staging graph and marker; the file is then atomically replaced and
+directory-synced; PostgreSQL records completion last. A failure may leave graph or file
+state ahead of PostgreSQL. Matching retries reconcile before replaying the same sealed
+bytes; there is no cross-system rollback guarantee.
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
 

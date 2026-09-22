@@ -29,7 +29,9 @@ A controlled terminology serves two masters that pull in opposite directions. Cl
 
 The alternative is **post-coordination**: keep the terminology's *atomic* concepts small in number and formally defined, and express complex meaning as *combinations* of atoms assembled at query or documentation time through a defined grammar of relationships. "Non–Small Cell Lung Carcinoma" is not a named node but the expression *Lung Carcinoma : has\_finding\_site = Lung, has\_associated\_morphology = Non–Small Cell Carcinoma*. The trade-off has been articulated repeatedly since the 1990s: post-coordination is vastly more flexible and avoids combinatorial bloat, but it demands (a) a rigorous concept model constraining which combinations are sensible, and (b) a reasoning mechanism that can recognize when two differently-written expressions mean the same thing, and when an expression falls under an existing named concept [3][7][10].
 
-This review synthesizes the peer-reviewed and standards literature on that trade-off, with particular attention to the goal that motivates ONTOPRISM: *using only atomic terms plus an expression syntax to avoid pre-coordination entirely, while retaining the ability to map post-coordinated expressions back to pre-coordinated concepts by semantic equivalence.* Section 2 sets out the conceptual vocabulary and the classic "generations" of terminological systems. Section 3 covers the theoretical foundations of atomicity and compositionality. Section 4 surveys post-coordination mechanisms across SNOMED CT, OWL/OBO, and clinical classifications. Section 5 treats semantic equivalence: normal forms, DL classification, and subsumption. Section 6 documents the *overloaded-role* problem with NCIt examples and proposes a research-grounded mitigation. Section 7 assesses trade-offs, scalability, and quality assurance. Section 8 maps the entire review onto ONTOPRISM's implementation strategy.
+This review applies that trade-off to ONTOPRISM: use atomic constituents and an
+expression syntax while retaining each pre-coordinated NCIt concept as a release-bound
+source anchor, and eventually prove when a composition is equivalent to that source.
 
 ---
 
@@ -189,7 +191,9 @@ The literature points to a coherent, three-part mitigation.
 
 1. **Refactor overloaded roles into univocal relations (OBO Relation Ontology methodology) [25].** Split `R101` into formally-defined sub-relations with disjoint, stated meanings — e.g., `has_literal_finding_site` (connects a neoplasm to the organ it is physically in) versus `has_histogenetic_lineage` (connects a neoplasm to the tumour family it is classified under). Each becomes a genuine single-sense relation with a stated domain, range, and logical properties, so that a "single-concept role-based relationship" once again denotes exactly one thing.
 
-2. **Preserve co-equal senses as SNOMED-style relationship groups, not a forced single value [10][18].** Where two senses are genuinely co-equal (site *and* lineage), they are kept as distinct, simultaneously-asserted members of a relationship group — SNOMED CT's production mechanism for exactly this situation — rather than collapsed to one filler. This is the "recognized redundancy / multiple granularities" desideratum [1] realized structurally.
+2. **Preserve co-equal senses without forcing a single value [10][18].** Retain each
+source occurrence and structural group. Assign normalized projection groups only where
+reviewed policy establishes them; coexistence alone does not infer a shared group.
 
 3. **Untangle by Rector normalization and let a reasoner re-derive the hierarchy [22].** Anatomy/site, morphology/cell, and lineage/classification are separated into disjoint primitive skeletons; the multi-parent placement that the overloaded role used to assert by hand is instead *inferred* from the univocal logical definitions by a DL reasoner. This removes the incentive to overload a role in the first place.
 
@@ -200,8 +204,8 @@ ONTOPRISM's decisions D17/D19/D20 adopt a deliberately *additive* variant of thi
 | Dimension | Research-founded refactor (RO-style role split) | ONTOPRISM current approach (D17/D19/D20) |
 |---|---|---|
 | **Mechanism** | Physically split overloaded `R101`/`R105` into new univocal relations across the whole ontology; regenerate the graph with split roles. | Keep NCIt's `R101`/`R105` triples untouched; *classify the anchoring genus concepts* (site-specific vs lineage/histology-generic) and store that classification additively as new metadata, consulted during per-level role extraction to route a restriction to its raw role or a new `op:` axis. |
-| **Handling of co-equal senses** | Distinct univocal relations, held in relationship groups. | Distinct axes routed by genus-sense, held in D19 relationship groups (same target structure). |
-| **Provenance / reversibility** | New graph; requires a mapping back to the original stated axioms to stay reversible. | Additive and non-destructive today; exact reversibility requires #153's future complete `owl:equivalentClass` unfolding. |
+| **Handling of co-equal senses** | Distinct univocal relations, optionally grouped by the source model. | Distinct axes with source structural groups preserved and reviewed normalized groups assigned only by policy. |
+| **Provenance / reversibility** | New graph; requires mapping back to stated axioms. | Additive today; exact reversibility remains unavailable until #153 validates proof-bearing reconstruction. |
 | **Scope of change** | Global rewrite of ~10⁷ stated triples; high blast radius. | Incremental — only the few hundred/thousand genus concepts that actually anchor decomposition-relevant restrictions are classified. |
 | **Risk** | Correct in principle but a large, error-prone migration; risks diverging from NCIt releases and breaking source-code resolution or named consumer query profiles. | Lower blast radius, but the current curated projection is lossy and the overload is *annotated around* rather than eliminated — the raw ambiguous role persists for any consumer not using the projection. |
 | **Reasoning dependency** | Univocal relations make DL subsumption cleaner. | Must contend with NCIt's incomplete `rdfs:subClassOf+` closure (D21): defined-class-to-defined-class subsumption is *not materialized*, so nestedness is only decidable where present, and the safe direction is to preserve (not collapse) uncertain pairs. |
@@ -238,15 +242,22 @@ This section maps the review onto ONTOPRISM's four-goal architecture (rich NCIt+
 
 ### 8.1 Decomposition (Goal 2): roles-first, atoms already exist
 
-The literature's strongest positive finding for ONTOPRISM is that NCIt's pre-coordination is encoded exactly as OWL defined classes [21][24], and a defined class's `owl:equivalentClass` unfolding is *always* a lossless composition over existing primitives [10][22]. This underwrites the project's *roles-first* extraction (100% filler coverage) and its framing of decomposition as **surfacing and re-linking, not inventing**. The recommendation is to treat the full multi-parent-DAG unfolding of the equivalent-class definition as the **lossless representation of record**, and any single-most-specific-filler view as a clearly-labelled **lossy curated projection** on top — exactly the D19 architecture, and directly justified by normal-form theory [10] and Rector normalization [22].
+The literature supports stated-definition unfolding as input to a future proof-bearing
+record. ONTOPRISM materializes structural facts, but their presence alone does not prove
+equivalence. Until #153 validates reconstruction, the constituent view remains additive
+and non-equivalent.
 
 ### 8.2 Relations before coverage: fix role overload first
 
-The most important strategic implication of this review is a *sequencing* one. ONTOPRISM's open work is dominated by extractor coverage (currently ~3.24% on the naive baseline). The literature suggests that **relation quality gates decomposition quality**: because the scarce resource is univocal relations, not atoms (§6.1), pushing coverage on top of overloaded roles will propagate the `R101`/`R105` conflation into every decomposed concept. The recommendation is to prioritize the D17/D20 genus-sense classification (routing overloaded restrictions to distinct axes) as a *precondition* for coverage expansion, and to adopt the OBO Relation Ontology discipline [25] — every axis ONTOPRISM emits should correspond to a single, formally-defined relation with a stated domain, range, and logical properties. Co-equal senses go into D19 relationship groups [18], never a forced single value.
+Historical early work reported about 3.24% on a naive baseline; that is not the current
+M1 quality measure. Current reporting separates precision, recall, projection loss, and
+review state. Relation quality still gates coverage expansion.
 
 ### 8.3 Semantic equivalence and round-trip fidelity: use a real reasoner
 
-To satisfy Goal 2's reversibility requirement and Cimino's "recognized redundancy" [1], ONTOPRISM must be able to prove that a decomposed expression reconstructs its source concept. The review is unambiguous that this requires **DL classification, not string or `rdfs:subClassOf+` comparison** [10][12][23]. Consistent with D21, the closure oracle must be computed either from the stated `owl:equivalentClass`/`owl:intersectionOf` structure (which is complete by definition) or by running a real OWL reasoner over the stated build; the inferred `rdfs:subClassOf+` graph must *not* be used as a fidelity oracle, because it does not materialize defined-class subsumption and would report false negatives on exactly the chains reversibility depends on. This is the single highest-risk correctness item and should gate the `--emit-equivalence` seam.
+D21 is the sole closure-oracle rule: compute closure from stated definitions or classify
+that stated OWL with an identified reasoner. Inferred `rdfs:subClassOf+` is never a
+fidelity oracle. This gates `--emit-equivalence`.
 
 ### 8.4 Sanctioning and the post-coordination grammar (Goal 4)
 
@@ -254,7 +265,10 @@ When ONTOPRISM builds its post-coordination expression syntax, it should not inv
 
 ### 8.5 Source-anchor continuity, interface layer, and QA
 
-Three supporting recommendations follow from §7. First, retain resolvable links from every decomposed expression to its legacy pre-coordinated concept (`representationStatus="legacy-precoordinated"`), honouring concept permanence [1] and the CMT/interface-terminology lesson that a reference layer needs curated views to be usable [17][32]. Second, build the *validation* step as a first-class engine component, drawing on the terminology-auditing literature [34] to check round-trip fidelity, non-redundancy, and consistency on every run. Third, expose the decomposed graph as an *additional lens*, never a replacement — the additivity that D19/D21 already enforce is not merely an engineering convenience but the literature-endorsed way to migrate a pre-coordinated terminology without breaking its existing consumers.
+Retain resolvable source anchors and make validation first-class. Current runs validate
+source binding, structural capture, projection loss, and consistency while recording
+`roundtrip_fidelity: null`; #153 may add proof-derived fidelity. The graph remains an
+additional lens, never a replacement.
 
 ### 8.6 Summary of recommendations
 
@@ -340,4 +354,5 @@ Four decades of medical-informatics and ontology-engineering research converge o
 
 ---
 
-*Prepared for the ONTOPRISM project. Cross-references to project decisions (D14–D21) and design documents (`docs/design/`) are internal and reflect the state of the repository as of July 2026.*
+*Prepared as literature background in July 2026 and subsequently reconciled with current
+project decisions. Current behavior is governed by `docs/DECISIONS.md` and implementation.*
