@@ -202,7 +202,7 @@ def _validate_sample_config(config: RunConfig) -> None:
     sample = config.sample_manifest
     if sample is None:
         return
-    if config.out is None:
+    if _sample_output_missing(config):
         raise ValueError("a sample run requires an output path")
     if config.load_to_store:
         raise ValueError("a sample run cannot load into the configured store")
@@ -218,6 +218,14 @@ def _validate_sample_config(config: RunConfig) -> None:
         or sample.scope_version != config.scope_version
     ):
         raise ValueError("sample manifest does not match run hierarchy scope")
+
+
+def _sample_output_missing(config: RunConfig) -> bool:
+    return config.out is None and not config.rehearsal
+
+
+def _output_mode(config: RunConfig) -> Literal["none", "file"]:
+    return "file" if config.out is not None and not config.rehearsal else "none"
 
 
 class RunConfig:
@@ -928,7 +936,7 @@ def build_resume_identity(
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
-        output_mode="file" if config.out is not None else "none",
+        output_mode=_output_mode(config),
         load_mode="named-graph" if config.load_to_store else "none",
     )
 
@@ -971,7 +979,7 @@ def _requested_fingerprint(
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
-        output_mode="file" if config.out is not None else "none",
+        output_mode=_output_mode(config),
         load_mode="named-graph" if config.load_to_store else "none",
         emitted_at=datetime.now(UTC),
     )
@@ -1441,7 +1449,7 @@ def _publication_paths(config: RunConfig, run_id: str) -> tuple[Path, Path] | No
     One correlated value: a staging path without a destination (or the reverse) is
     not representable, so publication cannot be silently skipped.
     """
-    if config.out is None:
+    if config.out is None or config.rehearsal:
         return None
     return config.out.with_name(f".{config.out.name}.staging-{run_id}"), config.out
 

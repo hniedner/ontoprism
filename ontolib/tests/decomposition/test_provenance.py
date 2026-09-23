@@ -761,6 +761,90 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
 
 
 @pytest.mark.unit
+async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
+    sf = _make_mock_sf()
+    fingerprint = RunFingerprint(
+        schema_version=5,
+        source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        semantic_types=("Neoplastic Process",),
+        worklist=("C1",),
+        sample_manifest_identity="b" * 64,
+        algorithm_version="decomposition-v3",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="none",
+        rehearsal_nonce="d" * 32,
+        emitted_at=datetime.datetime(2026, 9, 23, tzinfo=datetime.UTC),
+    )
+    sf().execute.return_value.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": fingerprint.source_identity,
+        "fingerprint": fingerprint.model_dump(mode="json"),
+        "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "published",
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/current.ttl",
+    }
+
+    with pytest.raises(RunStateError, match="rehearsal, not published evidence"):
+        await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+
+@pytest.mark.unit
+async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> None:
+    sf = _make_mock_sf()
+    fingerprint = RunFingerprint(
+        schema_version=5,
+        source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
+        routing_implementation_identity="1" * 64,
+        mixed_chain_inventory_identity="2" * 64,
+        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        semantic_types=("Neoplastic Process",),
+        worklist=("C1",),
+        sample_manifest_identity="b" * 64,
+        algorithm_version="decomposition-v3",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="none",
+        rehearsal_nonce="d" * 32,
+        emitted_at=datetime.datetime(2026, 9, 23, tzinfo=datetime.UTC),
+    )
+    run_result = MagicMock()
+    worklist_result = MagicMock()
+    run_result.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": fingerprint.source_identity,
+        "fingerprint": fingerprint.model_dump(mode="json"),
+        "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "not_requested",
+    }
+    worklist_result.scalars.return_value.all.return_value = ["C1"]
+    sf().execute.side_effect = [run_result, worklist_result]
+
+    completed = await ProvenanceStore(sf).completed_rehearsal_for_oracle_metrics(
+        "run-1"
+    )
+
+    assert completed.run_id == "run-1"
+    assert completed.fingerprint == fingerprint
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("row", "message"),
     [

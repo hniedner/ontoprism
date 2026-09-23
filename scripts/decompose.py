@@ -23,11 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import tempfile
 from functools import partial
 from pathlib import Path
 from typing import Annotated
-from uuid import uuid4
 
 import typer
 
@@ -39,6 +37,7 @@ from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.run import (
+    ProgressCallback,
     RunConfig,
     RunMetrics,
     RunProgress,
@@ -182,6 +181,7 @@ async def _run(
     walker_max_depth: int = 5,
     sample_manifest: Path | None = None,
     rehearsal: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> RunMetrics:
     sample = (
         load_sample_manifest(sample_manifest) if sample_manifest is not None else None
@@ -232,7 +232,11 @@ async def _run(
                             get_labels=store.labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
-                            progress=partial(_print_progress, prefix=prefix),
+                            progress=(
+                                progress
+                                if progress is not None
+                                else partial(_print_progress, prefix=prefix)
+                            ),
                             residual_progress=partial(
                                 _print_residual_progress, prefix=prefix
                             ),
@@ -379,7 +383,6 @@ def main(
         _rehearse(
             source_manifest=source_manifest,
             branch=branch,
-            out=out,
             emit_equivalence=emit_equivalence,
             walker_max_depth=walker_max_depth,
         )
@@ -400,42 +403,26 @@ def main(
     typer.echo(_summary_line(metrics))
 
 
-def _file_stamp(path: Path) -> tuple[int, int] | None:
-    """Size and mtime of a file, or None when absent (tells attempts apart)."""
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return None
-    return (stat.st_size, stat.st_mtime_ns)
-
-
 def _rehearse(
     *,
     source_manifest: Path,
     branch: DecompositionBranch,
-    out: Path | None,
     emit_equivalence: bool,
     walker_max_depth: int,
 ) -> None:
-    """Run the branch's preflight sample as a rehearsal; a failure deletes nothing."""
+    """Run the branch's preflight sample as an unpublished rehearsal."""
     sample = PREFLIGHT_SAMPLES.get(branch)
     if sample is None:
         raise typer.BadParameter(
             f"no preflight sample is tracked for branch {branch.value!r}; "
             "pass --no-preflight"
         )
-    preflight_out = (
-        out.with_name(f"{out.name}.preflight")
-        if out is not None
-        else Path(tempfile.gettempdir()) / f"decompose-preflight-{uuid4().hex}.ttl"
-    )
-    before = _file_stamp(preflight_out)
     try:
         metrics = asyncio.run(
             _run(
                 source_manifest=source_manifest,
                 branch=branch,
-                out=preflight_out,
+                out=None,
                 load=False,
                 emit_equivalence=emit_equivalence,
                 resume=None,
@@ -450,26 +437,12 @@ def _rehearse(
                 f"preflight decomposed no concepts: {_summary_line(metrics)}"
             )
     except BaseException as exc:
-        after = _file_stamp(preflight_out)
-        if after is None:
-            output = "no output was written"
-        elif after == before:
-            output = (
-                f"no output was written; {preflight_out} is left over from an "
-                "earlier preflight"
-            )
-        else:
-            output = f"its output is left at {preflight_out}"
         exc.add_note(
             f"raised by the preflight rehearsal of {sample}; the full run was not "
-            f"started; {output}; --no-preflight skips it"
+            "started; --no-preflight skips it"
         )
         raise
     typer.echo(f"preflight: {_summary_line(metrics)}")
-    try:
-        preflight_out.unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning("could not delete preflight output %s: %s", preflight_out, exc)
 
 
 def _summary_line(metrics: RunMetrics) -> str:

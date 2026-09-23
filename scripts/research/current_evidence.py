@@ -36,6 +36,10 @@ from ontolib.decomposition.proposal_registry import (
 from ontolib.decomposition.proposal_registry_migration import (
     load_proposal_registry_migration_envelope,
 )
+from ontolib.decomposition.provenance_models import (
+    CompletedRehearsalForOracleMetrics,
+    CompletedRunForEvidence,
+)
 from ontolib.decomposition.publication import validate_artifact
 from ontolib.decomposition.run_artifacts import resolve_parent_manifest
 from ontolib.decomposition.sampling import (
@@ -75,7 +79,6 @@ if TYPE_CHECKING:
 
     from ontolib.decomposition.models import Decomposition, SourceDefinitionOccurrence
     from ontolib.decomposition.provenance_models import (
-        CompletedRunForEvidence,
         WorkItemOutcome,
     )
 
@@ -91,6 +94,16 @@ class CurrentEvidenceStore(Protocol):
     async def completed_run_for_evidence(
         self, run_id: str
     ) -> CompletedRunForEvidence: ...
+
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]: ...
+
+    async def decompositions_for_run(self, run_id: str) -> list[Decomposition]: ...
+
+
+class RehearsalOracleMetricsStore(Protocol):
+    async def completed_rehearsal_for_oracle_metrics(
+        self, run_id: str
+    ) -> CompletedRehearsalForOracleMetrics: ...
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]: ...
 
@@ -604,7 +617,9 @@ class CurrentComparison(_StrictModel):
         return self
 
 
-def _detector_identity(run: CompletedRunForEvidence) -> str:
+def _detector_identity(
+    run: CompletedRunForEvidence | CompletedRehearsalForOracleMetrics,
+) -> str:
     fingerprint = run.fingerprint
     return _identity(
         {
@@ -636,7 +651,8 @@ def _require_paths(paths: tuple[Path, ...], outputs: tuple[Path, Path]) -> None:
 
 
 def _require_run_matches_manifest(
-    run: CompletedRunForEvidence, manifest: DecompositionSampleManifest
+    run: CompletedRunForEvidence | CompletedRehearsalForOracleMetrics,
+    manifest: DecompositionSampleManifest,
 ) -> None:
     fingerprint = run.fingerprint
     checks = (
@@ -1246,7 +1262,7 @@ def _write_single_output(output: Path, payload: bytes) -> None:
         Path(name).unlink(missing_ok=True)
 
 
-def _build_current_comparison(
+def build_current_comparison(
     evidence: CurrentEngineEvidence,
     adjudication: AdjudicationArtifact,
     rows: RowDecisionExport,
@@ -1358,7 +1374,7 @@ def regenerate_current_comparison(
         raise CurrentEvidenceValidationError(
             "current evidence cohort does not match immutable oracle"
         )
-    comparison = _build_current_comparison(evidence, adjudication, rows, registry)
+    comparison = build_current_comparison(evidence, adjudication, rows, registry)
     comparison_bytes = _canonical_bytes(comparison)
     CurrentComparison.model_validate_json(comparison_bytes)
     _write_single_output(output, comparison_bytes)
@@ -1486,6 +1502,83 @@ async def generate_current_evidence(
         ),
         (engine_output, comparison_output),
     )
+    run = await store.completed_run_for_evidence(run_id)
+    _validate_artifact_binding(
+        artifact, run, artifact_manifest, artifact_manifest_identity
+    )
+    return await _generate_current_evidence_for_run(
+        sample_manifest=sample_manifest,
+        oracle=oracle,
+        row_decisions=row_decisions,
+        proposal_registry=proposal_registry,
+        proposal_registry_migration=proposal_registry_migration,
+        run_id=run_id,
+        artifact=artifact,
+        engine_output=engine_output,
+        comparison_output=comparison_output,
+        store=store,
+        run=run,
+        expected_representation_identity=run.representation_identity,
+    )
+
+
+async def generate_rehearsal_oracle_evidence(
+    *,
+    sample_manifest: Path,
+    oracle: Path,
+    row_decisions: Path,
+    proposal_registry: Path,
+    proposal_registry_migration: Path,
+    run_id: str,
+    artifact: Path,
+    engine_output: Path,
+    comparison_output: Path,
+    store: RehearsalOracleMetricsStore,
+) -> tuple[CurrentEngineEvidence, CurrentComparison]:
+    """Score a completed rehearsal's caller-supplied artifact in the same process."""
+    _require_paths(
+        (
+            sample_manifest,
+            oracle,
+            row_decisions,
+            proposal_registry,
+            artifact,
+            proposal_registry_migration,
+        ),
+        (engine_output, comparison_output),
+    )
+    run = await store.completed_rehearsal_for_oracle_metrics(run_id)
+    return await _generate_current_evidence_for_run(
+        sample_manifest=sample_manifest,
+        oracle=oracle,
+        row_decisions=row_decisions,
+        proposal_registry=proposal_registry,
+        proposal_registry_migration=proposal_registry_migration,
+        run_id=run_id,
+        artifact=artifact,
+        engine_output=engine_output,
+        comparison_output=comparison_output,
+        store=store,
+        run=run,
+        expected_representation_identity=None,
+    )
+
+
+async def _generate_current_evidence_for_run(
+    *,
+    sample_manifest: Path,
+    oracle: Path,
+    row_decisions: Path,
+    proposal_registry: Path,
+    proposal_registry_migration: Path,
+    run_id: str,
+    artifact: Path,
+    engine_output: Path,
+    comparison_output: Path,
+    store: CurrentEvidenceStore | RehearsalOracleMetricsStore,
+    run: CompletedRunForEvidence | CompletedRehearsalForOracleMetrics,
+    expected_representation_identity: str | None,
+) -> tuple[CurrentEngineEvidence, CurrentComparison]:
     try:
         manifest = load_sample_manifest(sample_manifest)
         registry = load_proposal_registry(proposal_registry)
@@ -1527,15 +1620,11 @@ async def generate_current_evidence(
             raise CurrentEvidenceValidationError(
                 f"row decision {name} does not match immutable oracle"
             )
-    run = await store.completed_run_for_evidence(run_id)
     if run.run_id != run_id:
         raise CurrentEvidenceValidationError(
             "persisted run id does not match requested run id"
         )
     _require_run_matches_manifest(run, manifest)
-    _validate_artifact_binding(
-        artifact, run, artifact_manifest, artifact_manifest_identity
-    )
     outcomes = await store.work_item_outcomes(run_id)
     if tuple(item.concept_code for item in outcomes) != manifest.codes:
         raise CurrentEvidenceValidationError("work item outcomes do not match worklist")
@@ -1547,7 +1636,10 @@ async def generate_current_evidence(
     representation_identity = validate_artifact(
         artifact, expected_codes=decomposed_codes, run_id=run_id
     )
-    if representation_identity != run.representation_identity:
+    if (
+        expected_representation_identity is not None
+        and representation_identity != expected_representation_identity
+    ):
         raise CurrentEvidenceValidationError(
             "validated artifact representation identity does not match persisted run"
         )
@@ -1572,7 +1664,7 @@ async def generate_current_evidence(
     evidence = CurrentEngineEvidence.model_validate(
         {**evidence_payload, "evidence_identity": _identity(evidence_payload)}
     )
-    comparison = _build_current_comparison(evidence, adjudication, rows, registry)
+    comparison = build_current_comparison(evidence, adjudication, rows, registry)
     engine_bytes = _canonical_bytes(evidence)
     comparison_bytes = _canonical_bytes(comparison)
     CurrentEngineEvidence.model_validate_json(engine_bytes)
