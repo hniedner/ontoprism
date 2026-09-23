@@ -1997,8 +1997,16 @@ async def _metrics_stage(
         concept_unknown_codes = await provenance.unknown_outcome_codes(setup.run_id)
         if len(concept_unknown_codes) != completion_metrics.unknown_outcome:
             raise RunStateError("unknown outcome codes do not match completion metrics")
-        # Before the artifact and publication stages: finish_run repeats the recount,
+        # Before the artifact and publication stages: finish_run repeats these checks,
         # but only after the public graph has been replaced.
+        completion_ready = await provenance.require_completion_preconditions(
+            setup.run_id, setup.fingerprint.source_identity
+        )
+        if not completion_ready:
+            raise RunStateError(
+                f"completion preflight found no decomp_run row for "
+                f"run_id={setup.run_id!r}"
+            )
         await provenance.require_completion_recount(setup.run_id, completion_metrics)
         persisted_metrics = completion_metrics.model_dump(mode="json")
         metrics_payload: dict[str, object] = {

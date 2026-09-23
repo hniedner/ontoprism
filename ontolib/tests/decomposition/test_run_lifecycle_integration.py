@@ -1293,6 +1293,48 @@ async def test_the_completion_recount_is_available_before_publication() -> None:
         await dispose_engine(engine)
 
 
+async def test_completion_preconditions_are_available_before_publication() -> None:
+    """Source, materialized worklist, and running status can all be checked before
+    the artifact and publication stages without changing ``finish_run``'s copies."""
+    run_id = _new_run_id("neoplasm")
+    fingerprint = _fingerprint()
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", fingerprint)
+        await store.require_completion_preconditions(
+            run_id, fingerprint.source_identity
+        )
+
+        with pytest.raises(RunIdentityMismatchError, match="completion source"):
+            await store.require_completion_preconditions(run_id, "b" * 64)
+
+        await conn.execute(
+            "DELETE FROM decomp_work_item WHERE run_id = $1 AND concept_code = 'C1'",
+            run_id,
+        )
+        with pytest.raises(RunIdentityMismatchError, match="materialized worklist"):
+            await store.require_completion_preconditions(
+                run_id, fingerprint.source_identity
+            )
+        await conn.execute(
+            "INSERT INTO decomp_work_item (run_id, concept_code, ordinal) "
+            "VALUES ($1, 'C1', 1)",
+            run_id,
+        )
+
+        assert await store.fail_run(run_id, RuntimeError("stop"))
+        with pytest.raises(RunStateError, match="not running"):
+            await store.require_completion_preconditions(
+                run_id, fingerprint.source_identity
+            )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_a_completed_rehearsal_never_reaches_the_curator_queue() -> None:
     """A rehearsal must not claim the deterministic mint ids the real run will mint."""
     run_id = _new_run_id("neoplasm")

@@ -42,7 +42,11 @@ from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.projection_validity import decide_projection
-from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
+from ontolib.decomposition.provenance import (
+    ProvenanceStore,
+    RunIdentityMismatchError,
+    RunStateError,
+)
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
@@ -2158,6 +2162,7 @@ async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
 @pytest.mark.unit
 async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
     provenance = MagicMock()
+    provenance.require_completion_preconditions = AsyncMock(return_value=True)
     provenance.require_completion_recount = AsyncMock()
     provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
     provenance.unknown_outcome_codes = AsyncMock(return_value=())
@@ -3670,6 +3675,109 @@ async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
     assert "metrics" not in provenance._test_state["stage_outputs"]
     assert "artifact" not in provenance._test_state["stage_outputs"]
     assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+async def _assert_completion_precondition_stops_before_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_preconditions = AsyncMock(side_effect=error)
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(type(error), match=re.escape(str(error))):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+@pytest.mark.unit
+async def test_completion_source_mismatch_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunIdentityMismatchError(
+            "completion source identity does not match persisted run"
+        ),
+    )
+
+
+@pytest.mark.unit
+async def test_materialized_worklist_mismatch_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunIdentityMismatchError(
+            "materialized worklist does not match the immutable run fingerprint"
+        ),
+    )
+
+
+@pytest.mark.unit
+async def test_non_running_status_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunStateError("decomposition run 'run' is not running"),
+    )
+
+
+@pytest.mark.unit
+async def test_missing_run_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_preconditions = AsyncMock(return_value=False)
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="completion preflight found no"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "artifact" not in provenance._test_state["stage_outputs"]
     publish.assert_not_awaited()
     assert not (tmp_path / "decomposed.ttl").exists()
 

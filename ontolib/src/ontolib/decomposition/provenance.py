@@ -3275,6 +3275,35 @@ class ProvenanceStore:
             roundtrip_fidelity=metrics.roundtrip_fidelity,
         )
 
+    async def require_completion_preconditions(
+        self, run_id: str, source_identity: str
+    ) -> bool:
+        """Fail early on completion checks that do not depend on publication.
+
+        ``finish_run`` repeats these checks while holding the run-row lock.  The
+        publishing path calls this before constructing an artifact so a known-bad
+        run cannot reach the public graph first.
+        """
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT status, source_identity, fingerprint, "
+                    "fingerprint_sha256 FROM decomp_run WHERE id = :id"
+                ),
+                {"id": run_id},
+            )
+            row = result.mappings().first()
+            if row is None:
+                return False
+            _require_completion_source(row, source_identity)
+            fingerprint = self._validated_fingerprint(
+                row["fingerprint"], row["fingerprint_sha256"]
+            )
+            await self._require_materialized_worklist(session, run_id, fingerprint)
+            if row["status"] != "running":
+                raise RunStateError(f"decomposition run {run_id!r} is not running")
+            return True
+
     async def require_completion_recount(
         self, run_id: str, metrics: CompletionRunMetrics
     ) -> None:
