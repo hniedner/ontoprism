@@ -30,10 +30,13 @@ new test before production edits and confirm its failure names the missing/wrong
 behavior. A test written after the implementation, or one that was never observed red,
 does not satisfy TDD.
 
-**Coverage: maintain > 90%** (line and branch) across the backend (`ontolib/src`,
-`backend/src`) and the frontend library (`frontend/src/lib`). The CI gates enforce
-this (`pdm run test-ci` `--cov-fail-under`, and the vitest coverage thresholds); do
-not lower a gate to make a change pass — raise coverage instead.
+**Coverage: aim for 95%+, never fall to 90%** (line and branch) across the backend
+(`ontolib/src`, `backend/src`) and the frontend library (`frontend/src/lib`). The CI
+gates enforce the strict > 90% floor (`pdm run test-ci` `--cov-fail-under`, and the
+vitest coverage thresholds). The floor is deliberately below the target so hard-to-test
+code with poor value for effort never invites padding: 90% of real coverage beats 100%
+with padding. Do not lower a gate to make a change pass. At the floor, delete branches
+no input can reach or add behavioural tests for real behaviour.
 
 **No coverage padding.** Coverage is a by-product of testing behavior, never the goal:
 

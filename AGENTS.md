@@ -92,7 +92,8 @@ and passes. Whether a `main` merge released is not judged here (#131).
 - Newly found work does not widen an issue. Stop at twice the estimate, after the same
   step fails twice for the same reason, before widening acceptance, before
   self-certifying tooling, or before a destructive action. A bug in your own scratch
-  diagnostic is not a failed step: fix it and continue.
+  diagnostic is not a failed step: fix it and continue. "The same reason" means no
+  progress: when a retry moves a gate closer and the remaining cause is known, continue.
 
 ## Issue size, demos and approvals (D95)
 
@@ -147,8 +148,11 @@ information: fix and rerun its failing lane, then run full `verify` once at the 
 - Every test must detect a relevant behavioural regression. No execution-only tests,
   mock choreography, implementation-cloning fakes, fixture self-consistency or coverage
   padding.
-- Aggregate line and branch coverage stays above 90% for `ontolib/src`, `backend/src`
-  and `frontend/src/lib`; do not lower it.
+- Aim for 95% or more line and branch coverage through behavioural tests. The aggregate
+  for `ontolib/src`, `backend/src` and `frontend/src/lib` must stay above 90%: a hard
+  floor, set low so hard-to-test code never invites padding, not a target. Real 90%
+  beats padded 100%. At the floor, delete branches no input can reach or test real
+  behaviour; never pad or lower the gate.
 - For an external tool, driver, service or upstream dataset, add the applicable real
   contract, double-fidelity, real-data-shape and reject-liveness tests. Configured-store
   shape tests skip in CI by design; a skip is not a pass. Our own pipeline outputs are
