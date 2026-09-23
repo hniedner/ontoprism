@@ -1,4 +1,4 @@
-"""Persist per-run R101 conservation categories and explanations.
+"""Persist per-run R101 conservation categories.
 
 Revision ID: 0031_r101_run_conservation
 Revises: 0030_axis_ambiguity_default
@@ -38,7 +38,6 @@ def upgrade() -> None:
             )),
             reason text NOT NULL CHECK (length(reason) > 0),
             r82_path jsonb NOT NULL,
-            explanation text CHECK (explanation IS NULL OR length(explanation) > 0),
             PRIMARY KEY (run_id, concept_code, occurrence_id),
             FOREIGN KEY (run_id, concept_code, occurrence_id)
                 REFERENCES decomp_source_occurrence(run_id, concept_code, occurrence_id)
@@ -47,12 +46,11 @@ def upgrade() -> None:
                 REFERENCES decomp_definition_fact(run_id, concept_code, fact_id)
                 ON DELETE CASCADE,
             CHECK (jsonb_typeof(r82_path) = 'array'),
-            CHECK ((category = 'one-step-r82') = (jsonb_array_length(r82_path) = 1)),
-            CHECK ((category = 'closure-only-r82') =
-                (jsonb_array_length(r82_path) >= 2)),
-            CHECK ((category IN ('one-step-r82', 'closure-only-r82')) OR
-                jsonb_array_length(r82_path) = 0),
-            CHECK (explanation IS NULL OR category = 'unresolved')
+            CHECK (category != 'one-step-r82' OR jsonb_array_length(r82_path) = 1),
+            CHECK (category != 'closure-only-r82' OR
+                jsonb_array_length(r82_path) >= 2),
+            CHECK (category IN ('one-step-r82', 'closure-only-r82', 'unresolved') OR
+                jsonb_array_length(r82_path) = 0)
         )
         """
     )

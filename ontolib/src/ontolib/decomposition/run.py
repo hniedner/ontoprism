@@ -39,7 +39,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID, uuid4
 
 from ontolib.core.logging_config import get_logger
@@ -113,7 +113,7 @@ from ontolib.decomposition.publication import (
     publish_artifact,
 )
 from ontolib.decomposition.r101_run_conservation import (
-    R101RunConservation,
+    R101ConservationRecord,
     classify_r101_conservation,
 )
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
@@ -200,6 +200,8 @@ def _validate_rehearsal_config(config: RunConfig) -> None:
         raise ValueError("a rehearsal never publishes to the store")
     if config.resume_from is not None:
         raise ValueError("a rehearsal is a throwaway run and cannot be resumed")
+    if config.out is not None:
+        raise ValueError("a rehearsal does not accept an output path")
 
 
 def _validate_sample_config(config: RunConfig) -> None:
@@ -459,7 +461,7 @@ class _CandidateResult:
     outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
     minted: tuple[MintedConcept, ...] = ()
-    r101_conservation: object | None = None
+    r101_conservation: R101ConservationRecord | None = None
     complete_definition: CompleteDefinition | None = None
 
     def __post_init__(self) -> None:
@@ -736,12 +738,23 @@ async def _select_with_r82_evidence(
         required_paths,
         source_identity=source_identity,
     )
-    return fs.select_assessed_routed_plan(
-        routed_plan,
-        extract.make_is_ancestor(ancestor_pairs),
-        assessments=assessments,
-        is_part_of=lambda part, whole: (part, whole) in part_of,
-        r82_paths=path_resolution.paths,
+    return replace(
+        selected,
+        dispositions=tuple(
+            replace(
+                item,
+                r82_path=(
+                    path_resolution.paths[
+                        (item.retained_filler, item.source_filler)
+                    ].edges
+                    if item.kind == "collapsed-r82"
+                    and (item.retained_filler, item.source_filler)
+                    in path_resolution.paths
+                    else ()
+                ),
+            )
+            for item in selected.dispositions
+        ),
     )
 
 
@@ -1242,9 +1255,7 @@ async def _process_work_item(
             outcome=result.outcome,
             semantic_types=result.semantic_types,
             minted=result.minted,
-            r101_conservation=cast(
-                "R101RunConservation | None", result.r101_conservation
-            ),
+            r101_conservation=result.r101_conservation,
             observed_definition=result.complete_definition,
         )
     except BaseException as exc:

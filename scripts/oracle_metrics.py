@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the current engine on the D63 cohort and print the five D74 views."""
+"""Run the current engine and print four current views plus the historical baseline."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def oracle_metrics_report(
     rows: RowDecisionExport,
     registry: ProposalRegistry,
 ) -> str:
-    """Render the five independent D74 views for one current engine output."""
+    """Render four current D74 views and the independent historical SME baseline."""
     comparison = build_current_comparison(evidence, oracle, rows, registry)
     metrics = comparison.metrics
     historical = rows.cross_tab().engine_suggestion
@@ -112,7 +112,7 @@ async def _execute() -> str:
         await _run(
             source_manifest=_SOURCE,
             branch=DecompositionBranch.NEOPLASM,
-            out=artifact,
+            out=None,
             load=False,
             emit_equivalence=False,
             resume=None,

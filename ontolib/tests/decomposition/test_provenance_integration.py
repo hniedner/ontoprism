@@ -323,6 +323,41 @@ def _repeated_occurrence_decomposition() -> Decomposition:
     )
 
 
+def _atomic_observed_definition(code: str) -> CompleteDefinition:
+    group_id = canonical_definition_group_id(code, ("restriction:R101:C12400",))
+    fact_id = canonical_definition_fact_id(
+        code, group_id, "restriction", "R101", "C12400"
+    )
+    occurrence = SourceDefinitionOccurrence(
+        occurrence_id=canonical_source_occurrence_id(code, fact_id, (0,)),
+        root_code=code,
+        source_fact_id=fact_id,
+        source_group_id=group_id,
+        anchor_code=code,
+        depth=0,
+        role_code="R101",
+        filler_code="C12400",
+        structural_path=(0,),
+        member_position=0,
+    )
+    return CompleteDefinition(
+        root_code=code,
+        groups=(DefinitionGroup(group_id=group_id, anchor_code=code, depth=0),),
+        root_group_ids=(group_id,),
+        facts=(
+            RestrictionDefinitionFact(
+                fact_id=fact_id,
+                anchor_code=code,
+                group_id=group_id,
+                depth=0,
+                role_code="R101",
+                filler_code="C12400",
+            ),
+        ),
+        occurrences=(occurrence,),
+    )
+
+
 def _residual_decomposition(code: str) -> Decomposition:
     """A residual concept: a complete definition, but no surviving constituents.
 
@@ -879,7 +914,7 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
     try:
         await _cleanup(dsn)
         await store.create_run(_CURRENT_EVIDENCE_RUN_ID, "26.07d", fingerprint)
-        for code in manifest.codes:
+        for index, code in enumerate(manifest.codes):
             claim = await store.claim_work_item(_CURRENT_EVIDENCE_RUN_ID, code)
             assert claim is not None
             await store.complete_work_item(
@@ -892,6 +927,11 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
                 outcome=None if code == "C6135" else "atomic-no-op",
                 semantic_types=("Neoplastic Process",),
                 minted=(),
+                observed_definition=(
+                    _atomic_observed_definition(code)
+                    if index == 1 and code != "C6135"
+                    else None
+                ),
             )
         await store.begin_publication(
             _CURRENT_EVIDENCE_RUN_ID,

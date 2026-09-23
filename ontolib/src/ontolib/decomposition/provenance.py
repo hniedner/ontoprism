@@ -76,7 +76,7 @@ from ontolib.decomposition.provenance_models import (
 from ontolib.decomposition.r101_run_conservation import (
     R101ConservationCounts,
     R101ConservationOccurrence,
-    R101RunConservation,
+    R101ConservationRecord,
 )
 
 _logger = logging.getLogger(__name__)
@@ -916,9 +916,9 @@ async def _persist_completion_rows(
         session,
         "INSERT INTO decomp_r101_conservation "
         "(run_id, concept_code, occurrence_id, source_fact_id, source_filler, "
-        "category, reason, r82_path, explanation) VALUES "
+        "category, reason, r82_path) VALUES "
         "(:run_id, :concept_code, :occurrence_id, :source_fact_id, "
-        ":source_filler, :category, :reason, CAST(:r82_path AS jsonb), :explanation)",
+        ":source_filler, :category, :reason, CAST(:r82_path AS jsonb))",
         _r101_conservation_rows(run_id, r101_conservation),
     )
     await _insert_completion_rows(
@@ -2306,7 +2306,7 @@ class ProvenanceStore:
         minted: tuple[MintedProposal, ...],
         semantic_types: tuple[str, ...],
         outcome: ConceptOutcome | None = None,
-        r101_conservation: R101RunConservation | None = None,
+        r101_conservation: R101ConservationRecord | None = None,
         observed_definition: CompleteDefinition | None = None,
     ) -> None:
         """Replace one concept's rows and mark it complete in one transaction."""
@@ -2323,7 +2323,7 @@ class ProvenanceStore:
             )
         )
         complete_definition = decomposition_definition or observed_definition
-        if decomposition is None and complete_definition is None and r101_conservation:
+        if complete_definition is None and r101_conservation:
             raise RunStateError("R101 conservation requires its complete definition")
         async with self._sf() as session, session.begin():
             locked = await session.execute(
@@ -2699,12 +2699,43 @@ class ProvenanceStore:
             return await _persisted_outcome_counts(session, run_id)
 
     async def r101_conservation_counts(self, run_id: str) -> R101ConservationCounts:
-        """Return exact per-run R101 category counts, including explanations."""
+        """Return exact counts only for a complete, fully accounted run."""
         async with self._sf() as session:
+            inventory = await session.execute(
+                text(
+                    "SELECT r.status, "
+                    "(SELECT count(*) FROM decomp_source_occurrence o "
+                    "WHERE o.run_id=r.id AND o.role_code='R101') AS expected, "
+                    "(SELECT count(*) FROM decomp_r101_conservation c "
+                    "WHERE c.run_id=r.id) AS actual, "
+                    "(SELECT count(*) FROM decomp_work_item w WHERE w.run_id=r.id "
+                    "AND w.state != 'complete') AS incomplete, "
+                    "(SELECT count(*) FROM decomp_work_item w WHERE w.run_id=r.id "
+                    "AND w.outcome='unknown') AS unknown "
+                    "FROM decomp_run r WHERE r.id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            inventory_row = inventory.mappings().first()
+            if inventory_row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            if inventory_row["status"] != "complete" or inventory_row["incomplete"]:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is not complete for R101 accounting"
+                )
+            if inventory_row["unknown"]:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} has unknown outcomes that cannot "
+                    "be fully accounted for R101"
+                )
+            if inventory_row["expected"] != inventory_row["actual"]:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} has incomplete R101 conservation "
+                    f"({inventory_row['actual']}/{inventory_row['expected']})"
+                )
             result = await session.execute(
                 text(
-                    "SELECT category, count(*) AS category_count, "
-                    "count(*) FILTER (WHERE explanation IS NOT NULL) AS explained "
+                    "SELECT category, count(*) AS category_count "
                     "FROM decomp_r101_conservation WHERE run_id=:run_id "
                     "GROUP BY category"
                 ),
@@ -2719,7 +2750,6 @@ class ProvenanceStore:
             one_step_r82=counts.get("one-step-r82", 0),
             closure_only_r82=counts.get("closure-only-r82", 0),
             unresolved=counts.get("unresolved", 0),
-            explained_unresolved=sum(row["explained"] for row in rows),
         )
 
     async def selector_occurrences_for_codes(
@@ -2837,10 +2867,14 @@ class ProvenanceStore:
                     "AS decomposed_codes, "
                     "(SELECT count(*) FROM decomp_constituent WHERE run_id = :run_id) "
                     "AS emitted_constituent_pair_count, "
-                    "(SELECT count(*) FROM decomp_definition_fact "
-                    "WHERE run_id = :run_id) AS complete_semantic_fact_count, "
-                    "(SELECT count(*) FROM decomp_source_occurrence "
-                    "WHERE run_id = :run_id) AS source_occurrence_count, "
+                    "(SELECT count(*) FROM decomp_definition_fact f "
+                    "JOIN decomp_work_item w USING (run_id, concept_code) "
+                    "WHERE f.run_id = :run_id AND w.outcome = 'decomposed') "
+                    "AS complete_semantic_fact_count, "
+                    "(SELECT count(*) FROM decomp_source_occurrence o "
+                    "JOIN decomp_work_item w USING (run_id, concept_code) "
+                    "WHERE o.run_id = :run_id AND w.outcome = 'decomposed') "
+                    "AS source_occurrence_count, "
                     "(SELECT count(DISTINCT (concept_code, occurrence_id)) "
                     "FROM decomp_constituent_occurrence WHERE run_id = :run_id) "
                     "AS selected_occurrence_count, "

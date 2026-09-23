@@ -435,8 +435,8 @@ class MachineReadinessInputs(_StrictModel):
     axis_contract_violations: tuple[str, ...]
     normalized_group_violations: tuple[str, ...]
     unadjudicated_golden_changes: tuple[str, ...]
-    r101_unresolved_count: int = Field(default=0, ge=0)
-    r101_explained_unresolved_count: int = Field(default=0, ge=0)
+    r101_run_id: str = Field(min_length=1)
+    r101_unresolved_count: int = Field(ge=0)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_c3264_terminal_decision_identity: str = Field(
@@ -485,7 +485,6 @@ class MachineReadinessInputs(_StrictModel):
             raise ValueError("exact pair true-positive count exceeds a denominator")
         if self.historical_sme_include_count > self.historical_engine_suggestion_count:
             raise ValueError("historical include count exceeds suggestion count")
-        self._validate_r101_counts()
         violation_concepts = tuple(
             item.concept_code for item in self.primary_site_cardinality_violations
         )
@@ -504,10 +503,6 @@ class MachineReadinessInputs(_StrictModel):
             if violations != tuple(sorted(set(violations))):
                 raise ValueError(f"{name} violations must be canonical and unique")
         return self
-
-    def _validate_r101_counts(self) -> None:
-        if self.r101_explained_unresolved_count > self.r101_unresolved_count:
-            raise ValueError("explained R101 count exceeds unresolved count")
 
     @model_validator(mode="after")
     def _validate_r103_status(self) -> Self:
@@ -1027,8 +1022,8 @@ def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
         ),
         _evaluated_blocker(
             "unexplained-r101-loss",
-            inputs.r101_unresolved_count - inputs.r101_explained_unresolved_count,
-            (f"corpus-baseline:{inputs.corpus_baseline_identity}",),
+            inputs.r101_unresolved_count,
+            (f"decomposition-run:{inputs.r101_run_id}",),
         ),
     )
     status = (
@@ -1683,7 +1678,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = _validated_current_metrics(comparison)
-    r101_conservation = _configured_r101_counts(baseline.run_id)
+    r101_conservation = _configured_r101_counts(evidence.run_id)
     historical_tally = historical_rows.cross_tab().engine_suggestion
     if (
         metrics.full_partition_agreement.rate is None
@@ -1720,8 +1715,8 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             axis_contract_violations=axis_contract_violations,
             normalized_group_violations=normalized_group_violations,
             unadjudicated_golden_changes=unadjudicated_golden_changes,
+            r101_run_id=evidence.run_id,
             r101_unresolved_count=r101_conservation.unresolved,
-            r101_explained_unresolved_count=(r101_conservation.explained_unresolved),
             r103_packet_identity=r103.packet_identity,
             r103_registry_identity=r103_revision.registry.registry_identity,
             r103_c3264_terminal_decision_identity=(
