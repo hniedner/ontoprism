@@ -112,6 +112,10 @@ from ontolib.decomposition.publication import (
     PublicationPreflightError,
     publish_artifact,
 )
+from ontolib.decomposition.r101_run_conservation import (
+    R101ConservationRecord,
+    classify_r101_conservation,
+)
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import (
     ClosureBudgetExceededError,
@@ -196,13 +200,15 @@ def _validate_rehearsal_config(config: RunConfig) -> None:
         raise ValueError("a rehearsal never publishes to the store")
     if config.resume_from is not None:
         raise ValueError("a rehearsal is a throwaway run and cannot be resumed")
+    if config.out is not None:
+        raise ValueError("a rehearsal does not accept an output path")
 
 
 def _validate_sample_config(config: RunConfig) -> None:
     sample = config.sample_manifest
     if sample is None:
         return
-    if config.out is None:
+    if _sample_output_missing(config):
         raise ValueError("a sample run requires an output path")
     if config.load_to_store:
         raise ValueError("a sample run cannot load into the configured store")
@@ -218,6 +224,14 @@ def _validate_sample_config(config: RunConfig) -> None:
         or sample.scope_version != config.scope_version
     ):
         raise ValueError("sample manifest does not match run hierarchy scope")
+
+
+def _sample_output_missing(config: RunConfig) -> bool:
+    return config.out is None and not config.rehearsal
+
+
+def _output_mode(config: RunConfig) -> Literal["none", "file"]:
+    return "file" if config.out is not None and not config.rehearsal else "none"
 
 
 class RunConfig:
@@ -447,6 +461,8 @@ class _CandidateResult:
     outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
     minted: tuple[MintedConcept, ...] = ()
+    r101_conservation: R101ConservationRecord | None = None
+    complete_definition: CompleteDefinition | None = None
 
     def __post_init__(self) -> None:
         _require_candidate_outcome_shape(self.decomposition, self.outcome)
@@ -644,19 +660,42 @@ async def _routed_selection(
         source_identity=source_identity,
         collapse_policy=collapse_policy,
     )
+    ancestor_pairs = await _specificity_ancestor_pairs(client, routed_plan)
+    part_of = await _part_of_pairs(client, routed_plan)
+    return await _select_with_r82_evidence(
+        client=client,
+        routed_plan=routed_plan,
+        ancestor_pairs=ancestor_pairs,
+        part_of=part_of,
+        source_identity=source_identity,
+        diagnostic_source=diagnostic_source,
+        detector_identity=detector_identity,
+    )
+
+
+async def _specificity_ancestor_pairs(
+    client: DecompositionSparqlClient, routed_plan: fs.RoutedPlan
+) -> set[extract.AncestorPair]:
     specificity_codes = {
         filler
         for _axis_name, fillers in routed_plan.specificity_groups
         for filler in fillers
     }
-    ancestor_pairs = set()
-    if specificity_codes:
-        ancestor_pairs = extract.ancestor_pairs_from_rows(
+    if not specificity_codes:
+        return set()
+    return set(
+        extract.ancestor_pairs_from_rows(
             await client.select(
                 stated_queries.build_ancestor_pairs_query(specificity_codes),
                 required_variables={"ancestor", "descendant"},
             )
         )
+    )
+
+
+async def _part_of_pairs(
+    client: DecompositionSparqlClient, routed_plan: fs.RoutedPlan
+) -> set[tuple[str, str]]:
     r82_codes = sorted(
         {
             filler
@@ -665,14 +704,57 @@ async def _routed_selection(
         }
     )
     part_of_pairs = await stated_queries.resolve_part_of_pairs(client, r82_codes)
-    part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
-    return fs.select_assessed_routed_plan(
+    return {(pair.part, pair.whole) for pair in part_of_pairs}
+
+
+async def _select_with_r82_evidence(
+    *,
+    client: DecompositionSparqlClient,
+    routed_plan: fs.RoutedPlan,
+    ancestor_pairs: set[extract.AncestorPair],
+    part_of: set[tuple[str, str]],
+    source_identity: str,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    detector_identity: str,
+) -> fs.RoutedSelection:
+    assessments = _projection_assessments(
+        routed_plan, diagnostic_source, detector_identity
+    )
+    selected = fs.select_assessed_routed_plan(
         routed_plan,
         extract.make_is_ancestor(ancestor_pairs),
-        assessments=_projection_assessments(
-            routed_plan, diagnostic_source, detector_identity
-        ),
+        assessments=assessments,
         is_part_of=lambda part, whole: (part, whole) in part_of,
+    )
+    required_paths = {
+        (item.retained_filler, item.source_filler)
+        for item in selected.dispositions
+        if item.kind == "collapsed-r82"
+    }
+    if not required_paths:
+        return selected
+    path_resolution = await stated_queries.resolve_part_of_paths(
+        client,
+        required_paths,
+        source_identity=source_identity,
+    )
+    return replace(
+        selected,
+        dispositions=tuple(
+            replace(
+                item,
+                r82_path=(
+                    path_resolution.paths[
+                        (item.retained_filler, item.source_filler)
+                    ].edges
+                    if item.kind == "collapsed-r82"
+                    and (item.retained_filler, item.source_filler)
+                    in path_resolution.paths
+                    else ()
+                ),
+            )
+            for item in selected.dispositions
+        ),
     )
 
 
@@ -711,6 +793,13 @@ async def _decompose_one(
             decomposition=None,
             outcome=_non_candidate_outcome(semantic_types),
             semantic_types=semantic_types,
+            r101_conservation=classify_r101_conservation(
+                definition=definition,
+                constituents=(),
+                dispositions=(),
+                unchanged_reason="concept-not-decomposed",
+            ),
+            complete_definition=definition,
         )
 
     routed_selection = await _routed_selection(
@@ -751,6 +840,12 @@ async def _decompose_one(
         outcome="decomposed" if decomposition.constituents else "residual",
         semantic_types=semantic_types,
         minted=tuple(minted),
+        r101_conservation=classify_r101_conservation(
+            definition=definition,
+            constituents=tuple(decomposition.constituents),
+            dispositions=tuple(decomposition.occurrence_dispositions),
+        ),
+        complete_definition=definition,
     )
 
 
@@ -928,7 +1023,7 @@ def build_resume_identity(
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
-        output_mode="file" if config.out is not None else "none",
+        output_mode=_output_mode(config),
         load_mode="named-graph" if config.load_to_store else "none",
     )
 
@@ -971,7 +1066,7 @@ def _requested_fingerprint(
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
-        output_mode="file" if config.out is not None else "none",
+        output_mode=_output_mode(config),
         load_mode="named-graph" if config.load_to_store else "none",
         emitted_at=datetime.now(UTC),
     )
@@ -1160,6 +1255,8 @@ async def _process_work_item(
             outcome=result.outcome,
             semantic_types=result.semantic_types,
             minted=result.minted,
+            r101_conservation=result.r101_conservation,
+            observed_definition=result.complete_definition,
         )
     except BaseException as exc:
         logger.exception(
@@ -1441,7 +1538,7 @@ def _publication_paths(config: RunConfig, run_id: str) -> tuple[Path, Path] | No
     One correlated value: a staging path without a destination (or the reverse) is
     not representable, so publication cannot be silently skipped.
     """
-    if config.out is None:
+    if config.out is None or config.rehearsal:
         return None
     return config.out.with_name(f".{config.out.name}.staging-{run_id}"), config.out
 

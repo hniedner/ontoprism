@@ -908,8 +908,9 @@ improvement and #44's inclusive 0.9 indicators separately, and carries the close
 semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
 states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
 2026-09-06). The retired R101-isolated comparison did not classify total full-corpus delta;
-primary-site cardinality remains evaluated, while unexplained R101 loss is explicitly
-`not-evaluated` and owned by #417 until its per-run check lands. #274 owns the deferred axis,
+primary-site cardinality remains evaluated. #417 replaced the retired two-run R101
+comparison with per-run occurrence conservation, so unexplained R101 loss is now
+evaluated from the run's persisted categories. #274 owns the deferred axis,
 normalized-group, and golden-cohort detectors and #127 owns total delta classification
 (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
 2026-09-06). The current high-severity npm audit reports no vulnerabilities

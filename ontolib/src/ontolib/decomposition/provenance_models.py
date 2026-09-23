@@ -311,6 +311,22 @@ class CompletedRunForEvidence(BaseModel):
     publication_artifact_path: str = Field(min_length=1)
 
 
+class CompletedRehearsalForOracleMetrics(BaseModel):
+    """Completed throwaway run fields needed for immediate oracle scoring."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
+    ncit_version: str = Field(min_length=1)
+    fingerprint: RunFingerprint
+
+    @model_validator(mode="after")
+    def _requires_rehearsal(self) -> Self:
+        if self.fingerprint.rehearsal_nonce is None:
+            raise ValueError("oracle metrics run is not a rehearsal")
+        return self
+
+
 class RunResumeIdentity(BaseModel):
     """Caller-controlled dimensions that must match a persisted resumable run."""
 

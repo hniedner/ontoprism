@@ -586,8 +586,8 @@ always records authorization false and publication `not-attempted`
 2026-09-06).
 
 The two-run R101 diagnostic and review tooling was removed in #341 after its decisions were
-transcribed into packaged policy data. Readiness reports D74 unexplained R101 loss as
-`not-evaluated`, owned by #417, until that issue adds the per-run conservation check. The broader
+transcribed into packaged policy data. #417 replaced it with per-run occurrence conservation;
+readiness now evaluates D74 unexplained R101 loss from the current evidence run. The broader
 total-delta classifier remains `not-evaluated` under #127.
 
 Generate the exhaustive fanout observation against the configured current source:
@@ -620,8 +620,8 @@ must be resumed with `--resume <run-id>`; completed work items are fenced and ar
 
 #341 removed the R101 review, conservation, and comparator modules, commands, current
 report goldens, and review packet fixtures. Their accepted decisions remain in packaged
-policy data. D74's unexplained-R101-loss blocker is explicitly `not-evaluated`, owned by
-#417, until that issue installs its per-run replacement.
+policy data. #417's per-run occurrence record now evaluates D74's
+unexplained-R101-loss blocker for the current evidence run.
 
 ### Historical 2b39 mixed-chain inventory and corrected projection
 

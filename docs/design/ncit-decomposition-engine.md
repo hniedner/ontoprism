@@ -274,8 +274,10 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
 - **R101 conservation:** the historical two-run D77/D78 review, conservation, and comparator
   tooling was removed in #341 after its decisions were transcribed into packaged policy data.
-  The engine still records exact source occurrences and R101 dispositions. Until #417 adds the
-  per-run D74 check, readiness reports unexplained R101 loss as `not-evaluated` and owned by #417.
+  Each complete run without an `unknown` outcome accounts for every
+  stated R101 occurrence as projected, unchanged-unprojected, one-step-R82 covered,
+  closure-only-R82 covered, or unresolved. Readiness reports the per-run D74 result.
+  Issue #127 owns carrying unresolved review flags into expert-demo publication (D93).
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_roles,
 most_specific, needs_review, axis_ambiguous, source_group_ids,

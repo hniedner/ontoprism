@@ -1007,7 +1007,11 @@ def select_assessed_routed_plan(
 ) -> RoutedSelection:
     """Apply complete validity decisions after routing and before reduction."""
     assessed, decisions = _assessed_plan(plan, assessments)
-    selected = _reduce_routed_plan(assessed, is_ancestor, is_part_of=is_part_of)
+    selected = _reduce_routed_plan(
+        assessed,
+        is_ancestor,
+        is_part_of=is_part_of,
+    )
     return RoutedSelection(
         constituents=selected.constituents,
         dispositions=selected.dispositions,

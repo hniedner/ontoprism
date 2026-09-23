@@ -31,6 +31,9 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    OccurrenceDisposition,
+    ResolvedR82Path,
+    ResolvedR82PathEdge,
     RoleRestriction,
 )
 from ontolib.decomposition.normalized_group_policy import (
@@ -60,6 +63,7 @@ from ontolib.decomposition.publication import (
     PublicationFinalizationError,
     PublicationPreflightError,
 )
+from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 from ontolib.decomposition.run import (
     RunAdmissionRefusedError,
     RunConfig,
@@ -70,6 +74,7 @@ from ontolib.decomposition.run import (
     _CandidateResult,
     _new_run_id,
     _prepare_run,
+    _publication_paths,
     _residual_count,
     _resume_preflight,
     _store_resident_constituent_fillers,
@@ -133,6 +138,81 @@ def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
     assert decision.outcome == "accepted"
     assert decision.review_bearing is True
     assert decision.reasons == ("axis-range-unknown", "atomicity-unknown")
+
+
+@pytest.mark.unit
+async def test_r82_path_resolution_is_attached_to_the_selected_disposition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_identity = "a" * 64
+    disposition = OccurrenceDisposition(
+        kind="collapsed-r82",
+        source_occurrence_id="b" * 64,
+        source_fact_id="c" * 64,
+        normalized_axis="op:PrimarySite",
+        source_filler="C9",
+        retained_filler="C2",
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        r82_part="C2",
+        r82_whole="C9",
+    )
+    selected = run_module.fs.RoutedSelection(
+        constituents=(),
+        dispositions=(disposition,),
+    )
+    plan = run_module.fs.RoutedPlan(
+        occurrences=(),
+        parent_morphologies=(),
+        specificity_groups=(),
+        comparison_groups=(),
+        protected_pairs=frozenset(),
+        policy_decisions=(),
+        source_identity=source_identity,
+    )
+    edge = ResolvedR82PathEdge(
+        part_code="C2",
+        asserted_part_code="C2",
+        whole_code="C9",
+        restriction_node_id="urn:r82:C2:C9",
+        fact_identity="d" * 64,
+        source_identity=source_identity,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "_projection_assessments",
+        lambda *_args: {},
+    )
+    monkeypatch.setattr(
+        run_module.fs,
+        "select_assessed_routed_plan",
+        MagicMock(return_value=selected),
+    )
+    monkeypatch.setattr(
+        run_module.stated_queries,
+        "resolve_part_of_paths",
+        AsyncMock(
+            return_value=run_module.stated_queries.PartOfPathResolution(
+                paths={
+                    ("C2", "C9"): ResolvedR82Path(edges=(edge,)),
+                },
+                query_count=1,
+                max_pair_batch_size=1,
+            )
+        ),
+    )
+
+    result = await run_module._select_with_r82_evidence(
+        client=MagicMock(),
+        routed_plan=plan,
+        ancestor_pairs=set(),
+        part_of={("C2", "C9")},
+        source_identity=source_identity,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="e" * 64,
+    )
+
+    assert result.dispositions[0].r82_path == (edge,)
 
 
 def _role(rel: str, label: str, target: str) -> dict[str, str | None]:
@@ -290,6 +370,18 @@ class _FakeClient:
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
             return self._semantic_type_of_rows
+        if "SELECT DISTINCT ?part ?whole ?assertedPart ?restriction" in query:
+            requested = re.findall(r"\(<[^>]+#(C[0-9]+)> <[^>]+#(C[0-9]+)>\)", query)
+            return [
+                {
+                    "part": _iri(part),
+                    "whole": _iri(whole),
+                    "assertedPart": _iri(part),
+                    "restriction": f"urn:r82:{part}:{whole}",
+                }
+                for part, whole in requested
+                if ("whole", whole) in self._part_of_expansions.get(part, ())
+            ]
         if "SELECT DISTINCT ?node ?kind ?target" in query:
             codes = tuple(
                 dict.fromkeys(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))
@@ -300,6 +392,9 @@ class _FakeClient:
                     "kind": kind,
                     "target": _iri(target),
                     "targetType": "iri",
+                    "restriction": (
+                        f"urn:r82:{code}:{target}" if kind == "whole" else None
+                    ),
                 }
                 for code in codes
                 for kind, target in self._part_of_expansions.get(code, ())
@@ -493,6 +588,8 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         outcome: str,
         semantic_types: tuple[str, ...],
         minted: tuple[MintedConcept, ...],
+        r101_conservation: object | None = None,
+        observed_definition: CompleteDefinition | None = None,
     ) -> None:
         del claim
         if decomposition is not None:
@@ -506,7 +603,7 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         elif outcome == "atomic-no-op":
             state["atomic_noop"] += 1
         state["pending"].remove(code)
-        del run_id, semantic_types
+        del run_id, semantic_types, r101_conservation, observed_definition
         state["minted"] += len(minted)
 
     async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
@@ -530,6 +627,16 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         side_effect=lambda _run_id: state["decompositions"]
     )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
+    store.r101_conservation_counts = AsyncMock(
+        return_value=R101ConservationCounts(
+            total=0,
+            projected=0,
+            unchanged_unprojected=0,
+            one_step_r82=0,
+            closure_only_r82=0,
+            unresolved=0,
+        )
+    )
 
 
 def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:
@@ -3141,9 +3248,7 @@ async def test_a_rehearsal_uses_the_sample_cohort_without_its_source_binding(
             _source_snapshot(),
         )
 
-    rehearsal = RunConfig(
-        branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
-    )
+    rehearsal = RunConfig(branch="neoplasm", sample_manifest=sample, rehearsal=True)
     codes = await run_module._validated_sample_worklist(
         rehearsal, client, _source_snapshot()
     )
@@ -3168,6 +3273,24 @@ def test_a_rehearsal_cannot_be_configured_as_a_resume_or_a_publication() -> None
         RunConfig(
             branch="neoplasm", rehearsal=True, out=Path("x.ttl"), load_to_store=True
         )
+    with pytest.raises(ValueError, match="does not accept an output path"):
+        RunConfig(branch="neoplasm", rehearsal=True, out=Path("x.ttl"))
+
+
+@pytest.mark.unit
+def test_a_rehearsal_has_no_publication_paths_or_output_mode() -> None:
+    config = RunConfig(branch="neoplasm", rehearsal=True)
+
+    assert _publication_paths(config, "rehearsal-run") is None
+    fingerprint = run_module._requested_fingerprint(
+        config,
+        _source_snapshot(),
+        semantic_types=("Neoplastic Process",),
+        total_limit=None,
+        worklist=("C1",),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    assert fingerprint.output_mode == "none"
 
 
 @pytest.mark.unit
