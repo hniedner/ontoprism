@@ -55,4 +55,4 @@ def test_migration_head_includes_occurrence_disposition_invariants() -> None:
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0030_axis_ambiguity_default"}
+    assert heads == {"0031_r101_run_conservation"}

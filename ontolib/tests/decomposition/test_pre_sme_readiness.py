@@ -233,6 +233,19 @@ def _composed_readiness_inputs(
         source_identity=evidence.source_identity,
         ontology_release=evidence.ncit_version,
     )
+    monkeypatch.setattr(
+        module,
+        "_configured_r101_counts",
+        lambda _run_id: module.R101ConservationCounts(
+            total=0,
+            projected=0,
+            unchanged_unprojected=0,
+            one_step_r82=0,
+            closure_only_r82=0,
+            unresolved=0,
+            explained_unresolved=0,
+        ),
+    )
     audit = audit_primary_site_artifact(
         artifact=corpus_artifact,
         baseline=baseline,
@@ -749,8 +762,8 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
         for entry in report.semantic_gate.entries
         if entry.kind == "unexplained-r101-loss"
     )
-    assert r101_loss.status == "not-evaluated"
-    assert r101_loss.owning_issue == "#417"
+    assert r101_loss.status == "clear"
+    assert isinstance(r101_loss, ClearSemanticBlocker)
     evaluated = tuple(
         cast("ClearSemanticBlocker", entry)
         for entry in report.semantic_gate.entries[1:4]
@@ -770,6 +783,23 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
     )
     assert report.authorization is False
     assert report.publication.status == "not-attempted"
+
+
+@pytest.mark.unit
+def test_unexplained_r101_loss_blocks_machine_readiness() -> None:
+    payload = _machine_readiness_input_payload()
+    payload["r101_unresolved_count"] = 2
+    payload["r101_explained_unresolved_count"] = 1
+
+    report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
+
+    blocker = next(
+        entry
+        for entry in report.semantic_gate.entries
+        if entry.kind == "unexplained-r101-loss"
+    )
+    assert blocker.status == "blocked"
+    assert blocker.blocker_count == 1  # type: ignore[union-attr]
 
 
 @pytest.mark.unit

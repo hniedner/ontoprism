@@ -6,6 +6,7 @@ authorization, or publication writes.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -25,6 +26,8 @@ from scripts.research.current_evidence import (
 from scripts.research.golden_review import load_row_decisions
 from scripts.research.group_review_packet import load_group_review_packet
 
+from backend.config import get_settings
+from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
@@ -43,6 +46,8 @@ from ontolib.decomposition.proposal_registry_migration import (
     validate_historical_migration_artifact,
     validate_migrated_proposal_registry,
 )
+from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 from ontolib.decomposition.r103_evidence_application import (
     load_applied_policy_report,
     load_authority_artifact,
@@ -430,6 +435,8 @@ class MachineReadinessInputs(_StrictModel):
     axis_contract_violations: tuple[str, ...]
     normalized_group_violations: tuple[str, ...]
     unadjudicated_golden_changes: tuple[str, ...]
+    r101_unresolved_count: int = Field(default=0, ge=0)
+    r101_explained_unresolved_count: int = Field(default=0, ge=0)
     r103_packet_identity: str = Field(pattern=_SHA256)
     r103_registry_identity: str = Field(default="0" * 64, pattern=_SHA256)
     r103_c3264_terminal_decision_identity: str = Field(
@@ -478,6 +485,7 @@ class MachineReadinessInputs(_StrictModel):
             raise ValueError("exact pair true-positive count exceeds a denominator")
         if self.historical_sme_include_count > self.historical_engine_suggestion_count:
             raise ValueError("historical include count exceeds suggestion count")
+        self._validate_r101_counts()
         violation_concepts = tuple(
             item.concept_code for item in self.primary_site_cardinality_violations
         )
@@ -496,6 +504,10 @@ class MachineReadinessInputs(_StrictModel):
             if violations != tuple(sorted(set(violations))):
                 raise ValueError(f"{name} violations must be canonical and unique")
         return self
+
+    def _validate_r101_counts(self) -> None:
+        if self.r101_explained_unresolved_count > self.r101_unresolved_count:
+            raise ValueError("explained R101 count exceeds unresolved count")
 
     @model_validator(mode="after")
     def _validate_r103_status(self) -> Self:
@@ -904,11 +916,8 @@ class MachineReadinessReport(_StrictModel):
         ):
             raise ValueError("primary-site blocker differs from audit")
         r101_blocker = blockers["unexplained-r101-loss"]
-        if (
-            not isinstance(r101_blocker, NotEvaluatedSemanticBlocker)
-            or r101_blocker.owning_issue != "#417"
-        ):
-            raise ValueError("R101 blocker must remain owned by #417")
+        if isinstance(r101_blocker, NotEvaluatedSemanticBlocker):
+            raise ValueError("R101 blocker must be evaluated")
         for kind in (
             "axis-contract-violation",
             "normalized-group-violation",
@@ -1016,11 +1025,10 @@ def _semantic_gate(inputs: MachineReadinessInputs) -> SemanticGateSummary:
             len(inputs.primary_site_cardinality_violations),
             (f"primary-site-audit:{inputs.primary_site_audit_identity}",),
         ),
-        NotEvaluatedSemanticBlocker(
-            kind="unexplained-r101-loss",
-            status="not-evaluated",
-            owning_issue="#417",
-            reason="per-run R101 conservation is pending implementation",
+        _evaluated_blocker(
+            "unexplained-r101-loss",
+            inputs.r101_unresolved_count - inputs.r101_explained_unresolved_count,
+            (f"corpus-baseline:{inputs.corpus_baseline_identity}",),
         ),
     )
     status = (
@@ -1414,6 +1422,19 @@ def _require_matching_issue_274_detector(
         raise PreSmeValidationError("Issue #274 detector violations differ")
 
 
+def _configured_r101_counts(run_id: str) -> R101ConservationCounts:
+    async def load() -> R101ConservationCounts:
+        engine = make_engine(get_settings().database_url)
+        try:
+            return await ProvenanceStore(
+                make_sessionmaker(engine)
+            ).r101_conservation_counts(run_id)
+        finally:
+            await dispose_engine(engine)
+
+    return asyncio.run(load())
+
+
 def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
     *,
     source_manifest: Path,
@@ -1662,6 +1683,7 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = _validated_current_metrics(comparison)
+    r101_conservation = _configured_r101_counts(baseline.run_id)
     historical_tally = historical_rows.cross_tab().engine_suggestion
     if (
         metrics.full_partition_agreement.rate is None
@@ -1698,6 +1720,8 @@ def generate_pre_sme_readiness(  # noqa: C901, PLR0915 - fail-closed validation
             axis_contract_violations=axis_contract_violations,
             normalized_group_violations=normalized_group_violations,
             unadjudicated_golden_changes=unadjudicated_golden_changes,
+            r101_unresolved_count=r101_conservation.unresolved,
+            r101_explained_unresolved_count=(r101_conservation.explained_unresolved),
             r103_packet_identity=r103.packet_identity,
             r103_registry_identity=r103_revision.registry.registry_identity,
             r103_c3264_terminal_decision_identity=(

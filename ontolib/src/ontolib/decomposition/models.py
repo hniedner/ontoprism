@@ -666,6 +666,7 @@ class OccurrenceDisposition:
     semantic_type: str | None
     r82_part: str | None = None
     r82_whole: str | None = None
+    r82_path: tuple[ResolvedR82PathEdge, ...] = ()
     specificity_path: tuple[SpecificityPathEdge, ...] = ()
     policy_decision_identity: str | None = None
 
@@ -693,7 +694,11 @@ def _require_r82_disposition(disposition: OccurrenceDisposition) -> None:
         ):
             raise ValueError("collapsed R82 disposition requires directed endpoints")
         return
-    if disposition.r82_part is not None or disposition.r82_whole is not None:
+    if (
+        disposition.r82_part is not None
+        or disposition.r82_whole is not None
+        or disposition.r82_path
+    ):
         raise ValueError("only collapsed R82 dispositions carry R82 endpoints")
 
 
