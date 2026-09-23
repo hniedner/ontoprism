@@ -1562,15 +1562,18 @@ async def _write_staging_artifact(
     publication: tuple[Path, Path] | None,
     decompositions: Sequence[Decomposition],
     setup: _RunSetup,
+    provenance: ProvenanceStore,
 ) -> None:
     if publication is None:
         return
     try:
+        publications = await provenance.concept_publications_for_run(setup.run_id)
         await write_ttl(
             decompositions,
             dest=publication[0],
             run_id=setup.run_id,
             emitted_on=setup.fingerprint.emitted_at.date(),
+            publications=publications,
         )
     except BaseException as exc:
         _discard_staging(publication[0], exc)
@@ -1636,7 +1639,7 @@ async def _publish_or_complete_run(
                 source_identity=setup.fingerprint.source_identity,
                 artifact=publication[0],
                 destination=publication[1],
-                expected_codes={decomposition.code for decomposition in decompositions},
+                expected_codes=set(setup.fingerprint.worklist),
                 metrics=metrics,
                 load_to_store=config.load_to_store,
                 client=client,
@@ -2039,7 +2042,9 @@ async def _artifact_stage(
     )
     if artifact_claim is not None:
         try:
-            await _write_staging_artifact(publication, decompositions, setup)
+            await _write_staging_artifact(
+                publication, decompositions, setup, provenance
+            )
             artifact_payload = _artifact_payload(publication)
             artifact_identity = await provenance.complete_stage(
                 setup.run_id, "artifact", artifact_claim, artifact_payload

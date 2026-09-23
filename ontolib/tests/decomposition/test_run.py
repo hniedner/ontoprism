@@ -46,6 +46,7 @@ from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
+    ConceptPublication,
     FreshAdmitted,
     NcitSourceSnapshot,
     RefusalReason,
@@ -626,6 +627,9 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
     store.decompositions_for_run = AsyncMock(
         side_effect=lambda _run_id: state["decompositions"]
     )
+    store.concept_publications_for_run = AsyncMock(
+        side_effect=lambda _run_id: _mock_concept_publications(state)
+    )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
     store.r101_conservation_counts = AsyncMock(
         return_value=R101ConservationCounts(
@@ -636,6 +640,22 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
             closure_only_r82=0,
             unresolved=0,
         )
+    )
+
+
+def _mock_concept_publications(
+    state: dict[str, Any],
+) -> tuple[ConceptPublication, ...]:
+    fingerprint = state["fingerprint"]
+    if fingerprint is None:
+        return ()
+    return tuple(
+        ConceptPublication(
+            concept_code=code,
+            outcome="semantic-excluded",
+            reason="source semantic types are outside decomposition scope: none",
+        )
+        for code in fingerprint.worklist
     )
 
 
@@ -3597,7 +3617,7 @@ async def test_artifact_validation_failure_fails_the_run(
     )
 
     monkeypatch.setattr(
-        "ontolib.decomposition.publication._validated_artifact_payload",
+        "ontolib.decomposition.publication._seal_validated_artifact",
         MagicMock(side_effect=PublicationPreflightError("invalid artifact")),
     )
 

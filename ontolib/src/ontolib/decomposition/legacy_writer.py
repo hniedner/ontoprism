@@ -23,6 +23,7 @@ from ontolib.decomposition.axis_contracts import (
     ProvisionalGovernance,
 )
 from ontolib.decomposition.models import GenusDefinitionFact
+from ontolib.decomposition.provenance_models import ConceptPublication
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -271,6 +272,56 @@ def _render_one(
     return lines
 
 
+def _render_publication_record(record: ConceptPublication, run_id: str) -> list[str]:
+    subject = f"<{NCIT_NS}{record.concept_code}>"
+    lines = [
+        f'{subject} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .',
+        f"{subject} {_p(vocab.CONCEPT_OUTCOME)} {json.dumps(record.outcome)} .",
+        f"{subject} {_p(vocab.OUTCOME_REASON)} {json.dumps(record.reason)} .",
+    ]
+    lines.extend(
+        f"{subject} {_p(vocab.HAS_REVIEW_FLAG)} "
+        f"[{_p(vocab.REVIEW_FLAG_KIND)} {json.dumps(flag.kind)} ; "
+        f"{_p(vocab.REVIEW_FLAG_REASON)} {json.dumps(flag.reason)} ] ."
+        for flag in record.flags
+    )
+    return lines
+
+
+def _publication_rows(
+    materialized: tuple[Decomposition, ...],
+    publications: Iterable[ConceptPublication],
+    run_id: str,
+) -> tuple[ConceptPublication, ...]:
+    supplied = tuple(publications)
+    if not run_id or supplied:
+        return supplied
+    return tuple(
+        ConceptPublication(
+            concept_code=decomposition.code,
+            outcome="decomposed",
+            reason=f"engine emitted {len(decomposition.constituents)} constituents",
+        )
+        for decomposition in materialized
+    )
+
+
+def _render_demonstration(
+    run_id: str, publication_rows: tuple[ConceptPublication, ...]
+) -> list[str]:
+    if not run_id:
+        return []
+    lines = [
+        f"<{vocab.DEMONSTRATION_MARKER}> "
+        f"{_p(vocab.PUBLICATION_STATUS)} {json.dumps(vocab.PROVISIONAL)} .",
+        f"<{vocab.DEMONSTRATION_MARKER}> {_p(vocab.PUBLICATION_NOTICE)} "
+        f"{json.dumps(vocab.EXPERT_REVIEW_NOTICE)} .",
+    ]
+    for record in publication_rows:
+        lines.extend(_render_publication_record(record, run_id))
+    return lines
+
+
 async def write_ttl(
     decompositions: Iterable[Decomposition],
     dest: Path | None = None,
@@ -278,6 +329,7 @@ async def write_ttl(
     run_id: str = "",
     emitted_on: date | None = None,
     emit_equivalence: bool = False,
+    publications: Iterable[ConceptPublication] = (),
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
@@ -302,9 +354,11 @@ async def write_ttl(
         )
     if emitted_on is None:
         emitted_on = date.today()
-    buf = _render_axis_contracts()
+    materialized = tuple(decompositions)
+    publication_rows = _publication_rows(materialized, publications, run_id)
+    buf = [*_render_axis_contracts(), *_render_demonstration(run_id, publication_rows)]
 
-    for dec in decompositions:
+    for dec in materialized:
         buf.extend(
             _render_one(
                 dec,

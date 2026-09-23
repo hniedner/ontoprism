@@ -298,6 +298,29 @@ async def test_artifact_validation_binds_exact_codes_run_and_bytes(
 
 
 @pytest.mark.unit
+async def test_artifact_validation_does_not_materialize_an_rdflib_graph(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], artifact, run_id="neoplasm-run-1")
+
+    monkeypatch.setattr(
+        rdflib.Graph,
+        "triples",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("validation materialized and queried an RDF graph")
+        ),
+    )
+
+    assert validate_artifact(
+        artifact,
+        expected_codes={"C1"},
+        run_id="neoplasm-run-1",
+    )
+
+
+@pytest.mark.unit
 async def test_artifact_validation_rejects_reserved_publication_marker(
     tmp_path: Path,
 ) -> None:
@@ -332,6 +355,15 @@ async def test_empty_decomposition_artifact_is_valid_and_malformed_turtle_is_not
         )
         == hashlib.sha256(empty_artifact.read_bytes()).hexdigest()
     )
+
+    invalid_utf8 = tmp_path / "invalid-utf8.ttl"
+    invalid_utf8.write_bytes(b"\xff\n")
+    with pytest.raises(PublicationValidationError, match="UTF-8"):
+        validate_artifact(
+            invalid_utf8,
+            expected_codes=set(),
+            run_id="neoplasm-empty",
+        )
 
     malformed = tmp_path / "malformed.ttl"
     malformed.write_text("this is not Turtle {", encoding="utf-8")
@@ -381,6 +413,32 @@ def test_artifact_validation_rejects_missing_foreign_and_extra_run_subjects(
     )
     with pytest.raises(PublicationValidationError, match="unexpected subject"):
         validate_artifact(extra, expected_codes={"C1"}, run_id="run-1")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("subject", "run", "message"),
+    [
+        ("urn:foreign", "run-1", "concept-outcome subject is not an NCIt"),
+        (NCIT_NS, "run-1", "empty NCIt concept code"),
+        (f"{NCIT_NS}C1", "another-run", "expected run identifier"),
+    ],
+)
+def test_streaming_validation_rejects_invalid_outcome_and_run_bindings(
+    tmp_path: Path,
+    subject: str,
+    run: str,
+    message: str,
+) -> None:
+    artifact = tmp_path / "invalid-binding.ttl"
+    artifact.write_text(
+        f'<{subject}> <{vocab.CONCEPT_OUTCOME}> "decomposed" .\n'
+        f'<{subject}> <{vocab.DECOMPOSED_BY}> "{run}" .\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PublicationValidationError, match=message):
+        validate_artifact(artifact, expected_codes={"C1"}, run_id="run-1")
 
 
 @pytest.mark.unit

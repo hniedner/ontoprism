@@ -5,7 +5,10 @@ import pytest
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read import decomposition_from_rows
-from ontolib.decomposition.read_models import DecompositionConstituent
+from ontolib.decomposition.read_models import (
+    ConceptDecomposition,
+    DecompositionConstituent,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 
@@ -164,6 +167,30 @@ def test_not_decomposed_concept_resolves_without_flag() -> None:
     d = decomposition_from_rows("C0", [_row()])
     assert d.is_legacy_precoordinated is False
     assert d.constituents == []
+
+
+@pytest.mark.unit
+def test_published_concept_metadata_fails_closed_when_partial() -> None:
+    with pytest.raises(ValueError, match="metadata must be complete"):
+        ConceptDecomposition(
+            code="C1",
+            publication_status="provisional",
+            is_legacy_precoordinated=False,
+        )
+
+
+@pytest.mark.unit
+def test_review_flags_require_an_explicit_outcome() -> None:
+    with pytest.raises(ValueError, match="flags require"):
+        ConceptDecomposition.model_validate(
+            {
+                "code": "C1",
+                "review_flags": [
+                    {"kind": "needs-review", "reason": "site requires review"}
+                ],
+                "is_legacy_precoordinated": False,
+            }
+        )
 
 
 @pytest.mark.unit
