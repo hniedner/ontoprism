@@ -60,6 +60,7 @@ from ontolib.decomposition.publication import (
     PublicationFinalizationError,
     PublicationPreflightError,
 )
+from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 from ontolib.decomposition.run import (
     RunAdmissionRefusedError,
     RunConfig,
@@ -291,6 +292,18 @@ class _FakeClient:
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
             return self._semantic_type_of_rows
+        if "SELECT DISTINCT ?part ?whole ?assertedPart ?restriction" in query:
+            requested = re.findall(r"\(<[^>]+#(C[0-9]+)> <[^>]+#(C[0-9]+)>\)", query)
+            return [
+                {
+                    "part": _iri(part),
+                    "whole": _iri(whole),
+                    "assertedPart": _iri(part),
+                    "restriction": f"urn:r82:{part}:{whole}",
+                }
+                for part, whole in requested
+                if ("whole", whole) in self._part_of_expansions.get(part, ())
+            ]
         if "SELECT DISTINCT ?node ?kind ?target" in query:
             codes = tuple(
                 dict.fromkeys(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))
@@ -301,6 +314,9 @@ class _FakeClient:
                     "kind": kind,
                     "target": _iri(target),
                     "targetType": "iri",
+                    "restriction": (
+                        f"urn:r82:{code}:{target}" if kind == "whole" else None
+                    ),
                 }
                 for code in codes
                 for kind, target in self._part_of_expansions.get(code, ())
@@ -494,6 +510,8 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         outcome: str,
         semantic_types: tuple[str, ...],
         minted: tuple[MintedConcept, ...],
+        r101_conservation: object | None = None,
+        observed_definition: CompleteDefinition | None = None,
     ) -> None:
         del claim
         if decomposition is not None:
@@ -507,7 +525,7 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         elif outcome == "atomic-no-op":
             state["atomic_noop"] += 1
         state["pending"].remove(code)
-        del run_id, semantic_types
+        del run_id, semantic_types, r101_conservation, observed_definition
         state["minted"] += len(minted)
 
     async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
@@ -531,6 +549,17 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         side_effect=lambda _run_id: state["decompositions"]
     )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
+    store.r101_conservation_counts = AsyncMock(
+        return_value=R101ConservationCounts(
+            total=0,
+            projected=0,
+            unchanged_unprojected=0,
+            one_step_r82=0,
+            closure_only_r82=0,
+            unresolved=0,
+            explained_unresolved=0,
+        )
+    )
 
 
 def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:

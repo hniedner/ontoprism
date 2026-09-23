@@ -154,8 +154,13 @@ async def _execute() -> str:
             )
             rows = load_row_decisions(_ROWS)
             registry = load_proposal_registry(_REGISTRY)
-            return f"run_id={run_id}\n" + oracle_metrics_report(
-                evidence, oracle, rows, registry
+            conservation = await store.r101_conservation_counts(run_id)
+            return (
+                f"run_id={run_id}\n"
+                + oracle_metrics_report(evidence, oracle, rows, registry)
+                + "\n"
+                + "r101_conservation="
+                + conservation.model_dump_json()
             )
         finally:
             await dispose_engine(engine)

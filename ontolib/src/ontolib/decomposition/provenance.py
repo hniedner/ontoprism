@@ -42,6 +42,7 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     OccurrenceDisposition,
+    ResolvedR82PathEdge,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
     SpecificityPathEdge,
@@ -71,6 +72,11 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     WorkItemOutcome,
     stage_output_identity,
+)
+from ontolib.decomposition.r101_run_conservation import (
+    R101ConservationCounts,
+    R101ConservationOccurrence,
+    R101RunConservation,
 )
 
 _logger = logging.getLogger(__name__)
@@ -747,6 +753,11 @@ def _occurrence_disposition_rows(
             "semantic_type": row.semantic_type,
             "r82_part": row.r82_part,
             "r82_whole": row.r82_whole,
+            "r82_path": _json.dumps(
+                [asdict(edge) for edge in row.r82_path],
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             "specificity_path": _json.dumps(
                 [asdict(edge) for edge in row.specificity_path],
                 sort_keys=True,
@@ -755,6 +766,24 @@ def _occurrence_disposition_rows(
             "policy_decision_identity": row.policy_decision_identity,
         }
         for row in dispositions
+    ]
+
+
+def _r101_conservation_rows(
+    run_id: str,
+    conservation: tuple[R101ConservationOccurrence, ...],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "run_id": run_id,
+            **item.model_dump(mode="json", exclude={"r82_path"}),
+            "r82_path": _json.dumps(
+                [asdict(edge) for edge in item.r82_path],
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        }
+        for item in conservation
     ]
 
 
@@ -820,6 +849,7 @@ async def _persist_completion_rows(
     constituents: list[Constituent],
     complete_definition: CompleteDefinition | None,
     dispositions: Sequence[OccurrenceDisposition],
+    r101_conservation: tuple[R101ConservationOccurrence, ...],
     minted: tuple[MintedProposal, ...],
 ) -> None:
     await _insert_completion_rows(
@@ -874,12 +904,22 @@ async def _persist_completion_rows(
         "(run_id, concept_code, occurrence_id, source_fact_id, disposition, "
         "normalized_axis, source_filler, retained_filler, semantic_route, "
         "semantic_type, r82_part, r82_whole, specificity_path, "
-        "policy_decision_identity) VALUES "
+        "r82_path, policy_decision_identity) VALUES "
         "(:run_id, :concept_code, :occurrence_id, :source_fact_id, :disposition, "
         ":normalized_axis, :source_filler, :retained_filler, :semantic_route, "
         ":semantic_type, :r82_part, :r82_whole, CAST(:specificity_path AS jsonb), "
+        "CAST(:r82_path AS jsonb), "
         ":policy_decision_identity)",
         _occurrence_disposition_rows(run_id, concept_code, dispositions),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_r101_conservation "
+        "(run_id, concept_code, occurrence_id, source_fact_id, source_filler, "
+        "category, reason, r82_path, explanation) VALUES "
+        "(:run_id, :concept_code, :occurrence_id, :source_fact_id, "
+        ":source_filler, :category, :reason, CAST(:r82_path AS jsonb), :explanation)",
+        _r101_conservation_rows(run_id, r101_conservation),
     )
     await _insert_completion_rows(
         session,
@@ -1277,7 +1317,7 @@ async def _load_decomposition_rows(
         text(
             "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
             "normalized_axis, source_filler, retained_filler, semantic_route, "
-            "semantic_type, r82_part, r82_whole, specificity_path, "
+            "semantic_type, r82_part, r82_whole, r82_path, specificity_path, "
             "policy_decision_identity "
             "FROM decomp_occurrence_disposition WHERE run_id = :run_id "
             "ORDER BY concept_code, occurrence_id"
@@ -1460,6 +1500,14 @@ def _dispositions_by_code(
                 semantic_type=row["semantic_type"],
                 r82_part=row["r82_part"],
                 r82_whole=row["r82_whole"],
+                r82_path=tuple(
+                    ResolvedR82PathEdge(**item)
+                    for item in (
+                        _json.loads(row.get("r82_path", []))
+                        if isinstance(row.get("r82_path", []), str)
+                        else row.get("r82_path", [])
+                    )
+                ),
                 specificity_path=tuple(
                     SpecificityPathEdge(**item)
                     for item in (
@@ -2258,12 +2306,14 @@ class ProvenanceStore:
         minted: tuple[MintedProposal, ...],
         semantic_types: tuple[str, ...],
         outcome: ConceptOutcome | None = None,
+        r101_conservation: R101RunConservation | None = None,
+        observed_definition: CompleteDefinition | None = None,
     ) -> None:
         """Replace one concept's rows and mark it complete in one transaction."""
         constituents, is_decomposed, is_residual = _completion_outcome(
             concept_code, decomposition, minted
         )
-        outcome, canonical_semantic_types, complete_definition = (
+        outcome, canonical_semantic_types, decomposition_definition = (
             _validated_completion_metadata(
                 decomposition,
                 outcome,
@@ -2272,6 +2322,9 @@ class ProvenanceStore:
                 is_residual=is_residual,
             )
         )
+        complete_definition = decomposition_definition or observed_definition
+        if decomposition is None and complete_definition is None and r101_conservation:
+            raise RunStateError("R101 conservation requires its complete definition")
         async with self._sf() as session, session.begin():
             locked = await session.execute(
                 text(
@@ -2294,6 +2347,7 @@ class ProvenanceStore:
                 decomposition.occurrence_dispositions
                 if decomposition is not None
                 else (),
+                r101_conservation.occurrences if r101_conservation is not None else (),
                 minted,
             )
             await _mark_work_item_complete(
@@ -2644,6 +2698,30 @@ class ProvenanceStore:
         async with self._sf() as session:
             return await _persisted_outcome_counts(session, run_id)
 
+    async def r101_conservation_counts(self, run_id: str) -> R101ConservationCounts:
+        """Return exact per-run R101 category counts, including explanations."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT category, count(*) AS category_count, "
+                    "count(*) FILTER (WHERE explanation IS NOT NULL) AS explained "
+                    "FROM decomp_r101_conservation WHERE run_id=:run_id "
+                    "GROUP BY category"
+                ),
+                {"run_id": run_id},
+            )
+            rows = result.mappings().all()
+        counts = {row["category"]: row["category_count"] for row in rows}
+        return R101ConservationCounts(
+            total=sum(counts.values()),
+            projected=counts.get("projected", 0),
+            unchanged_unprojected=counts.get("unchanged-unprojected", 0),
+            one_step_r82=counts.get("one-step-r82", 0),
+            closure_only_r82=counts.get("closure-only-r82", 0),
+            unresolved=counts.get("unresolved", 0),
+            explained_unresolved=sum(row["explained"] for row in rows),
+        )
+
     async def selector_occurrences_for_codes(
         self, run_id: str, concept_codes: tuple[str, ...]
     ) -> tuple[PersistedSelectorOccurrence, ...]:
@@ -2715,7 +2793,7 @@ class ProvenanceStore:
                 text(
                     "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
                     "normalized_axis, source_filler, retained_filler, semantic_route, "
-                    "semantic_type, r82_part, r82_whole, specificity_path, "
+                    "semantic_type, r82_part, r82_whole, r82_path, specificity_path, "
                     "policy_decision_identity FROM decomp_occurrence_disposition "
                     "WHERE run_id = :run_id AND concept_code = ANY(CAST(:codes AS "
                     "text[])) ORDER BY concept_code, occurrence_id"
