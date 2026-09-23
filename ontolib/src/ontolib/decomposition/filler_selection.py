@@ -20,8 +20,6 @@ from ontolib.decomposition.models import (
     Constituent,
     OccurrenceDisposition,
     R101DispositionKind,
-    ResolvedR82Path,
-    ResolvedR82PathEdge,
     RoleRestriction,
     SemanticRoute,
     SpecificityPathEdge,
@@ -753,7 +751,6 @@ def _disposition(
     occurrence: RoutedOccurrence,
     collapsed: dict[str, CollapseDecision],
     policy_decisions: dict[str, str],
-    r82_paths: dict[tuple[str, str], ResolvedR82Path] | None = None,
 ) -> OccurrenceDisposition | None:
     occurrence_id = occurrence.source_occurrence_id
     fact_id = occurrence.source_fact_id
@@ -778,21 +775,9 @@ def _disposition(
         semantic_type=occurrence.semantic_type,
         r82_part=retained if kind == "collapsed-r82" else None,
         r82_whole=filler if kind == "collapsed-r82" else None,
-        r82_path=_r82_path_for_disposition(kind, retained, filler, r82_paths),
         specificity_path=specificity_path,
         policy_decision_identity=policy_decisions.get(occurrence_id),
     )
-
-
-def _r82_path_for_disposition(
-    kind: R101DispositionKind,
-    retained: str,
-    filler: str,
-    paths: dict[tuple[str, str], ResolvedR82Path] | None,
-) -> tuple[ResolvedR82PathEdge, ...]:
-    if kind != "collapsed-r82":
-        return ()
-    return (paths or {}).get((retained, filler), ResolvedR82Path(edges=())).edges
 
 
 def _select_axis_partition(
@@ -802,7 +787,6 @@ def _select_axis_partition(
     is_ancestor: IsAncestor,
     part_of: IsPartOf,
     policy_decisions: dict[str, str],
-    r82_paths: dict[tuple[str, str], ResolvedR82Path],
 ) -> tuple[list[Constituent], list[OccurrenceDisposition]]:
     retained, collapsed = _selected_fillers(
         axis_name,
@@ -827,11 +811,7 @@ def _select_axis_partition(
     dispositions = [
         disposition
         for occurrence in occurrences
-        if (
-            disposition := _disposition(
-                occurrence, collapsed, policy_decisions, r82_paths
-            )
-        )
+        if (disposition := _disposition(occurrence, collapsed, policy_decisions))
         is not None
     ]
     return constituents, dispositions
@@ -842,7 +822,6 @@ def _reduce_routed_plan(
     is_ancestor: IsAncestor,
     *,
     is_part_of: IsPartOf | None = None,
-    r82_paths: dict[tuple[str, str], ResolvedR82Path] | None = None,
 ) -> RoutedSelection:
     """Reduce within final routed partitions and record eligible source occurrences."""
     part_of = is_part_of or (lambda _part, _whole: False)
@@ -852,7 +831,6 @@ def _reduce_routed_plan(
     constituents: list[Constituent] = []
     dispositions: list[OccurrenceDisposition] = []
     policy_decisions = dict(plan.policy_decisions)
-    path_evidence = r82_paths or {}
     for axis_name, rows in sorted(by_axis.items()):
         axis_constituents, axis_dispositions = _select_axis_partition(
             axis_name,
@@ -861,7 +839,6 @@ def _reduce_routed_plan(
             is_ancestor,
             part_of,
             policy_decisions,
-            path_evidence,
         )
         constituents.extend(axis_constituents)
         dispositions.extend(axis_dispositions)
@@ -1027,7 +1004,6 @@ def select_assessed_routed_plan(
     *,
     assessments: Mapping[tuple[str, str], ProjectionAssessment],
     is_part_of: IsPartOf | None = None,
-    r82_paths: dict[tuple[str, str], ResolvedR82Path] | None = None,
 ) -> RoutedSelection:
     """Apply complete validity decisions after routing and before reduction."""
     assessed, decisions = _assessed_plan(plan, assessments)
@@ -1035,7 +1011,6 @@ def select_assessed_routed_plan(
         assessed,
         is_ancestor,
         is_part_of=is_part_of,
-        r82_paths=r82_paths,
     )
     return RoutedSelection(
         constituents=selected.constituents,

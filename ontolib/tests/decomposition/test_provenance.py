@@ -35,6 +35,7 @@ from ontolib.decomposition.provenance_models import (
 from ontolib.decomposition.r101_run_conservation import (
     R101ConservationCounts,
     R101ConservationOccurrence,
+    R101PathEdge,
     R101RunConservation,
 )
 
@@ -1028,6 +1029,36 @@ async def test_r101_counts_require_complete_accounting_and_map_every_category() 
         "closure_only_r82": 2,
         "unresolved": 1,
     }
+
+
+@pytest.mark.unit
+def test_r101_persistence_serializes_nonempty_r82_evidence() -> None:
+    edge = R101PathEdge(
+        part_code="C2",
+        asserted_part_code="C2",
+        whole_code="C9",
+        restriction_node_id="urn:r82:C2:C9",
+        fact_identity="a" * 64,
+        source_identity="b" * 64,
+    )
+    occurrence = R101ConservationOccurrence(
+        concept_code="C1",
+        occurrence_id="c" * 64,
+        source_fact_id="d" * 64,
+        source_filler="C9",
+        category="one-step-r82",
+        reason="retained-r82-path",
+        r82_path=(edge,),
+    )
+
+    rows = provenance_module._r101_conservation_rows("run-1", (occurrence,))
+
+    assert rows[0]["r82_path"] == (
+        '[{"asserted_part_code":"C2","fact_identity":"'
+        + "a" * 64
+        + '","part_code":"C2","restriction_node_id":"urn:r82:C2:C9",'
+        '"source_identity":"' + "b" * 64 + '","whole_code":"C9"}]'
+    )
 
 
 @pytest.mark.unit
