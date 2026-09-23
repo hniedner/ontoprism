@@ -233,7 +233,7 @@ def test_no_agent_may_run_a_destructive_or_bypassing_command(
         "pdm run agent-git push-origin feat/x",
         "pdm run agent-github pr-create --title x --head feat/x",
         "pdm run agent-github pr-merge 12 --head "
-        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base main",
         # D92: an issue merges into the milestone branch locally, once per issue. The
         # wrapper refuses to merge while HEAD is main/master or detached, so it cannot
         # reach a protected branch (pinned in test_agent_git_runner.py).
@@ -287,11 +287,11 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run agent-git commit-staged --message x",
         "pdm run agent-git push-origin feat/x-1",
         "pdm run agent-github pr-create --title x --body-file tmp/plans/pr.md "
-        "--head feat/x-1 --base feat/m1-6-1-provisional-publication",
+        "--head feat/x-1 --base main",
         "gh pr checks 336",
         "gh run watch 1 --exit-status",
         "pdm run agent-github pr-merge 12 --head "
-        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base feat/m0-r0-recovery",
+        "3ed4ad7f8367ee96f4fd4ae80299def48979adac --base main",
         "sleep 60",
     ],
 )
