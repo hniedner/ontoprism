@@ -31,12 +31,14 @@ behavior. A test written after the implementation, or one that was never observe
 does not satisfy TDD.
 
 **Coverage: aim for 95%+, never fall to 90%** (line and branch) across the backend
-(`ontolib/src`, `backend/src`) and the frontend library (`frontend/src/lib`). The CI
-gates enforce the strict > 90% floor (`pdm run test-ci` `--cov-fail-under`, and the
-vitest coverage thresholds). The floor is deliberately below the target so hard-to-test
-code with poor value for effort never invites padding: 90% of real coverage beats 100%
-with padding. Do not lower a gate to make a change pass. At the floor, delete branches
-no input can reach or add behavioural tests for real behaviour.
+(`ontolib/src`, `backend/src`) and the frontend library (`frontend/src/lib`).
+`scripts/validation/strict_coverage_gate.py` enforces the strict > 90% floor (run by
+`pdm run test-ci` and the frontend `npm run test:coverage`); exactly 90% fails. The
+floor is deliberately below the target so hard-to-test code with poor value for effort
+never invites padding: real coverage just above the floor beats padded 100%. Do not
+lower a gate to make a change pass. At the floor, add behavioural tests for real
+behaviour, or delete a branch only after showing from the code that neither input nor
+an external failure (tool, driver, store, I/O) reaches it.
 
 **No coverage padding.** Coverage is a by-product of testing behavior, never the goal:
 

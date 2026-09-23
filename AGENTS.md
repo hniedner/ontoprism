@@ -93,7 +93,8 @@ and passes. Whether a `main` merge released is not judged here (#131).
   step fails twice for the same reason, before widening acceptance, before
   self-certifying tooling, or before a destructive action. A bug in your own scratch
   diagnostic is not a failed step: fix it and continue. "The same reason" means no
-  progress: when a retry moves a gate closer and the remaining cause is known, continue.
+  progress: a retry that moves a gate closer, with the remaining cause known, is not a
+  repeat failure (the other stops still apply).
 
 ## Issue size, demos and approvals (D95)
 
@@ -150,9 +151,11 @@ information: fix and rerun its failing lane, then run full `verify` once at the 
   padding.
 - Aim for 95% or more line and branch coverage through behavioural tests. The aggregate
   for `ontolib/src`, `backend/src` and `frontend/src/lib` must stay above 90%: a hard
-  floor, set low so hard-to-test code never invites padding, not a target. Real 90%
-  beats padded 100%. At the floor, delete branches no input can reach or test real
-  behaviour; never pad or lower the gate.
+  floor, set low so hard-to-test code never invites padding, not a target. Real
+  coverage just above the floor beats padded 100%. At the floor, test real behaviour or
+  delete a branch only after showing from the code that neither input nor an external
+  failure (tool, driver, store, I/O) reaches it; handlers for external failures are
+  reachable. Never pad or lower the gate.
 - For an external tool, driver, service or upstream dataset, add the applicable real
   contract, double-fidelity, real-data-shape and reject-liveness tests. Configured-store
   shape tests skip in CI by design; a skip is not a pass. Our own pipeline outputs are
