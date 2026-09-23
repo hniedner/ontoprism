@@ -5,15 +5,31 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import ProvenanceReads
+from backend.dependencies import DecompositionReads, ProvenanceReads
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
 from ontolib.decomposition.provenance_models import (
     MintedConcept,
     RunSummary,
     WorkItemOutcome,
 )
+from ontolib.decomposition.read import publication_progress_from_rows
+from ontolib.decomposition.read_models import PublicationProgress
 
 router = APIRouter(prefix="/api/v1/decomposition", tags=["decomposition"])
+
+
+@router.get("/publication-progress", response_model=PublicationProgress)
+async def publication_progress(reader: DecompositionReads) -> PublicationProgress:
+    """Return outcome and review-flag counts from the currently published graph."""
+    try:
+        progress = publication_progress_from_rows(
+            await reader.publication_progress_rows()
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    if progress is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No published decomposition run")
+    return progress
 
 
 @router.get("/axes", response_model=list[AxisContract])

@@ -3,7 +3,10 @@
 import pytest
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.decomposition.read_queries import (
+    build_decomposition_query,
+    build_publication_progress_query,
+)
 
 
 @pytest.mark.unit
@@ -46,3 +49,15 @@ def test_query_uses_the_op_predicates() -> None:
 def test_query_rejects_injection_unsafe_code() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_decomposition_query("C6135> } INJECT {")
+
+
+@pytest.mark.unit
+def test_progress_query_aggregates_only_d93_outcomes_and_review_flags() -> None:
+    query = build_publication_progress_query()
+
+    assert f"GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in query
+    assert vocab.PUBLICATION_RUN in query
+    assert vocab.CONCEPT_OUTCOME in query
+    assert vocab.REVIEW_FLAG_KIND in query
+    assert "COUNT(DISTINCT ?concept)" in query
+    assert "disposition" not in query

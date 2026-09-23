@@ -11,6 +11,13 @@ const mock = vi.mocked(getDecomposition);
 
 const decomposed: ConceptDecomposition = {
 	code: 'C6135',
+	publication_status: 'provisional',
+	publication_notice: 'expert review, not an NCIt release',
+	outcome: 'decomposed',
+	outcome_reason: 'engine emitted 2 constituents',
+	review_flags: [
+		{ kind: 'needs-review', reason: 'constituent op:PrimarySite / C12400 needs review' }
+	],
 	is_legacy_precoordinated: true,
 	decomposed_on: '2026-07-06',
 	constituents: [
@@ -122,6 +129,29 @@ describe('DecompositionPanel', () => {
 		expect(link).toHaveAttribute('href', '/repositories/ncit/C12400');
 		// The most-specific filler is marked; the non-leaf one is not.
 		expect(screen.getByText('leaf')).toBeInTheDocument();
+		expect(screen.getByText('expert review, not an NCIt release')).toBeInTheDocument();
+		expect(screen.getByText('decomposed')).toBeInTheDocument();
+		expect(screen.getByText('engine emitted 2 constituents', { exact: true })).toBeInTheDocument();
+		expect(screen.getByText('Needs review')).toBeInTheDocument();
+	});
+
+	it.each([
+		'decomposed',
+		'residual',
+		'semantic-excluded',
+		'atomic-no-op',
+		'unknown'
+	] as const)('renders the D93 %s outcome and its reason', async (outcome) => {
+		mock.mockResolvedValue({
+			...decomposed,
+			outcome,
+			outcome_reason: `Reason for ${outcome}`,
+			constituents: outcome === 'decomposed' ? decomposed.constituents : []
+		});
+		render(DecompositionPanel, { code: 'C6135' });
+
+		expect(await screen.findByText(outcome)).toBeInTheDocument();
+		expect(screen.getByText(`Reason for ${outcome}`, { exact: true })).toBeInTheDocument();
 	});
 
 	it('does not infer atomicity from a missing published marker', async () => {

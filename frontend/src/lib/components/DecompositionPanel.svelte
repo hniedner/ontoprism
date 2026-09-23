@@ -56,6 +56,16 @@
 			<RepresentationStatusBadge status="legacy-precoordinated" />
 		{/if}
 	</h3>
+	{#if loaded && data?.publication_status}
+		<div class="mb-4 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-default">
+			<p class="font-semibold">{data.publication_notice}</p>
+			<p class="mt-1 font-medium">{data.outcome}</p>
+			<p class="mt-1">{data.outcome_reason}</p>
+			{#each data.review_flags ?? [] as flag (flag.kind + flag.reason)}
+				<p class="mt-1 text-amber-900"><strong>{flag.kind}:</strong> {flag.reason}</p>
+			{/each}
+		</div>
+	{/if}
 
 	{#if unavailable}
 		<p class="text-sm italic text-subtle">Decomposition unavailable.</p>

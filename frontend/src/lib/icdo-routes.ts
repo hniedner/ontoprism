@@ -32,8 +32,8 @@ export function ncitDecompositionPath(code: string): string {
 	return `/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`;
 }
 
-export function ncitEnhancedShowcasePath(code: string): string {
-	return `/api/v1/ncit/concepts/${encodeURIComponent(code)}/enhanced-ncit-showcase`;
+export function decompositionPublicationProgressPath(): string {
+	return '/api/v1/decomposition/publication-progress';
 }
 
 const ICDO_EXACT_PROTECTED_PATHS = new Set([

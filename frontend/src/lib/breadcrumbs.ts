@@ -9,7 +9,8 @@ const LABELS: Record<string, string> = {
 	cadsr: 'caDSR CDEs',
 	uberon: 'Uberon/CL Browser',
 	icdo: 'ICD-O Datasets',
-	refresh: 'Refresh'
+	refresh: 'Refresh',
+	progress: 'Publication progress'
 };
 
 const LAYOUT_ONLY_SEGMENTS = new Set(['repositories']);

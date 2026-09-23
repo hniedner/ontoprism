@@ -72,3 +72,28 @@ def build_decomposition_query(concept_code: str) -> str:
             }}
         }}
     """
+
+
+def build_publication_progress_query() -> str:
+    """Aggregate D93 outcomes and review flags for the currently published run."""
+    return f"""
+        SELECT ?run ?publicationStatus ?publicationNotice ?category ?value
+               (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+            GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}> {{
+                <{vocab.PUBLICATION_MARKER}> <{vocab.PUBLICATION_RUN}> ?run .
+                <{vocab.DEMONSTRATION_MARKER}>
+                    <{vocab.PUBLICATION_STATUS}> ?publicationStatus ;
+                    <{vocab.PUBLICATION_NOTICE}> ?publicationNotice .
+                {{
+                    ?concept <{vocab.CONCEPT_OUTCOME}> ?value .
+                    BIND("outcome" AS ?category)
+                }} UNION {{
+                    ?concept <{vocab.HAS_REVIEW_FLAG}> ?flag .
+                    ?flag <{vocab.REVIEW_FLAG_KIND}> ?value .
+                    BIND("review-flag" AS ?category)
+                }}
+            }}
+        }}
+        GROUP BY ?run ?publicationStatus ?publicationNotice ?category ?value
+        ORDER BY ?category ?value
+    """

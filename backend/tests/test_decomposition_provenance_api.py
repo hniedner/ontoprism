@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import get_provenance_store
+from backend.dependencies import get_decomposition_reader, get_provenance_store
 from backend.main import create_app
 from ontolib.decomposition.provenance_models import (
     MintedConcept,
@@ -79,6 +79,47 @@ class _ErrorFakeStore:
     ) -> list[MintedConcept]:
         msg = "fake db error"
         raise SQLAlchemyError(msg)
+
+
+class _ProgressReader:
+    async def publication_progress_rows(self) -> list[dict[str, str]]:
+        return [
+            {
+                "run": "published-run",
+                "publicationStatus": "provisional",
+                "publicationNotice": "expert review, not an NCIt release",
+                "category": "outcome",
+                "value": "decomposed",
+                "count": "3",
+            },
+            {
+                "run": "published-run",
+                "publicationStatus": "provisional",
+                "publicationNotice": "expert review, not an NCIt release",
+                "category": "review-flag",
+                "value": "needs-review",
+                "count": "2",
+            },
+        ]
+
+
+class _MissingProgressReader:
+    async def publication_progress_rows(self) -> list[dict[str, str]]:
+        return []
+
+
+class _InvalidProgressReader:
+    async def publication_progress_rows(self) -> list[dict[str, str]]:
+        return [
+            {
+                "run": "published-run",
+                "publicationStatus": "provisional",
+                "publicationNotice": "expert review, not an NCIt release",
+                "category": "old-disposition",
+                "value": "include",
+                "count": "1",
+            }
+        ]
 
 
 _SAMPLE_RUN = RunSummary(
@@ -197,6 +238,51 @@ def test_list_runs_returns_summaries() -> None:
     assert running["residual_precoordinated_count"] is None
     assert running["projection_loss_rate"] is None
     assert running["finished_at"] is None
+
+
+@pytest.mark.api
+def test_publication_progress_counts_are_computed_by_the_backend() -> None:
+    app = create_app()
+    app.dependency_overrides[get_decomposition_reader] = _ProgressReader
+    with TestClient(app) as client:
+        response = client.get("/api/v1/decomposition/publication-progress")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": "published-run",
+        "publication_status": "provisional",
+        "publication_notice": "expert review, not an NCIt release",
+        "total_concepts": 3,
+        "outcome_counts": {
+            "decomposed": 3,
+            "residual": 0,
+            "semantic-excluded": 0,
+            "atomic-no-op": 0,
+            "unknown": 0,
+        },
+        "review_flag_counts": {
+            "needs-review": 2,
+            "unresolved-r101-loss": 0,
+            "mint-filler": 0,
+        },
+    }
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("reader", "status_code"),
+    [(_MissingProgressReader, 404), (_InvalidProgressReader, 503)],
+)
+def test_publication_progress_fails_closed(
+    reader: type[_MissingProgressReader] | type[_InvalidProgressReader],
+    status_code: int,
+) -> None:
+    app = create_app()
+    app.dependency_overrides[get_decomposition_reader] = reader
+    with TestClient(app) as client:
+        response = client.get("/api/v1/decomposition/publication-progress")
+
+    assert response.status_code == status_code
 
 
 @pytest.mark.api

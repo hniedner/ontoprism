@@ -172,6 +172,18 @@ test('NCIt: server-loaded concept hydrates the browser-only graph explorer', asy
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
 });
 
+test('NCIt: provisional publication is visible with flags and backend progress', async ({ page }) => {
+	await page.goto('/repositories/ncit/C3262');
+	await expect(page.getByText('expert review, not an NCIt release')).toBeVisible();
+	await expect(page.getByText('decomposed', { exact: true })).toBeVisible();
+	await expect(page.getByText('Needs review', { exact: true })).toBeVisible();
+
+	await page.goto('/repositories/ncit/progress');
+	await expect(page.getByRole('heading', { name: 'Enhanced NCIt publication progress' })).toBeVisible();
+	await expect(page.getByText('published-sample-run')).toBeVisible();
+	await expect(page.getByText('needs-review').locator('..')).toContainText('4');
+});
+
 test('NCIt: route replacement owns graph state while an expansion is pending', async ({ page }) => {
 	const intercepted = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
