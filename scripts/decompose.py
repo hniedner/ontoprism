@@ -178,7 +178,7 @@ async def _run(
     emit_equivalence: bool,
     resume: str | None,
     total_limit: int | None,
-    walker_max_depth: int = 5,
+    walker_max_depth: int = 7,
     sample_manifest: Path | None = None,
     rehearsal: bool = False,
     progress: ProgressCallback | None = None,
@@ -334,9 +334,9 @@ def main(
         int,
         typer.Option(
             "--walker-max-depth",
-            help="Genus-chain walker recursion depth (default 5).",
+            help="Genus-chain walker recursion depth (default 7).",
         ),
-    ] = 5,
+    ] = 7,
     sample_manifest: Annotated[
         Path | None,
         typer.Option(

@@ -490,6 +490,9 @@ pdm run decompose \
   --out data/ncit_decomposed.ttl
 ```
 
+The command defaults to the reviewed genus-chain walker depth 7 used by the packaged
+normalized group policy; the documented invocation therefore needs no depth override.
+
 A full run takes about fifteen hours, so by default it is preceded by a preflight: the
 branch's tracked stratified SME sample (for neoplasm
 `samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
