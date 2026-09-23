@@ -32,6 +32,11 @@ from ontolib.decomposition.provenance_models import (
     RunFingerprint,
     WorkItemOutcome,
 )
+from ontolib.decomposition.r101_run_conservation import (
+    R101ConservationCounts,
+    R101ConservationOccurrence,
+    R101RunConservation,
+)
 
 
 def _empty_completion_metrics() -> dict[str, object]:
@@ -990,6 +995,129 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
     assert r.pct_decomposed == 0.6
     assert r.roundtrip_fidelity == 0.95
     assert r.finished_at is not None
+
+
+@pytest.mark.unit
+async def test_r101_counts_require_complete_accounting_and_map_every_category() -> None:
+    sf = _make_mock_sf()
+    inventory = MagicMock()
+    inventory.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "expected": 15,
+        "actual": 15,
+        "incomplete": 0,
+        "unknown": 0,
+    }
+    categories = MagicMock()
+    categories.mappings.return_value.all.return_value = [
+        {"category": "projected", "category_count": 5},
+        {"category": "unchanged-unprojected", "category_count": 4},
+        {"category": "one-step-r82", "category_count": 3},
+        {"category": "closure-only-r82", "category_count": 2},
+        {"category": "unresolved", "category_count": 1},
+    ]
+    sf().execute.side_effect = [inventory, categories]
+
+    counts = await ProvenanceStore(sf).r101_conservation_counts("run-1")
+
+    assert counts.model_dump() == {
+        "total": 15,
+        "projected": 5,
+        "unchanged_unprojected": 4,
+        "one_step_r82": 3,
+        "closure_only_r82": 2,
+        "unresolved": 1,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("inventory_row", "message"),
+    [
+        (None, "does not exist"),
+        (
+            {
+                "status": "running",
+                "expected": 1,
+                "actual": 0,
+                "incomplete": 1,
+                "unknown": 0,
+            },
+            "not complete",
+        ),
+        (
+            {
+                "status": "complete",
+                "expected": 0,
+                "actual": 0,
+                "incomplete": 0,
+                "unknown": 1,
+            },
+            "unknown outcomes",
+        ),
+        (
+            {
+                "status": "complete",
+                "expected": 2,
+                "actual": 1,
+                "incomplete": 0,
+                "unknown": 0,
+            },
+            "incomplete R101 conservation",
+        ),
+    ],
+)
+async def test_r101_counts_fail_closed_when_run_accounting_is_unavailable(
+    inventory_row: dict[str, object] | None,
+    message: str,
+) -> None:
+    sf = _make_mock_sf()
+    sf().execute.return_value.mappings.return_value.first.return_value = inventory_row
+
+    with pytest.raises(RunStateError, match=message):
+        await ProvenanceStore(sf).r101_conservation_counts("run-1")
+
+
+@pytest.mark.unit
+async def test_r101_rows_require_their_observed_definition_before_sql() -> None:
+    sf = _make_mock_sf()
+    conservation = R101RunConservation(
+        counts=R101ConservationCounts(
+            total=1,
+            projected=0,
+            unchanged_unprojected=0,
+            one_step_r82=0,
+            closure_only_r82=0,
+            unresolved=1,
+        ),
+        occurrences=(
+            R101ConservationOccurrence(
+                concept_code="C1",
+                occurrence_id="a" * 64,
+                source_fact_id="b" * 64,
+                source_filler="C2",
+                category="unresolved",
+                reason="missing-disposition",
+            ),
+        ),
+    )
+
+    with pytest.raises(RunStateError, match="requires its complete definition"):
+        await ProvenanceStore(sf).complete_work_item(
+            "run-1",
+            "C1",
+            UUID(int=1),
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=(),
+            ),
+            minted=(),
+            semantic_types=("Neoplastic Process",),
+            outcome="residual",
+            r101_conservation=conservation,
+        )
+    sf().execute.assert_not_awaited()
 
 
 @pytest.mark.unit

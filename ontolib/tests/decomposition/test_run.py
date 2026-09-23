@@ -31,6 +31,9 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    OccurrenceDisposition,
+    ResolvedR82Path,
+    ResolvedR82PathEdge,
     RoleRestriction,
 )
 from ontolib.decomposition.normalized_group_policy import (
@@ -135,6 +138,81 @@ def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
     assert decision.outcome == "accepted"
     assert decision.review_bearing is True
     assert decision.reasons == ("axis-range-unknown", "atomicity-unknown")
+
+
+@pytest.mark.unit
+async def test_r82_path_resolution_is_attached_to_the_selected_disposition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_identity = "a" * 64
+    disposition = OccurrenceDisposition(
+        kind="collapsed-r82",
+        source_occurrence_id="b" * 64,
+        source_fact_id="c" * 64,
+        normalized_axis="op:PrimarySite",
+        source_filler="C9",
+        retained_filler="C2",
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        r82_part="C2",
+        r82_whole="C9",
+    )
+    selected = run_module.fs.RoutedSelection(
+        constituents=(),
+        dispositions=(disposition,),
+    )
+    plan = run_module.fs.RoutedPlan(
+        occurrences=(),
+        parent_morphologies=(),
+        specificity_groups=(),
+        comparison_groups=(),
+        protected_pairs=frozenset(),
+        policy_decisions=(),
+        source_identity=source_identity,
+    )
+    edge = ResolvedR82PathEdge(
+        part_code="C2",
+        asserted_part_code="C2",
+        whole_code="C9",
+        restriction_node_id="urn:r82:C2:C9",
+        fact_identity="d" * 64,
+        source_identity=source_identity,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "_projection_assessments",
+        lambda *_args: {},
+    )
+    monkeypatch.setattr(
+        run_module.fs,
+        "select_assessed_routed_plan",
+        MagicMock(return_value=selected),
+    )
+    monkeypatch.setattr(
+        run_module.stated_queries,
+        "resolve_part_of_paths",
+        AsyncMock(
+            return_value=run_module.stated_queries.PartOfPathResolution(
+                paths={
+                    ("C2", "C9"): ResolvedR82Path(edges=(edge,)),
+                },
+                query_count=1,
+                max_pair_batch_size=1,
+            )
+        ),
+    )
+
+    result = await run_module._select_with_r82_evidence(
+        client=MagicMock(),
+        routed_plan=plan,
+        ancestor_pairs=set(),
+        part_of={("C2", "C9")},
+        source_identity=source_identity,
+        diagnostic_source=_diagnostic_source(),
+        detector_identity="e" * 64,
+    )
+
+    assert result.dispositions[0].r82_path == (edge,)
 
 
 def _role(rel: str, label: str, target: str) -> dict[str, str | None]:
@@ -557,7 +635,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
             one_step_r82=0,
             closure_only_r82=0,
             unresolved=0,
-            explained_unresolved=0,
         )
     )
 
@@ -3171,9 +3248,7 @@ async def test_a_rehearsal_uses_the_sample_cohort_without_its_source_binding(
             _source_snapshot(),
         )
 
-    rehearsal = RunConfig(
-        branch="neoplasm", sample_manifest=sample, out=Path("x.ttl"), rehearsal=True
-    )
+    rehearsal = RunConfig(branch="neoplasm", sample_manifest=sample, rehearsal=True)
     codes = await run_module._validated_sample_worklist(
         rehearsal, client, _source_snapshot()
     )
@@ -3198,10 +3273,13 @@ def test_a_rehearsal_cannot_be_configured_as_a_resume_or_a_publication() -> None
         RunConfig(
             branch="neoplasm", rehearsal=True, out=Path("x.ttl"), load_to_store=True
         )
+    with pytest.raises(ValueError, match="does not accept an output path"):
+        RunConfig(branch="neoplasm", rehearsal=True, out=Path("x.ttl"))
 
 
-def test_a_rehearsal_output_path_is_not_treated_as_publication() -> None:
-    config = RunConfig(branch="neoplasm", rehearsal=True, out=Path("rehearsal.ttl"))
+@pytest.mark.unit
+def test_a_rehearsal_has_no_publication_paths_or_output_mode() -> None:
+    config = RunConfig(branch="neoplasm", rehearsal=True)
 
     assert _publication_paths(config, "rehearsal-run") is None
     fingerprint = run_module._requested_fingerprint(

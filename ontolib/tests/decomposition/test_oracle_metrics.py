@@ -17,6 +17,12 @@ pytestmark = pytest.mark.unit
 _GOLDEN = Path(__file__).parent / "golden"
 
 
+def _fraction(report: str, name: str) -> tuple[int, int]:
+    line = next(line for line in report.splitlines() if line.startswith(f"{name}="))
+    numerator, denominator = line.removeprefix(f"{name}=").split(" ", 1)[0].split("/")
+    return int(numerator), int(denominator)
+
+
 def test_dropping_one_engine_constituent_changes_the_printed_oracle_metrics() -> None:
     evidence = CurrentEngineEvidence.model_validate_json(
         (_GOLDEN / "neoplasm-current-engine-evidence.json").read_bytes()
@@ -48,7 +54,12 @@ def test_dropping_one_engine_constituent_changes_the_printed_oracle_metrics() ->
     assert "historical_sme_include_rate=48/106" in baseline
     assert "historical_sme_include_rate=48/106" in without_constituent
     assert baseline != without_constituent
-    assert "exact_pair_precision=111/132" in baseline
-    assert "exact_pair_precision=110/131" in without_constituent
-    assert "exact_pair_recall=111/153" in baseline
-    assert "exact_pair_recall=110/153" in without_constituent
+    baseline_precision = _fraction(baseline, "exact_pair_precision")
+    changed_precision = _fraction(without_constituent, "exact_pair_precision")
+    baseline_recall = _fraction(baseline, "exact_pair_recall")
+    changed_recall = _fraction(without_constituent, "exact_pair_recall")
+    assert changed_precision == (
+        baseline_precision[0] - 1,
+        baseline_precision[1] - 1,
+    )
+    assert changed_recall == (baseline_recall[0] - 1, baseline_recall[1])

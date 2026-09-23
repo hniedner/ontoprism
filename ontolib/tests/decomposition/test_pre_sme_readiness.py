@@ -243,7 +243,6 @@ def _composed_readiness_inputs(
             one_step_r82=0,
             closure_only_r82=0,
             unresolved=0,
-            explained_unresolved=0,
         ),
     )
     audit = audit_primary_site_artifact(
@@ -592,6 +591,8 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "axis_contract_violations": (),
         "normalized_group_violations": (),
         "unadjudicated_golden_changes": (),
+        "r101_run_id": "neoplasm-run-1",
+        "r101_unresolved_count": 0,
         "r103_packet_identity": "0" * 64,
         "verify_evidence_identity": "a" * 64,
         "git_head": "b" * 40,
@@ -764,6 +765,7 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
     )
     assert r101_loss.status == "clear"
     assert isinstance(r101_loss, ClearSemanticBlocker)
+    assert r101_loss.evidence == ("decomposition-run:neoplasm-run-1",)
     evaluated = tuple(
         cast("ClearSemanticBlocker", entry)
         for entry in report.semantic_gate.entries[1:4]
@@ -789,7 +791,6 @@ def test_semantic_gate_taxonomy_is_complete_and_issue_274_detectors_are_clear() 
 def test_unexplained_r101_loss_blocks_machine_readiness() -> None:
     payload = _machine_readiness_input_payload()
     payload["r101_unresolved_count"] = 2
-    payload["r101_explained_unresolved_count"] = 1
 
     report = build_machine_readiness(MachineReadinessInputs.model_validate(payload))
 
@@ -799,7 +800,7 @@ def test_unexplained_r101_loss_blocks_machine_readiness() -> None:
         if entry.kind == "unexplained-r101-loss"
     )
     assert blocker.status == "blocked"
-    assert blocker.blocker_count == 1  # type: ignore[union-attr]
+    assert blocker.blocker_count == 2  # type: ignore[union-attr]
 
 
 @pytest.mark.unit

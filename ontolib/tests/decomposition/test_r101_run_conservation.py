@@ -13,6 +13,7 @@ from ontolib.decomposition.models import (
     ResolvedR82PathEdge,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
+    SpecificityPathEdge,
     canonical_definition_fact_id,
     canonical_definition_group_id,
     canonical_source_occurrence_id,
@@ -75,7 +76,6 @@ def test_a_dropped_r101_occurrence_is_counted_as_unresolved() -> None:
         "one_step_r82": 0,
         "closure_only_r82": 0,
         "unresolved": 1,
-        "explained_unresolved": 0,
     }
     assert tuple(
         item.model_dump(exclude={"category", "r82_path"})
@@ -87,7 +87,6 @@ def test_a_dropped_r101_occurrence_is_counted_as_unresolved() -> None:
             "source_fact_id": fact_id,
             "source_filler": "C2",
             "reason": "missing-disposition",
-            "explanation": None,
         },
     )
 
@@ -280,17 +279,6 @@ def test_conservation_models_reject_inconsistent_counts_and_evidence() -> None:
             one_step_r82=0,
             closure_only_r82=0,
             unresolved=0,
-            explained_unresolved=0,
-        )
-    with pytest.raises(ValidationError, match="explained unresolved"):
-        R101ConservationCounts(
-            total=1,
-            projected=0,
-            unchanged_unprojected=0,
-            one_step_r82=0,
-            closure_only_r82=0,
-            unresolved=1,
-            explained_unresolved=2,
         )
     with pytest.raises(ValidationError, match="invalid R82 path"):
         R101ConservationOccurrence(
@@ -299,17 +287,7 @@ def test_conservation_models_reject_inconsistent_counts_and_evidence() -> None:
             source_fact_id="b" * 64,
             source_filler="C2",
             category="one-step-r82",
-            reason="missing path",
-        )
-    with pytest.raises(ValidationError, match="only unresolved"):
-        R101ConservationOccurrence(
-            concept_code="C1",
-            occurrence_id="a" * 64,
-            source_fact_id="b" * 64,
-            source_filler="C2",
-            category="projected",
-            reason="retained-routed",
-            explanation="not allowed",
+            reason="missing-r82-path",
         )
     counts = R101ConservationCounts(
         total=0,
@@ -318,7 +296,6 @@ def test_conservation_models_reject_inconsistent_counts_and_evidence() -> None:
         one_step_r82=0,
         closure_only_r82=0,
         unresolved=0,
-        explained_unresolved=0,
     )
     with pytest.raises(ValidationError, match="rows differ"):
         R101RunConservation(
@@ -421,7 +398,7 @@ def test_missing_or_invalid_r82_evidence_remains_unresolved() -> None:
     )
 
     assert without_path.unresolved_occurrences[0].reason == "missing-r82-path"
-    assert invalid_path.unresolved_occurrences[0].reason == "missing-r82-path"
+    assert invalid_path.unresolved_occurrences[0].reason == "invalid-r82-path"
     assert missing_target.unresolved_occurrences[0].reason == "r82-target-not-projected"
 
 
@@ -480,3 +457,116 @@ def test_retained_occurrence_without_its_projection_is_unresolved() -> None:
     assert (
         conservation.unresolved_occurrences[0].reason == "retained-without-projection"
     )
+
+
+@pytest.mark.parametrize("kind", ["collapsed-is-a", "collapsed-mixed"])
+@pytest.mark.parametrize(
+    ("include_projection", "category", "reason"),
+    [
+        (True, "projected", None),
+        (False, "unresolved", "collapsed-target-not-projected"),
+    ],
+)
+def test_non_r82_collapses_require_the_retained_concept_projection(
+    kind: str,
+    include_projection: bool,
+    category: str,
+    reason: str | None,
+) -> None:
+    code = "C1"
+    group_id = canonical_definition_group_id(code, ("restriction:R101:C9",))
+    fact_id = canonical_definition_fact_id(code, group_id, "restriction", "R101", "C9")
+    occurrence_id = canonical_source_occurrence_id(code, fact_id, (0,))
+    definition = CompleteDefinition(
+        root_code=code,
+        groups=(DefinitionGroup(group_id=group_id, anchor_code=code, depth=0),),
+        root_group_ids=(group_id,),
+        facts=(
+            RestrictionDefinitionFact(
+                fact_id=fact_id,
+                anchor_code=code,
+                group_id=group_id,
+                depth=0,
+                role_code="R101",
+                filler_code="C9",
+            ),
+        ),
+        occurrences=(
+            SourceDefinitionOccurrence(
+                occurrence_id=occurrence_id,
+                root_code=code,
+                source_fact_id=fact_id,
+                source_group_id=group_id,
+                anchor_code=code,
+                depth=0,
+                role_code="R101",
+                filler_code="C9",
+                structural_path=(0,),
+                member_position=0,
+            ),
+        ),
+    )
+    disposition = OccurrenceDisposition(
+        kind=kind,  # type: ignore[arg-type]
+        source_occurrence_id=occurrence_id,
+        source_fact_id=fact_id,
+        normalized_axis="op:PrimarySite",
+        source_filler="C9",
+        retained_filler="C2",
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        specificity_path=(
+            (
+                SpecificityPathEdge(
+                    kind="is-a",
+                    broader_code="C9",
+                    narrower_code="C5",
+                    source_identity="a" * 64,
+                ),
+                SpecificityPathEdge(
+                    kind="r82",
+                    broader_code="C5",
+                    narrower_code="C2",
+                    source_identity="a" * 64,
+                ),
+            )
+            if kind == "collapsed-mixed"
+            else ()
+        ),
+    )
+    projected = Constituent(
+        axis="op:PrimarySite",
+        filler_code="C2",
+        axis_source="role",
+        source_roles=("R101",),
+    )
+
+    conservation = classify_r101_conservation(
+        definition=definition,
+        constituents=(projected,) if include_projection else (),
+        dispositions=(disposition,),
+    )
+
+    row = conservation.occurrences[0]
+    assert row.category == category
+    if reason is not None:
+        assert row.reason == reason
+
+
+def test_unchanged_reason_cannot_override_projection_evidence() -> None:
+    definition = CompleteDefinition(root_code="C1", facts=())
+
+    with pytest.raises(ValueError, match="unchanged reason requires empty"):
+        classify_r101_conservation(
+            definition=definition,
+            constituents=(
+                Constituent(
+                    axis="op:PrimarySite",
+                    filler_code="C2",
+                    axis_source="role",
+                    source_roles=("R101",),
+                ),
+            ),
+            dispositions=(),
+            unchanged_reason="concept-not-decomposed",
+        )
