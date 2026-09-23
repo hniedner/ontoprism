@@ -265,6 +265,13 @@ describe('NCIt endpoints', () => {
 		await getDecomposition('C 6135', fetchImpl);
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C%206135/decomposition');
 	});
+
+	it('getPublicationProgress requests backend-computed publication counts', async () => {
+		const { getPublicationProgress } = await import('./api');
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+		await getPublicationProgress(fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/decomposition/publication-progress');
+	});
 });
 
 describe('Uberon/CL endpoints', () => {

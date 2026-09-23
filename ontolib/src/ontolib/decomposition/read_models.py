@@ -7,13 +7,13 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 from __future__ import annotations
 
 import re
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 from pydantic import Field, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
-from ontolib.decomposition.models import AxisSource
-from ontolib.decomposition.provenance_models import ConceptReviewFlag
+from ontolib.decomposition.models import AxisSource, ConceptOutcome
+from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,
@@ -133,6 +133,31 @@ class ConceptDecomposition(StrictBoundaryModel):
     @model_validator(mode="after")
     def _publication_shape_is_paired(self) -> Self:
         _require_publication_shape(self)
+        return self
+
+
+class PublicationProgress(StrictBoundaryModel):
+    """Backend-computed counts for the graph's currently published D93 run."""
+
+    run_id: str = Field(min_length=1)
+    publication_status: Literal["provisional"]
+    publication_notice: str = Field(min_length=1)
+    total_concepts: int = Field(ge=0)
+    outcome_counts: dict[ConceptOutcome, int]
+    review_flag_counts: dict[ReviewFlagKind, int]
+
+    @model_validator(mode="after")
+    def _counts_are_complete(self) -> Self:
+        outcomes = set(get_args(ConceptOutcome))
+        flags = set(get_args(ReviewFlagKind))
+        if set(self.outcome_counts) != outcomes:
+            raise ValueError("publication progress must include every D93 outcome")
+        if set(self.review_flag_counts) != flags:
+            raise ValueError("publication progress must include every D93 review flag")
+        if sum(self.outcome_counts.values()) != self.total_concepts:
+            raise ValueError("publication outcome counts do not sum to total concepts")
+        if any(count < 0 for count in self.review_flag_counts.values()):
+            raise ValueError("publication review-flag counts cannot be negative")
         return self
 
 

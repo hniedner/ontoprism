@@ -358,7 +358,7 @@ async def test_labels_for_fails_closed_on_missing_or_ambiguous_requested_label(
     store = NcitGraphStore(_LabelRowsClient(rows))  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match=message):
-        await store.labels_for(["C1"])
+        await store.exact_labels_for(["C1"])
 
     assert f"GRAPH <{STATED_GRAPH_IRI}>" in store._client.queries[0]  # type: ignore[attr-defined]
 
@@ -375,7 +375,7 @@ async def test_labels_for_accepts_duplicate_rows_with_one_distinct_label() -> No
         )
     )  # type: ignore[arg-type]
 
-    assert await store.labels_for(["C1"]) == {"C1": "One label"}
+    assert await store.exact_labels_for(["C1"]) == {"C1": "One label"}
 
 
 @pytest.mark.unit
@@ -398,7 +398,18 @@ async def test_labels_for_rejects_malformed_or_unrequested_rows(
     store = NcitGraphStore(_LabelRowsClient([row]))  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match=message):
-        await store.labels_for(["C1"])
+        await store.exact_labels_for(["C1"])
+
+
+@pytest.mark.unit
+async def test_display_labels_omit_expected_non_stated_fillers() -> None:
+    store = NcitGraphStore(
+        _LabelRowsClient(
+            [{"c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#MINT-1"}]
+        )
+    )  # type: ignore[arg-type]
+
+    assert await store.labels_for(["MINT-1"]) == {}
 
 
 @pytest.mark.unit

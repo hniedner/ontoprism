@@ -678,6 +678,16 @@ async def get_ncit_decomposition(
     )
     return {
         "code": code,
+        "publication_status": "provisional",
+        "publication_notice": "expert review, not an NCIt release",
+        "outcome": "decomposed",
+        "outcome_reason": "engine emitted 1 constituents",
+        "review_flags": [
+            {
+                "kind": "needs-review",
+                "reason": "constituent op:Morphology / C3262 needs review",
+            }
+        ],
         "is_legacy_precoordinated": True,
         "decomposed_on": "2026-08-14T00:00:00Z",
         "constituents": [
@@ -688,9 +698,32 @@ async def get_ncit_decomposition(
                 "filler_label": "Neoplasm",
                 "axis_source": "parent",
                 "most_specific": True,
+                "needs_review": True,
                 "upstream": upstream,
             }
         ],
+    }
+
+
+@app.get("/api/v1/decomposition/publication-progress")
+async def decomposition_publication_progress() -> dict[str, object]:
+    return {
+        "run_id": "published-sample-run",
+        "publication_status": "provisional",
+        "publication_notice": "expert review, not an NCIt release",
+        "total_concepts": 20,
+        "outcome_counts": {
+            "decomposed": 15,
+            "residual": 1,
+            "semantic-excluded": 1,
+            "atomic-no-op": 2,
+            "unknown": 1,
+        },
+        "review_flag_counts": {
+            "needs-review": 4,
+            "unresolved-r101-loss": 0,
+            "mint-filler": 3,
+        },
     }
 
 

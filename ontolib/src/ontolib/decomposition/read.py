@@ -9,11 +9,12 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast, get_args
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.models import AxisSource
-from ontolib.decomposition.provenance_models import ConceptReviewFlag
+from ontolib.decomposition.models import AxisSource, ConceptOutcome
+from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
+    PublicationProgress,
     UpstreamMapping,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 
 Row = Mapping[str, str | None]
 _SHA256_LENGTH = 64
+_OUTCOMES = tuple(get_args(ConceptOutcome))
+_REVIEW_FLAGS = tuple(get_args(ReviewFlagKind))
 
 
 def _local(iri: str) -> str:
@@ -205,6 +208,74 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
             ),
         }
     )
+
+
+def publication_progress_from_rows(rows: Iterable[Row]) -> PublicationProgress | None:
+    """Build published-run progress from backend query aggregates."""
+    materialized = tuple(rows)
+    if not materialized:
+        return None
+    run_id = _publication_progress_identity(materialized)
+    outcome_counts = dict.fromkeys(_OUTCOMES, 0)
+    flag_counts = dict.fromkeys(_REVIEW_FLAGS, 0)
+    for row in materialized:
+        _record_progress_count(row, outcome_counts, flag_counts)
+    return PublicationProgress.model_validate(
+        {
+            "run_id": run_id,
+            "publication_status": vocab.PROVISIONAL,
+            "publication_notice": vocab.EXPERT_REVIEW_NOTICE,
+            "total_concepts": sum(outcome_counts.values()),
+            "outcome_counts": outcome_counts,
+            "review_flag_counts": flag_counts,
+        }
+    )
+
+
+def _publication_progress_identity(rows: tuple[Row, ...]) -> str:
+    run_ids = {row.get("run") for row in rows}
+    _require_single_progress_value(run_ids, "publication progress has no unique run")
+    _require_exact_progress_value(
+        rows,
+        "publicationStatus",
+        vocab.PROVISIONAL,
+        "publication progress is not provisional",
+    )
+    _require_exact_progress_value(
+        rows,
+        "publicationNotice",
+        vocab.EXPERT_REVIEW_NOTICE,
+        "publication progress has an unexpected notice",
+    )
+    return cast("str", next(iter(run_ids)))
+
+
+def _require_single_progress_value(values: set[str | None], message: str) -> None:
+    if None in values or len(values) != 1:
+        raise ValueError(message)
+
+
+def _require_exact_progress_value(
+    rows: tuple[Row, ...], field: str, expected: str, message: str
+) -> None:
+    if {row.get(field) for row in rows} != {expected}:
+        raise ValueError(message)
+
+
+def _record_progress_count(
+    row: Row,
+    outcomes: dict[ConceptOutcome, int],
+    flags: dict[ReviewFlagKind, int],
+) -> None:
+    category = row.get("category")
+    value = row.get("value")
+    if category == "outcome" and value in outcomes:
+        outcomes[cast("ConceptOutcome", value)] = int(row.get("count") or "")
+        return
+    if category == "review-flag" and value in flags:
+        flags[cast("ReviewFlagKind", value)] = int(row.get("count") or "")
+        return
+    raise ValueError("publication progress contains an unknown D93 category")
 
 
 def _record_constituent(

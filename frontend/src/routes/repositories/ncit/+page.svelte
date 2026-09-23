@@ -11,6 +11,10 @@
 
 </script>
 
+<div class="mb-4 flex justify-end">
+	<a href={resolve('/repositories/ncit/progress')} class="text-sm font-medium text-primary-700">Publication progress</a>
+</div>
+
 	<RepoBrowsePage
 	title="NCIt Concepts"
 	route={resolve('/repositories/ncit')}

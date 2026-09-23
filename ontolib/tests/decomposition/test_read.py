@@ -4,7 +4,10 @@ import pytest
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
-from ontolib.decomposition.read import decomposition_from_rows
+from ontolib.decomposition.read import (
+    decomposition_from_rows,
+    publication_progress_from_rows,
+)
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
@@ -48,6 +51,76 @@ def _row(**kw: str) -> dict[str, str | None]:
     ):
         row["sourceRole"] = axis
     return row
+
+
+@pytest.mark.unit
+def test_publication_progress_fills_all_d93_counts_from_aggregates() -> None:
+    progress = publication_progress_from_rows(
+        [
+            {
+                "run": "run-1",
+                "publicationStatus": vocab.PROVISIONAL,
+                "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+                "category": "outcome",
+                "value": "decomposed",
+                "count": "3",
+            },
+            {
+                "run": "run-1",
+                "publicationStatus": vocab.PROVISIONAL,
+                "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+                "category": "review-flag",
+                "value": "needs-review",
+                "count": "2",
+            },
+        ]
+    )
+
+    assert progress is not None
+    assert progress.total_concepts == 3
+    assert progress.outcome_counts == {
+        "decomposed": 3,
+        "residual": 0,
+        "semantic-excluded": 0,
+        "atomic-no-op": 0,
+        "unknown": 0,
+    }
+    assert progress.review_flag_counts == {
+        "needs-review": 2,
+        "unresolved-r101-loss": 0,
+        "mint-filler": 0,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"run": None}, "no unique run"),
+        ({"publicationStatus": "accepted"}, "not provisional"),
+        ({"publicationNotice": "release"}, "unexpected notice"),
+        ({"category": "disposition", "value": "include"}, "unknown D93 category"),
+    ],
+)
+def test_publication_progress_rejects_untrusted_graph_metadata(
+    change: dict[str, str | None], message: str
+) -> None:
+    row = {
+        "run": "run-1",
+        "publicationStatus": vocab.PROVISIONAL,
+        "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+        "category": "outcome",
+        "value": "decomposed",
+        "count": "1",
+    }
+
+    with pytest.raises(ValueError, match=message):
+        publication_progress_from_rows([row | change])
+
+
+@pytest.mark.unit
+def test_publication_progress_is_absent_without_a_published_graph() -> None:
+    assert publication_progress_from_rows([]) is None
 
 
 @pytest.mark.unit

@@ -172,6 +172,24 @@ test('NCIt: server-loaded concept hydrates the browser-only graph explorer', asy
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
 });
 
+test('NCIt: provisional publication is visible with flags and backend progress', async ({ page }, testInfo) => {
+	await page.goto('/repositories/ncit/C3262');
+	await expect(page.getByText('expert review, not an NCIt release')).toBeVisible();
+	await expect(page.getByText('decomposed', { exact: true })).toBeVisible();
+	await expect(page.getByText('Needs review', { exact: true })).toBeVisible();
+	const conceptScreenshot = testInfo.outputPath('provisional-flagged-concept.png');
+	await page.screenshot({ path: conceptScreenshot, fullPage: true });
+	await testInfo.attach('provisional flagged concept', { path: conceptScreenshot, contentType: 'image/png' });
+
+	await page.goto('/repositories/ncit/progress');
+	await expect(page.getByRole('heading', { name: 'Enhanced NCIt publication progress' })).toBeVisible();
+	await expect(page.getByText('published-sample-run')).toBeVisible();
+	await expect(page.getByText('needs-review').locator('..')).toContainText('4');
+	const progressScreenshot = testInfo.outputPath('publication-progress.png');
+	await page.screenshot({ path: progressScreenshot, fullPage: true });
+	await testInfo.attach('publication progress', { path: progressScreenshot, contentType: 'image/png' });
+});
+
 test('NCIt: route replacement owns graph state while an expansion is pending', async ({ page }) => {
 	const intercepted = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();

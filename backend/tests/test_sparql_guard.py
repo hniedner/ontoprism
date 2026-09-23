@@ -51,6 +51,7 @@ _APP_OPERATIONS = {
     ("GET", "/api/v1/pubmed/{pmid}"),
     ("GET", "/api/v1/pubmed/{pmid}/related"),
     ("GET", "/api/v1/decomposition/runs"),
+    ("GET", "/api/v1/decomposition/publication-progress"),
     ("GET", "/api/v1/decomposition/runs/{run_id}"),
     ("GET", "/api/v1/decomposition/runs/{run_id}/outcomes"),
     ("GET", "/api/v1/decomposition/minted-concepts"),

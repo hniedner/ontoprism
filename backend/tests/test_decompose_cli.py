@@ -135,6 +135,8 @@ class _RunLabelStore:
     async def labels_for(self, _codes: list[str]) -> dict[str, str]:
         return {}
 
+    exact_labels_for = labels_for
+
     async def search(self, _term: str, *, limit: int) -> SimpleNamespace:
         assert limit == 5
         return SimpleNamespace(hits=[])
@@ -265,7 +267,7 @@ async def test_load_is_coordinated_inside_pipeline_before_run_completion(
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
     monkeypatch.setattr(decompose, "ncit_sparql_client", lambda _url: client)
-    store = SimpleNamespace(labels_for=AsyncMock())
+    store = SimpleNamespace(exact_labels_for=AsyncMock())
     monkeypatch.setattr(decompose, "NcitGraphStore", lambda _client: store)
     pipeline = AsyncMock(return_value=decompose.RunMetrics())
     monkeypatch.setattr(decompose, "run_pipeline", pipeline)

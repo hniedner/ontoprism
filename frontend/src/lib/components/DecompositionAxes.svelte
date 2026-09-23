@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { DecompositionConstituent } from '$lib/types';
+	import ReviewBadge from '$lib/components/ReviewBadge.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 
 	interface AxisGroup {
@@ -52,6 +53,7 @@
 		{#if c.axis_ambiguous}
 			<span class="text-xs text-subtle">Ambiguous axis</span>
 		{/if}
+		<ReviewBadge visible={c.needs_review} />
 	</li>
 {/snippet}
 
