@@ -50,8 +50,10 @@ moving or reordering issues.
 2. With the milestone branch checked out, review `git diff --no-ext-diff main...HEAD`
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
-   (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues, all five
-   verdicts, every dropped and deferred finding, and every pending milestone edit.
+   (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues with a
+   link to each issue's demo comment, all five verdicts, every dropped and deferred
+   finding, every item placed in "Hardening (when touched)", every red CI run restored
+   without prior approval, and every pending milestone edit.
 4. Merge only after all expected checks pass, then watch CI on the exact merge SHA.
 
 For a local issue merge use `git rev-parse HEAD`; for a PR merge use the
@@ -90,7 +92,32 @@ and passes. Whether a `main` merge released is not judged here (#131).
 - Newly found work does not widen an issue. Stop at twice the estimate, after the same
   step fails twice for the same reason, before widening acceptance, before
   self-certifying tooling, or before a destructive action. A bug in your own scratch
-  diagnostic is not a failed step: fix it and continue.
+  diagnostic is not a failed step: fix it and continue. "The same reason" means no
+  progress: a retry that moves a gate closer, with the remaining cause known, is not a
+  repeat failure (the other stops still apply).
+
+## Issue size, demos and approvals (D95)
+
+- An issue changes at most about 400 net lines of non-test code, and its tests at most
+  1.5 times that. Going over: stop and ask the owner to split the issue. A split never
+  separates code from the tests that motivated it.
+- New persistence needs the owner's approval, written in the issue, before work starts:
+  a migration, a table, a persisted file format, or an identity/hash field. Announce a
+  migration of the configured Postgres before running it.
+- Every issue body has an estimate (so the twice-the-estimate stop can fire) and a demo in
+  its Done when: a screenshot or Playwright flow for GUI work; before/after
+  `pdm run oracle-metrics` output for engine work (the command arrives with R0.2, #416);
+  for other work, the observable before/after the Done when names. Post the demo as an
+  issue comment before the local merge; the milestone PR body links each issue's demo
+  comment. No demo, no merge.
+- Two corrective owner comments on one issue: stop and ask the owner to split it.
+- No process, harness, CI or agent-configuration work unless something is actually
+  blocked, and only with the owner's approval before it starts. A red gate-of-record CI
+  run counts as blocked: restoring it without weakening any gate needs no prior approval
+  and is reported in the milestone PR body.
+- "Hardening (when touched)" holds only unverified hardening suggestions; every verified
+  finding follows "Review" (fixed, or deferred as a major out-of-scope finding). Each item
+  placed in the hardening milestone is listed in the milestone PR body.
 
 ## Evidence and diagnostics
 
@@ -122,8 +149,13 @@ information: fix and rerun its failing lane, then run full `verify` once at the 
 - Every test must detect a relevant behavioural regression. No execution-only tests,
   mock choreography, implementation-cloning fakes, fixture self-consistency or coverage
   padding.
-- Aggregate line and branch coverage stays above 90% for `ontolib/src`, `backend/src`
-  and `frontend/src/lib`; do not lower it.
+- Aim for 95% or more line and branch coverage through behavioural tests. The aggregate
+  for `ontolib/src`, `backend/src` and `frontend/src/lib` must stay above 90%: a hard
+  floor, set low so hard-to-test code never invites padding, not a target. Real
+  coverage just above the floor beats padded 100%. At the floor, test real behaviour or
+  delete a branch only after showing from the code that neither input nor an external
+  failure (tool, driver, store, I/O) reaches it; handlers for external failures are
+  reachable. Never pad or lower the gate.
 - For an external tool, driver, service or upstream dataset, add the applicable real
   contract, double-fidelity, real-data-shape and reject-liveness tests. Configured-store
   shape tests skip in CI by design; a skip is not a pass. Our own pipeline outputs are
@@ -151,6 +183,14 @@ full run only after several fixes and with owner agreement.
   `provisional` until evidenced (M1.8).
 - Decomposition is additive. Legacy concepts remain flagged; new triples use
   `ncit_decomposed`. Read stated OWL. Variant links are navigation, not equivalence.
+- The enhanced NCIt is an expert-review demonstration, not a release (D93). Everything
+  is published to that audience, each concept with its engine outcome and any review
+  flags, each with a reason; nothing is withheld. A concept without a recorded outcome,
+  or a flag without a reason, is a publication error, never a default. The demonstration
+  marker, outcome and flags travel with every exported artifact, not only the UI.
+  Unresolved is first-class: a concept not decomposed or a role not disambiguated is
+  recorded, with its kind, rationale and the evidence examined, as an `unknown` outcome
+  or a review flag; never silently dropped and never published as resolved.
 - NCIt roles are OWL existential restrictions, not direct triples; associations are
   direct. The backend owns all QLever/Postgres access. Stated OWL is RIOT-converted and
   offline-indexed. Validate user input separately from malformed source rows.
@@ -170,7 +210,10 @@ timed-out, dirty-tree or changed-HEAD result has not converged.
 Fix every verified finding and reasonable suggestion. Later rounds run only dimensions
 that have not converged, on the fix range, briefed with prior findings and outcomes. A
 converged dimension re-arms only when a fix changes what it reviews; replacing the
-implementation re-arms all. There is no round ceiling.
+implementation re-arms all. Rounds are counted per dimension. After a dimension's third
+round, its remaining suggestions are dropped with a one-line PR-body reason each and count
+as addressed. A verified finding (reproduced, or code plus a triggering input or state)
+is never a suggestion, whatever the reviewer labels it, and always continues (D95).
 
 Verify a finding by reproduction or code plus triggering input/state. Drop an
 unverified claim with a one-line PR-body reason. Fix findings on a new issue branch into
