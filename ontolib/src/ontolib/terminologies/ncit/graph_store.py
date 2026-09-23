@@ -351,10 +351,11 @@ class NcitGraphStore:
         )
         return [rel for rel in rels if rel is not None]
 
-    async def labels_for(self, codes: list[str]) -> dict[str, str]:
-        """Return exactly one stated label for every requested code."""
+    async def _labels_for(
+        self, codes: list[str]
+    ) -> tuple[dict[str, str], dict[str, str]]:
         if not codes:
-            return {}
+            return {}, {}
         requested = tuple(dict.fromkeys(codes))
         values = " ".join(f"<{safe_iri(c, self._ns)}>" for c in requested)
         query = f"""{_PREFIXES}
@@ -366,7 +367,16 @@ class NcitGraphStore:
         }}
         """
         rows = await self._client.select(query)
-        resolved, problems = _resolved_requested_labels(requested, rows)
+        return _resolved_requested_labels(requested, rows)
+
+    async def labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return unambiguous stated labels, omitting absent or ambiguous values."""
+        resolved, _problems = await self._labels_for(codes)
+        return resolved
+
+    async def exact_labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return exactly one stated label for every requested code."""
+        resolved, problems = await self._labels_for(codes)
         if problems:
             raise ConceptLabelError(problems, labels=resolved)
         return resolved

@@ -229,7 +229,7 @@ async def _run(
                                 source_manifest,
                                 settings.ncit_sparql_url,
                             ),
-                            get_labels=store.labels_for,
+                            get_labels=store.exact_labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
                             progress=(
