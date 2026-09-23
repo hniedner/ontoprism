@@ -7,6 +7,71 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-23 — roadmap reset: an expert demonstration, local first, small issues with demos
+
+### D95. Issues are small, show a demo, and need approval for new persistence; review drops suggestions after a dimension's third round
+
+**Context.** Between 2026-08-09 and 2026-09-22 the product barely moved while the
+repository grew and shrank. #277, #318 and #336 added about 38k, 97k and 92k lines; much
+of #318's and #336's was identity chains, review packets and conservation ledgers that
+R0 and R0.1 then removed (#424 alone removed about 26k lines, net about −13k). Meanwhile
+8 of the last 12 merged PRs were agent governance. Engine quality did improve
+(exact-pair precision 80/106 to 111/132, recall 80/153 to 111/153 on the 20-concept SME
+oracle), but nothing reached users, and #425's review ran to eight rounds.
+
+**Decision (owner, 2026-09-23).** The roadmap is re-planned as vertical stages that each
+end in something the expert audience can see: Stage 1 publication ("M1.6.1 · Publish
+provisional decomposition"); Stages 2 and 3, first evidence and gaps visible from existing
+provenance and then evidence grown one axis at a time ("M1.8 · Evidence-linked
+decomposition acceptance"); Stage 4 curator editing v0 ("M1.9 · Local proposal workflow");
+Stage 5 a first graph-balance measurement ("M5 · Measure & improve graph balance"); Stage 6
+cloud ("M1.10 · Cloud deployment for multi-user expert access"). The rules in AGENTS.md
+"Issue size, demos and approvals" make the reset enforceable at every merge: a size cap
+(about 400 net non-test lines per issue, tests at most 1.5 times that); owner approval
+before new persistence; an estimate and a demo in every issue; two corrective owner
+comments mean asking the owner to split; no process work unless something is blocked; only
+unverified hardening suggestions wait in "Hardening (when touched)", and every verified
+finding follows "Review". AGENTS.md "Review"
+adds a ceiling: after a dimension's third round its remaining suggestions are dropped with
+a reason, while verified findings always continue. Removal work waits in "Deferred cleanup
+(when touched)".
+
+**Why.** Each rule is checkable by the owner at a merge, unlike prose about avoiding
+machinery, which did not stop it. The stages keep the core goals (graph balancing,
+post-coordination) on the tracker instead of behind open-ended hardening.
+
+### D94. The expert demonstration runs on a local instance first; cloud multi-user access follows
+
+**Decision (owner, 2026-09-23).** The enhanced NCIt is demonstrated from the owner's
+computer on a local instance. Cloud deployment for multi-user expert access is a later
+stage (M1.10). Until then there is one local user: no authentication, and the reviewer
+name on an expert verdict is a plain field. The authenticated actor boundary (#331),
+roles (#312), the full proposal workbench (#311), submission export (#313) and proposal
+publication (#314) move to M1.10.
+
+### D93. The enhanced NCIt is an expert-review demonstration: publish everything, flag instead of withhold
+
+**Context.** #127 planned to withhold review-required concepts and unreconciled MINT
+fillers, and #417 planned to refuse a whole publication while unexplained R101 loss existed
+(the D74 release blocker).
+
+**Decision (owner, 2026-09-23).** The enhanced NCIt is a demonstration for expert users
+to vet and validate the decomposition of concepts, the relationship/role disambiguation,
+and caDSR compatibility. It is not a release and does not replace the authoritative
+NCIt. Everything is published to this audience under a demonstration marker ("expert
+review, not an NCIt release"). Each concept shows its engine outcome (the existing
+`ConceptOutcome` values: decomposed, residual, semantic-excluded, atomic-no-op, unknown)
+and zero or more review flags (needs review, unresolved R101 loss, MINT filler), each
+with a reason. Nothing is withheld. A concept without a recorded outcome, or a flag
+without a reason, is a publication error, never a default, and the marker, outcome and
+flags travel with every exported artifact. The enhanced-showcase `Disposition`
+vocabulary is replaced by this one (#353). For this audience, D74's release blockers are
+shown as per-concept flags rather than blocking publication; they remain blockers for
+any future release that is meant to replace or be submitted as NCIt content.
+
+**Why.** The experts can only vet what they can see, and the unresolved and flagged cases
+are where there is most to learn.
+
 ## 2026-09-20 — review once per milestone, not once per issue
 
 ### D92. An issue merges into its milestone branch locally; the five-dimension review runs once per milestone
@@ -164,7 +229,8 @@ from four plain criteria into a corpus-wide acceptance contract.
   ontology-engineer, ontology-validator, implementer) is retired. All five review
   dimensions still run on every PR, to convergence: every verified finding and every
   reasonable suggestion is addressed, a converged dimension drops out of later rounds
-  (re-armed when a later fix touches what it reviews), and there is no round ceiling.
+  (re-armed when a later fix touches what it reviews), and there is no round ceiling
+  (superseded by D95, 2026-09-23: per-dimension ceiling of three rounds for suggestions).
   PR size is set when work is planned, one issue or one
   coherent change per PR, balancing granularity against review and CI cost.
   *(Addendum 2026-09-19, #398: the roster adds the read-only `issue-steward` subagent, in
@@ -793,6 +859,11 @@ qualification. This decision makes no equivalence or accepted-in-NCIt claim.
 ## 2026-08-14 — M1.6 release governance separates semantic gates from measurements
 
 ### D74. Semantic invariants block release; independently named metrics measure progress
+
+> **Superseded in part by D93 (2026-09-23).** For the expert-review demonstration these
+> blockers are shown as per-concept flags and do not block publication; #417 records the
+> per-run R101 conservation and no longer refuses publication. They remain release
+> blockers for any future release meant to replace or be submitted as NCIt content.
 
 The accepted #57 baseline contains 106 engine-suggestion rows, of which 48 carry the
 SME `include` action; the exact-pair score is separately 80/106 precision and 80/153
