@@ -71,6 +71,7 @@ from ontolib.decomposition.collapse_policy import (
     CollapseVetoPolicy,
     load_packaged_collapse_veto_policy,
 )
+from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.mixed_chain_inventory import (
     load_mixed_chain_inventory,
@@ -929,6 +930,7 @@ class _RunSetup:
         pending: list[str],
         labels: dict[str, str],
         diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+        label_errors: dict[str, str] | None = None,
         normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
     ) -> None:
         self.run_id = run_id
@@ -937,6 +939,7 @@ class _RunSetup:
         self.collapse_policy = collapse_policy
         self.pending = list(pending)
         self.labels = dict(labels)
+        self.label_errors = dict(label_errors or {})
         self.diagnostic_source = diagnostic_source
         self.normalized_group_policy = normalized_group_policy
 
@@ -960,10 +963,47 @@ ProgressCallback = Callable[[RunProgress], None]
 async def _fetch_labels(
     get_labels: GetLabels | None, pending: list[str]
 ) -> dict[str, str]:
-    """Batch-fetch labels for *pending*, or ``{}`` when no label source is wired."""
-    if get_labels is None or not pending:
-        return {}
-    return await get_labels(pending)
+    """Batch-fetch exactly one label per code, or no labels when unwired."""
+    labels, errors = await _fetch_label_batch(get_labels, pending)
+    if errors:
+        raise ConceptLabelError(errors, labels=labels)
+    return labels
+
+
+async def _fetch_label_batch(
+    get_labels: GetLabels | None, requested: list[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    if get_labels is None or not requested:
+        return {}, {}
+    codes = tuple(dict.fromkeys(requested))
+    try:
+        labels = await get_labels(list(codes))
+        errors: dict[str, str] = {}
+    except ConceptLabelError as exc:
+        labels = exc.labels
+        errors = exc.problems
+    return _validated_label_batch(codes, labels, errors)
+
+
+def _validated_label_batch(
+    codes: tuple[str, ...], labels: dict[str, str], errors: dict[str, str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    _require_requested_label_codes(codes, labels, errors)
+    missing = set(codes) - labels.keys() - errors.keys()
+    blank = {code for code, label in labels.items() if not label}
+    errors.update(dict.fromkeys(missing | blank, "has no stated label"))
+    return {code: label for code, label in labels.items() if code not in blank}, errors
+
+
+def _require_requested_label_codes(
+    codes: tuple[str, ...], labels: dict[str, str], errors: dict[str, str]
+) -> None:
+    unexpected = (set(labels) | set(errors)) - set(codes)
+    if unexpected:
+        raise ValueError(
+            "label source returned unrequested concepts: "
+            + ", ".join(sorted(unexpected))
+        )
 
 
 async def _require_source_snapshot(
@@ -1141,10 +1181,11 @@ async def _load_pending_run_data(
     provenance: ProvenanceStore,
     run_id: str,
     get_labels: GetLabels | None,
-) -> tuple[list[str], dict[str, str]]:
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
     try:
         pending = await provenance.pending_codes(run_id)
-        return pending, await _fetch_labels(get_labels, pending)
+        labels, label_errors = await _fetch_label_batch(get_labels, pending)
+        return pending, labels, label_errors
     except BaseException as exc:
         await _journal_without_masking(
             exc, "run setup failure", _record_setup_failure(provenance, run_id, exc)
@@ -1205,7 +1246,7 @@ async def _prepare_run(
     run_id = admission.run_id
     if not isinstance(admission, FreshAdmitted):
         fingerprint = await provenance.fingerprint_for_run(run_id)
-    pending, labels = await _load_pending_run_data(
+    pending, labels, label_errors = await _load_pending_run_data(
         provenance,
         run_id,
         get_labels,
@@ -1217,6 +1258,7 @@ async def _prepare_run(
         collapse_policy=collapse_policy,
         pending=pending,
         labels=labels,
+        label_errors=label_errors,
         diagnostic_source=diagnostic_source,
         normalized_group_policy=normalized_group_policy,
     )
@@ -1235,6 +1277,8 @@ async def _process_work_item(
     if claim is None:
         raise RunStateError(f"work item {setup.run_id!r}/{code!r} could not be claimed")
     try:
+        if reason := setup.label_errors.get(code):
+            raise ConceptLabelError({code: reason})
         result = await _decompose_one(
             code,
             client,
@@ -1446,12 +1490,15 @@ async def _materialize_residual_filler(
     filler: str,
     *,
     label: str | None,
+    label_error: str | None = None,
     detector_identity: str,
 ) -> None:
     claim = await provenance.claim_residual_filler(setup.run_id, filler)
     if claim is None:
         raise RunStateError(f"residual filler {filler!r} could not be claimed")
     try:
+        if label_error is not None:
+            raise ConceptLabelError({filler: label_error})
         classification, definition_identity, reason = await _classify_residual_filler(
             filler,
             client,
@@ -1511,7 +1558,7 @@ async def _materialize_residual_classifications(
         detector_identity=detector_identity,
     )
     pending = await provenance.pending_residual_fillers(setup.run_id)
-    labels = await _fetch_labels(get_labels, pending)
+    labels, label_errors = await _fetch_label_batch(get_labels, pending)
     for index, filler in enumerate(pending):
         if progress is not None:
             progress(index, len(pending), filler)
@@ -1522,6 +1569,7 @@ async def _materialize_residual_classifications(
             provenance,
             filler,
             label=labels.get(filler),
+            label_error=label_errors.get(filler),
             detector_identity=detector_identity,
         )
         if progress is not None:
@@ -2274,13 +2322,15 @@ async def _qualify_group_policy(
     before this invocation writes any run state: a decomposition its policy row rejects
     fails here, not when the worklist reaches the concept."""
     bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
-    labels = await _fetch_labels(get_labels, bound)
+    labels, label_errors = await _fetch_label_batch(get_labels, bound)
     untouched = (
         "no run state was written"
         if config.resume_from is None
         else f"run {config.resume_from!r} was not modified"
     )
     for code in bound:
+        if code in label_errors:
+            continue
         try:
             await _decompose_one(
                 code,

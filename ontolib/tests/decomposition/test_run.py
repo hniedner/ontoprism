@@ -1638,7 +1638,9 @@ async def test_run_pipeline_nlp_fallback_mints_when_no_label_lookup_given() -> N
     provenance = _mock_provenance()
 
     async def get_labels(codes: list[str]) -> dict[str, str]:
-        return {"C4791": "Left Atrial Myxoma"}
+        return {
+            code: "Left Atrial Myxoma" if code == "C4791" else code for code in codes
+        }
 
     metrics = await run_pipeline(
         RunConfig(branch="neoplasm"), client, provenance, get_labels=get_labels
@@ -1664,7 +1666,9 @@ async def test_run_pipeline_nlp_aspect_resolves_via_label_lookup() -> None:
     provenance = _mock_provenance()
 
     async def get_labels(codes: list[str]) -> dict[str, str]:
-        return {"C4791": "Left Atrial Myxoma"}
+        return {
+            code: "Left Atrial Myxoma" if code == "C4791" else code for code in codes
+        }
 
     async def label_lookup(term: str) -> str | None:
         return "C99" if term == "Left" else None
@@ -2658,6 +2662,105 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
     assert result.outcome == "unknown"
     assert result.decomposition is None
     assert result.semantic_types == ("Neoplastic Process",)
+
+
+@pytest.mark.unit
+async def test_missing_requested_label_fails_the_named_work_item() -> None:
+    setup = _checkpoint_setup()
+    setup.pending = ["C1"]
+    setup.label_errors = {"C1": "has no stated label"}
+    provenance = MagicMock()
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_work_item = AsyncMock()
+    provenance.fail_work_item = AsyncMock()
+
+    with pytest.raises(ValueError, match="concept C1 has no stated label") as error:
+        await run_module._process_work_item(
+            setup,
+            "C1",
+            MagicMock(),
+            provenance,
+            label_lookup=AsyncMock(return_value=None),
+            walker_max_depth=7,
+        )
+
+    provenance.complete_work_item.assert_not_awaited()
+    provenance.fail_work_item.assert_awaited_once()
+    assert type(error.value).__name__ == "ConceptLabelError"
+    recorded = provenance.fail_work_item.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert str(recorded) == "concept C1 has no stated label"
+
+
+@pytest.mark.unit
+async def test_ambiguous_requested_label_fails_the_named_work_item() -> None:
+    setup = _checkpoint_setup()
+    setup.pending = ["C1"]
+    setup.label_errors = {"C1": "has multiple distinct stated labels"}
+    provenance = MagicMock()
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_work_item = AsyncMock()
+    provenance.fail_work_item = AsyncMock()
+
+    with pytest.raises(
+        ValueError, match="concept C1 has multiple distinct stated labels"
+    ) as error:
+        await run_module._process_work_item(
+            setup,
+            "C1",
+            MagicMock(),
+            provenance,
+            label_lookup=AsyncMock(return_value=None),
+            walker_max_depth=7,
+        )
+
+    provenance.complete_work_item.assert_not_awaited()
+    provenance.fail_work_item.assert_awaited_once()
+    assert type(error.value).__name__ == "ConceptLabelError"
+    recorded = provenance.fail_work_item.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert str(recorded) == "concept C1 has multiple distinct stated labels"
+
+
+@pytest.mark.unit
+async def test_missing_residual_filler_label_fails_its_named_item() -> None:
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_residual_filler = AsyncMock()
+    provenance.fail_residual_filler = AsyncMock()
+
+    with pytest.raises(ValueError, match="concept C2 has no stated label") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C2",
+            label=None,
+            label_error="has no stated label",
+            detector_identity="b" * 64,
+        )
+
+    provenance.complete_residual_filler.assert_not_awaited()
+    provenance.fail_residual_filler.assert_awaited_once()
+    recorded = provenance.fail_residual_filler.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert recorded is error.value
+
+
+@pytest.mark.unit
+async def test_label_batch_rejects_unrequested_and_blank_results() -> None:
+    async def unexpected(_codes: list[str]) -> dict[str, str]:
+        return {"C2": "Wrong concept"}
+
+    with pytest.raises(ValueError, match="unrequested concepts: C2"):
+        await run_module._fetch_labels(unexpected, ["C1"])
+
+    async def blank(_codes: list[str]) -> dict[str, str]:
+        return {"C1": ""}
+
+    with pytest.raises(ValueError, match="concept C1 has no stated label"):
+        await run_module._fetch_labels(blank, ["C1"])
 
 
 @pytest.mark.unit

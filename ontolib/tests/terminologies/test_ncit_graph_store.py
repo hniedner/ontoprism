@@ -33,6 +33,16 @@ class _RecordingClient:
         return []
 
 
+class _LabelRowsClient:
+    def __init__(self, rows: list[dict[str, str]]) -> None:
+        self.rows = rows
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        return self.rows
+
+
 class _DefinedHierarchyClient:
     def __init__(self) -> None:
         self.queries: list[str] = []
@@ -317,6 +327,78 @@ async def test_labels_for_batch(ncit_stub_url: str) -> None:
 async def test_labels_for_empty_is_noop(ncit_stub_url: str) -> None:
     async with SparqlHttpClient(ncit_stub_url) as client:
         assert await NcitGraphStore(client).labels_for([]) == {}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (
+            [{"c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1"}],
+            "no stated label",
+        ),
+        (
+            [
+                {
+                    "c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                    "label": "First",
+                },
+                {
+                    "c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                    "label": "Second",
+                },
+            ],
+            "multiple",
+        ),
+    ],
+)
+async def test_labels_for_fails_closed_on_missing_or_ambiguous_requested_label(
+    rows: list[dict[str, str]], message: str
+) -> None:
+    store = NcitGraphStore(_LabelRowsClient(rows))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=message):
+        await store.labels_for(["C1"])
+
+    assert f"GRAPH <{STATED_GRAPH_IRI}>" in store._client.queries[0]  # type: ignore[attr-defined]
+
+
+@pytest.mark.unit
+async def test_labels_for_accepts_duplicate_rows_with_one_distinct_label() -> None:
+    concept = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1"
+    store = NcitGraphStore(
+        _LabelRowsClient(
+            [
+                {"c": concept, "label": "One label"},
+                {"c": concept, "label": "One label"},
+            ]
+        )
+    )  # type: ignore[arg-type]
+
+    assert await store.labels_for(["C1"]) == {"C1": "One label"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"label": "Orphan label"}, "missing requested concept binding"),
+        (
+            {
+                "c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C2",
+                "label": "Unrequested",
+            },
+            "unrequested concept 'C2'",
+        ),
+    ],
+)
+async def test_labels_for_rejects_malformed_or_unrequested_rows(
+    row: dict[str, str], message: str
+) -> None:
+    store = NcitGraphStore(_LabelRowsClient([row]))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=message):
+        await store.labels_for(["C1"])
 
 
 @pytest.mark.unit
