@@ -7,6 +7,61 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-23 — roadmap reset: an expert demonstration, local first, small issues with demos
+
+### D95. Issues are small, show a demo, and need approval for new persistence; review stops polishing after round 3
+
+**Context.** Between mid-August and 2026-09-22 the product barely moved while the
+repository grew and shrank: #277, #318 and #336 added about 38k, 97k and 92k lines, much
+of it identity chains, review packets and conservation ledgers that R0 and R0.1 then
+removed (#424 alone deleted about 24k lines), and 8 of the last 12 merged PRs were agent
+governance. Engine quality did improve (exact-pair precision 80/106 to 111/132, recall
+80/153 to 111/153 on the 20-concept SME oracle), but nothing reached users, and #425's
+review ran to eight rounds.
+
+**Decision (owner, 2026-09-23).** The roadmap is re-planned as vertical stages that each
+end in something the expert audience can see (Stage 1 M1.6.1 publication; Stage 2 and 3
+M1.8 evidence and gaps; Stage 4 M1.9 editing v0; Stage 5 first graph-balance measurement in
+M5; Stage 6 M1.10 cloud). Five rules in AGENTS.md ("Issue size, demos and approvals" and
+"Review") make the reset enforceable at every merge: a size cap of about 400 net non-test
+lines per issue; owner approval before new persistence; an estimate and a demo in every
+issue; two corrective owner comments split an issue; no process work unless something is
+blocked. After review round 3, remaining optional suggestions are dropped with a reason;
+verified defects continue. Removal work and robustness findings wait in "Deferred cleanup
+(when touched)" and "Hardening (when touched)".
+
+**Why.** Each rule is checkable by the owner at a merge, unlike prose about avoiding
+machinery, which did not stop it. The stages keep the core goals (graph balancing,
+post-coordination) on the tracker instead of behind open-ended hardening.
+
+### D94. The expert demonstration runs on a local instance first; cloud multi-user access follows
+
+**Decision (owner, 2026-09-23).** The enhanced NCIt is demonstrated from the owner's
+computer on a local instance. Cloud deployment for multi-user expert access is a later
+stage (M1.10). Until then there is one local user: no authentication, and the reviewer
+name on an expert verdict is a plain field. The authenticated actor boundary (#331),
+roles (#312), the full proposal workbench (#311), submission export (#313) and proposal
+publication (#314) move to M1.10.
+
+### D93. The enhanced NCIt is an expert-review demonstration: publish everything, flag instead of withhold
+
+**Context.** #127 planned to withhold review-required concepts and unreconciled MINT
+fillers, and #417 planned to refuse a whole publication while unexplained R101 loss existed
+(the D74 release blocker).
+
+**Decision (owner, 2026-09-23).** The enhanced NCIt is a demonstration for expert users to
+vet and validate the decomposition of concepts, the relationship/role disambiguation, and
+caDSR compatibility. It is not a release and does not replace the authoritative NCIt.
+Everything is published to this audience, each concept with a visible status and reason
+(decomposed, residual, unknown, needs review, unresolved R101 loss, MINT filler), under a
+demonstration marker ("expert review, not an NCIt release"). Nothing is withheld. For this
+audience, D74's release blockers are shown as per-concept flags rather than blocking
+publication; they remain blockers for any future release that is meant to replace or be
+submitted as NCIt content.
+
+**Why.** The experts can only vet what they can see, and the unresolved and flagged cases
+are where there is most to learn.
+
 ## 2026-09-20 — review once per milestone, not once per issue
 
 ### D92. An issue merges into its milestone branch locally; the five-dimension review runs once per milestone
