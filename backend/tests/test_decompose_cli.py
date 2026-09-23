@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import runpy
 import subprocess
@@ -30,6 +31,13 @@ from ontolib.terminologies.ncit.sibling_store import (
     CandidateGraph,
     CandidateObservation,
 )
+
+
+@pytest.mark.unit
+def test_production_walker_depth_defaults_to_reviewed_depth_seven() -> None:
+    assert decompose.RunConfig(branch="neoplasm").walker_max_depth == 7
+    assert inspect.signature(decompose._run).parameters["walker_max_depth"].default == 7
+    assert inspect.signature(decompose.main).parameters["walker_max_depth"].default == 7
 
 
 @pytest.mark.unit

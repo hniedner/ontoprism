@@ -250,7 +250,7 @@ class RunConfig:
         load_to_store: bool = False,
         emit_equivalence: bool = False,
         resume_from: str | None = None,
-        walker_max_depth: int = 5,
+        walker_max_depth: int = 7,
         sample_manifest: DecompositionSampleManifest | None = None,
         mixed_chain_inventory_path: Path | None = None,
         rehearsal: bool = False,
@@ -768,7 +768,7 @@ async def _decompose_one(
     collapse_policy: CollapseVetoPolicy,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     detector_identity: str,
-    walker_max_depth: int = 5,
+    walker_max_depth: int = 7,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the

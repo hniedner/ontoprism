@@ -25,7 +25,7 @@ from ontolib.decomposition.pre_resume import (
     affected_missing_p106,
 )
 from ontolib.decomposition.provenance_models import WorkItemOutcome
-from ontolib.decomposition.run import _decompose_one
+from ontolib.decomposition.run import RunConfig, _decompose_one
 from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import run_source_preflight
@@ -101,7 +101,7 @@ async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() 
                     collapse_policy=load_packaged_collapse_veto_policy(),
                     diagnostic_source=diagnostic_source,
                     detector_identity=expected.detector_identity,
-                    walker_max_depth=7,
+                    walker_max_depth=RunConfig(branch="neoplasm").walker_max_depth,
                 )
                 decomposition = result.decomposition
                 if decomposition is not None:
@@ -179,6 +179,38 @@ async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() 
         assert actual_item.model_dump(mode="json") == policy_expected_item.model_dump(
             mode="json"
         ), actual_item.code
+
+
+async def test_packaged_group_policy_applies_at_the_run_default_depth() -> None:
+    manifest = validate_ncit_sibling_manifest(
+        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+    )
+    policy = load_packaged_normalized_group_policy()
+    engine = make_engine(get_settings().database_url)
+    try:
+        label_lookup = _make_label_lookup(NcitSearchIndex(make_sessionmaker(engine)))
+        async with ncit_sparql_client("http://localhost:7888") as client:
+            labels = await NcitGraphStore(client).labels_for(list(policy.by_code))
+            diagnostic_source = await read_axis_diagnostic_source(
+                client, manifest.source_identity
+            )
+            for code in policy.by_code:
+                result = await _decompose_one(
+                    code,
+                    cast("Any", client),
+                    label=labels.get(code),
+                    label_lookup=label_lookup,
+                    source_identity=manifest.source_identity,
+                    collapse_policy=load_packaged_collapse_veto_policy(),
+                    normalized_group_policy=policy,
+                    diagnostic_source=diagnostic_source,
+                    detector_identity=routing_implementation_identity(),
+                    walker_max_depth=RunConfig(branch="neoplasm").walker_max_depth,
+                )
+                assert result.outcome == "decomposed"
+                assert result.decomposition is not None
+    finally:
+        await dispose_engine(engine)
 
 
 class _RemoveOneP106:
