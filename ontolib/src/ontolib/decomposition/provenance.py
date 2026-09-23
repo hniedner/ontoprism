@@ -778,7 +778,7 @@ def _r101_conservation_rows(
             "run_id": run_id,
             **item.model_dump(mode="json", exclude={"r82_path"}),
             "r82_path": _json.dumps(
-                [asdict(edge) for edge in item.r82_path],
+                [edge.model_dump(mode="json") for edge in item.r82_path],
                 sort_keys=True,
                 separators=(",", ":"),
             ),
@@ -2869,11 +2869,13 @@ class ProvenanceStore:
                     "AS emitted_constituent_pair_count, "
                     "(SELECT count(*) FROM decomp_definition_fact f "
                     "JOIN decomp_work_item w USING (run_id, concept_code) "
-                    "WHERE f.run_id = :run_id AND w.outcome = 'decomposed') "
+                    "WHERE f.run_id = :run_id "
+                    "AND w.outcome IN ('decomposed', 'residual')) "
                     "AS complete_semantic_fact_count, "
                     "(SELECT count(*) FROM decomp_source_occurrence o "
                     "JOIN decomp_work_item w USING (run_id, concept_code) "
-                    "WHERE o.run_id = :run_id AND w.outcome = 'decomposed') "
+                    "WHERE o.run_id = :run_id "
+                    "AND w.outcome IN ('decomposed', 'residual')) "
                     "AS source_occurrence_count, "
                     "(SELECT count(DISTINCT (concept_code, occurrence_id)) "
                     "FROM decomp_constituent_occurrence WHERE run_id = :run_id) "

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the current engine and print four current views plus the historical baseline."""
+"""Run the current engine and print its run, metrics, and R101 conservation."""
 
 from __future__ import annotations
 
