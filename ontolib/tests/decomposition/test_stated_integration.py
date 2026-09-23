@@ -398,6 +398,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
     fixture = f"""
         @prefix ncit: <{NCIT_NS}> .
         @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
 
         ncit:C99750 ncit:P106 "Neoplastic Process" ;
             owl:equivalentClass [
@@ -414,6 +415,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
                       owl:someValuesFrom ncit:C99753 ]
                 )
             ] .
+        ncit:C99751 rdfs:label "Stage I Test Parent Neoplasm" .
         ncit:C99752 ncit:P106 "Anatomic Structure, System, or Substance" .
         ncit:C99753 ncit:P106 "Cell" .
     """

@@ -20,6 +20,7 @@ from ontolib.decomposition.extract import (
     PartOfPair,
     part_of_expansions_from_rows,
 )
+from ontolib.decomposition.label_validation import GenusLabelError
 from ontolib.decomposition.models import (
     CompleteDefinition,
     GenusDefinitionFact,
@@ -1098,7 +1099,7 @@ def _genus_code_from_iri(genus_iri: str) -> str:
 async def _fetch_genus_label(
     select_fn: SelectRows,
     genus_iri: str,
-) -> str | None:
+) -> str:
     """Fetch the label for a genus concept from the stated graph."""
     label_query = f"""{_PREFIXES}
         SELECT ?label WHERE {{
@@ -1109,10 +1110,10 @@ async def _fetch_genus_label(
     """
     rows = await select_fn(label_query, required_variables={"label"})
     if not rows:
-        return None
+        raise GenusLabelError("genus concept has no stated label")
     labels = {_required_row_binding(row, "label") for row in rows}
     if len(labels) != 1:
-        raise ValueError("genus concept has multiple distinct stated labels")
+        raise GenusLabelError("genus concept has multiple distinct stated labels")
     return next(iter(labels))
 
 
@@ -1169,7 +1170,7 @@ async def resolve_morphology_filler(
         genus_iri = f"{NCIT_NS}{genus_code}"
         label = await _fetch_genus_label(select_fn, genus_iri)
 
-        if label is not None and not _is_staging_concept_label(label):
+        if not _is_staging_concept_label(label):
             return genus_code
 
         current_code = genus_code
@@ -1205,7 +1206,7 @@ async def _resolve_morphology_frontier(
                 selected.add(genus_code)
                 continue
             label = await _fetch_genus_label(select_fn, f"{NCIT_NS}{genus_code}")
-            if label is not None and not _is_staging_concept_label(label):
+            if not _is_staging_concept_label(label):
                 selected.add(genus_code)
             else:
                 next_frontier.add(genus_code)

@@ -19,6 +19,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
+from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -856,6 +857,40 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
                 run_id,
                 RunResumeIdentity.from_fingerprint(_fingerprint(source="b" * 64)),
             )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_label_failure_is_stored_as_named_work_item_error() -> None:
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await store.fail_work_item(
+            run_id,
+            "C0",
+            claim,
+            ConceptLabelError({"C0": "has no stated label"}),
+        )
+
+        conn = await asyncpg.connect(_dsn())
+        try:
+            row = await conn.fetchrow(
+                "SELECT state, error_type, error_message FROM decomp_work_item "
+                "WHERE run_id = $1 AND concept_code = 'C0'",
+                run_id,
+            )
+        finally:
+            await conn.close()
+        assert dict(row) == {
+            "state": "failed",
+            "error_type": "ConceptLabelError",
+            "error_message": "concept C0 has no stated label",
+        }
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)

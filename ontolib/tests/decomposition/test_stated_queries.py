@@ -727,7 +727,7 @@ async def test_resolve_morphology_filler_skips_restriction_before_named_genus() 
 
 
 @pytest.mark.unit
-async def test_resolve_morphology_filler_continues_past_unlabelled_genus() -> None:
+async def test_resolve_morphology_filler_refuses_unlabelled_genus() -> None:
     responses: list[list[dict[str, str | None]]] = [
         [{"member": _iri("C141041"), "type": None}],
         [],
@@ -744,8 +744,9 @@ async def test_resolve_morphology_filler_continues_past_unlabelled_genus() -> No
         assert set(required_variables) == expected_variables
         return responses.pop(0)
 
-    assert await resolve_morphology_filler(fake_select, "C6135") == "C3879"
-    assert responses == []
+    with pytest.raises(ValueError, match="genus concept has no stated label"):
+        await resolve_morphology_filler(fake_select, "C6135")
+    assert len(responses) == 2
 
 
 @pytest.mark.unit
@@ -839,6 +840,21 @@ def test_staging_label_markers_identify_staging_concepts(label: str) -> None:
 )
 def test_staging_label_markers_do_not_match_morphology_concepts(label: str) -> None:
     assert _is_staging_concept_label(label) is False
+
+
+@pytest.mark.unit
+async def test_missing_genus_label_fails_closed() -> None:
+    async def select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        if "SELECT ?label" in query:
+            return []
+        return [{"member": _iri("C2")}]
+
+    with pytest.raises(ValueError, match="genus concept has no stated label"):
+        await resolve_morphology_filler(select, "C1")
 
 
 def _definition_rows(
