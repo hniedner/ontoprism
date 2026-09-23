@@ -108,9 +108,9 @@ and passes. Whether a `main` merge released is not judged here (#131).
   its Done when: a screenshot or Playwright flow for GUI work; before/after
   `pdm run oracle-metrics` output for engine work; for other work, the observable
   before/after the Done when names. A missing estimate or demo is not itself a reason to
-  stop: before starting, post your own estimate and demo plan as an issue comment and
-  proceed; if your estimate exceeds the size cap, stop and ask the owner to split the
-  issue. Before the local merge, post the demo result (the before/after itself, not the
+  stop: before starting, post your own estimate (time and expected net non-test lines)
+  and demo plan as an issue comment and proceed; if you expect the issue to exceed the
+  size cap, stop and ask the owner to split it. Before the local merge, post the demo result (the before/after itself, not the
   plan) as an issue comment; the milestone PR body links each issue's demo result. No
   demo, no merge.
 - Two corrective owner comments on one issue: stop and ask the owner to split it.
