@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast, get_args
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.provenance_models import ConceptReviewFlag
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
@@ -163,30 +164,61 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     Status/date repeat on every row (SPARQL cross-product with the constituents); the
     constituents are de-duplicated by (axis, filler) and sorted for determinism.
     """
-    status: str | None = None
-    decomposed_on: str | None = None
+    scalar: dict[str, str | None] = dict.fromkeys(
+        (
+            "status",
+            "decomposedOn",
+            "publicationStatus",
+            "publicationNotice",
+            "outcome",
+            "outcomeReason",
+        ),
+        None,
+    )
+    flags: set[tuple[str, str]] = set()
     constituents: dict[tuple[str, str], DecompositionConstituent] = {}
 
     for row in rows:
-        status = status or row.get("status")
-        decomposed_on = decomposed_on or row.get("decomposedOn")
-        axis_iri = row.get("axis")
-        filler_iri = row.get("filler")
-        if not axis_iri or not filler_iri:
-            continue
-        key = (axis_iri, filler_iri)
-        candidate = _constituent_from_row(code, axis_iri, filler_iri, row)
-        constituents[key] = _merge_constituent(
-            constituents.get(key),
-            candidate,
-        )
+        for name, current in scalar.items():
+            scalar[name] = current or row.get(name)
+        if (kind := row.get("flagKind")) and (reason := row.get("flagReason")):
+            flags.add((kind, reason))
+        _record_constituent(code, row, constituents)
 
-    return ConceptDecomposition(
-        code=code,
-        is_legacy_precoordinated=status == vocab.LEGACY_PRECOORDINATED,
-        decomposed_on=decomposed_on,
-        constituents=sorted(constituents.values(), key=lambda c: (c.axis, c.filler)),
+    return ConceptDecomposition.model_validate(
+        {
+            "code": code,
+            "publication_status": scalar["publicationStatus"],
+            "publication_notice": scalar["publicationNotice"],
+            "outcome": scalar["outcome"],
+            "outcome_reason": scalar["outcomeReason"],
+            "review_flags": [
+                ConceptReviewFlag.model_validate({"kind": kind, "reason": reason})
+                for kind, reason in sorted(flags)
+            ],
+            "is_legacy_precoordinated": (
+                scalar["status"] == vocab.LEGACY_PRECOORDINATED
+            ),
+            "decomposed_on": scalar["decomposedOn"],
+            "constituents": sorted(
+                constituents.values(), key=lambda c: (c.axis, c.filler)
+            ),
+        }
     )
+
+
+def _record_constituent(
+    code: str,
+    row: Row,
+    constituents: dict[tuple[str, str], DecompositionConstituent],
+) -> None:
+    axis_iri = row.get("axis")
+    filler_iri = row.get("filler")
+    if not axis_iri or not filler_iri:
+        return
+    key = (axis_iri, filler_iri)
+    candidate = _constituent_from_row(code, axis_iri, filler_iri, row)
+    constituents[key] = _merge_constituent(constituents.get(key), candidate)
 
 
 def attach_upstream(

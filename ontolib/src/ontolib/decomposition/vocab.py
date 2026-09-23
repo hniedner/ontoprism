@@ -48,6 +48,17 @@ PUBLICATION_RUN = f"{ONTOPRISM_NS}publicationRun"
 PUBLICATION_SOURCE_IDENTITY = f"{ONTOPRISM_NS}publicationSourceIdentity"
 PUBLICATION_REPRESENTATION_IDENTITY = f"{ONTOPRISM_NS}publicationRepresentationIdentity"
 PUBLICATION_BUILT_AT = f"{ONTOPRISM_NS}publicationBuiltAt"
+DEMONSTRATION_MARKER = f"{ONTOPRISM_NS}decompositionDemonstration"
+PUBLICATION_STATUS = f"{ONTOPRISM_NS}publicationStatus"
+PUBLICATION_NOTICE = f"{ONTOPRISM_NS}publicationNotice"
+CONCEPT_OUTCOME = f"{ONTOPRISM_NS}conceptOutcome"
+OUTCOME_REASON = f"{ONTOPRISM_NS}outcomeReason"
+HAS_REVIEW_FLAG = f"{ONTOPRISM_NS}hasReviewFlag"
+REVIEW_FLAG_KIND = f"{ONTOPRISM_NS}reviewFlagKind"
+REVIEW_FLAG_REASON = f"{ONTOPRISM_NS}reviewFlagReason"
+
+PROVISIONAL = "provisional"
+EXPERT_REVIEW_NOTICE = "expert review, not an NCIt release"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"

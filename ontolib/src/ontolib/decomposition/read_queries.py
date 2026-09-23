@@ -24,11 +24,25 @@ def build_decomposition_query(concept_code: str) -> str:
     """
     concept_uri = safe_iri(concept_code, NCIT_NS)
     return f"""
-        SELECT ?status ?decomposedOn ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
+        SELECT ?publicationStatus ?publicationNotice ?outcome ?outcomeReason
+               ?flagKind ?flagReason ?status ?decomposedOn
+               ?axis ?filler ?axisSource ?sourceRole ?mostSpecific
                ?axisAmbiguous ?sourceStructuralGroup
                ?normalizedProjectionGroup ?normalizedProjectionGroupLabel
                ?needsReview ?sourceDefinitionFact WHERE {{
             GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}> {{
+                OPTIONAL {{
+                    <{vocab.DEMONSTRATION_MARKER}>
+                        <{vocab.PUBLICATION_STATUS}> ?publicationStatus ;
+                        <{vocab.PUBLICATION_NOTICE}> ?publicationNotice .
+                }}
+                OPTIONAL {{ <{concept_uri}> <{vocab.CONCEPT_OUTCOME}> ?outcome }}
+                OPTIONAL {{ <{concept_uri}> <{vocab.OUTCOME_REASON}> ?outcomeReason }}
+                OPTIONAL {{
+                    <{concept_uri}> <{vocab.HAS_REVIEW_FLAG}> ?flag .
+                    ?flag <{vocab.REVIEW_FLAG_KIND}> ?flagKind ;
+                          <{vocab.REVIEW_FLAG_REASON}> ?flagReason .
+                }}
                 OPTIONAL {{ <{concept_uri}> <{vocab.REPRESENTATION_STATUS}> ?status }}
                 OPTIONAL {{ <{concept_uri}> <{vocab.DECOMPOSED_ON}> ?decomposedOn }}
                 OPTIONAL {{

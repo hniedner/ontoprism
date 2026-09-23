@@ -8,6 +8,7 @@ import json as _json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from itertools import chain
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
@@ -52,6 +53,8 @@ from ontolib.decomposition.provenance_models import (
     CompletedRehearsalForOracleMetrics,
     CompletedRunForEvidence,
     CompletionRunMetrics,
+    ConceptPublication,
+    ConceptReviewFlag,
     CorpusBaselineAggregate,
     FreshAdmitted,
     FullRunExecutionIdentity,
@@ -785,6 +788,63 @@ def _r101_conservation_rows(
         }
         for item in conservation
     ]
+
+
+def _concept_outcome_reason(item: WorkItemOutcome) -> str:
+    fixed = {
+        "residual": "decomposition candidate yielded no constituents",
+        "atomic-no-op": "in-scope concept was not detected as pre-coordinated",
+        "unknown": "engine could not classify the stated definition",
+    }
+    if item.outcome in fixed:
+        return fixed[item.outcome]
+    if item.outcome == "decomposed":
+        return f"engine emitted {item.constituent_count} constituents"
+    if item.outcome == "semantic-excluded":
+        types = ", ".join(item.semantic_types or ()) or "none"
+        return f"source semantic types are outside decomposition scope: {types}"
+    raise RunStateError("complete concept has no typed publication outcome")
+
+
+def _publication_flags(
+    needs_review: Sequence[RowMapping],
+    unresolved: Sequence[RowMapping],
+    mints: Sequence[RowMapping],
+) -> dict[str, list[ConceptReviewFlag]]:
+    flags: dict[str, list[ConceptReviewFlag]] = {}
+    rendered = (
+        (
+            row["concept_code"],
+            "needs-review",
+            f"constituent {row['axis']} / {row['filler_code']} needs review",
+        )
+        for row in needs_review
+    )
+    rendered = chain(
+        rendered,
+        (
+            (
+                row["concept_code"],
+                "unresolved-r101-loss",
+                f"R101 occurrence {row['occurrence_id']} is unresolved: "
+                f"{row['reason']}",
+            )
+            for row in unresolved
+        ),
+        (
+            (
+                row["concept_code"],
+                "mint-filler",
+                f"constituent {row['axis']} uses proposed filler {row['proposal_id']}",
+            )
+            for row in mints
+        ),
+    )
+    for code, kind, reason in rendered:
+        flags.setdefault(code, []).append(
+            ConceptReviewFlag.model_validate({"kind": kind, "reason": reason})
+        )
+    return flags
 
 
 def _proposal_rows(
@@ -2929,6 +2989,55 @@ class ProvenanceStore:
                     row["semantic_types"] = tuple(row["semantic_types"])
                 outcomes.append(WorkItemOutcome.model_validate(row))
             return outcomes
+
+    async def concept_publications_for_run(
+        self, run_id: str
+    ) -> tuple[ConceptPublication, ...]:
+        """Derive the complete D93 publication record from persisted run rows."""
+        outcomes = await self.work_item_outcomes(run_id)
+        if any(item.state != "complete" or item.outcome is None for item in outcomes):
+            raise RunStateError(
+                "concept publication requires a complete typed worklist"
+            )
+        async with self._sf() as session:
+            needs_review = await session.execute(
+                text(
+                    "SELECT concept_code, axis, filler_code FROM decomp_constituent "
+                    "WHERE run_id=:run_id AND needs_review "
+                    "ORDER BY concept_code, axis, filler_code"
+                ),
+                {"run_id": run_id},
+            )
+            unresolved = await session.execute(
+                text(
+                    "SELECT concept_code, occurrence_id, reason FROM "
+                    "decomp_r101_conservation WHERE run_id=:run_id "
+                    "AND category='unresolved' ORDER BY concept_code, occurrence_id"
+                ),
+                {"run_id": run_id},
+            )
+            mints = await session.execute(
+                text(
+                    "SELECT concept_code, axis, proposal_id "
+                    "FROM decomp_minted_proposal "
+                    "WHERE run_id=:run_id ORDER BY concept_code, axis, proposal_id"
+                ),
+                {"run_id": run_id},
+            )
+        flags = _publication_flags(
+            needs_review.mappings().all(),
+            unresolved.mappings().all(),
+            mints.mappings().all(),
+        )
+        return tuple(
+            ConceptPublication(
+                concept_code=item.concept_code,
+                outcome=item.outcome,  # type: ignore[arg-type]
+                reason=_concept_outcome_reason(item),
+                flags=tuple(flags.get(item.concept_code, ())),
+            )
+            for item in outcomes
+        )
 
     async def begin_publication(
         self,

@@ -244,7 +244,11 @@ def _empty_artifact(path: Path) -> None:
         f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
         "<https://w3id.org/ontoprism/vocab#representationStatus> "
         '"legacy-precoordinated" ; '
-        '<https://w3id.org/ontoprism/vocab#decomposedBy> "current-run" .'
+        '<https://w3id.org/ontoprism/vocab#decomposedBy> "current-run" .\n'
+        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
+        '<https://w3id.org/ontoprism/vocab#conceptOutcome> "atomic-no-op" ; '
+        "<https://w3id.org/ontoprism/vocab#outcomeReason> "
+        '"in-scope concept was not detected as pre-coordinated" .'
     )
     path.write_text(triples + "\n")
 

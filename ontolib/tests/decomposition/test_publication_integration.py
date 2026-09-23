@@ -18,6 +18,8 @@ from ontolib.decomposition.models import Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    ConceptPublication,
+    ConceptReviewFlag,
     RunFingerprint,
 )
 from ontolib.decomposition.publication import (
@@ -25,6 +27,7 @@ from ontolib.decomposition.publication import (
     read_publication_marker,
     staging_graph_iri,
 )
+from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_transport import SparqlTransportClient
@@ -90,6 +93,52 @@ async def _ask(url: str, statement: str) -> bool:
         )
     response.raise_for_status()
     return bool(response.json()["boolean"])
+
+
+@pytest.mark.usefixtures("isolated_qlever_settings")
+async def test_small_publication_exposes_outcome_flag_and_demo_marker(
+    tmp_path: Path,
+    isolated_qlever_url: str,
+) -> None:
+    endpoint = isolated_qlever_url
+    run_id = "test-provisional-publication"
+    artifact = tmp_path / ".provisional.ttl"
+    await write_ttl(
+        [Decomposition(code="C1", semantic_type="Neoplastic Process")],
+        artifact,
+        run_id=run_id,
+        publications=(
+            ConceptPublication(
+                concept_code="C1",
+                outcome="residual",
+                reason="decomposition candidate yielded no constituents",
+                flags=(
+                    ConceptReviewFlag(
+                        kind="needs-review",
+                        reason="constituent op:PrimarySite / C2 needs review",
+                    ),
+                ),
+            ),
+        ),
+    )
+    async with ncit_sparql_client(endpoint) as client:
+        with artifact.open("rb") as stream:
+            await client.load(
+                stream,
+                content_type="text/turtle",
+                graph_iri=_STAGING,
+                replace=True,
+            )
+        assert await _ask(
+            endpoint,
+            f"ASK {{ GRAPH <{_STAGING}> {{ "
+            f"<{vocab.DEMONSTRATION_MARKER}> <{vocab.PUBLICATION_STATUS}> "
+            f'"provisional" . <{NCIT_NS}C1> '
+            f'<{vocab.CONCEPT_OUTCOME}> "residual" ; '
+            f"<{vocab.HAS_REVIEW_FLAG}> ?flag . "
+            f"?flag <{vocab.REVIEW_FLAG_REASON}> ?reason }} }}",
+        )
+        await client.update(f"DROP SILENT GRAPH <{_STAGING}>")
 
 
 async def _write_concurrent_artifacts(

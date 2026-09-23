@@ -27,6 +27,10 @@ class DecompositionReader:
         return await self._client.select(
             build_decomposition_query(concept_code),
             required_variables={
+                "publicationStatus",
+                "publicationNotice",
+                "outcome",
+                "outcomeReason",
                 "status",
                 "decomposedOn",
                 "axis",

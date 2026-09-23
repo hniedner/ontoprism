@@ -99,6 +99,9 @@ def _artifact(path: Path, run_id: str, codes: tuple[str, ...] = ("C1", "C2")) ->
             '"legacy-precoordinated" ; '
             "<https://w3id.org/ontoprism/vocab#decomposedBy> "
             f'"{run_id}" .\n'
+            f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
+            '<https://w3id.org/ontoprism/vocab#conceptOutcome> "decomposed" ; '
+            '<https://w3id.org/ontoprism/vocab#outcomeReason> "engine output" .\n'
             for code in codes
         )
     )

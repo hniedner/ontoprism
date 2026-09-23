@@ -25,6 +25,8 @@ from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
     RunStateError,
+    _concept_outcome_reason,
+    _publication_flags,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -60,6 +62,79 @@ def _empty_completion_metrics() -> dict[str, object]:
         "pct_decomposed": 0.0,
         "roundtrip_fidelity": None,
     }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("outcome", "semantic_types", "constituent_count", "reason"),
+    [
+        ("decomposed", ("Neoplastic Process",), 2, "engine emitted 2 constituents"),
+        ("residual", ("Neoplastic Process",), 0, "yielded no constituents"),
+        ("semantic-excluded", ("Finding",), 0, "outside decomposition scope: Finding"),
+        ("atomic-no-op", ("Neoplastic Process",), 0, "not detected"),
+        ("unknown", ("Neoplastic Process",), 0, "could not classify"),
+    ],
+)
+def test_publication_reasons_cover_every_concept_outcome(
+    outcome: str,
+    semantic_types: tuple[str, ...],
+    constituent_count: int,
+    reason: str,
+) -> None:
+    item = WorkItemOutcome.model_validate(
+        {
+            "run_id": "run-1",
+            "concept_code": "C1",
+            "ordinal": 0,
+            "state": "complete",
+            "outcome": outcome,
+            "semantic_type": semantic_types[0],
+            "semantic_types": semantic_types,
+            "is_decomposed": outcome == "decomposed",
+            "is_residual": outcome == "residual",
+            "constituent_count": constituent_count,
+            "minted_count": 0,
+        }
+    )
+
+    assert reason in _concept_outcome_reason(item)
+
+
+@pytest.mark.unit
+def test_publication_flags_derive_all_three_reasoned_kinds() -> None:
+    flags = _publication_flags(
+        cast(
+            "Any",
+            ({"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C2"},),
+        ),
+        cast(
+            "Any",
+            (
+                {
+                    "concept_code": "C1",
+                    "occurrence_id": "a" * 64,
+                    "reason": "missing-disposition",
+                },
+            ),
+        ),
+        cast(
+            "Any",
+            (
+                {
+                    "concept_code": "C1",
+                    "axis": "op:Morphology",
+                    "proposal_id": "MINT-abcdef123456",
+                },
+            ),
+        ),
+    )
+
+    assert {flag.kind for flag in flags["C1"]} == {
+        "needs-review",
+        "unresolved-r101-loss",
+        "mint-filler",
+    }
+    assert all(flag.reason for flag in flags["C1"])
 
 
 @pytest.mark.unit

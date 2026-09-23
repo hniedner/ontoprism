@@ -857,6 +857,27 @@ class WorkItemOutcome(BaseModel):
         return self
 
 
+ReviewFlagKind = Literal["needs-review", "unresolved-r101-loss", "mint-filler"]
+
+
+class ConceptReviewFlag(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    kind: ReviewFlagKind
+    reason: str = Field(min_length=1)
+
+
+class ConceptPublication(BaseModel):
+    """One worklist concept's D93 outcome and review flags."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    outcome: ConceptOutcome
+    reason: str = Field(min_length=1)
+    flags: tuple[ConceptReviewFlag, ...] = ()
+
+
 class RunSummary(BaseModel):
     """One run manifest plus metrics, including immutable historical labels."""
 

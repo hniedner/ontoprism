@@ -7,12 +7,13 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 from __future__ import annotations
 
 import re
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.provenance_models import ConceptReviewFlag
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,
@@ -115,6 +116,36 @@ class ConceptDecomposition(StrictBoundaryModel):
     """
 
     code: str
+    publication_status: Literal["provisional"] | None = None
+    publication_notice: str | None = None
+    outcome: (
+        Literal[
+            "decomposed", "residual", "semantic-excluded", "atomic-no-op", "unknown"
+        ]
+        | None
+    ) = None
+    outcome_reason: str | None = None
+    review_flags: list[ConceptReviewFlag] = Field(default_factory=list)
     is_legacy_precoordinated: bool
     decomposed_on: str | None = None
     constituents: list[DecompositionConstituent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _publication_shape_is_paired(self) -> Self:
+        _require_publication_shape(self)
+        return self
+
+
+def _require_publication_shape(value: ConceptDecomposition) -> None:
+    fields = (
+        value.publication_status,
+        value.publication_notice,
+        value.outcome,
+        value.outcome_reason,
+    )
+    if any(item is not None for item in fields) and any(
+        item is None for item in fields
+    ):
+        raise ValueError("published concept metadata must be complete")
+    if value.review_flags and value.outcome is None:
+        raise ValueError("review flags require a published concept outcome")
