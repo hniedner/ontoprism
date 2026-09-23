@@ -792,20 +792,12 @@ def _issue_mutation(
     )
 
 
-# Milestone PRs and changes belonging to no milestone target main. A milestone-branch
-# base is still accepted, though since D92 issues merge into the milestone branch
-# locally rather than through a PR. Anything else is not a base this repository uses.
-MILESTONE_BRANCH = re.compile(r"feat/m[0-9][0-9A-Za-z.-]*(?:-[0-9A-Za-z.-]+)*")
-
-
+# Every pull request targets main: a milestone PR, or a change that belongs to no
+# milestone. Issues merge into their milestone branch locally, never through a PR (D92).
 def _pr_base(value: str) -> str:
-    if value == "main":
-        return value
-    if MILESTONE_BRANCH.fullmatch(value) is None or ".." in value:
-        raise AgentGitHubInputError(
-            "base branch must be main or a milestone branch feat/m<number>-<slug>"
-        )
-    return _safe_branch(value, "base branch")
+    if value != "main":
+        raise AgentGitHubInputError("base branch must be main")
+    return value
 
 
 def _pr_create(
@@ -886,10 +878,7 @@ def _merge_arguments(arguments: list[str]) -> tuple[int, str, str]:
     head = str(options["--head"])
     if FULL_SHA.fullmatch(head) is None:
         raise AgentGitHubInputError("--head must be a full 40-character commit SHA")
-    base = str(options["--base"])
-    if SAFE_BRANCH.fullmatch(base) is None or ".." in base:
-        raise AgentGitHubInputError("--base is invalid")
-    return number, head, base
+    return number, head, _pr_base(str(options["--base"]))
 
 
 def _reviewed_pull(
