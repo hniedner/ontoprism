@@ -7,7 +7,6 @@ import os
 import runpy
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -802,7 +801,7 @@ def test_full_run_is_preceded_by_a_stratified_rehearsal_of_the_same_pipeline(
     preflight, full = stub.calls
     assert preflight == {
         **full,
-        "out": tmp_path / "decomposed.ttl.preflight",
+        "out": None,
         "load": False,
         "sample_manifest": _NEOPLASM_SAMPLE,
         "rehearsal": True,
@@ -812,8 +811,8 @@ def test_full_run_is_preceded_by_a_stratified_rehearsal_of_the_same_pipeline(
     assert full["sample_manifest"] is None
     assert full["rehearsal"] is False
     assert _NEOPLASM_SAMPLE.is_file()
-    assert not (tmp_path / "decomposed.ttl.preflight").exists(), (
-        "a successful preflight deletes its output"
+    assert not list(tmp_path.glob("*.preflight")), (
+        "a successful preflight writes no output"
     )
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("preflight: in_scope=1 ")
@@ -839,74 +838,9 @@ def test_a_failing_preflight_stops_the_full_run_and_names_itself(
     (note,) = error.value.__notes__
     assert note.startswith("raised by the preflight rehearsal of ")
     assert "samples/ncit-26.07d-m1-sme-review.json" in note
-    assert f"left at {tmp_path / 'decomposed.ttl.preflight'}" in note
-    assert "--no-preflight skips it" in note
-    assert (tmp_path / "decomposed.ttl.preflight").exists(), (
-        "a failed preflight does not delete its output"
-    )
-
-
-@pytest.mark.unit
-def test_a_preflight_that_failed_before_writing_says_so(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    stub = _RunStub(fail=RuntimeError("admission refused"), writes_output=False)
-    monkeypatch.setattr(decompose, "_run", stub)
-
-    with pytest.raises(RuntimeError, match="admission refused") as error:
-        decompose.main(
-            source_manifest=tmp_path / "candidate.json",
-            branch=decompose.DecompositionBranch.NEOPLASM,
-            out=tmp_path / "decomposed.ttl",
-        )
-
-    (note,) = error.value.__notes__
-    assert "no output was written" in note
+    assert "output" not in note
     assert "left at" not in note
-
-
-@pytest.mark.unit
-def test_a_preflight_output_left_by_an_earlier_attempt_is_not_claimed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    stale = tmp_path / "decomposed.ttl.preflight"
-    stale.write_text("# from an earlier preflight\n")
-    stub = _RunStub(fail=RuntimeError("admission refused"), writes_output=False)
-    monkeypatch.setattr(decompose, "_run", stub)
-
-    with pytest.raises(RuntimeError, match="admission refused") as error:
-        decompose.main(
-            source_manifest=tmp_path / "candidate.json",
-            branch=decompose.DecompositionBranch.NEOPLASM,
-            out=tmp_path / "decomposed.ttl",
-        )
-
-    (note,) = error.value.__notes__
-    assert f"no output was written; {stale} is left over from an earlier preflight" in (
-        note
-    )
-    assert stale.read_text() == "# from an earlier preflight\n"
-
-
-@pytest.mark.unit
-def test_a_preflight_that_overwrote_an_earlier_output_claims_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    stale = tmp_path / "decomposed.ttl.preflight"
-    stale.write_text("# from an earlier, longer preflight output\n")
-    stub = _RunStub(fail=RuntimeError("decomposed nothing"))
-    monkeypatch.setattr(decompose, "_run", stub)
-
-    with pytest.raises(RuntimeError, match="decomposed nothing") as error:
-        decompose.main(
-            source_manifest=tmp_path / "candidate.json",
-            branch=decompose.DecompositionBranch.NEOPLASM,
-            out=tmp_path / "decomposed.ttl",
-        )
-
-    (note,) = error.value.__notes__
-    assert f"its output is left at {stale}" in note
-    assert stale.read_text() == "# ttl\n"
+    assert "--no-preflight skips it" in note
 
 
 @pytest.mark.unit
@@ -927,7 +861,7 @@ def test_a_branch_without_a_tracked_sample_cannot_preflight(
 
 
 @pytest.mark.unit
-def test_a_preflight_without_an_output_path_rehearses_into_a_temp_file(
+def test_a_preflight_without_an_output_path_writes_no_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stub = _RunStub()
@@ -939,11 +873,7 @@ def test_a_preflight_without_an_output_path_rehearses_into_a_temp_file(
         out=None,
     )
 
-    preflight_out = stub.calls[0]["out"]
-    assert isinstance(preflight_out, Path)
-    assert preflight_out.parent == Path(tempfile.gettempdir())
-    assert preflight_out.name.startswith("decompose-preflight-")
-    assert not preflight_out.exists(), "a successful preflight deletes its temp output"
+    assert stub.calls[0]["out"] is None
     assert stub.calls[1]["out"] is None
 
 
@@ -1016,7 +946,7 @@ async def _rehearsal_and_full_run(
     }
     await decompose._run(
         **common,
-        out=tmp_path / "x.ttl.preflight",
+        out=None,
         load=False,
         sample_manifest=_NEOPLASM_SAMPLE,
         rehearsal=True,

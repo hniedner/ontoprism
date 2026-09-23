@@ -70,6 +70,7 @@ from ontolib.decomposition.run import (
     _CandidateResult,
     _new_run_id,
     _prepare_run,
+    _publication_paths,
     _residual_count,
     _resume_preflight,
     _store_resident_constituent_fillers,
@@ -3168,6 +3169,21 @@ def test_a_rehearsal_cannot_be_configured_as_a_resume_or_a_publication() -> None
         RunConfig(
             branch="neoplasm", rehearsal=True, out=Path("x.ttl"), load_to_store=True
         )
+
+
+def test_a_rehearsal_output_path_is_not_treated_as_publication() -> None:
+    config = RunConfig(branch="neoplasm", rehearsal=True, out=Path("rehearsal.ttl"))
+
+    assert _publication_paths(config, "rehearsal-run") is None
+    fingerprint = run_module._requested_fingerprint(
+        config,
+        _source_snapshot(),
+        semantic_types=("Neoplastic Process",),
+        total_limit=None,
+        worklist=("C1",),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+    assert fingerprint.output_mode == "none"
 
 
 @pytest.mark.unit

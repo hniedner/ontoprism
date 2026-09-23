@@ -48,6 +48,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE,
+    CompletedRehearsalForOracleMetrics,
     CompletedRunForEvidence,
     CompletionRunMetrics,
     CorpusBaselineAggregate,
@@ -306,6 +307,13 @@ async def _promote_mint_proposals(
         ),
         {"id": run_id},
     )
+
+
+def _require_published_evidence_run(fingerprint: RunFingerprint, run_id: str) -> None:
+    if fingerprint.rehearsal_nonce is not None:
+        raise RunStateError(
+            f"decomposition run {run_id!r} is a rehearsal, not published evidence"
+        )
 
 
 def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
@@ -2513,6 +2521,7 @@ class ProvenanceStore:
             fingerprint = self._validated_fingerprint(
                 row["fingerprint"], row["fingerprint_sha256"]
             )
+            _require_published_evidence_run(fingerprint, run_id)
             await self._require_materialized_worklist(session, run_id, fingerprint)
             if row["source_identity"] != fingerprint.source_identity:
                 raise RunIdentityMismatchError(
@@ -2530,6 +2539,46 @@ class ProvenanceStore:
                 fingerprint=fingerprint,
                 representation_identity=representation_identity,
                 publication_artifact_path=artifact_path,
+            )
+
+    async def completed_rehearsal_for_oracle_metrics(
+        self, run_id: str
+    ) -> CompletedRehearsalForOracleMetrics:
+        """Return only a completed, unpublished rehearsal for immediate scoring."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT status, ncit_version, source_identity, fingerprint, "
+                    "fingerprint_sha256, publication_state FROM decomp_run "
+                    "WHERE id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            row = result.mappings().first()
+            if row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            if (
+                row["status"] != "complete"
+                or row["publication_state"] != "not_requested"
+            ):
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is not a completed, unpublished "
+                    "rehearsal"
+                )
+            fingerprint = self._validated_fingerprint(
+                row["fingerprint"], row["fingerprint_sha256"]
+            )
+            if fingerprint.rehearsal_nonce is None:
+                raise RunStateError(f"decomposition run {run_id!r} is not a rehearsal")
+            await self._require_materialized_worklist(session, run_id, fingerprint)
+            if row["source_identity"] != fingerprint.source_identity:
+                raise RunIdentityMismatchError(
+                    "persisted run source identity does not match its fingerprint"
+                )
+            return CompletedRehearsalForOracleMetrics(
+                run_id=run_id,
+                ncit_version=row["ncit_version"],
+                fingerprint=fingerprint,
             )
 
     async def historical_mixed_chain_run_for_evidence(
