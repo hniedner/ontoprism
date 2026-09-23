@@ -50,8 +50,10 @@ moving or reordering issues.
 2. With the milestone branch checked out, review `git diff --no-ext-diff main...HEAD`
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
-   (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues, all five
-   verdicts, every dropped and deferred finding, and every pending milestone edit.
+   (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues with a
+   link to each issue's demo comment, all five verdicts, every dropped and deferred
+   finding, every item placed in "Hardening (when touched)", every red CI run restored
+   without prior approval, and every pending milestone edit.
 4. Merge only after all expected checks pass, then watch CI on the exact merge SHA.
 
 For a local issue merge use `git rev-parse HEAD`; for a PR merge use the
@@ -111,10 +113,9 @@ and passes. Whether a `main` merge released is not judged here (#131).
   blocked, and only with the owner's approval before it starts. A red gate-of-record CI
   run counts as blocked: restoring it without weakening any gate needs no prior approval
   and is reported in the milestone PR body.
-- "Hardening (when touched)" holds only unverified or optional hardening. A verified
-  finding that can make output wrong or hide a failure is fixed, or deferred under
-  "Review"; each item placed in the hardening milestone is listed in the milestone PR
-  body.
+- "Hardening (when touched)" holds only unverified hardening suggestions; every verified
+  finding follows "Review" (fixed, or deferred as a major out-of-scope finding). Each item
+  placed in the hardening milestone is listed in the milestone PR body.
 
 ## Evidence and diagnostics
 
@@ -175,13 +176,14 @@ full run only after several fixes and with owner agreement.
   `provisional` until evidenced (M1.8).
 - Decomposition is additive. Legacy concepts remain flagged; new triples use
   `ncit_decomposed`. Read stated OWL. Variant links are navigation, not equivalence.
-- The enhanced NCIt is an expert-review demonstration, not a release (D93). Everything is
-  published to that audience, each concept with its engine outcome and any review flags,
-  each with a reason; nothing is withheld. A concept without a recorded outcome is a
-  publication error, never a default. The demonstration marker, outcome and flags travel
-  with every exported artifact, not only the UI. Unresolved is a first-class outcome: a
-  concept not decomposed or a role not disambiguated is recorded with its kind, rationale
-  and the evidence examined, never silently dropped and never published as resolved.
+- The enhanced NCIt is an expert-review demonstration, not a release (D93). Everything
+  is published to that audience, each concept with its engine outcome and any review
+  flags, each with a reason; nothing is withheld. A concept without a recorded outcome,
+  or a flag without a reason, is a publication error, never a default. The demonstration
+  marker, outcome and flags travel with every exported artifact, not only the UI.
+  Unresolved is first-class: a concept not decomposed or a role not disambiguated is
+  recorded, with its kind, rationale and the evidence examined, as an `unknown` outcome
+  or a review flag; never silently dropped and never published as resolved.
 - NCIt roles are OWL existential restrictions, not direct triples; associations are
   direct. The backend owns all QLever/Postgres access. Stated OWL is RIOT-converted and
   offline-indexed. Validate user input separately from malformed source rows.

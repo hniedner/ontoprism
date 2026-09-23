@@ -9,15 +9,15 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ## 2026-09-23 — roadmap reset: an expert demonstration, local first, small issues with demos
 
-### D95. Issues are small, show a demo, and need approval for new persistence; review stops polishing after round 3
+### D95. Issues are small, show a demo, and need approval for new persistence; review drops suggestions after a dimension's third round
 
 **Context.** Between 2026-08-09 and 2026-09-22 the product barely moved while the
-repository grew and shrank: #277, #318 and #336 added about 38k, 97k and 92k lines, and
-much of #318's and #336's was identity chains, review packets and conservation ledgers that
-R0 and R0.1 then removed (#424 alone removed about 24k lines, net about −13k), and 8 of the last 12 merged PRs were agent
-governance. Engine quality did improve (exact-pair precision 80/106 to 111/132, recall
-80/153 to 111/153 on the 20-concept SME oracle), but nothing reached users, and #425's
-review ran to eight rounds.
+repository grew and shrank. #277, #318 and #336 added about 38k, 97k and 92k lines; much
+of #318's and #336's was identity chains, review packets and conservation ledgers that
+R0 and R0.1 then removed (#424 alone removed about 26k lines, net about −13k). Meanwhile
+8 of the last 12 merged PRs were agent governance. Engine quality did improve
+(exact-pair precision 80/106 to 111/132, recall 80/153 to 111/153 on the 20-concept SME
+oracle), but nothing reached users, and #425's review ran to eight rounds.
 
 **Decision (owner, 2026-09-23).** The roadmap is re-planned as vertical stages that each
 end in something the expert audience can see: Stage 1 publication ("M1.6.1 · Publish
@@ -30,7 +30,8 @@ cloud ("M1.10 · Cloud deployment for multi-user expert access"). The rules in A
 (about 400 net non-test lines per issue, tests at most 1.5 times that); owner approval
 before new persistence; an estimate and a demo in every issue; two corrective owner
 comments mean asking the owner to split; no process work unless something is blocked; only
-unverified or optional hardening waits in "Hardening (when touched)". AGENTS.md "Review"
+unverified hardening suggestions wait in "Hardening (when touched)", and every verified
+finding follows "Review". AGENTS.md "Review"
 adds a ceiling: after a dimension's third round its remaining suggestions are dropped with
 a reason, while verified findings always continue. Removal work waits in "Deferred cleanup
 (when touched)".
@@ -54,19 +55,19 @@ publication (#314) move to M1.10.
 fillers, and #417 planned to refuse a whole publication while unexplained R101 loss existed
 (the D74 release blocker).
 
-**Decision (owner, 2026-09-23).** The enhanced NCIt is a demonstration for expert users to
-vet and validate the decomposition of concepts, the relationship/role disambiguation, and
-caDSR compatibility. It is not a release and does not replace the authoritative NCIt.
-Everything is published to this audience under a demonstration marker ("expert review, not
-an NCIt release"). Each concept shows its engine outcome (the existing `ConceptOutcome`
-values: decomposed, residual, semantic-excluded, atomic-no-op, unknown) and zero or more
-review flags (needs review, unresolved R101 loss, MINT filler), each with a reason. Nothing
-is withheld. A concept without a recorded outcome is a publication error, never a default,
-and the marker, outcome and flags travel with every exported artifact. The enhanced-showcase
-`Disposition` vocabulary is replaced by this one (#353). For this
-audience, D74's release blockers are shown as per-concept flags rather than blocking
-publication; they remain blockers for any future release that is meant to replace or be
-submitted as NCIt content.
+**Decision (owner, 2026-09-23).** The enhanced NCIt is a demonstration for expert users
+to vet and validate the decomposition of concepts, the relationship/role disambiguation,
+and caDSR compatibility. It is not a release and does not replace the authoritative
+NCIt. Everything is published to this audience under a demonstration marker ("expert
+review, not an NCIt release"). Each concept shows its engine outcome (the existing
+`ConceptOutcome` values: decomposed, residual, semantic-excluded, atomic-no-op, unknown)
+and zero or more review flags (needs review, unresolved R101 loss, MINT filler), each
+with a reason. Nothing is withheld. A concept without a recorded outcome, or a flag
+without a reason, is a publication error, never a default, and the marker, outcome and
+flags travel with every exported artifact. The enhanced-showcase `Disposition`
+vocabulary is replaced by this one (#353). For this audience, D74's release blockers are
+shown as per-concept flags rather than blocking publication; they remain blockers for
+any future release that is meant to replace or be submitted as NCIt content.
 
 **Why.** The experts can only vet what they can see, and the unresolved and flagged cases
 are where there is most to learn.
