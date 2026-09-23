@@ -12,7 +12,7 @@ run-name: "Validate PR title: ${{ github.event.pull_request.title }}"
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-    branches: [main, 'feat/m[0-9]*']
+    branches: [main]
 
 permissions:
   contents: read

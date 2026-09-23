@@ -1165,60 +1165,17 @@ def test_pr_create_refuses_duplicate_open_pr_for_head(tmp_path: Path) -> None:
         )
 
 
-def test_pr_create_targets_a_milestone_branch_when_asked(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    body = write_body(tmp_path, "pr.md")
-    calls: list[tuple[list[str], dict[str, object]]] = []
-    runner = recording_runner(
-        [
-            Result(0, "[]"),
-            Result(
-                0,
-                json.dumps(
-                    {
-                        "number": 43,
-                        "html_url": "https://github.com/hniedner/ontoprism/pull/43",
-                    }
-                ),
-            ),
-        ],
-        calls,
-    )
-
-    assert (
-        run_agent_github(
-            [
-                "pr-create",
-                "--title",
-                "feat(decomposition): preflight full runs",
-                "--body-file",
-                str(body.relative_to(tmp_path)),
-                "--head",
-                "feat/fail-fast-full-runs-344",
-                "--base",
-                "feat/m1-6-1-provisional-publication",
-            ],
-            tmp_path,
-            read_only=False,
-            runner=runner,
-        )
-        == 0
-    )
-
-    assert json.loads(str(calls[1][1]["input"]))["base"] == (
-        "feat/m1-6-1-provisional-publication"
-    )
-    assert json.loads(capsys.readouterr().out)["number"] == 43
-
-
 @pytest.mark.parametrize(
     "base",
-    ["dev", "feat/other-branch", "feat/milestone-x", "feat/m1-6-1/../main", "MAIN"],
+    [
+        "dev",
+        "feat/other-branch",
+        "feat/m1-6-1-provisional-publication",
+        "feat/m1-6-1/../main",
+        "MAIN",
+    ],
 )
-def test_pr_create_rejects_a_base_that_is_not_main_or_a_milestone_branch(
-    tmp_path: Path, base: str
-) -> None:
+def test_pr_create_rejects_a_base_that_is_not_main(tmp_path: Path, base: str) -> None:
     body = write_body(tmp_path, "pr.md")
 
     def must_not_run(_arguments: list[str], **_kwargs: object) -> Result:
@@ -1524,7 +1481,7 @@ def _open_pull(**changes: object) -> dict[str, object]:
         "merged": False,
         "merged_at": None,
         "title": "fix(x): y",
-        "base": {"ref": "feat/m0-r0", "repo": {"full_name": "hniedner/ontoprism"}},
+        "base": {"ref": "main", "repo": {"full_name": "hniedner/ontoprism"}},
         "head": {
             "ref": "fix/y-12",
             "sha": _HEAD,
@@ -1535,7 +1492,7 @@ def _open_pull(**changes: object) -> dict[str, object]:
     return pull
 
 
-_MERGE_ARGUMENTS = ["pr-merge", "12", "--head", _HEAD, "--base", "feat/m0-r0"]
+_MERGE_ARGUMENTS = ["pr-merge", "12", "--head", _HEAD, "--base", "main"]
 
 
 _REPO_DELETES = json.dumps({"delete_branch_on_merge": True})
@@ -1630,7 +1587,7 @@ def test_a_failed_branch_deletion_still_reports_the_merge(tmp_path: Path) -> Non
         ),
         (
             _open_pull(
-                base={"ref": "main", "repo": {"full_name": "hniedner/ontoprism"}}
+                base={"ref": "feat/m0-r0", "repo": {"full_name": "hniedner/ontoprism"}}
             ),
             "base is not",
         ),
@@ -1684,6 +1641,7 @@ def test_pr_merge_refuses_a_pull_request_that_is_not_the_reviewed_one(
         ["pr-merge", "12", "--head", _HEAD, "--base", "main", "--repo", "o/r"],
         ["pr-merge", "12", "--head", _HEAD, "--base", "../main"],
         ["pr-merge", "12", "--head", _HEAD, "--base", "feat/../main"],
+        ["pr-merge", "12", "--head", _HEAD, "--base", "feat/m0-r0"],
     ],
 )
 def test_pr_merge_rejects_malformed_or_extra_arguments_before_network(

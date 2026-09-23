@@ -72,7 +72,7 @@ and passes. Whether a `main` merge released is not judged here (#131).
 - PR merge authorization is standing but contingent (D91): the applicable workflow,
   `pdm run verify`, review, PR body and every expected current-head/current-base check
   must be complete. Merge only with
-  `pdm run agent-github pr-merge <n> --head <40-hex-sha> --base <branch>`. Never use
+  `pdm run agent-github pr-merge <n> --head <40-hex-sha> --base main`. Never use
   `gh pr merge`, `--admin`, auto-merge or a queue.
 - Before merging a PR, re-read its head, title and base. Ignore `push` rows in
   `gh pr checks <n> --json name,event,bucket`. Every PR expects `CI summary`,
