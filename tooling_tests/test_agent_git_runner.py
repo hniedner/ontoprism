@@ -117,6 +117,80 @@ def test_switch_existing_returns_to_main_where_mutations_stay_refused(
         run_agent_git(["merge-no-ff", "feat/safe"], tmp_path)
 
 
+def _failing_hook(tmp_path: Path, script: str) -> None:
+    initialize_repository(tmp_path)
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\n" + script + "exit 1\n")
+    hook.chmod(0o755)
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "add", "tracked.txt")
+
+
+def test_commit_failure_names_an_early_failing_hook_despite_later_status_lines(
+    tmp_path: Path,
+) -> None:
+    # pre-commit prints a status line for every later hook; an early failure with a
+    # long body must still show its header.
+    _failing_hook(
+        tmp_path,
+        "echo 'ruff format.......................Failed' >&2\n"
+        "echo '- hook id: ruff-format' >&2\n"
+        'i=0; while [ $i -lt 60 ]; do echo "detail $i" >&2; i=$((i+1)); done\n'
+        "i=0; while [ $i -lt 30 ]; do "
+        'echo "hook $i..........................Passed" >&2; i=$((i+1)); done\n'
+        "echo 'zizmor.....(no files to check)Skipped' >&2\n",
+    )
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git(["commit-staged", "--message", "fix: blocked"], tmp_path)
+
+    message = str(raised.value)
+    assert message.startswith("Git commit failed")
+    assert "ruff format.......................Failed" in message
+    assert "- hook id: ruff-format" in message
+    assert "detail 0" in message
+    assert "detail 59" not in message
+    assert "Passed" not in message
+    assert "Skipped" not in message
+    assert git(tmp_path, "log", "-1", "--format=%s") == "initial"
+
+
+def test_commit_failure_without_a_failed_hook_line_shows_the_output_tail(
+    tmp_path: Path,
+) -> None:
+    _failing_hook(
+        tmp_path,
+        'i=0; while [ $i -lt 60 ]; do echo "noise $i"; i=$((i+1)); done\n',
+    )
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git(["commit-staged", "--message", "fix: blocked"], tmp_path)
+
+    message = str(raised.value)
+    assert "noise 59" in message
+    assert "noise 0\n" not in message
+
+
+def test_commit_staged_failure_without_output_keeps_the_plain_message(
+    tmp_path: Path,
+) -> None:
+    initialize_repository(tmp_path)
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "add", "tracked.txt")
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git(["commit-staged", "--message", "fix: blocked"], tmp_path)
+
+    assert str(raised.value) == (
+        "Git commit failed and may have changed repository state; inspect git status"
+    )
+
+
 def test_commit_staged_rejects_main_and_commits_on_feature(tmp_path: Path) -> None:
     initialize_repository(tmp_path)
     (tmp_path / "tracked.txt").write_text("feature\n")
@@ -287,9 +361,10 @@ def test_agent_git_reports_conflicted_merge_as_unknown_repository_state(
 
 
 class Result:
-    def __init__(self, returncode: int, stdout: str = "") -> None:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
         self.returncode = returncode
         self.stdout = stdout
+        self.stderr = stderr
 
 
 def scripted_runner(results: list[object]) -> object:
