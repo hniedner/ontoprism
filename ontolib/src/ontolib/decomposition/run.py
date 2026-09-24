@@ -211,8 +211,6 @@ def _validate_sample_config(config: RunConfig) -> None:
         return
     if _sample_output_missing(config):
         raise ValueError("a sample run requires an output path")
-    if config.load_to_store:
-        raise ValueError("a sample run cannot load into the configured store")
     if sample.branch != config.branch.value:
         raise ValueError("sample manifest does not match run branch")
     # Unreachable today, and deliberately kept: `ScopeVersion` is a single-value

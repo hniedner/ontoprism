@@ -343,7 +343,7 @@ def main(
             "--sample-manifest",
             help=(
                 "Run an explicit source-bound review sample. Requires --out and "
-                "cannot be combined with --load or --total-limit."
+                "cannot be combined with --total-limit."
             ),
         ),
     ] = None,
@@ -372,8 +372,6 @@ def main(
     if sample_manifest is not None:
         if out is None:
             raise typer.BadParameter("--sample-manifest requires --out")
-        if load:
-            raise typer.BadParameter("--sample-manifest cannot be combined with --load")
         if total_limit is not None:
             raise typer.BadParameter(
                 "--sample-manifest and --total-limit are mutually exclusive"
