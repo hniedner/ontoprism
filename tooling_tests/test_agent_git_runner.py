@@ -117,6 +117,51 @@ def test_switch_existing_returns_to_main_where_mutations_stay_refused(
         run_agent_git(["merge-no-ff", "feat/safe"], tmp_path)
 
 
+def test_commit_staged_failure_shows_the_hook_output_tail(tmp_path: Path) -> None:
+    initialize_repository(tmp_path)
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook.write_text(
+        "#!/bin/sh\n"
+        'i=0; while [ $i -lt 60 ]; do echo "noise $i"; i=$((i+1)); done\n'
+        "echo 'radon cyclomatic complexity (CC >= 8)....Failed' >&2\n"
+        "echo 'src/x.py:139 run_source_preflight (CC=13, threshold=8)' >&2\n"
+        "exit 1\n"
+    )
+    hook.chmod(0o755)
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "add", "tracked.txt")
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git(["commit-staged", "--message", "fix: blocked"], tmp_path)
+
+    message = str(raised.value)
+    assert message.startswith("Git commit failed")
+    assert "run_source_preflight (CC=13, threshold=8)" in message
+    assert "noise 59" in message
+    assert "noise 0\n" not in message
+    assert git(tmp_path, "log", "-1", "--format=%s") == "initial"
+
+
+def test_commit_staged_failure_without_output_keeps_the_plain_message(
+    tmp_path: Path,
+) -> None:
+    initialize_repository(tmp_path)
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "add", "tracked.txt")
+
+    with pytest.raises(AgentGitProcessError) as raised:
+        run_agent_git(["commit-staged", "--message", "fix: blocked"], tmp_path)
+
+    assert str(raised.value) == (
+        "Git commit failed and may have changed repository state; inspect git status"
+    )
+
+
 def test_commit_staged_rejects_main_and_commits_on_feature(tmp_path: Path) -> None:
     initialize_repository(tmp_path)
     (tmp_path / "tracked.txt").write_text("feature\n")

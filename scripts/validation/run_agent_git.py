@@ -486,11 +486,32 @@ def run_agent_git(
         # Killed by a signal: Git may have applied the change before it died, so
         # report the same unknown outcome as a timeout.
         raise AgentGitProcessError(OPERATION_CLASS_SPECS[operation_class].timeout_error)
-    _require_success(
-        result,
-        operation_spec.failure,
-    )
+    _require_operation_success(result, operation_spec)
     return 0
+
+
+def _require_operation_success(result: CommandResult, spec: OperationSpec) -> None:
+    if spec.command_kind == "commit" and result.returncode != 0:
+        raise AgentGitProcessError(_with_hook_output(spec.failure, result))
+    _require_success(result, spec.failure)
+
+
+# A failed commit is usually a pre-commit hook; without its output the caller cannot
+# tell which hook refused or why. Hook output is local and gitleaks runs with
+# --redact, so the tail is safe to show.
+_HOOK_OUTPUT_TAIL_LINES = 40
+
+
+def _with_hook_output(message: str, result: CommandResult) -> str:
+    output = "\n".join(
+        part for part in (result.stdout, getattr(result, "stderr", None)) if part
+    )
+    tail = output.rstrip().splitlines()[-_HOOK_OUTPUT_TAIL_LINES:]
+    if not tail:
+        return message
+    return f"{message}\n--- last {len(tail)} lines of git commit output ---\n" + (
+        "\n".join(tail)
+    )
 
 
 def main() -> int:
