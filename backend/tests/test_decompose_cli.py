@@ -613,7 +613,6 @@ def test_cli_rejects_load_without_output_before_starting_event_loop(
     ("out", "load", "total_limit", "message"),
     [
         (None, False, None, "requires --out"),
-        (Path("review.ttl"), True, None, "cannot be combined with --load"),
         (Path("review.ttl"), False, 1, "mutually exclusive"),
     ],
 )
@@ -748,6 +747,33 @@ def test_main_prints_metrics_and_forwards_resume_options(
         "unknown=0 minted=1 coverage=50.00% "
         "residual_precoordination=50.00% (1/2)\n"
     )
+
+
+@pytest.mark.unit
+def test_main_allows_sample_manifest_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = AsyncMock(return_value=decompose.RunMetrics(total_in_scope=1))
+    monkeypatch.setattr(decompose, "_run", run)
+    sample = tmp_path / "sample.json"
+    output = tmp_path / "sample.ttl"
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=output,
+        load=True,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+        sample_manifest=sample,
+    )
+
+    assert run.await_args.kwargs["sample_manifest"] == sample
+    assert run.await_args.kwargs["out"] == output
+    assert run.await_args.kwargs["load"] is True
+    assert run.await_args.kwargs["rehearsal"] is False
 
 
 def _metrics(total: int, *, decomposed: int | None = None) -> decompose.RunMetrics:

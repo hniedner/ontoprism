@@ -14,7 +14,7 @@ from uuid import UUID
 
 import pytest
 
-from ontolib.decomposition import axes
+from ontolib.decomposition import axes, vocab
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
@@ -421,6 +421,42 @@ class _FakeClient:
     ) -> list[dict[str, str | None]]:
         self.single_attempt_queries.append(query)
         return await self.select(query, required_variables=required_variables)
+
+
+class _PublishingFakeClient(_FakeClient):
+    """Records the graph replacement performed by the real publication path."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.loaded_graph: str | None = None
+        self.loaded_payload = b""
+        self.replacement_update: str | None = None
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        if set(required_variables) == {"predicate", "value"}:
+            return []
+        return await super().select_once(query, required_variables=required_variables)
+
+    async def load(
+        self,
+        data: Any,
+        *,
+        content_type: str,
+        graph_iri: str | None = None,
+        replace: bool = True,
+    ) -> None:
+        assert content_type == "text/turtle"
+        assert replace is True
+        self.loaded_payload = data.read()
+        self.loaded_graph = graph_iri
+
+    async def update(self, update: str) -> None:
+        self.replacement_update = update
 
 
 def _mark_run_row_missing(store: Any, state: dict[str, Any]) -> None:
@@ -2367,6 +2403,32 @@ async def test_run_pipeline_writes_ttl_when_out_is_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_sample_run_with_load_publishes_through_the_decomposed_graph_path(
+    tmp_path: Path,
+) -> None:
+    client = _PublishingFakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    out = tmp_path / "sample.ttl"
+
+    await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=out,
+            load_to_store=True,
+            sample_manifest=_sample_manifest("C1"),
+        ),
+        client,
+        provenance,
+    )
+
+    assert out.read_bytes() == client.loaded_payload
+    assert client.loaded_graph is not None
+    assert client.loaded_graph.startswith(f"{vocab.DECOMPOSED_GRAPH_IRI}/staging/")
+    assert client.replacement_update is not None
+    assert f"TO GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in client.replacement_update
+
+
+@pytest.mark.unit
 async def test_run_pipeline_no_out_does_not_write_a_file(tmp_path: Path) -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
@@ -2556,18 +2618,11 @@ def test_run_config_defaults() -> None:
 
 
 @pytest.mark.unit
-def test_sample_run_config_is_review_only_and_scope_bound(tmp_path: Path) -> None:
+def test_sample_run_config_requires_output_and_is_scope_bound(tmp_path: Path) -> None:
     sample = _sample_manifest("C1")
 
     with pytest.raises(ValueError, match="requires an output path"):
         RunConfig(branch="neoplasm", sample_manifest=sample)
-    with pytest.raises(ValueError, match="cannot load"):
-        RunConfig(
-            branch="neoplasm",
-            out=tmp_path / "review.ttl",
-            load_to_store=True,
-            sample_manifest=sample,
-        )
     with pytest.raises(ValueError, match="does not match run branch"):
         RunConfig(
             branch="disease",
