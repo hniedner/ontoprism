@@ -136,7 +136,7 @@ def test_commit_failure_names_an_early_failing_hook_despite_later_status_lines(
         tmp_path,
         "echo 'ruff format.......................Failed' >&2\n"
         "echo '- hook id: ruff-format' >&2\n"
-        'i=0; while [ $i -lt 30 ]; do echo "detail $i" >&2; i=$((i+1)); done\n'
+        'i=0; while [ $i -lt 60 ]; do echo "detail $i" >&2; i=$((i+1)); done\n'
         "i=0; while [ $i -lt 30 ]; do "
         'echo "hook $i..........................Passed" >&2; i=$((i+1)); done\n'
         "echo 'zizmor.....(no files to check)Skipped' >&2\n",
@@ -150,6 +150,7 @@ def test_commit_failure_names_an_early_failing_hook_despite_later_status_lines(
     assert "ruff format.......................Failed" in message
     assert "- hook id: ruff-format" in message
     assert "detail 0" in message
+    assert "detail 59" not in message
     assert "Passed" not in message
     assert "Skipped" not in message
     assert git(tmp_path, "log", "-1", "--format=%s") == "initial"
