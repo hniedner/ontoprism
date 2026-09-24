@@ -12,10 +12,10 @@
 	const flags = ['needs-review', 'unresolved-r101-loss', 'mint-filler'] as const;
 </script>
 
-<section class="rounded-xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
-	<p class="text-sm font-semibold uppercase tracking-wide text-amber-900">{progress.publication_status}</p>
+<section class="bg-status-warning rounded-xl border border-warning-200 p-5 shadow-sm dark:border-warning-800">
+	<p class="text-status-warning text-sm font-semibold uppercase tracking-wide">{progress.publication_status}</p>
 	<h1 class="mt-1 text-2xl font-bold text-default">Enhanced NCIt publication progress</h1>
-	<p class="mt-2 rounded border border-amber-400 bg-white p-3 font-medium text-default">
+	<p class="mt-2 rounded border border-warning-300 bg-card p-3 font-medium text-default dark:border-warning-700">
 		{progress.publication_notice}
 	</p>
 	<p class="mt-3 text-sm text-muted">Published run <span class="font-mono">{progress.run_id}</span> · <strong>{progress.total_concepts}</strong> concepts</p>

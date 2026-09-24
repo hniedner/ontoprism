@@ -57,12 +57,12 @@
 		{/if}
 	</h3>
 	{#if loaded && data?.publication_status}
-		<div class="mb-4 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-default">
+		<div class="bg-status-warning text-status-warning mb-4 rounded border border-warning-200 p-3 text-sm dark:border-warning-800">
 			<p class="font-semibold">{data.publication_notice}</p>
 			<p class="mt-1 font-medium">{data.outcome}</p>
 			<p class="mt-1">{data.outcome_reason}</p>
 			{#each data.review_flags ?? [] as flag (flag.kind + flag.reason)}
-				<p class="mt-1 text-amber-900"><strong>{flag.kind}:</strong> {flag.reason}</p>
+				<p class="mt-1"><strong>{flag.kind}:</strong> {flag.reason}</p>
 			{/each}
 		</div>
 	{/if}
