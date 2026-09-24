@@ -144,6 +144,7 @@ if TYPE_CHECKING:
 # hard dependency on a concrete graph-store class — see the module docstring.
 GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
+SourcePreflightProgress = Callable[[int, int, str], None]
 
 _CONFIG_VERSION = "nested-definition-v2"
 
@@ -487,6 +488,7 @@ async def _detect_concept(
     *,
     label: str | None,
     walker_max_depth: int,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
 ) -> tuple[
     detector.DetectionResult,
     list[RoleRestriction],
@@ -504,7 +506,10 @@ async def _detect_concept(
     """
     semantic_types = await _semantic_types_for_concept(client, code)
     definition, roles = await stated_queries.read_complete_genus_chain(
-        client.select, code, max_depth=walker_max_depth
+        client.select,
+        code,
+        max_depth=walker_max_depth,
+        anchor_rows_cache=anchor_rows_cache,
     )
     morphology_fillers = await stated_queries.resolve_morphology_fillers(
         client.select, definition, max_depth=walker_max_depth
@@ -550,6 +555,7 @@ async def _detect_candidate_or_unknown(
     *,
     label: str | None,
     walker_max_depth: int,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
 ) -> (
     tuple[
         detector.DetectionResult,
@@ -562,7 +568,11 @@ async def _detect_candidate_or_unknown(
 ):
     try:
         return await _detect_concept(
-            code, client, label=label, walker_max_depth=walker_max_depth
+            code,
+            client,
+            label=label,
+            walker_max_depth=walker_max_depth,
+            anchor_rows_cache=anchor_rows_cache,
         )
     except complete_definition.UnsupportedDefinitionConstructorError:
         return _CandidateResult(
@@ -769,6 +779,7 @@ async def _decompose_one(
     detector_identity: str,
     walker_max_depth: int = 7,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
@@ -777,7 +788,11 @@ async def _decompose_one(
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
     detected = await _detect_candidate_or_unknown(
-        code, client, label=label, walker_max_depth=walker_max_depth
+        code,
+        client,
+        label=label,
+        walker_max_depth=walker_max_depth,
+        anchor_rows_cache=anchor_rows_cache,
     )
     if isinstance(detected, _CandidateResult):
         return detected
@@ -928,6 +943,7 @@ class _RunSetup:
         pending: list[str],
         labels: dict[str, str],
         diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+        anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
         label_errors: dict[str, str] | None = None,
         normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
     ) -> None:
@@ -939,6 +955,9 @@ class _RunSetup:
         self.labels = dict(labels)
         self.label_errors = dict(label_errors or {})
         self.diagnostic_source = diagnostic_source
+        self.anchor_rows_cache = (
+            anchor_rows_cache or complete_definition.AnchorDefinitionRowsCache()
+        )
         self.normalized_group_policy = normalized_group_policy
 
 
@@ -1213,6 +1232,7 @@ async def _prepare_run(
     collapse_policy: CollapseVetoPolicy,
     fresh_worklist: tuple[str, ...],
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
 ) -> _RunSetup:
     """Admit exactly one source-bound worklist through the shared DB boundary."""
@@ -1258,6 +1278,7 @@ async def _prepare_run(
         labels=labels,
         label_errors=label_errors,
         diagnostic_source=diagnostic_source,
+        anchor_rows_cache=anchor_rows_cache,
         normalized_group_policy=normalized_group_policy,
     )
 
@@ -1288,6 +1309,7 @@ async def _process_work_item(
             detector_identity=setup.fingerprint.routing_implementation_identity,
             walker_max_depth=walker_max_depth,
             normalized_group_policy=setup.normalized_group_policy,
+            anchor_rows_cache=setup.anchor_rows_cache,
         )
         await provenance.complete_work_item(
             setup.run_id,
@@ -1456,6 +1478,7 @@ async def _classify_residual_filler(
     walker_max_depth: int,
     source_identity: str,
     detector_identity: str,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
 ) -> tuple[str, str, str | None]:
     try:
         result, _roles, _morphologies, definition, _types = await _detect_concept(
@@ -1463,6 +1486,7 @@ async def _classify_residual_filler(
             client,
             label=label,
             walker_max_depth=walker_max_depth,
+            anchor_rows_cache=anchor_rows_cache,
         )
     except complete_definition.UnsupportedDefinitionConstructorError as exc:
         reason = str(exc)
@@ -1504,6 +1528,7 @@ async def _materialize_residual_filler(
             walker_max_depth=config.walker_max_depth,
             source_identity=setup.fingerprint.source_identity,
             detector_identity=detector_identity,
+            anchor_rows_cache=setup.anchor_rows_cache,
         )
         await provenance.complete_residual_filler(
             setup.run_id,
@@ -1819,11 +1844,14 @@ async def _source_preflight_result(
     *,
     source_identity: str,
     routing_identity: str,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache,
+    progress: SourcePreflightProgress | None,
 ) -> SourcePreflightResult:
     async def read_definition(code: str) -> CompleteDefinition:
         return await complete_definition.read_complete_definition(
             client.select,
             code,
+            anchor_rows_cache=anchor_rows_cache,
         )
 
     inventory_identity = _required_mixed_chain_inventory_identity(
@@ -1846,6 +1874,7 @@ async def _source_preflight_result(
             tool_identity=await client.version() or "missing-version",
             walker_max_depth=config.walker_max_depth,
             max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
+            progress=progress,
             **kwargs,
         )
     except ClosureBudgetExceededError as exc:
@@ -2256,6 +2285,7 @@ async def _qualify_collapse_policy(
     *,
     source_identity: str,
     walker_max_depth: int,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache,
 ) -> None:
     """Qualify each distinct policy concept once, before this invocation writes any run
     state."""
@@ -2266,6 +2296,7 @@ async def _qualify_collapse_policy(
             client,
             label=None,
             walker_max_depth=walker_max_depth,
+            anchor_rows_cache=anchor_rows_cache,
         )
         occurrences.extend(definition.occurrences)
     policy.qualify_live_occurrences(occurrences, source_identity=source_identity)
@@ -2276,6 +2307,7 @@ async def _active_collapse_policy(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     walker_max_depth: int,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache,
 ) -> CollapseVetoPolicy:
     policy = requested or load_packaged_collapse_veto_policy()
     await _qualify_collapse_policy(
@@ -2283,6 +2315,7 @@ async def _active_collapse_policy(
         client,
         source_identity=snapshot.source_identity,
         walker_max_depth=walker_max_depth,
+        anchor_rows_cache=anchor_rows_cache,
     )
     return policy
 
@@ -2315,6 +2348,7 @@ async def _qualify_group_policy(
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     get_labels: GetLabels | None,
     label_lookup: LabelLookup,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache,
 ) -> None:
     """Decompose each policy-bound concept the run still has to do, persisting nothing,
     before this invocation writes any run state: a decomposition its policy row rejects
@@ -2341,6 +2375,7 @@ async def _qualify_group_policy(
                 detector_identity=routing_implementation_identity(),
                 walker_max_depth=config.walker_max_depth,
                 normalized_group_policy=policy,
+                anchor_rows_cache=anchor_rows_cache,
             )
         except BaseException as exc:
             exc.add_note(
@@ -2355,6 +2390,8 @@ async def _fresh_preflight(
     client: DecompositionSparqlClient,
     snapshot: NcitSourceSnapshot,
     total_limit: int | None,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    progress: SourcePreflightProgress | None = None,
 ) -> tuple[tuple[str, ...], SourcePreflightResult]:
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     worklist = (
@@ -2369,6 +2406,10 @@ async def _fresh_preflight(
         worklist,
         source_identity=snapshot.source_identity,
         routing_identity=routing_identity,
+        anchor_rows_cache=(
+            anchor_rows_cache or complete_definition.AnchorDefinitionRowsCache()
+        ),
+        progress=progress,
     )
     _require_preflight_allowed(result)
     return worklist, result
@@ -2380,6 +2421,8 @@ async def _resume_preflight(
     provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
     run_id: str,
+    anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    progress: SourcePreflightProgress | None = None,
 ) -> tuple[tuple[str, ...], SourcePreflightResult]:
     persisted = await provenance.fingerprint_for_run(run_id)
     if persisted.rehearsal_nonce is not None:
@@ -2398,6 +2441,10 @@ async def _resume_preflight(
         persisted.worklist,
         source_identity=snapshot.source_identity,
         routing_identity=routing_implementation_identity(),
+        anchor_rows_cache=(
+            anchor_rows_cache or complete_definition.AnchorDefinitionRowsCache()
+        ),
+        progress=progress,
     )
     _require_preflight_allowed(result)
     return persisted.worklist, result
@@ -2443,6 +2490,7 @@ async def run_pipeline(
     label_lookup: LabelLookup = _never_resolves,
     total_limit: int | None = None,
     progress: ProgressCallback | None = None,
+    source_preflight_progress: SourcePreflightProgress | None = None,
     residual_progress: Callable[[int, int, str], None] | None = None,
     collapse_policy: CollapseVetoPolicy | None = None,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
@@ -2459,9 +2507,14 @@ async def run_pipeline(
     cannot publish to the configured graph.
     """
     _validate_run_request(config, total_limit)
+    anchor_rows_cache = complete_definition.AnchorDefinitionRowsCache()
     snapshot = await _require_source_snapshot(client, get_source_snapshot)
     active_collapse_policy = await _active_collapse_policy(
-        collapse_policy, client, snapshot, config.walker_max_depth
+        collapse_policy,
+        client,
+        snapshot,
+        config.walker_max_depth,
+        anchor_rows_cache,
     )
     active_group_policy = (
         normalized_group_policy or load_packaged_normalized_group_policy()
@@ -2472,11 +2525,22 @@ async def run_pipeline(
         )
     if config.resume_from is None:
         fresh_worklist, fresh_preflight = await _fresh_preflight(
-            config, client, snapshot, total_limit
+            config,
+            client,
+            snapshot,
+            total_limit,
+            anchor_rows_cache,
+            source_preflight_progress,
         )
     else:
         fresh_worklist, fresh_preflight = await _resume_preflight(
-            config, client, provenance, snapshot, config.resume_from
+            config,
+            client,
+            provenance,
+            snapshot,
+            config.resume_from,
+            anchor_rows_cache,
+            source_preflight_progress,
         )
     diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
         client, snapshot.source_identity
@@ -2492,6 +2556,7 @@ async def run_pipeline(
         diagnostic_source=diagnostic_source,
         get_labels=get_labels,
         label_lookup=label_lookup,
+        anchor_rows_cache=anchor_rows_cache,
     )
     setup = await _prepare_run(
         config,
@@ -2504,6 +2569,7 @@ async def run_pipeline(
         collapse_policy=active_collapse_policy,
         fresh_worklist=fresh_worklist,
         diagnostic_source=diagnostic_source,
+        anchor_rows_cache=anchor_rows_cache,
         normalized_group_policy=active_group_policy,
     )
 

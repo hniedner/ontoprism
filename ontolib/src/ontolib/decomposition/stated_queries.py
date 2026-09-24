@@ -15,7 +15,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
-from ontolib.decomposition.complete_definition import read_complete_definition
+from ontolib.decomposition.complete_definition import (
+    AnchorDefinitionRowsCache,
+    read_complete_definition,
+)
 from ontolib.decomposition.extract import (
     PartOfPair,
     part_of_expansions_from_rows,
@@ -1359,6 +1362,7 @@ async def read_complete_genus_chain(
     code: str,
     *,
     max_depth: int = 5,
+    anchor_rows_cache: AnchorDefinitionRowsCache | None = None,
 ) -> tuple[CompleteDefinition, list[RoleRestriction]]:
     """Return the complete definition and its detector-compatible role projection.
 
@@ -1368,7 +1372,9 @@ async def read_complete_genus_chain(
     ``max_depth`` limits only the detector-compatible role projection; the complete
     record retains its independent fail-closed named-definition depth bound.
     """
-    complete = await read_complete_definition(select_fn, code)
+    complete = await read_complete_definition(
+        select_fn, code, anchor_rows_cache=anchor_rows_cache
+    )
     restrictions = _projected_restriction_facts(complete, max_depth)
     labels = await _definition_role_labels(
         select_fn,

@@ -241,3 +241,33 @@ async def test_an_exceeded_closure_budget_is_refused_as_a_worklist_problem() -> 
         "shared by the whole worklist: no single concept is at fault."
     )
     assert seen == ["C0", "C1", "C2"]
+
+
+@pytest.mark.unit
+async def test_source_preflight_reports_start_periodic_and_end_progress() -> None:
+    progress: list[tuple[int, int, str]] = []
+    worklist = tuple(f"C{index}" for index in range(1, 2002))
+
+    async def read(code: str) -> CompleteDefinition:
+        return CompleteDefinition(root_code=code, facts=())
+
+    await run_source_preflight(
+        worklist,
+        read_definition=read,
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=4096,
+        progress=lambda completed, total, active: progress.append(
+            (completed, total, active)
+        ),
+    )
+
+    assert progress == [
+        (0, 2001, "C1"),
+        (1000, 2001, "C1000"),
+        (2000, 2001, "C2000"),
+        (2001, 2001, "C2001"),
+    ]

@@ -1140,7 +1140,11 @@ async def test_source_preflight_uses_the_production_definition_bounds(
 
     await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
-    assert read_definition.await_args_list[0].kwargs == {}
+    assert set(read_definition.await_args_list[0].kwargs) == {"anchor_rows_cache"}
+    assert isinstance(
+        read_definition.await_args_list[0].kwargs["anchor_rows_cache"],
+        run_module.complete_definition.AnchorDefinitionRowsCache,
+    )
 
 
 @pytest.mark.unit

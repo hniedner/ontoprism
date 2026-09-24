@@ -144,6 +144,16 @@ def _print_residual_progress(
         )
 
 
+def _print_source_preflight_progress(
+    completed: int, total: int, active: str, *, prefix: str = ""
+) -> None:
+    print(
+        f"{prefix}phase=source-preflight completed={completed}/{total} active={active}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
@@ -236,6 +246,9 @@ async def _run(
                                 progress
                                 if progress is not None
                                 else partial(_print_progress, prefix=prefix)
+                            ),
+                            source_preflight_progress=partial(
+                                _print_source_preflight_progress, prefix=prefix
                             ),
                             residual_progress=partial(
                                 _print_residual_progress, prefix=prefix

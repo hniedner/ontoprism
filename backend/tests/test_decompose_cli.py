@@ -105,6 +105,19 @@ def test_residual_progress_prints_milestones(
     )
 
 
+@pytest.mark.unit
+def test_source_preflight_progress_prints_with_run_and_rehearsal_prefixes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    decompose._print_source_preflight_progress(0, 2001, "C1")
+    decompose._print_source_preflight_progress(1000, 2001, "C1000", prefix="preflight ")
+
+    assert capsys.readouterr().err == (
+        "phase=source-preflight completed=0/2001 active=C1\n"
+        "preflight phase=source-preflight completed=1000/2001 active=C1000\n"
+    )
+
+
 class _RunClient:
     def __init__(
         self,
