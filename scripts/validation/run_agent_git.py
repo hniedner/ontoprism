@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -128,12 +129,14 @@ class AgentGitInputError(ValueError):
 
 
 class AgentGitProcessError(RuntimeError):
-    """A fixed, sanitized Git subprocess failure."""
+    """A Git subprocess failure. The message is fixed, except that a failed commit
+    appends an excerpt of its hook output."""
 
 
 class CommandResult(Protocol):
     returncode: int
     stdout: str
+    stderr: str
 
 
 class CommandRunner(Protocol):
@@ -497,21 +500,31 @@ def _require_operation_success(result: CommandResult, spec: OperationSpec) -> No
 
 
 # A failed commit is usually a pre-commit hook; without its output the caller cannot
-# tell which hook refused or why. Hook output is local and gitleaks runs with
-# --redact, so the tail is safe to show.
-_HOOK_OUTPUT_TAIL_LINES = 40
+# tell which hook refused or why. The excerpt shows only output about content the
+# caller staged (the same text a direct `git commit` prints; gitleaks runs with
+# --redact). pre-commit prints a Passed/Skipped line for every hook, so those are
+# dropped, and the excerpt starts at the first failed hook so its name survives.
+_HOOK_OUTPUT_LINES = 40
+_HOOK_STATUS_LINE = re.compile(r"\.{3,}(\([^)]*\))?(Passed|Skipped)$")
 
 
 def _with_hook_output(message: str, result: CommandResult) -> str:
-    output = "\n".join(
-        part for part in (result.stdout, getattr(result, "stderr", None)) if part
+    lines = [
+        line
+        for line in "\n".join((result.stdout, result.stderr)).splitlines()
+        if line.strip() and not _HOOK_STATUS_LINE.search(line)
+    ]
+    failed = next(
+        (index for index, line in enumerate(lines) if line.endswith("Failed")), None
     )
-    tail = output.rstrip().splitlines()[-_HOOK_OUTPUT_TAIL_LINES:]
-    if not tail:
+    excerpt = (
+        lines[failed : failed + _HOOK_OUTPUT_LINES]
+        if failed is not None
+        else lines[-_HOOK_OUTPUT_LINES:]
+    )
+    if not excerpt:
         return message
-    return f"{message}\n--- last {len(tail)} lines of git commit output ---\n" + (
-        "\n".join(tail)
-    )
+    return f"{message}\n--- git commit output (excerpt) ---\n" + "\n".join(excerpt)
 
 
 def main() -> int:
