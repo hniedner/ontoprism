@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Protocol
 
 from ontolib.decomposition.models import (
@@ -55,6 +56,22 @@ class SelectRows(Protocol):
         *,
         required_variables: Collection[str] = (),
     ) -> Awaitable[Sequence[Row]]: ...
+
+
+class AnchorDefinitionRowsCache:
+    """Run-lifetime immutable cache of stated rows for one definition anchor."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, tuple[Row, ...]] = {}
+
+    async def read(self, select_fn: SelectRows, anchor_code: str) -> tuple[Row, ...]:
+        cached = self._rows.get(anchor_code)
+        if cached is not None:
+            return cached
+        rows = await _read_anchor_definition_rows(select_fn, anchor_code)
+        immutable = tuple(MappingProxyType(dict(row)) for row in rows)
+        self._rows[anchor_code] = immutable
+        return immutable
 
 
 @dataclass(frozen=True, slots=True)
@@ -838,6 +855,7 @@ async def read_complete_definition(
     *,
     max_depth: int = 64,
     max_nodes: int = 4096,
+    anchor_rows_cache: AnchorDefinitionRowsCache | None = None,
 ) -> CompleteDefinition:
     """Walk the complete stated definition DAG without inferred hierarchy closure."""
     _validate_walk_bounds(max_depth, max_nodes)
@@ -849,7 +867,11 @@ async def read_complete_definition(
     occurrences: list[SourceDefinitionOccurrence] = []
     while queue:
         anchor_code, depth = queue.popleft()
-        rows = await _read_anchor_definition_rows(select_fn, anchor_code)
+        rows = (
+            await anchor_rows_cache.read(select_fn, anchor_code)
+            if anchor_rows_cache is not None
+            else await _read_anchor_definition_rows(select_fn, anchor_code)
+        )
         definition_slice = _definition_slice_from_rows(
             anchor_code,
             depth=depth,

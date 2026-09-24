@@ -22,6 +22,8 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance_models import CompletionRunMetrics
 
 ReadDefinition = Callable[[str], Awaitable[CompleteDefinition]]
+PreflightProgress = Callable[[int, int, str], None]
+_PROGRESS_INTERVAL = 1000
 _NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
     b"no-mixed-chain-inventory"
 ).hexdigest()
@@ -110,28 +112,86 @@ def _dependencies(definition: CompleteDefinition) -> set[str]:
     }
 
 
-async def _read_classified_definition(
+class _DefinitionCensus:
+    def __init__(self, read_definition: ReadDefinition) -> None:
+        self._read_definition = read_definition
+        self.supported: set[str] = set()
+        self.unsupported: dict[str, str] = {}
+        self.malformed: set[str] = set()
+        self.overflow: set[str] = set()
+
+    async def read(self, code: str) -> CompleteDefinition | None:
+        try:
+            definition = await self._read_definition(code)
+        except UnsupportedDefinitionConstructorError as exc:
+            self.unsupported[code] = str(exc)
+            return None
+        except DefinitionBoundExceededError:
+            self.overflow.add(code)
+            return None
+        except CompleteDefinitionError:
+            self.malformed.add(code)
+            return None
+        self.supported.add(code)
+        return definition
+
+    @property
+    def checked_codes(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                self.supported
+                | self.unsupported.keys()
+                | self.malformed
+                | self.overflow
+            )
+        )
+
+
+def _report_preflight_start(
+    progress: PreflightProgress | None, worklist: tuple[str, ...]
+) -> None:
+    if progress is not None:
+        progress(0, len(worklist), worklist[0] if worklist else "none")
+
+
+def _report_preflight_position(
+    progress: PreflightProgress | None,
+    position: int | None,
+    total: int,
     code: str,
-    read_definition: ReadDefinition,
+) -> None:
+    if (
+        progress is not None
+        and position is not None
+        and (position % _PROGRESS_INTERVAL == 0 or position == total)
+    ):
+        progress(position, total, code)
+
+
+def _queue_dependencies(
+    definition: CompleteDefinition | None,
+    position: int | None,
     *,
-    supported: set[str],
-    unsupported: dict[str, str],
-    malformed: set[str],
-    overflow: set[str],
-) -> CompleteDefinition | None:
-    try:
-        definition = await read_definition(code)
-    except UnsupportedDefinitionConstructorError as exc:
-        unsupported[code] = str(exc)
-        return None
-    except DefinitionBoundExceededError:
-        overflow.add(code)
-        return None
-    except CompleteDefinitionError:
-        malformed.add(code)
-        return None
-    supported.add(code)
-    return definition
+    scheduled: set[str],
+    queue: deque[tuple[str, int | None]],
+    closure_count: int,
+    max_nodes: int,
+    worklist_count: int,
+) -> int:
+    if definition is None or position is None:
+        return closure_count
+    dependencies = sorted(_dependencies(definition) - scheduled)
+    updated_count = closure_count + len(dependencies)
+    if updated_count > max_nodes:
+        raise ClosureBudgetExceededError(
+            "source preflight closure needs more than its budget of "
+            f"{max_nodes} dependency concepts; it ran out while expanding "
+            f"worklist concept {position} of {worklist_count}. The budget is "
+            "shared by the whole worklist: no single concept is at fault."
+        )
+    scheduled.update(dependencies)
+    queue.extend((dependency, None) for dependency in dependencies)
+    return updated_count
 
 
 async def run_source_preflight(
@@ -145,6 +205,7 @@ async def run_source_preflight(
     walker_max_depth: int,
     max_nodes: int,
     mixed_chain_inventory_identity: str = _NO_MIXED_CHAIN_INVENTORY_IDENTITY,
+    progress: PreflightProgress | None = None,
 ) -> SourcePreflightResult:
     """Census exact roots plus their defined-genus and filler dependencies.
 
@@ -160,35 +221,22 @@ async def run_source_preflight(
         (code, position) for position, code in enumerate(worklist, 1)
     )
     scheduled = set(worklist)
-    supported: set[str] = set()
-    unsupported: dict[str, str] = {}
-    malformed: set[str] = set()
-    overflow: set[str] = set()
+    census = _DefinitionCensus(read_definition)
     closure_count = 0
+    _report_preflight_start(progress, worklist)
     while queue:
         code, position = queue.popleft()
-        definition = await _read_classified_definition(
-            code,
-            read_definition,
-            supported=supported,
-            unsupported=unsupported,
-            malformed=malformed,
-            overflow=overflow,
+        definition = await census.read(code)
+        _report_preflight_position(progress, position, len(worklist), code)
+        closure_count = _queue_dependencies(
+            definition,
+            position,
+            scheduled=scheduled,
+            queue=queue,
+            closure_count=closure_count,
+            max_nodes=max_nodes,
+            worklist_count=len(worklist),
         )
-        if definition is None or position is None:
-            continue
-        dependencies = sorted(_dependencies(definition) - scheduled)
-        closure_count += len(dependencies)
-        if closure_count > max_nodes:
-            raise ClosureBudgetExceededError(
-                "source preflight closure needs more than its budget of "
-                f"{max_nodes} dependency concepts; it ran out while expanding "
-                f"worklist concept {position} of {len(worklist)}. The budget is "
-                "shared by the whole worklist: no single concept is at fault."
-            )
-        scheduled.update(dependencies)
-        queue.extend((dependency, None) for dependency in dependencies)
-    checked = tuple(sorted(supported | unsupported.keys() | malformed | overflow))
     return SourcePreflightResult(
         source_identity=source_identity,
         worklist_identity=_worklist_identity(worklist),
@@ -199,11 +247,11 @@ async def run_source_preflight(
         walker_max_depth=walker_max_depth,
         max_nodes=max_nodes,
         worklist_count=len(worklist),
-        checked_codes=checked,
-        supported_codes=tuple(sorted(supported)),
-        unsupported_codes=tuple(sorted(unsupported)),
-        unsupported_reasons=dict(sorted(unsupported.items())),
-        malformed_codes=tuple(sorted(malformed)),
-        overflow_codes=tuple(sorted(overflow)),
+        checked_codes=census.checked_codes,
+        supported_codes=tuple(sorted(census.supported)),
+        unsupported_codes=tuple(sorted(census.unsupported)),
+        unsupported_reasons=dict(sorted(census.unsupported.items())),
+        malformed_codes=tuple(sorted(census.malformed)),
+        overflow_codes=tuple(sorted(census.overflow)),
         representative_metrics=_representative_unknown_metrics(),
     )

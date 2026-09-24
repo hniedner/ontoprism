@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from ontolib.decomposition.complete_definition import (
+    AnchorDefinitionRowsCache,
     CompleteDefinitionError,
     UnsupportedDefinitionConstructorError,
     build_complete_definition_query,
@@ -1772,6 +1773,34 @@ async def test_complete_definition_reconverged_dag_queries_shared_genus_once() -
     assert calls == ["C1", "C2", "C3", "C4"]
     c4_facts = [fact for fact in complete.facts if fact.anchor_code == "C4"]
     assert len(c4_facts) == 1
+
+
+@pytest.mark.unit
+async def test_run_cache_queries_shared_ancestor_once_across_roots() -> None:
+    calls: list[str] = []
+    rows_by_code = {
+        "C1": _definition_rows("_:c1", (_iri("C3"), None, None, True)),
+        "C2": _definition_rows("_:c2", (_iri("C3"), None, None, True)),
+        "C3": _definition_rows("_:c3", (_iri("C4"), None, None, False)),
+    }
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        code = next(code for code in rows_by_code if f"#{code}>" in query)
+        calls.append(code)
+        return rows_by_code[code]
+
+    cache = AnchorDefinitionRowsCache()
+    first = await read_complete_definition(select, "C1", anchor_rows_cache=cache)
+    second = await read_complete_definition(select, "C2", anchor_rows_cache=cache)
+
+    assert calls == ["C1", "C3", "C2"]
+    assert {fact.anchor_code for fact in first.facts} == {"C1", "C3"}
+    assert {fact.anchor_code for fact in second.facts} == {"C2", "C3"}
+    cached = await cache.read(select, "C3")
+    with pytest.raises(TypeError):
+        cached[0]["member"] = _iri("C9")  # type: ignore[index]
 
 
 @pytest.mark.unit
