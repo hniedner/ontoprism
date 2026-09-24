@@ -109,7 +109,9 @@ def _reachable(url: str) -> bool:
 @pytest.mark.mutating_integration
 async def test_cached_and_uncached_complete_definitions_match_in_disposable_qlever(
     isolated_qlever_url: str,
+    preserved_stated_graph: None,
 ) -> None:
+    del preserved_stated_graph
     fixture = f"""
         @prefix ncit: <{NCIT_NS}> .
         @prefix owl: <{OWL_NS}> .
