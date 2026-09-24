@@ -1,5 +1,48 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
+
+async function expectAaTextContrast(locator: Locator): Promise<void> {
+	await expect(locator).toBeVisible();
+	const contrast = await locator.evaluate((element) => {
+		const canvas = document.createElement('canvas');
+		canvas.width = 1;
+		canvas.height = 1;
+		const context = canvas.getContext('2d', { willReadFrequently: true });
+		if (!context) throw new Error('2D canvas context unavailable');
+		const rgba = (color: string): [number, number, number, number] => {
+			context.clearRect(0, 0, 1, 1);
+			context.fillStyle = color;
+			context.fillRect(0, 0, 1, 1);
+			return [...context.getImageData(0, 0, 1, 1).data].map((value, index) =>
+				index === 3 ? value / 255 : value
+			) as [number, number, number, number];
+		};
+		const over = (front: number[], back: number[]): [number, number, number, number] => {
+			const alpha = front[3] + back[3] * (1 - front[3]);
+			return [
+				...front.slice(0, 3).map((channel, index) =>
+					alpha === 0 ? 0 : (channel * front[3] + back[index] * back[3] * (1 - front[3])) / alpha
+				),
+				alpha
+			] as [number, number, number, number];
+		};
+		const ancestry: Element[] = [];
+		for (let current: Element | null = element; current; current = current.parentElement) ancestry.push(current);
+		let background: [number, number, number, number] = [255, 255, 255, 1];
+		for (const current of ancestry.reverse()) background = over(rgba(getComputedStyle(current).backgroundColor), background);
+		const luminance = (channels: number[]): number =>
+			channels
+				.slice(0, 3)
+				.map((value) => value / 255)
+				.map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
+				.reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+		const foregroundLuminance = luminance(rgba(getComputedStyle(element).color));
+		const backgroundLuminance = luminance(background);
+		return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+			(Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+	});
+	expect(contrast).toBeGreaterThanOrEqual(4.5);
+}
 
 test('caDSR: browse → URL search → open a server-loaded CDE detail', async ({ page }) => {
 	await page.goto('/repositories/cadsr');
@@ -188,6 +231,36 @@ test('NCIt: provisional publication is visible with flags and backend progress',
 	const progressScreenshot = testInfo.outputPath('publication-progress.png');
 	await page.screenshot({ path: progressScreenshot, fullPage: true });
 	await testInfo.attach('publication progress', { path: progressScreenshot, contentType: 'image/png' });
+});
+
+test('NCIt: provisional publication text meets AA contrast in both themes', async ({ page }, testInfo) => {
+	for (const theme of ['light', 'dark'] as const) {
+		await page.addInitScript((value) => localStorage.setItem('ontoprism-theme', value), theme);
+		await page.goto('/repositories/ncit/progress');
+		for (const locator of [
+			page.getByText('provisional', { exact: true }),
+			page.getByRole('heading', { name: 'Enhanced NCIt publication progress' }),
+			page.getByText('expert review, not an NCIt release'),
+			page.getByText(/Published run published-sample-run/),
+			page.getByRole('heading', { name: 'Outcomes' }),
+			page.getByRole('heading', { name: 'Review flags' })
+		]) {
+			await expectAaTextContrast(locator);
+		}
+		const progressScreenshot = testInfo.outputPath(`publication-progress-${theme}.png`);
+		await page.screenshot({ path: progressScreenshot, fullPage: true });
+		await testInfo.attach(`publication progress ${theme}`, { path: progressScreenshot, contentType: 'image/png' });
+
+		await page.goto('/repositories/ncit/C3262');
+		for (const locator of [
+			page.getByText('expert review, not an NCIt release'),
+			page.getByText('decomposed', { exact: true }),
+			page.getByText('engine emitted 1 constituents', { exact: true }),
+			page.getByText('needs-review:')
+		]) {
+			await expectAaTextContrast(locator);
+		}
+	}
 });
 
 test('NCIt: route replacement owns graph state while an expansion is pending', async ({ page }) => {
