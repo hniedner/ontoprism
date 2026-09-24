@@ -503,7 +503,8 @@ def _require_operation_success(result: CommandResult, spec: OperationSpec) -> No
 # tell which hook refused or why. The excerpt shows only output about content the
 # caller staged (the same text a direct `git commit` prints; gitleaks runs with
 # --redact). pre-commit prints a Passed/Skipped line for every hook, so those are
-# dropped, and the excerpt starts at the first failed hook so its name survives.
+# dropped, and the excerpt starts at the first failed hook so its name survives;
+# without a failed hook line it is the last lines of the output.
 _HOOK_OUTPUT_LINES = 40
 _HOOK_STATUS_LINE = re.compile(r"\.{3,}(\([^)]*\))?(Passed|Skipped)$")
 
