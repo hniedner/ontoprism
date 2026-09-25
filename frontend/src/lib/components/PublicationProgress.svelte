@@ -1,15 +1,14 @@
 <script lang="ts">
-	import type { PublicationProgress as Progress } from '$lib/types';
+    import type { PublicationProgress as Progress, DecompositionOutcome, DecompositionReviewFlagKind } from '$lib/types';
 
 	let { progress }: { progress: Progress } = $props();
-	const outcomes = [
-		'decomposed',
-		'residual',
-		'semantic-excluded',
-		'atomic-no-op',
-		'unknown'
-	] as const;
-	const flags = ['needs-review', 'unresolved-r101-loss', 'mint-filler'] as const;
+    const outcomes: Record<DecompositionOutcome, string> = {
+        decomposed: 'decomposed', residual: 'residual', 'semantic-excluded': 'semantic-excluded',
+        'atomic-no-op': 'atomic-no-op', unknown: 'unknown'
+    };
+    const flags: Record<DecompositionReviewFlagKind, string> = {
+        'needs-review': 'needs-review', 'unresolved-r101-loss': 'unresolved-r101-loss', 'mint-filler': 'mint-filler'
+    };
 </script>
 
 <section class="bg-status-warning rounded-xl border border-warning-200 p-5 shadow-sm dark:border-warning-800">
@@ -23,7 +22,8 @@
 		<div>
 			<h2 class="font-semibold text-default">Outcomes</h2>
 			<dl class="mt-2 space-y-2">
-				{#each outcomes as outcome (outcome)}
+                {#each Object.keys(outcomes) as key (key)}
+                    {@const outcome = key as DecompositionOutcome}
 					<div class="flex justify-between rounded bg-card px-3 py-2"><dt>{outcome}</dt><dd class="font-semibold">{progress.outcome_counts[outcome]}</dd></div>
 				{/each}
 			</dl>
@@ -31,7 +31,8 @@
 		<div>
 			<h2 class="font-semibold text-default">Review flags</h2>
 			<dl class="mt-2 space-y-2">
-				{#each flags as flag (flag)}
+                {#each Object.keys(flags) as key (key)}
+                    {@const flag = key as DecompositionReviewFlagKind}
 					<div class="flex justify-between rounded bg-card px-3 py-2"><dt>{flag}</dt><dd class="font-semibold">{progress.review_flag_counts[flag]}</dd></div>
 				{/each}
 			</dl>

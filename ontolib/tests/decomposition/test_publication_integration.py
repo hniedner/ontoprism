@@ -27,6 +27,14 @@ from ontolib.decomposition.publication import (
     read_publication_marker,
     staging_graph_iri,
 )
+from ontolib.decomposition.read import (
+    decomposition_from_rows,
+    publication_progress_from_rows,
+)
+from ontolib.decomposition.read_queries import (
+    build_decomposition_query,
+    build_publication_progress_query,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -138,6 +146,39 @@ async def test_small_publication_exposes_outcome_flag_and_demo_marker(
             f"<{vocab.HAS_REVIEW_FLAG}> ?flag . "
             f"?flag <{vocab.REVIEW_FLAG_REASON}> ?reason }} }}",
         )
+        await client.update(
+            f"COPY GRAPH <{_STAGING}> TO GRAPH <{_PUBLIC}>; "
+            f"INSERT DATA {{ GRAPH <{_PUBLIC}> {{ <{vocab.PUBLICATION_MARKER}> "
+            f'<{vocab.PUBLICATION_RUN}> "{run_id}" }} }}'
+        )
+        progress = publication_progress_from_rows(
+            await client.select(build_publication_progress_query())
+        )
+        assert progress is not None
+        assert progress.run_id == run_id
+        assert progress.total_concepts == 1
+        assert progress.outcome_counts["residual"] == 1
+        assert progress.review_flag_counts["needs-review"] == 1
+        published = decomposition_from_rows(
+            "C1", await client.select(build_decomposition_query("C1"))
+        )
+        assert published.outcome == "residual"
+        assert published.review_flags[0].kind == "needs-review"
+        outside = decomposition_from_rows(
+            "C2", await client.select(build_decomposition_query("C2"))
+        )
+        assert outside.outcome is None
+        assert outside.publication_status is None
+        assert outside.constituents == []
+        await client.update(
+            f"DELETE WHERE {{ GRAPH <{_PUBLIC}> {{ "
+            f"?flag <{vocab.REVIEW_FLAG_REASON}> ?reason }} }}"
+        )
+        with pytest.raises(ValueError, match="review flag"):
+            decomposition_from_rows(
+                "C1", await client.select(build_decomposition_query("C1"))
+            )
+        await client.update(f"DROP SILENT GRAPH <{_PUBLIC}>")
         await client.update(f"DROP SILENT GRAPH <{_STAGING}>")
 
 
@@ -153,7 +194,18 @@ async def _write_concurrent_artifacts(
         decompositions,
         strict=True,
     ):
-        await write_ttl([decomposition], artifact, run_id=run_id)
+        await write_ttl(
+            [decomposition],
+            artifact,
+            run_id=run_id,
+            publications=(
+                ConceptPublication(
+                    concept_code=decomposition.code,
+                    outcome="decomposed",
+                    reason="fixture selection",
+                ),
+            ),
+        )
     return artifacts, destinations
 
 

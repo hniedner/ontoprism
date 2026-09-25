@@ -386,17 +386,24 @@ export interface DecompositionConstituent {
 	upstream: DecompositionUpstreamMapping[];
 }
 
-export interface ConceptDecomposition {
-	code: string;
-	publication_status?: 'provisional' | null;
-	publication_notice?: string | null;
-	outcome?: DecompositionOutcome | null;
-	outcome_reason?: string | null;
-	review_flags?: DecompositionReviewFlag[];
-	is_legacy_precoordinated: boolean;
+export type ConceptDecomposition = {
+    code: string;
+    is_legacy_precoordinated: boolean;
 	decomposed_on: string | null;
 	constituents: DecompositionConstituent[];
-}
+} & ({
+    publication_status: 'provisional';
+    publication_notice: string;
+    outcome: DecompositionOutcome;
+    outcome_reason: string;
+    review_flags: DecompositionReviewFlag[];
+} | {
+    publication_status?: null;
+    publication_notice?: null;
+    outcome?: null;
+    outcome_reason?: null;
+    review_flags?: [];
+});
 
 export type DecompositionOutcome =
 	| 'decomposed'

@@ -11,6 +11,7 @@ from ontolib.decomposition.read import (
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
+    PublicationProgress,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -97,6 +98,8 @@ def test_publication_progress_fills_all_d93_counts_from_aggregates() -> None:
     ("change", "message"),
     [
         ({"run": None}, "no unique run"),
+        ({"run": "run-2"}, "no unique run"),
+        ({"count": None}, "invalid count"),
         ({"publicationStatus": "accepted"}, "not provisional"),
         ({"publicationNotice": "release"}, "unexpected notice"),
         ({"category": "disposition", "value": "include"}, "unknown D93 category"),
@@ -115,12 +118,61 @@ def test_publication_progress_rejects_untrusted_graph_metadata(
     }
 
     with pytest.raises(ValueError, match=message):
-        publication_progress_from_rows([row | change])
+        publication_progress_from_rows([row, row | change])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("flag", [{"flagKind": "needs-review"}, {"flagReason": "why"}])
+def test_incomplete_review_flag_is_not_silently_dropped(flag: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="review flag"):
+        decomposition_from_rows("C1", [flag])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"), [("outcome_reason", ""), ("publication_notice", "release")]
+)
+def test_published_concept_requires_reason_and_exact_notice(
+    field: str, value: str
+) -> None:
+    payload = {
+        "code": "C1",
+        "is_legacy_precoordinated": False,
+        "publication_status": "provisional",
+        "publication_notice": vocab.EXPERT_REVIEW_NOTICE,
+        "outcome": "unknown",
+        "outcome_reason": "not resolved",
+    }
+    with pytest.raises(ValueError, match=field):
+        ConceptDecomposition.model_validate(payload | {field: value})
 
 
 @pytest.mark.unit
 def test_publication_progress_is_absent_without_a_published_graph() -> None:
     assert publication_progress_from_rows([]) is None
+
+
+@pytest.mark.unit
+def test_progress_rejects_negative_outcome_even_if_total_balances() -> None:
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        PublicationProgress(
+            run_id="run",
+            publication_status="provisional",
+            publication_notice=vocab.EXPERT_REVIEW_NOTICE,
+            total_concepts=0,
+            outcome_counts={
+                "decomposed": -1,
+                "residual": 1,
+                "unknown": 0,
+                "atomic-no-op": 0,
+                "semantic-excluded": 0,
+            },
+            review_flag_counts={
+                "needs-review": 0,
+                "mint-filler": 0,
+                "unresolved-r101-loss": 0,
+            },
+        )
 
 
 @pytest.mark.unit

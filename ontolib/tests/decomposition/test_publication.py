@@ -15,9 +15,10 @@ import pytest
 import rdflib
 
 from ontolib.decomposition import publication, vocab
-from ontolib.decomposition.legacy_writer import write_ttl
+from ontolib.decomposition.legacy_writer import write_ttl as render_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance_models import (
+    ConceptPublication,
     PublicationMarkerSnapshot,
     RunSummary,
 )
@@ -53,6 +54,23 @@ def _decomposition(code: str = "C1") -> Decomposition:
                 source_roles=("R101",),
             )
         ],
+    )
+
+
+async def write_ttl(decompositions, dest, *, run_id, **kwargs):
+    """Supply the explicit C1 work-item outcome used by these lifecycle fixtures."""
+    return await render_ttl(
+        decompositions,
+        dest,
+        run_id=run_id,
+        publications=(
+            ConceptPublication(
+                concept_code="C1", outcome="decomposed", reason="fixture selection"
+            ),
+        )
+        if decompositions
+        else (),
+        **kwargs,
     )
 
 
@@ -401,6 +419,15 @@ def test_artifact_validation_rejects_missing_foreign_and_extra_run_subjects(
     missing = tmp_path / "missing.ttl"
     with pytest.raises(PublicationValidationError, match="could not be read"):
         validate_artifact(missing, expected_codes=set(), run_id="run-1")
+
+    missing.write_text(
+        f'<{vocab.DEMONSTRATION_MARKER}> <{vocab.PUBLICATION_STATUS}> "provisional" .\n'
+        f"<{vocab.DEMONSTRATION_MARKER}> <{vocab.PUBLICATION_NOTICE}> "
+        f'"{vocab.EXPERT_REVIEW_NOTICE}" .\n'
+        f'<{NCIT_NS}C1> <{vocab.CONCEPT_OUTCOME}> "unknown" .\n'
+    )
+    with pytest.raises(PublicationValidationError, match="run"):
+        validate_artifact(missing, expected_codes={"C1"}, run_id="run-1")
 
     foreign = tmp_path / "foreign.ttl"
     foreign.write_text(

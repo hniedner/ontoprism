@@ -687,6 +687,11 @@ async def _publish_started_artifact(
     try:
         if load_to_store:
             await _replace_graph(client, artifact, marker, predecessor=predecessor)
+        else:
+            with tempfile.TemporaryDirectory(prefix="ontoprism-validate-") as directory:
+                await _convert_publication_ntriples(
+                    artifact, Path(directory) / "validated.nt"
+                )
         _durable_copy(artifact, destination)
         finished = await provenance.finish_run(
             marker.run_id,

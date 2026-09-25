@@ -2823,13 +2823,14 @@ async def test_label_batch_rejects_unrequested_and_blank_results() -> None:
         return {"C2": "Wrong concept"}
 
     with pytest.raises(ValueError, match="unrequested concepts: C2"):
-        await run_module._fetch_labels(unexpected, ["C1"])
+        await run_module._fetch_label_batch(unexpected, ["C1"])
 
     async def blank(_codes: list[str]) -> dict[str, str]:
         return {"C1": ""}
 
-    with pytest.raises(ValueError, match="concept C1 has no stated label"):
-        await run_module._fetch_labels(blank, ["C1"])
+    labels, errors = await run_module._fetch_label_batch(blank, ["C1"])
+    assert labels == {}
+    assert errors == {"C1": "has no stated label"}
 
 
 @pytest.mark.unit

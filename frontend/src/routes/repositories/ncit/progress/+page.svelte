@@ -7,4 +7,9 @@
 
 <svelte:head><title>Publication progress · NCIt · ONTOPRISM</title></svelte:head>
 
-<PublicationProgress progress={data.progress} />
+{#if data.progress}
+    <PublicationProgress progress={data.progress} />
+{:else}
+    <h1>Enhanced NCIt publication progress</h1>
+    <p>No published run yet.</p>
+{/if}

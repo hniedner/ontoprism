@@ -43,7 +43,7 @@ async def test_single_decomposition_writes_to_file(tmp_path: Path) -> None:
         )
     ]
     out = tmp_path / "out.ttl"
-    await write_ttl(decs, dest=out, run_id="test-run-1")
+    await write_ttl(decs, dest=out)
     content = out.read_text()
 
     # Structural checks — presence of key triples.
@@ -69,7 +69,7 @@ async def test_file_artifact_is_flushed_and_fsynced_before_return(
         real_fsync(file_descriptor)
 
     monkeypatch.setattr(os, "fsync", record_fsync)
-    await write_ttl([_decomposition_for_durability()], dest=out, run_id="run-1")
+    await write_ttl([_decomposition_for_durability()], dest=out)
 
     assert synced_inodes == [out.stat().st_ino]
     assert out.read_text(encoding="utf-8").endswith("\n")
@@ -208,19 +208,26 @@ async def test_most_specific_flag_is_rendered(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("supplied", [False, True])
-async def test_run_id_is_rendered(tmp_path: Path, supplied: bool) -> None:
+async def test_run_id_is_rendered(tmp_path: Path) -> None:
     decs = [Decomposition(code="C100", semantic_type=None)]
     out = tmp_path / "out.ttl"
     records = [
         ConceptPublication(concept_code="C100", outcome="decomposed", reason="sample")
     ]
-    await write_ttl(
-        decs, dest=out, run_id="run-abc", publications=records if supplied else ()
-    )
+    await write_ttl(decs, dest=out, run_id="run-abc", publications=records)
     content = out.read_text()
     assert content.count(f"<{vocab.DECOMPOSED_BY}>") == 1
     assert '"run-abc"' in content
+
+
+@pytest.mark.unit
+async def test_run_export_requires_recorded_outcomes(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="publication records"):
+        await write_ttl(
+            [Decomposition(code="C1", semantic_type=None)],
+            tmp_path / "out.ttl",
+            run_id="run",
+        )
 
 
 @pytest.mark.unit
@@ -257,7 +264,7 @@ async def test_writer_never_emits_a_delete(tmp_path: Path) -> None:
         )
     ]
     out = tmp_path / "out.ttl"
-    await write_ttl(decs, dest=out, run_id="run-1")
+    await write_ttl(decs, dest=out)
     content = out.read_text()
     assert "DELETE" not in content.upper()
 
@@ -288,7 +295,7 @@ async def test_writer_output_is_valid_turtle(tmp_path: Path) -> None:
         )
     ]
     out = tmp_path / "out.ttl"
-    await write_ttl(decs, dest=out, run_id="run-1")
+    await write_ttl(decs, dest=out)
 
     graph = rdflib.Graph()
     graph.parse(out, format="turtle")  # raises on malformed Turtle
@@ -381,7 +388,7 @@ async def test_normal_output_never_contains_equivalence(tmp_path: Path) -> None:
         )
     ]
     out = tmp_path / "out.ttl"
-    await write_ttl(decs, dest=out, run_id="run-1")
+    await write_ttl(decs, dest=out)
     graph = rdflib.Graph()
     graph.parse(out, format="turtle")
     assert not any(graph.triples((None, OWL.equivalentClass, None)))

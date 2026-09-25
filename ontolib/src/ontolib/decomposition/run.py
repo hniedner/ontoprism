@@ -977,16 +977,6 @@ class RunProgress:
 ProgressCallback = Callable[[RunProgress], None]
 
 
-async def _fetch_labels(
-    get_labels: GetLabels | None, pending: list[str]
-) -> dict[str, str]:
-    """Batch-fetch exactly one label per code, or no labels when unwired."""
-    labels, errors = await _fetch_label_batch(get_labels, pending)
-    if errors:
-        raise ConceptLabelError(errors, labels=labels)
-    return labels
-
-
 async def _fetch_label_batch(
     get_labels: GetLabels | None, requested: list[str]
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -2352,7 +2342,9 @@ async def _qualify_group_policy(
 ) -> None:
     """Decompose each policy-bound concept the run still has to do, persisting nothing,
     before this invocation writes any run state: a decomposition its policy row rejects
-    fails here, not when the worklist reaches the concept."""
+    fails here, not when the worklist reaches the concept. Codes lacking a valid
+    label are not qualified here; their label failure is journaled by work-item
+    processing instead."""
     bound = await _policy_codes_still_to_do(policy, config, provenance, worklist)
     labels, label_errors = await _fetch_label_batch(get_labels, bound)
     untouched = (
@@ -2362,6 +2354,8 @@ async def _qualify_group_policy(
     )
     for code in bound:
         if code in label_errors:
+            # Defer label failure to work-item processing so it is journaled there;
+            # no policy qualification is claimed for this code.
             continue
         try:
             await _decompose_one(

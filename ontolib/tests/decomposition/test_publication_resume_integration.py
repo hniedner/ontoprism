@@ -53,13 +53,17 @@ def old_publication(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
             "show",
             f"{_OLD_HEAD}:ontolib/src/ontolib/decomposition/publication.py",
         ],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
-    ).stdout
+    )
+    assert source.returncode == 0, (
+        "This historical resume contract requires full Git history; "
+        f"fetch revision {_OLD_HEAD} before running it. {source.stderr}"
+    )
     old = ModuleType("old_publication_443")
     monkeypatch.setitem(sys.modules, old.__name__, old)
-    exec(compile(source, "old_publication_443.py", "exec"), old.__dict__)  # noqa: S102 - trusted repository revision for old-to-new resume demo
+    exec(compile(source.stdout, "old_publication_443.py", "exec"), old.__dict__)  # noqa: S102 - trusted repository revision for old-to-new resume demo
     return old
 
 
@@ -163,8 +167,8 @@ async def _resume_contract(
                 asyncio.run_coroutine_threadsafe(operation, loop)
             )
 
-        # Only service/fixture injection is replaced: the actual CLI parses
-        # --resume and the real admission/publication path handles it.
+        # The CLI parses --resume; its execution body is replaced with fixture
+        # wiring to the real run_pipeline admission/publication path below.
         monkeypatch.setattr(decompose, "_run", cli_run)
         app = typer.Typer()
         app.command()(decompose.main)

@@ -133,6 +133,7 @@ async def _execute() -> str:
                 dest=artifact,
                 run_id=run_id,
                 emitted_on=rehearsal.fingerprint.emitted_at.date(),
+                publications=await store.concept_publications_for_run(run_id),
             )
             engine_output = temporary / "engine-evidence.json"
             comparison_output = temporary / "comparison.json"

@@ -161,6 +161,14 @@ def _merge_constituent(
     )
 
 
+def _record_review_flag(row: Row, flags: set[tuple[str, str]]) -> None:
+    kind, reason = row.get("flagKind"), row.get("flagReason")
+    if any(row.get(key) is not None for key in ("flag", "flagKind", "flagReason")):
+        if not kind or not reason:
+            raise ValueError("published review flag requires a kind and reason")
+        flags.add((kind, reason))
+
+
 def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposition:
     """Fold the (repeating) result rows into one decomposition for *code*.
 
@@ -184,8 +192,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     for row in rows:
         for name, current in scalar.items():
             scalar[name] = current or row.get(name)
-        if (kind := row.get("flagKind")) and (reason := row.get("flagReason")):
-            flags.add((kind, reason))
+        _record_review_flag(row, flags)
         _record_constituent(code, row, constituents)
 
     return ConceptDecomposition.model_validate(
@@ -269,11 +276,15 @@ def _record_progress_count(
 ) -> None:
     category = row.get("category")
     value = row.get("value")
+    try:
+        count = int(row.get("count") or "")
+    except ValueError as exc:
+        raise ValueError("publication progress contains an invalid count") from exc
     if category == "outcome" and value in outcomes:
-        outcomes[cast("ConceptOutcome", value)] = int(row.get("count") or "")
+        outcomes[cast("ConceptOutcome", value)] = count
         return
     if category == "review-flag" and value in flags:
-        flags[cast("ReviewFlagKind", value)] = int(row.get("count") or "")
+        flags[cast("ReviewFlagKind", value)] = count
         return
     raise ValueError("publication progress contains an unknown D93 category")
 

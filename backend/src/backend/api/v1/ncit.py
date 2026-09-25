@@ -2,8 +2,6 @@
 mappings."""
 
 import asyncio
-import hashlib
-import json
 from collections.abc import Mapping
 from typing import Annotated
 
@@ -27,17 +25,6 @@ from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.logging_config import get_logger
-from ontolib.decomposition.enhanced_showcase import (
-    EnhancedNcitShowcaseView,
-    ShowcaseConceptNotInCohortError,
-    ShowcaseConceptPolicy,
-    ShowcaseConstituent,
-    ShowcaseDecisionSet,
-    ShowcasePolicyError,
-    build_showcase_view,
-    load_packaged_showcase_decision_set,
-    require_active_showcase_decisions,
-)
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -70,19 +57,6 @@ from ontolib.terminologies.sparql_transport import safe_iri
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
-
-
-def _showcase_policy_for(
-    code: str,
-) -> tuple[ShowcaseDecisionSet, ShowcaseConceptPolicy]:
-    try:
-        policy = load_packaged_showcase_decision_set()
-    except ShowcasePolicyError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    try:
-        return policy, policy.concept(code)
-    except ShowcaseConceptNotInCohortError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 async def _xref_expected(
@@ -394,7 +368,7 @@ async def concept_decomposition(
         rows = await reader.rows_for(code)
     except ValueError as exc:  # code failed the IRI-safety guard
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    decomposition = decomposition_from_rows(code, rows)
+    decomposition = _read_decomposition(code, rows)
     entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
         x_icdo_entitlement
     )
@@ -418,45 +392,8 @@ async def concept_decomposition(
     return decomposition
 
 
-@router.get(
-    "/concepts/{code}/enhanced-ncit-showcase",
-    response_model=EnhancedNcitShowcaseView,
-)
-async def concept_enhanced_ncit_showcase(
-    reader: DecompositionReads,
-    store: NcitStore,
-    code: str,
-) -> EnhancedNcitShowcaseView:
-    """Return the explicit local showcase overlay without changing ordinary reads."""
-    policy, concept_policy = _showcase_policy_for(code)
+def _read_decomposition(code: str, rows: list[dict[str, str]]) -> ConceptDecomposition:
     try:
-        base_rows = await reader.rows_for(code)
-        decision_rows = await reader.showcase_rows_for(code)
-        require_active_showcase_decisions(decision_rows, concept_policy.decisions)
-        decomposition = decomposition_from_rows(code, base_rows)
-        codes = [item.filler for item in decomposition.constituents]
-        labels = await store.labels_for(codes) if codes else {}
-        base = tuple(
-            ShowcaseConstituent(
-                axis=item.axis,
-                filler=item.filler,
-                label=labels.get(item.filler),
-            )
-            for item in decomposition.constituents
-        )
-        identity_payload = {
-            "code": code,
-            "decomposed_on": decomposition.decomposed_on,
-            "constituents": [item.model_dump(mode="json") for item in base],
-        }
-        base_identity = hashlib.sha256(
-            json.dumps(
-                identity_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            ).encode("ascii")
-        ).hexdigest()
-        return build_showcase_view(code, base_identity, base, policy=policy)
-    except (ShowcasePolicyError, ValueError) as exc:
+        return decomposition_from_rows(code, rows)
+    except ValueError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

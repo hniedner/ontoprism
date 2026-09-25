@@ -3,7 +3,6 @@
 from collections.abc import Collection
 from typing import Protocol
 
-from ontolib.decomposition.enhanced_showcase import build_showcase_decision_query
 from ontolib.decomposition.read_queries import (
     build_decomposition_query,
     build_publication_progress_query,
@@ -41,13 +40,6 @@ class DecompositionReader:
                 "axisSource",
                 "mostSpecific",
             },
-        )
-
-    async def showcase_rows_for(self, concept_code: str) -> list[dict[str, str]]:
-        """Return the isolated activation rows without joining base constituents."""
-        return await self._client.select(
-            build_showcase_decision_query(concept_code),
-            required_variables={"payload"},
         )
 
     async def publication_progress_rows(self) -> list[dict[str, str]]:

@@ -59,7 +59,7 @@ class SelectRows(Protocol):
 
 
 class AnchorDefinitionRowsCache:
-    """Run-lifetime immutable cache of stated rows for one definition anchor."""
+    """Run-lifetime cache per definition anchor; cached rows are read-only."""
 
     def __init__(self) -> None:
         self._rows: dict[str, tuple[Row, ...]] = {}

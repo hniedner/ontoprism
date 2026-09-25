@@ -593,7 +593,7 @@ available (the rehearsal's progress lines on stderr are prefixed `preflight `; t
 run's id is on the first unprefixed `run=` line): in September 2026 ten of thirteen
 full runs were lost to short timeouts and late-surfacing errors.
 
-For the deterministic, review-only 26.07d M1 slice:
+For the deterministic 26.07d M1 review slice:
 
 ```bash
 pdm run decompose \
@@ -606,8 +606,9 @@ pdm run decompose \
 The sample manifest records the exact ordered codes, overlapping strata and rationales,
 source identity/version, and selection method. Its digest is part of run/resume identity.
 Sample execution validates every code against the revalidated hierarchy before
-provenance, requires `--out`, and rejects `--total-limit`, `--load`, and equivalence
-emission. It does not replace the later full-corpus acceptance run.
+provenance, requires `--out`, and rejects `--total-limit` and equivalence emission.
+Adding `--load` publishes the sample as a provisional expert-review demonstration;
+it does not replace the full-corpus run or establish scientific acceptance.
 
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint

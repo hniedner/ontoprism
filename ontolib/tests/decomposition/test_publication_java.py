@@ -5,17 +5,52 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from rdflib import RDF, Graph, Literal, Namespace
 
 from ontolib.core.data_build_tools import ToolIdentityError
-from ontolib.decomposition.publication import _convert_publication_ntriples
+from ontolib.decomposition.publication import (
+    PublicationMarker,
+    PublicationValidationError,
+    _convert_publication_ntriples,
+    _publish_started_artifact,
+)
 
 # The integration lane installs pinned Jena and Java. This contract itself uses
 # only local processes and temporary files; it never provisions a store.
 pytestmark = pytest.mark.integration
+
+
+async def test_file_only_publication_rejects_invalid_turtle_before_completion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "bad.ttl"
+    destination = tmp_path / "published.ttl"
+    source.write_text('<urn:s> <urn:p> [ <urn:q> "broken" .\n')
+    provenance = AsyncMock()
+    marker = PublicationMarker(
+        run_id="run",
+        source_identity="a" * 64,
+        representation_identity="b" * 64,
+        built_at=datetime.now(UTC),
+    )
+    with pytest.raises(PublicationValidationError):
+        await _publish_started_artifact(
+            marker=marker,
+            artifact=source,
+            destination=destination,
+            metrics={},
+            load_to_store=False,
+            predecessor=None,
+            client=AsyncMock(),
+            provenance=provenance,
+        )
+    assert not destination.exists()
+    provenance.finish_run.assert_not_awaited()
 
 
 @pytest.fixture

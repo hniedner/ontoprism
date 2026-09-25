@@ -290,16 +290,15 @@ def _publication_rows(
     run_id: str,
 ) -> tuple[ConceptPublication, ...]:
     supplied = tuple(publications)
-    if not run_id or supplied:
-        return supplied
-    return tuple(
-        ConceptPublication(
-            concept_code=decomposition.code,
-            outcome="decomposed",
-            reason=f"engine emitted {len(decomposition.constituents)} constituents",
+    if run_id and not {d.code for d in materialized} <= {
+        r.concept_code for r in supplied
+    }:
+        raise ValueError(
+            "run export requires publication records for every decomposition"
         )
-        for decomposition in materialized
-    )
+    if supplied and not run_id:
+        raise ValueError("publication records require a run identifier")
+    return supplied
 
 
 def _render_demonstration(

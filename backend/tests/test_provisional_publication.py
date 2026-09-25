@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ontolib.decomposition import vocab
 from ontolib.decomposition.read import decomposition_from_rows
 
 
@@ -26,4 +25,3 @@ def test_published_concept_api_metadata_keeps_outcome_and_flag_reasons() -> None
         "kind": "unresolved-r101-loss",
         "reason": "R101 occurrence abc is unresolved: missing-disposition",
     }
-    assert vocab.CONCEPT_OUTCOME.endswith("conceptOutcome")

@@ -1103,7 +1103,7 @@ async def _fetch_genus_label(
     select_fn: SelectRows,
     genus_iri: str,
 ) -> str:
-    """Fetch the label for a genus concept from the stated graph."""
+    """Fetch exactly one stated genus label; reject missing or ambiguous labels."""
     label_query = f"""{_PREFIXES}
         SELECT ?label WHERE {{
             GRAPH <{STATED_GRAPH_IRI}> {{

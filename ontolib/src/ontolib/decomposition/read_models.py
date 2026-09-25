@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Literal, Self, get_args
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.decomposition.models import AxisSource, ConceptOutcome
@@ -117,14 +117,9 @@ class ConceptDecomposition(StrictBoundaryModel):
 
     code: str
     publication_status: Literal["provisional"] | None = None
-    publication_notice: str | None = None
-    outcome: (
-        Literal[
-            "decomposed", "residual", "semantic-excluded", "atomic-no-op", "unknown"
-        ]
-        | None
-    ) = None
-    outcome_reason: str | None = None
+    publication_notice: Literal["expert review, not an NCIt release"] | None = None
+    outcome: ConceptOutcome | None = None
+    outcome_reason: str | None = Field(default=None, min_length=1)
     review_flags: list[ConceptReviewFlag] = Field(default_factory=list)
     is_legacy_precoordinated: bool
     decomposed_on: str | None = None
@@ -143,8 +138,8 @@ class PublicationProgress(StrictBoundaryModel):
     publication_status: Literal["provisional"]
     publication_notice: str = Field(min_length=1)
     total_concepts: int = Field(ge=0)
-    outcome_counts: dict[ConceptOutcome, int]
-    review_flag_counts: dict[ReviewFlagKind, int]
+    outcome_counts: dict[ConceptOutcome, NonNegativeInt]
+    review_flag_counts: dict[ReviewFlagKind, NonNegativeInt]
 
     @model_validator(mode="after")
     def _counts_are_complete(self) -> Self:
@@ -156,8 +151,6 @@ class PublicationProgress(StrictBoundaryModel):
             raise ValueError("publication progress must include every D93 review flag")
         if sum(self.outcome_counts.values()) != self.total_concepts:
             raise ValueError("publication outcome counts do not sum to total concepts")
-        if any(count < 0 for count in self.review_flag_counts.values()):
-            raise ValueError("publication review-flag counts cannot be negative")
         return self
 
 

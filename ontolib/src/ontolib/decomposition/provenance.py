@@ -3030,11 +3030,13 @@ class ProvenanceStore:
             mints.mappings().all(),
         )
         return tuple(
-            ConceptPublication(
-                concept_code=item.concept_code,
-                outcome=item.outcome,  # type: ignore[arg-type]
-                reason=_concept_outcome_reason(item),
-                flags=tuple(flags.get(item.concept_code, ())),
+            ConceptPublication.model_validate(
+                {
+                    "concept_code": item.concept_code,
+                    "outcome": item.outcome,
+                    "reason": _concept_outcome_reason(item),
+                    "flags": tuple(flags.get(item.concept_code, ())),
+                }
             )
             for item in outcomes
         )
