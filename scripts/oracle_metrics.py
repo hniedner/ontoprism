@@ -26,6 +26,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.legacy_writer import write_ttl
+from ontolib.decomposition.normalized_group_policy import UNRESOLVED_ABSTENTION_BLOCKS
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -53,11 +54,34 @@ def oracle_metrics_report(
     rows: RowDecisionExport,
     registry: ProposalRegistry,
 ) -> str:
-    """Render four current D74 views and the independent historical SME baseline."""
+    """Report decided common partitions separately from explicit #355 abstentions.
+
+    Pair scores and full exact partition agreement keep their original populations.
+    The underlying comparison retains the original null-as-singleton diagnostic;
+    it is not a scientific disposition of an unresolved grouping.
+    """
     comparison = build_current_comparison(evidence, oracle, rows, registry)
     metrics = comparison.metrics
     historical = rows.cross_tab().engine_suggestion
     common = metrics.common_pair_partition_agreement
+    actual_by_code = {concept.code: concept for concept in evidence.concepts}
+    abstentions = []
+    agreements = 0
+    for concept in comparison.concepts:
+        partition = concept.common_pair_partition
+        if not partition.eligible:
+            continue
+        shared = {pair for block in partition.actual_partition for pair in block}
+        unresolved = UNRESOLVED_ABSTENTION_BLOCKS.get(concept.code, frozenset())
+        if any(
+            (item.axis, item.filler) in unresolved & shared
+            and item.normalized_group_id is None
+            for item in actual_by_code[concept.code].constituents
+        ):
+            abstentions.append(concept.code)
+        else:
+            agreements += partition.agrees is True
+    decided = common.denominator - len(abstentions)
     return "\n".join(
         (
             _rate(
@@ -87,11 +111,19 @@ def oracle_metrics_report(
             ),
             _rate(
                 "common_pair_partition_agreement",
-                common.numerator,
-                common.denominator,
-                common.rate,
+                agreements,
+                decided,
+                agreements / decided if decided else None,
             )
-            + f" [ineligible={common.ineligible}]",
+            + f" [decided-only; agrees={agreements}; disagrees={decided - agreements}; "
+            + f"abstains={len(abstentions)}; ineligible={common.ineligible}]",
+            _rate(
+                "common_pair_decision_coverage",
+                decided,
+                common.denominator,
+                decided / common.denominator if common.denominator else None,
+            ),
+            "partition_abstentions=" + (",".join(sorted(abstentions)) or "none"),
         )
     )
 

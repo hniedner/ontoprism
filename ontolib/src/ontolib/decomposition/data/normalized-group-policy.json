@@ -12,7 +12,7 @@
     "C198031",
     "C35756"
   ],
-  "policy_identity": "4728cf5b289f4cb5381c6c3cc898a453711e2c98c7721dee9bab6de786d1e153",
+  "policy_identity": "93a7b80bee9544357ce216c6fbe7931e7262ec3a358db39f08214c3cdbaece49",
   "rationale_markdown_sha256": "f9af04f2852fa66000506a572ca973f6b5ad9bb1294e5132bdda0a502b0740dd",
   "rationale_sidecar_identity": "510492aea6a50f64fc940256ff815c52f3074ac36c69c60255c64efdcf420522",
   "rationale_sidecar_sha256": "e82d5895d9239cf2ba02753c98db23224f97a3b20d86ff48ec87c32f9796ce35",
@@ -3881,46 +3881,16 @@
         {
           "decision_regime": "historical-approval",
           "grouping_status": "decided",
-          "human_decision_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+          "human_decision_identity": "87c3392c9e474ddcee91a0b5229eff91a162b480eca93ebdce29f238f57cbca9",
           "machine_policy_identity": null,
-          "normalized_group_id": "eae55cbe985feefd0bff886c79a51ce594143051076c25a3448e939d7383aa26",
-          "normalized_group_label": "reviewed-regrouping:C162226:eae55cbe985f",
+          "normalized_group_id": "2f40ee72c2a0c1669720ab0cca464c0a177211ae487cf1d2f0d8d1d4368187ff",
+          "normalized_group_label": "reviewed-regrouping:C162226:2f40ee72c2a0",
           "occurrence_availability": "available",
           "pairs": [
             [
               "op:StageSystem",
               "C186617"
-            ]
-          ],
-          "source_coordinates": [
-            {
-              "anchor_code": "C162225",
-              "depth": 1,
-              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
-            }
-          ],
-          "source_fact_ids": [
-            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d"
-          ],
-          "source_group_ids": [
-            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
-          ],
-          "source_occurrence_ids": [
-            "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
-          ],
-          "transformation_rules": [
-            "reviewed-regrouping"
-          ]
-        },
-        {
-          "decision_regime": "historical-approval",
-          "grouping_status": "decided",
-          "human_decision_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
-          "machine_policy_identity": null,
-          "normalized_group_id": "297314d5ad8bbf290f408a3295d22157271c56223c51b5404eb0bfcd0efe5c6b",
-          "normalized_group_label": "reviewed-regrouping:C162226:297314d5ad8b",
-          "occurrence_availability": "available",
-          "pairs": [
+            ],
             [
               "op:StageValue",
               "C96244"
@@ -3931,15 +3901,23 @@
               "anchor_code": "C162226",
               "depth": 0,
               "source_group_id": "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2"
+            },
+            {
+              "anchor_code": "C162225",
+              "depth": 1,
+              "source_group_id": "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
             }
           ],
           "source_fact_ids": [
+            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d",
             "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
           ],
           "source_group_ids": [
-            "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2"
+            "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2",
+            "d5ab55bccdef1e0cecf9d5ef3a1a2bf588319abb319c373589b5221b37b5885a"
           ],
           "source_occurrence_ids": [
+            "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b",
             "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
           ],
           "transformation_rules": [
@@ -3969,12 +3947,12 @@
         ]
       ],
       "historical_decision": {
-        "decision": "Approve intentional normalization",
+        "decision": "Approve system/value co-membership",
         "pair_decision": null,
-        "rationale": "Normalizing C162226 aligns with HL7 FHIR mCODE and modern post-coordination standards by structurally decoupling \nthe staging method (FIGO 2018) from the stage result (Stage I). This separation preserves the precise clinical \nassessment via distinct relational edges rather than a rigid text string. It eliminates pre-coordinated terminology \nbloat while explicitly connecting the core diagnosis to earlier editions (like FIGO 2009), enabling seamless \nlongitudinal queries for \"Stage I Cervical Cancer\" cohorts while strictly maintaining the 2018 guideline provenance.",
-        "rationale_sha256": "79e9ce48bf08ed3fc87d22d2cb569363c7be5ca24033583a8fac581a78204eb1",
-        "review_date": "2026-08-28",
-        "review_row_identity": "a188693e8999c58969e161edc4252e8596a34509d63020dc68914bc9dc26677d",
+        "rationale": "Owner/SME approval 2026-09-25, #355: retain distinct StageSystem and StageValue axes in one concept-local group, expressing this value under this edition. Supersedes the 2026-08-28 singleton approval, retained in evidence/group-review-rationale-26.07d.md. Stage meaning is edition-dependent (doi:10.1016/j.ygyno.2020.03.027; doi:10.3322/caac.21663); mCODE represents method and value within one assessment. No filler or cross-edition equivalence. Rationale: docs/evidence/cervical-stage-grouping-355.md.",
+        "rationale_sha256": "a5adc414008cb756c450ae324f92c07ff0355ee656bff127d094a43d5e1c813d",
+        "review_date": "2026-09-25",
+        "review_row_identity": "87c3392c9e474ddcee91a0b5229eff91a162b480eca93ebdce29f238f57cbca9",
         "reviewer": "R. Hannes Niedner, M.D."
       },
       "historical_expected_partition": [
@@ -4097,9 +4075,7 @@
           [
             "op:StageSystem",
             "C186617"
-          ]
-        ],
-        [
+          ],
           [
             "op:StageValue",
             "C96244"
@@ -4111,16 +4087,14 @@
           [
             "op:StageSystem",
             "C186617"
-          ]
-        ],
-        [
+          ],
           [
             "op:StageValue",
             "C96244"
           ]
         ]
       ],
-      "row_identity": "fac970051f324588aab85fff22ad13d3caaa59df64a42d924f49e59b3d5a25c0",
+      "row_identity": "593c6ab29c3681630a0218b74986a84595876dea3facd584d79d750405847e92",
       "rule_kind": "reviewed-regrouping",
       "source_evidence_identity": "c80bc1f2fd9a9d857fabbf4087c78146e4c60fdd67293fac3c839dc8f8d24cae",
       "source_pair_evidence": [
@@ -4437,18 +4411,27 @@
         {
           "decision_regime": "historical-approval",
           "grouping_status": "decided",
-          "human_decision_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+          "human_decision_identity": "51d16a549469359750fbcf6bc4bdca99d0afc7557e74c1af077ae350ed41df88",
           "machine_policy_identity": null,
-          "normalized_group_id": "cdc4d1db2bfb4d4dd9c39d0625e787fb5ccf265823499e7f30118993e0fe6347",
-          "normalized_group_label": "reviewed-regrouping:C181564:cdc4d1db2bfb",
+          "normalized_group_id": "5cdb820d69e384107ccff4ed92d5c9bc117b32461fa4086f22fc9c0b84569b43",
+          "normalized_group_label": "reviewed-regrouping:C181564:5cdb820d69e3",
           "occurrence_availability": "available",
           "pairs": [
             [
               "op:StageSystem",
               "C180901"
+            ],
+            [
+              "op:StageValue",
+              "C27966"
             ]
           ],
           "source_coordinates": [
+            {
+              "anchor_code": "C181564",
+              "depth": 0,
+              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
+            },
             {
               "anchor_code": "C181562",
               "depth": 1,
@@ -4456,13 +4439,16 @@
             }
           ],
           "source_fact_ids": [
-            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c"
+            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c",
+            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
           ],
           "source_group_ids": [
+            "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8",
             "7f10ca575c6631d1d39f940924f7cdfd555c0df4aee153b54e17f8605e28f754"
           ],
           "source_occurrence_ids": [
-            "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
+            "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1",
+            "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
           ],
           "transformation_rules": [
             "reviewed-regrouping"
@@ -4489,40 +4475,6 @@
           "transformation_rules": [
             "co-assertion-preservation"
           ]
-        },
-        {
-          "decision_regime": "historical-approval",
-          "grouping_status": "decided",
-          "human_decision_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
-          "machine_policy_identity": null,
-          "normalized_group_id": "d20fdee0e094394ca8816bb72b5aaf0842266de9b349f3efce232634c2dd8cbe",
-          "normalized_group_label": "reviewed-regrouping:C181564:d20fdee0e094",
-          "occurrence_availability": "available",
-          "pairs": [
-            [
-              "op:StageValue",
-              "C27966"
-            ]
-          ],
-          "source_coordinates": [
-            {
-              "anchor_code": "C181564",
-              "depth": 0,
-              "source_group_id": "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
-            }
-          ],
-          "source_fact_ids": [
-            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
-          ],
-          "source_group_ids": [
-            "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
-          ],
-          "source_occurrence_ids": [
-            "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
-          ],
-          "transformation_rules": [
-            "reviewed-regrouping"
-          ]
         }
       ],
       "concept_code": "C181564",
@@ -4547,12 +4499,12 @@
         ]
       ],
       "historical_decision": {
-        "decision": "Approve intentional normalization",
+        "decision": "Approve system/value co-membership",
         "pair_decision": null,
-        "rationale": "HL7 FHIR mCODE interoperability standards explicitly require separating the staging method (AJCC v9) \nfrom the staging result (Stage I). Decomposing C181564 breaks the rigid pre-coordinated silo, aligning the concept \nwith modern EHR data models and SNOMED CT post-coordination principles to prevent a combinatorial explosion of \nversion-specific codes.\nThe exact clinical context is fully preserved through structural graph edges rather than a single text string. \nThe patient is still definitively recorded as having \"Stage I Cervical Cancer evaluated via AJCC v9 criteria,\" \nbut this normalization allows researchers to query orthogonally: they can now pull a broad cohort of all \n\"Stage I Cervical Cancers\" across AJCC editions, while retaining the ability to filter strictly for the \nv9 provenance.\nNo diagnostic or prognostic specificity is lost. Instead, the semantic meaning is enhanced because the data becomes \northogonally queryable. Researchers can now query all \"Stage I\" tumors across multiple staging versions to find \nbroader clinical cohorts, while still being able to strictly filter for the exact \"AJCC v9\" criteria when required.",
-        "rationale_sha256": "2d45651cf10729da3be40e7f964380a3bcb05ef0a60764aa5ba53ca4921e89a7",
-        "review_date": "2026-08-28",
-        "review_row_identity": "370a0ae5e4236c2df78a41ca1edcbc7028dab53c8f67f03f741742644260deb3",
+        "rationale": "Owner/SME approval 2026-09-25, #355: retain distinct StageSystem and StageValue axes in one concept-local group, expressing this value under this edition. Supersedes the 2026-08-28 singleton approval, retained in evidence/group-review-rationale-26.07d.md. Stage meaning is edition-dependent (doi:10.1016/j.ygyno.2020.03.027; doi:10.3322/caac.21663); mCODE represents method and value within one assessment. No filler or cross-edition equivalence. Rationale: docs/evidence/cervical-stage-grouping-355.md.",
+        "rationale_sha256": "a5adc414008cb756c450ae324f92c07ff0355ee656bff127d094a43d5e1c813d",
+        "review_date": "2026-09-25",
+        "review_row_identity": "51d16a549469359750fbcf6bc4bdca99d0afc7557e74c1af077ae350ed41df88",
         "reviewer": "R. Hannes Niedner, M.D."
       },
       "historical_expected_partition": [
@@ -4675,18 +4627,16 @@
           [
             "op:StageSystem",
             "C180901"
+          ],
+          [
+            "op:StageValue",
+            "C27966"
           ]
         ],
         [
           [
             "op:StageSystem",
             "MINT-27f8060dd413"
-          ]
-        ],
-        [
-          [
-            "op:StageValue",
-            "C27966"
           ]
         ]
       ],
@@ -4695,16 +4645,14 @@
           [
             "op:StageSystem",
             "C180901"
-          ]
-        ],
-        [
+          ],
           [
             "op:StageValue",
             "C27966"
           ]
         ]
       ],
-      "row_identity": "c44117a91c2f209fe5e154057e4bdffb9a0cc6938303654615d0e31679271ed3",
+      "row_identity": "a478bab744e767bc75afe412dfb4f16ca3fe46a5c89a81ad9d26543e24a0f6e1",
       "rule_kind": "reviewed-regrouping",
       "source_evidence_identity": "6791fd21de063435aa8623457e50bfad22c8af6a47efcce64cf568f470f17330",
       "source_pair_evidence": [
@@ -5031,46 +4979,16 @@
         {
           "decision_regime": "historical-approval",
           "grouping_status": "decided",
-          "human_decision_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+          "human_decision_identity": "d62659c0a0baed6311e46dd8a1f9143cd92f71c8554a7323d5c1f811cda8ea59",
           "machine_policy_identity": null,
-          "normalized_group_id": "d9c3c8d6aa2948857c6327cda6921849d80a8ef66b7d71db97104eab74530b24",
-          "normalized_group_label": "reviewed-regrouping:C186620:d9c3c8d6aa29",
+          "normalized_group_id": "0d2339250ff150b0057875b6536389c6f2b43f6539ce4dc80760436d0fc0e86a",
+          "normalized_group_label": "reviewed-regrouping:C186620:0d2339250ff1",
           "occurrence_availability": "available",
           "pairs": [
             [
               "op:StageSystem",
               "C186618"
-            ]
-          ],
-          "source_coordinates": [
-            {
-              "anchor_code": "C186619",
-              "depth": 1,
-              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
-            }
-          ],
-          "source_fact_ids": [
-            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47"
-          ],
-          "source_group_ids": [
-            "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
-          ],
-          "source_occurrence_ids": [
-            "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
-          ],
-          "transformation_rules": [
-            "reviewed-regrouping"
-          ]
-        },
-        {
-          "decision_regime": "historical-approval",
-          "grouping_status": "decided",
-          "human_decision_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
-          "machine_policy_identity": null,
-          "normalized_group_id": "bd87c1965e4afbb518e22b6c05626101907efea13e79448afde5caaa62eb05f0",
-          "normalized_group_label": "reviewed-regrouping:C186620:bd87c1965e4a",
-          "occurrence_availability": "available",
-          "pairs": [
+            ],
             [
               "op:StageValue",
               "C27966"
@@ -5081,16 +4999,24 @@
               "anchor_code": "C186620",
               "depth": 0,
               "source_group_id": "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a"
+            },
+            {
+              "anchor_code": "C186619",
+              "depth": 1,
+              "source_group_id": "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
             }
           ],
           "source_fact_ids": [
+            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47",
             "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
           ],
           "source_group_ids": [
-            "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a"
+            "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a",
+            "b7b9600ed1d8ea5b0ca11c21b03d4189a4223293763787bcad7a92fb9fee4e0c"
           ],
           "source_occurrence_ids": [
-            "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
+            "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158",
+            "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
           ],
           "transformation_rules": [
             "reviewed-regrouping"
@@ -5119,12 +5045,12 @@
         ]
       ],
       "historical_decision": {
-        "decision": "Approve intentional normalization",
+        "decision": "Approve system/value co-membership",
         "pair_decision": null,
-        "rationale": "HL7 FHIR mCODE standards explicitly model gynecologic oncology by separating the staging method (FIGO 2009) from \nthe staging result (Stage I). Normalizing C186620 eliminates redundant pre-coordinated silos, allowing the \ncore \"Stage I\" concept to be cleanly reused across different FIGO editions without causing terminology bloat.\nThe precise historical and clinical context\u2014\"Stage I Cervical Cancer evaluated via FIGO 2009 criteria\"\u2014is completely \npreserved through distinct structural relationships. This semantic integrity enables researchers to execute \nlongitudinal queries for all \"Stage I Cervical Cancers\" spanning multiple FIGO guideline revisions \n(e.g., comparing 2009 to 2018 cohorts), while still strictly retaining the exact historical provenance of this \nspecific assessment.\nNormalizing C186620 aligns with HL7 FHIR mCODE and SNOMED CT post-coordination guidelines by structurally decoupling \nthe staging method (FIGO 2009) from the stage result (Stage I). This separation preserves the precise clinical context \nvia relational edges, eliminating pre-coordinated terminology bloat while unlocking the ability to execute \nlongitudinal cohort queries for \"Stage I Cervical Cancer\" across multiple FIGO guideline revisions.",
-        "rationale_sha256": "958a5d041a2faf2894af54d7d0f090ab6723ac9ba0641501cfb1113f75c9104f",
-        "review_date": "2026-08-28",
-        "review_row_identity": "5e13317ecf44f5f17aacc73f505bff2d404f5b03797c4b19edbe9b4a1d8d9519",
+        "rationale": "Owner/SME approval 2026-09-25, #355: retain distinct StageSystem and StageValue axes in one concept-local group, expressing this value under this edition. Supersedes the 2026-08-28 singleton approval, retained in evidence/group-review-rationale-26.07d.md. Stage meaning is edition-dependent (doi:10.1016/j.ygyno.2020.03.027; doi:10.3322/caac.21663); mCODE represents method and value within one assessment. No filler or cross-edition equivalence. Rationale: docs/evidence/cervical-stage-grouping-355.md.",
+        "rationale_sha256": "a5adc414008cb756c450ae324f92c07ff0355ee656bff127d094a43d5e1c813d",
+        "review_date": "2026-09-25",
+        "review_row_identity": "d62659c0a0baed6311e46dd8a1f9143cd92f71c8554a7323d5c1f811cda8ea59",
         "reviewer": "R. Hannes Niedner, M.D."
       },
       "historical_expected_partition": [
@@ -5247,9 +5173,7 @@
           [
             "op:StageSystem",
             "C186618"
-          ]
-        ],
-        [
+          ],
           [
             "op:StageValue",
             "C27966"
@@ -5261,16 +5185,14 @@
           [
             "op:StageSystem",
             "C186618"
-          ]
-        ],
-        [
+          ],
           [
             "op:StageValue",
             "C27966"
           ]
         ]
       ],
-      "row_identity": "894a61ac6a5d052fad4cbdb228f4240a807efc959449ad75711b417de961c8cc",
+      "row_identity": "d8caa4af155e204311d5f947b23074c200fb80066f006e5c59d99ca797a0c7de",
       "rule_kind": "reviewed-regrouping",
       "source_evidence_identity": "e58433cba32e5b3975135e5c49a45ede55684a9f771e72da0ea3980582be5086",
       "source_pair_evidence": [
