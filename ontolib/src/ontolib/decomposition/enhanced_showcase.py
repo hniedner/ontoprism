@@ -598,20 +598,6 @@ def validate_showcase_rows(
         raise ShowcasePolicyError("stored showcase decision graph is invalid") from exc
 
 
-def require_active_showcase_decisions(
-    rows: list[dict[str, str]], expected: tuple[ShowcaseDecision, ...]
-) -> None:
-    """Require storage to contain the exact packaged decisions served by the API."""
-    stored = validate_showcase_rows(rows)
-    canonical_expected = tuple(
-        sorted(expected, key=lambda decision: decision.candidate_id)
-    )
-    if stored != canonical_expected:
-        raise ShowcasePolicyError(
-            "stored showcase decisions differ from the packaged authority"
-        )
-
-
 def showcase_staging_graph_iri(run_id: str) -> str:
     return f"{SHOWCASE_GRAPH_IRI}/staging/{hashlib.sha256(run_id.encode()).hexdigest()}"
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +15,7 @@ from uuid import UUID
 
 import pytest
 
-from ontolib.decomposition import axes
+from ontolib.decomposition import axes, publication, vocab
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
@@ -42,10 +43,15 @@ from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.projection_validity import decide_projection
-from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
+from ontolib.decomposition.provenance import (
+    ProvenanceStore,
+    RunIdentityMismatchError,
+    RunStateError,
+)
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
+    ConceptPublication,
     FreshAdmitted,
     NcitSourceSnapshot,
     RefusalReason,
@@ -96,6 +102,17 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Collection
+
+
+@pytest.fixture(autouse=True)
+def publication_conversion_double(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Orchestrator tests isolate external RIOT; test_publication_java exercises
+    # actual parsing and file-only failure propagation in the integration lane.
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
+    )
 
 
 def _iri(code: str) -> str:
@@ -418,6 +435,45 @@ class _FakeClient:
         return await self.select(query, required_variables=required_variables)
 
 
+class _PublishingFakeClient(_FakeClient):
+    """Records the graph replacement performed by the real publication path."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.loaded_graph: str | None = None
+        self.loaded_payload = b""
+        self.replacement_update: str | None = None
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        if set(required_variables) == {"predicate", "value"}:
+            return []
+        return await super().select_once(query, required_variables=required_variables)
+
+    async def load(
+        self,
+        data: Any,
+        *,
+        content_type: str,
+        graph_iri: str | None = None,
+        replace: bool = True,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        assert content_type == "application/n-triples"
+        assert replace is True
+        self.loaded_payload = data.read()
+        self.loaded_graph = graph_iri
+
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        self.replacement_update = update
+
+
 def _mark_run_row_missing(store: Any, state: dict[str, Any]) -> None:
     """Model `finish_run` finding no row: the run id no longer exists.
 
@@ -626,6 +682,9 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
     store.decompositions_for_run = AsyncMock(
         side_effect=lambda _run_id: state["decompositions"]
     )
+    store.concept_publications_for_run = AsyncMock(
+        side_effect=lambda _run_id: _mock_concept_publications(state)
+    )
     store.outcome_counts = AsyncMock(side_effect=outcome_counts)
     store.r101_conservation_counts = AsyncMock(
         return_value=R101ConservationCounts(
@@ -636,6 +695,22 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
             closure_only_r82=0,
             unresolved=0,
         )
+    )
+
+
+def _mock_concept_publications(
+    state: dict[str, Any],
+) -> tuple[ConceptPublication, ...]:
+    fingerprint = state["fingerprint"]
+    if fingerprint is None:
+        return ()
+    return tuple(
+        ConceptPublication(
+            concept_code=code,
+            outcome="semantic-excluded",
+            reason="source semantic types are outside decomposition scope: none",
+        )
+        for code in fingerprint.worklist
     )
 
 
@@ -1080,7 +1155,11 @@ async def test_source_preflight_uses_the_production_definition_bounds(
 
     await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
-    assert read_definition.await_args_list[0].kwargs == {}
+    assert set(read_definition.await_args_list[0].kwargs) == {"anchor_rows_cache"}
+    assert isinstance(
+        read_definition.await_args_list[0].kwargs["anchor_rows_cache"],
+        run_module.complete_definition.AnchorDefinitionRowsCache,
+    )
 
 
 @pytest.mark.unit
@@ -1614,7 +1693,9 @@ async def test_run_pipeline_nlp_fallback_mints_when_no_label_lookup_given() -> N
     provenance = _mock_provenance()
 
     async def get_labels(codes: list[str]) -> dict[str, str]:
-        return {"C4791": "Left Atrial Myxoma"}
+        return {
+            code: "Left Atrial Myxoma" if code == "C4791" else code for code in codes
+        }
 
     metrics = await run_pipeline(
         RunConfig(branch="neoplasm"), client, provenance, get_labels=get_labels
@@ -1640,7 +1721,9 @@ async def test_run_pipeline_nlp_aspect_resolves_via_label_lookup() -> None:
     provenance = _mock_provenance()
 
     async def get_labels(codes: list[str]) -> dict[str, str]:
-        return {"C4791": "Left Atrial Myxoma"}
+        return {
+            code: "Left Atrial Myxoma" if code == "C4791" else code for code in codes
+        }
 
     async def label_lookup(term: str) -> str | None:
         return "C99" if term == "Left" else None
@@ -2138,6 +2221,7 @@ async def test_metrics_checkpoint_records_unknown_count_mismatch() -> None:
 @pytest.mark.unit
 async def test_completed_metrics_checkpoint_must_match_persisted_outputs() -> None:
     provenance = MagicMock()
+    provenance.require_completion_preconditions = AsyncMock(return_value=True)
     provenance.require_completion_recount = AsyncMock()
     provenance.claim_stage = AsyncMock(return_value=UUID(int=1))
     provenance.unknown_outcome_codes = AsyncMock(return_value=())
@@ -2338,6 +2422,38 @@ async def test_run_pipeline_writes_ttl_when_out_is_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_sample_run_with_load_publishes_through_the_decomposed_graph_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
+    )
+    client = _PublishingFakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    out = tmp_path / "sample.ttl"
+
+    await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=out,
+            load_to_store=True,
+            sample_manifest=_sample_manifest("C1"),
+        ),
+        client,
+        provenance,
+    )
+
+    assert out.read_bytes() == client.loaded_payload
+    assert client.loaded_graph is not None
+    assert client.loaded_graph.startswith(f"{vocab.DECOMPOSED_GRAPH_IRI}/staging/")
+    assert client.replacement_update is not None
+    assert f"TO GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in client.replacement_update
+
+
+@pytest.mark.unit
 async def test_run_pipeline_no_out_does_not_write_a_file(tmp_path: Path) -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
@@ -2527,18 +2643,11 @@ def test_run_config_defaults() -> None:
 
 
 @pytest.mark.unit
-def test_sample_run_config_is_review_only_and_scope_bound(tmp_path: Path) -> None:
+def test_sample_run_config_requires_output_and_is_scope_bound(tmp_path: Path) -> None:
     sample = _sample_manifest("C1")
 
     with pytest.raises(ValueError, match="requires an output path"):
         RunConfig(branch="neoplasm", sample_manifest=sample)
-    with pytest.raises(ValueError, match="cannot load"):
-        RunConfig(
-            branch="neoplasm",
-            out=tmp_path / "review.ttl",
-            load_to_store=True,
-            sample_manifest=sample,
-        )
     with pytest.raises(ValueError, match="does not match run branch"):
         RunConfig(
             branch="disease",
@@ -2633,6 +2742,106 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
     assert result.outcome == "unknown"
     assert result.decomposition is None
     assert result.semantic_types == ("Neoplastic Process",)
+
+
+@pytest.mark.unit
+async def test_missing_requested_label_fails_the_named_work_item() -> None:
+    setup = _checkpoint_setup()
+    setup.pending = ["C1"]
+    setup.label_errors = {"C1": "has no stated label"}
+    provenance = MagicMock()
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_work_item = AsyncMock()
+    provenance.fail_work_item = AsyncMock()
+
+    with pytest.raises(ValueError, match="concept C1 has no stated label") as error:
+        await run_module._process_work_item(
+            setup,
+            "C1",
+            MagicMock(),
+            provenance,
+            label_lookup=AsyncMock(return_value=None),
+            walker_max_depth=7,
+        )
+
+    provenance.complete_work_item.assert_not_awaited()
+    provenance.fail_work_item.assert_awaited_once()
+    assert type(error.value).__name__ == "ConceptLabelError"
+    recorded = provenance.fail_work_item.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert str(recorded) == "concept C1 has no stated label"
+
+
+@pytest.mark.unit
+async def test_ambiguous_requested_label_fails_the_named_work_item() -> None:
+    setup = _checkpoint_setup()
+    setup.pending = ["C1"]
+    setup.label_errors = {"C1": "has multiple distinct stated labels"}
+    provenance = MagicMock()
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_work_item = AsyncMock()
+    provenance.fail_work_item = AsyncMock()
+
+    with pytest.raises(
+        ValueError, match="concept C1 has multiple distinct stated labels"
+    ) as error:
+        await run_module._process_work_item(
+            setup,
+            "C1",
+            MagicMock(),
+            provenance,
+            label_lookup=AsyncMock(return_value=None),
+            walker_max_depth=7,
+        )
+
+    provenance.complete_work_item.assert_not_awaited()
+    provenance.fail_work_item.assert_awaited_once()
+    assert type(error.value).__name__ == "ConceptLabelError"
+    recorded = provenance.fail_work_item.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert str(recorded) == "concept C1 has multiple distinct stated labels"
+
+
+@pytest.mark.unit
+async def test_missing_residual_filler_label_fails_its_named_item() -> None:
+    provenance = MagicMock()
+    provenance.claim_residual_filler = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_residual_filler = AsyncMock()
+    provenance.fail_residual_filler = AsyncMock()
+
+    with pytest.raises(ValueError, match="concept C2 has no stated label") as error:
+        await run_module._materialize_residual_filler(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            provenance,
+            "C2",
+            label=None,
+            label_error="has no stated label",
+            detector_identity="b" * 64,
+        )
+
+    provenance.complete_residual_filler.assert_not_awaited()
+    provenance.fail_residual_filler.assert_awaited_once()
+    recorded = provenance.fail_residual_filler.await_args.args[3]
+    assert type(recorded).__name__ == "ConceptLabelError"
+    assert recorded is error.value
+
+
+@pytest.mark.unit
+async def test_label_batch_rejects_unrequested_and_blank_results() -> None:
+    async def unexpected(_codes: list[str]) -> dict[str, str]:
+        return {"C2": "Wrong concept"}
+
+    with pytest.raises(ValueError, match="unrequested concepts: C2"):
+        await run_module._fetch_label_batch(unexpected, ["C1"])
+
+    async def blank(_codes: list[str]) -> dict[str, str]:
+        return {"C1": ""}
+
+    labels, errors = await run_module._fetch_label_batch(blank, ["C1"])
+    assert labels == {}
+    assert errors == {"C1": "has no stated label"}
 
 
 @pytest.mark.unit
@@ -3597,7 +3806,7 @@ async def test_artifact_validation_failure_fails_the_run(
     )
 
     monkeypatch.setattr(
-        "ontolib.decomposition.publication._validated_artifact_payload",
+        "ontolib.decomposition.publication._seal_validated_artifact",
         MagicMock(side_effect=PublicationPreflightError("invalid artifact")),
     )
 
@@ -3650,6 +3859,109 @@ async def test_a_recount_mismatch_stops_the_run_before_anything_is_published(
     assert "metrics" not in provenance._test_state["stage_outputs"]
     assert "artifact" not in provenance._test_state["stage_outputs"]
     assert provenance._test_state["status"] == "failed"
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+async def _assert_completion_precondition_stops_before_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_preconditions = AsyncMock(side_effect=error)
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(type(error), match=re.escape(str(error))):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert provenance.fail_stage.await_args.args[1] == "metrics"
+    assert "artifact" not in provenance._test_state["stage_outputs"]
+    publish.assert_not_awaited()
+    assert not (tmp_path / "decomposed.ttl").exists()
+
+
+@pytest.mark.unit
+async def test_completion_source_mismatch_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunIdentityMismatchError(
+            "completion source identity does not match persisted run"
+        ),
+    )
+
+
+@pytest.mark.unit
+async def test_materialized_worklist_mismatch_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunIdentityMismatchError(
+            "materialized worklist does not match the immutable run fingerprint"
+        ),
+    )
+
+
+@pytest.mark.unit
+async def test_non_running_status_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _assert_completion_precondition_stops_before_artifact(
+        tmp_path,
+        monkeypatch,
+        RunStateError("decomposition run 'run' is not running"),
+    )
+
+
+@pytest.mark.unit
+async def test_missing_run_stops_before_artifact_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.require_completion_preconditions = AsyncMock(return_value=False)
+    publish = AsyncMock()
+    monkeypatch.setattr(run_module, "publish_artifact", publish)
+
+    with pytest.raises(RunStateError, match="completion preflight found no"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=tmp_path / "decomposed.ttl"),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert "artifact" not in provenance._test_state["stage_outputs"]
     publish.assert_not_awaited()
     assert not (tmp_path / "decomposed.ttl").exists()
 

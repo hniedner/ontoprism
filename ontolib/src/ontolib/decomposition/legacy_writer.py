@@ -23,6 +23,7 @@ from ontolib.decomposition.axis_contracts import (
     ProvisionalGovernance,
 )
 from ontolib.decomposition.models import GenusDefinitionFact
+from ontolib.decomposition.provenance_models import ConceptPublication
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -248,7 +249,6 @@ def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
 def _render_one(
     dec: Decomposition,
     *,
-    run_id: str = "",
     emitted_on: date,
 ) -> list[str]:
     """Render Turtle triples for a single *dec* into a list of statement strings."""
@@ -263,11 +263,57 @@ def _render_one(
         f' "{emitted_on}"^^<http://www.w3.org/2001/XMLSchema#date> .',
     )
 
-    if run_id:
-        lines.append(f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .')
-
     lines.extend(_render_constituent(subj, dec.code, c) for c in dec.constituents)
     lines.extend(_render_complete_definition(subj, dec))
+    return lines
+
+
+def _render_publication_record(record: ConceptPublication, run_id: str) -> list[str]:
+    subject = f"<{NCIT_NS}{record.concept_code}>"
+    lines = [
+        f'{subject} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .',
+        f"{subject} {_p(vocab.CONCEPT_OUTCOME)} {json.dumps(record.outcome)} .",
+        f"{subject} {_p(vocab.OUTCOME_REASON)} {json.dumps(record.reason)} .",
+    ]
+    lines.extend(
+        f"{subject} {_p(vocab.HAS_REVIEW_FLAG)} "
+        f"[{_p(vocab.REVIEW_FLAG_KIND)} {json.dumps(flag.kind)} ; "
+        f"{_p(vocab.REVIEW_FLAG_REASON)} {json.dumps(flag.reason)} ] ."
+        for flag in record.flags
+    )
+    return lines
+
+
+def _publication_rows(
+    materialized: tuple[Decomposition, ...],
+    publications: Iterable[ConceptPublication],
+    run_id: str,
+) -> tuple[ConceptPublication, ...]:
+    supplied = tuple(publications)
+    if run_id and not {d.code for d in materialized} <= {
+        r.concept_code for r in supplied
+    }:
+        raise ValueError(
+            "run export requires publication records for every decomposition"
+        )
+    if supplied and not run_id:
+        raise ValueError("publication records require a run identifier")
+    return supplied
+
+
+def _render_demonstration(
+    run_id: str, publication_rows: tuple[ConceptPublication, ...]
+) -> list[str]:
+    if not run_id:
+        return []
+    lines = [
+        f"<{vocab.DEMONSTRATION_MARKER}> "
+        f"{_p(vocab.PUBLICATION_STATUS)} {json.dumps(vocab.PROVISIONAL)} .",
+        f"<{vocab.DEMONSTRATION_MARKER}> {_p(vocab.PUBLICATION_NOTICE)} "
+        f"{json.dumps(vocab.EXPERT_REVIEW_NOTICE)} .",
+    ]
+    for record in publication_rows:
+        lines.extend(_render_publication_record(record, run_id))
     return lines
 
 
@@ -278,6 +324,7 @@ async def write_ttl(
     run_id: str = "",
     emitted_on: date | None = None,
     emit_equivalence: bool = False,
+    publications: Iterable[ConceptPublication] = (),
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
@@ -294,6 +341,8 @@ async def write_ttl(
     ValueError
         When *emit_equivalence* is requested. Reversible equivalence emission needs
         a separately validated proof-bearing export mode (D43).
+        Also when run-bound decompositions lack publication records, or records
+        are supplied without a run identifier.
     """
     if emit_equivalence:
         raise ValueError(
@@ -302,13 +351,14 @@ async def write_ttl(
         )
     if emitted_on is None:
         emitted_on = date.today()
-    buf = _render_axis_contracts()
+    materialized = tuple(decompositions)
+    publication_rows = _publication_rows(materialized, publications, run_id)
+    buf = [*_render_axis_contracts(), *_render_demonstration(run_id, publication_rows)]
 
-    for dec in decompositions:
+    for dec in materialized:
         buf.extend(
             _render_one(
                 dec,
-                run_id=run_id,
                 emitted_on=emitted_on,
             )
         )

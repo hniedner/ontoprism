@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
 from ontolib.decomposition import vocab as decomp_vocab
+from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
@@ -148,6 +149,46 @@ def _rel(
         relation_label=rel_label,
         target=ConceptRef(code=_code_of(target_uri), label=target_label),
     )
+
+
+def _resolved_requested_labels(
+    requested: tuple[str, ...], rows: Iterable[Mapping[str, str | None]]
+) -> tuple[dict[str, str], dict[str, str]]:
+    labels: dict[str, set[str]] = {code: set() for code in requested}
+    for row in rows:
+        _add_requested_label(labels, row)
+    return _single_labels(labels), _label_problems(labels)
+
+
+def _single_labels(labels: Mapping[str, set[str]]) -> dict[str, str]:
+    return {
+        code: next(iter(values)) for code, values in labels.items() if len(values) == 1
+    }
+
+
+def _label_problems(labels: Mapping[str, set[str]]) -> dict[str, str]:
+    return {
+        code: (
+            "has no stated label"
+            if not values
+            else "has multiple distinct stated labels"
+        )
+        for code, values in labels.items()
+        if len(values) != 1
+    }
+
+
+def _add_requested_label(
+    labels: dict[str, set[str]], row: Mapping[str, str | None]
+) -> None:
+    concept = row.get("c")
+    if not concept:
+        raise ValueError("label query row is missing requested concept binding")
+    code = _code_of(concept)
+    if code not in labels:
+        raise ValueError(f"label query returned unrequested concept {code!r}")
+    if label := row.get("label"):
+        labels[code].add(label)
 
 
 def _hierarchy_patterns(uri: str, *, incoming: bool) -> tuple[str, str]:
@@ -310,23 +351,35 @@ class NcitGraphStore:
         )
         return [rel for rel in rels if rel is not None]
 
-    async def labels_for(self, codes: list[str]) -> dict[str, str]:
-        """Return a ``{code: label}`` map for the given codes (one query)."""
+    async def _labels_for(
+        self, codes: list[str]
+    ) -> tuple[dict[str, str], dict[str, str]]:
         if not codes:
-            return {}
-        values = " ".join(f"<{safe_iri(c, self._ns)}>" for c in codes)
+            return {}, {}
+        requested = tuple(dict.fromkeys(codes))
+        values = " ".join(f"<{safe_iri(c, self._ns)}>" for c in requested)
         query = f"""{_PREFIXES}
         SELECT ?c ?label WHERE {{
             VALUES ?c {{ {values} }}
-            ?c rdfs:label ?label .
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                OPTIONAL {{ ?c rdfs:label ?label . }}
+            }}
         }}
         """
         rows = await self._client.select(query)
-        return {
-            _code_of(c): label
-            for r in rows
-            if (c := r.get("c")) and (label := r.get("label"))
-        }
+        return _resolved_requested_labels(requested, rows)
+
+    async def labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return unambiguous stated labels, omitting absent or ambiguous values."""
+        resolved, _problems = await self._labels_for(codes)
+        return resolved
+
+    async def exact_labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return exactly one stated label for every requested code."""
+        resolved, problems = await self._labels_for(codes)
+        if problems:
+            raise ConceptLabelError(problems, labels=resolved)
+        return resolved
 
     # -------------------------------------------------------------------- browse
 

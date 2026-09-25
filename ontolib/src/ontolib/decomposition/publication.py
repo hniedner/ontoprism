@@ -5,14 +5,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
+import shutil
 import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import rdflib
 from pydantic import ValidationError
-from rdflib import Literal, URIRef
 
+from ontolib.core.data_build_tools import (
+    JENA_INSTALL_DIR_ENV,
+    identify_jena_installation,
+)
 from ontolib.decomposition import vocab
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
@@ -24,10 +30,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Collection, Mapping, Sequence
     from contextlib import AbstractAsyncContextManager
-    from pathlib import Path
     from typing import BinaryIO
-
-    from rdflib.term import Node
 
     from ontolib.decomposition.provenance_models import RunSummary
 
@@ -49,9 +52,12 @@ class PublicationGraphClient(Protocol):
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None: ...
 
-    async def update(self, update: str) -> None: ...
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None: ...
 
 
 class PublicationProvenance(Protocol):
@@ -87,6 +93,9 @@ class PublicationProvenance(Protocol):
     ) -> bool: ...
 
 
+PUBLICATION_REQUEST_TIMEOUT_SECONDS = 900
+
+
 class PublicationValidationError(RuntimeError):
     """A rendered artifact or persisted marker cannot be trusted for publication."""
 
@@ -117,70 +126,147 @@ _EXPECTED_MARKER_PREDICATES = {
 }
 
 
-def _concept_code(subject: Node) -> str:
-    raw = str(subject)
-    if not isinstance(subject, URIRef) or not raw.startswith(NCIT_NS):
-        raise PublicationValidationError(
-            "representation-status subject is not an NCIt concept IRI"
-        )
-    code = raw.removeprefix(NCIT_NS)
-    if not code:
-        raise PublicationValidationError(
-            "representation-status subject has an empty NCIt concept code"
-        )
-    return code
+_SUBJECT = re.compile(r"^<([^>]+)>")
+_OUTCOME_BINDING = re.compile(rf"<([^>]+)>\s+<{re.escape(vocab.CONCEPT_OUTCOME)}>\s+")
+_RUN_BINDING = re.compile(
+    rf'<([^>]+)>\s+<{re.escape(vocab.DECOMPOSED_BY)}>\s+"([^"]+)"'
+)
+_RUN_OBJECT = re.compile(rf'<{re.escape(vocab.DECOMPOSED_BY)}>\s+"([^"]+)"')
 
 
-def _read_artifact_graph(artifact: Path) -> tuple[bytes, rdflib.Graph]:
+def _record_outcome_bindings(line: str, outcome_codes: set[str]) -> None:
+    for outcome_match in _OUTCOME_BINDING.finditer(line):
+        subject = outcome_match.group(1)
+        if not subject.startswith(NCIT_NS):
+            raise PublicationValidationError(
+                "concept-outcome subject is not an NCIt concept IRI"
+            )
+        code = subject.removeprefix(NCIT_NS)
+        if not code:
+            raise PublicationValidationError(
+                "concept-outcome subject has an empty NCIt concept code"
+            )
+        outcome_codes.add(code)
+
+
+def _run_bindings(line: str, line_subject: str) -> list[tuple[str, str, bool]]:
+    bindings = [
+        (match.group(1), match.group(2), True) for match in _RUN_BINDING.finditer(line)
+    ]
+    if vocab.DECOMPOSED_BY in line and not bindings:
+        observed = _RUN_OBJECT.search(line)
+        if observed is not None:
+            bindings.append((line_subject, observed.group(1), False))
+    return bindings
+
+
+def _record_run_bindings(
+    line: str, line_subject: str, run_id: str, run_codes: set[str]
+) -> None:
+    for subject, observed_run, explicit_subject in _run_bindings(line, line_subject):
+        if not subject.startswith(NCIT_NS):
+            message = (
+                "decomposition artifact binds an unexpected subject to a run identifier"
+                if explicit_subject
+                else "run identifier subject is not an NCIt concept IRI"
+            )
+            raise PublicationValidationError(message)
+        if subject == NCIT_NS:
+            raise PublicationValidationError(
+                "run identifier subject has an empty NCIt concept code"
+            )
+        if observed_run != run_id:
+            raise PublicationValidationError(
+                "decomposition artifact does not bind every concept "
+                "to the expected run identifier"
+            )
+        run_codes.add(subject.removeprefix(NCIT_NS))
+
+
+def _validate_artifact_line(
+    raw_line: bytes,
+    run_id: str,
+    outcome_codes: set[str],
+    run_codes: set[str],
+) -> None:
     try:
-        payload = artifact.read_bytes()
+        line = raw_line.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise PublicationValidationError(
+            "decomposition artifact is not valid UTF-8 Turtle"
+        ) from exc
+    if not line:
+        return
+    if not line.endswith((".", ";")):
+        raise PublicationValidationError(
+            "decomposition artifact is not valid Turtle: incomplete statement"
+        )
+    subject_match = _SUBJECT.match(line)
+    if subject_match is None:
+        return
+    subject = subject_match.group(1)
+    if subject == vocab.PUBLICATION_MARKER:
+        raise PublicationValidationError(
+            "decomposition artifact contains the reserved publication marker"
+        )
+    _record_outcome_bindings(line, outcome_codes)
+    _record_run_bindings(line, subject, run_id, run_codes)
+
+
+def _stream_artifact_contract(
+    artifact: Path,
+    expected_codes: Collection[str],
+    run_id: str,
+    *,
+    sealed: BinaryIO | None = None,
+) -> str:
+    digest = hashlib.sha256()
+    outcome_codes: set[str] = set()
+    run_codes: set[str] = set()
+    try:
+        with artifact.open("rb") as stream:
+            for raw_line in stream:
+                digest.update(raw_line)
+                if sealed is not None:
+                    sealed.write(raw_line)
+                _validate_artifact_line(raw_line, run_id, outcome_codes, run_codes)
     except OSError as exc:
         raise PublicationValidationError(
             f"decomposition artifact could not be read: {exc}"
         ) from exc
-    graph = rdflib.Graph()
-    try:
-        graph.parse(data=payload, format="turtle")
-    except Exception as exc:
-        raise PublicationValidationError(
-            f"decomposition artifact is not valid Turtle: {exc}"
-        ) from exc
-    return payload, graph
-
-
-def _validated_concept_subjects(
-    graph: rdflib.Graph,
-    expected_codes: Collection[str],
-) -> set[Node]:
-    representation = URIRef(vocab.REPRESENTATION_STATUS)
-    legacy = Literal(vocab.LEGACY_PRECOORDINATED)
-    subjects = set(graph.subjects(representation, legacy))
-    actual_codes = {_concept_code(subject) for subject in subjects}
-    if actual_codes != set(expected_codes):
+    expected = set(expected_codes)
+    if outcome_codes != expected:
         raise PublicationValidationError(
             "decomposition artifact does not contain the expected concept set"
         )
-    return subjects
-
-
-def _validate_run_membership(
-    graph: rdflib.Graph,
-    subjects: set[Node],
-    run_id: str,
-) -> None:
-    decomposed_by = URIRef(vocab.DECOMPOSED_BY)
-    expected_run = Literal(run_id)
-    for subject in subjects:
-        if set(graph.objects(subject, decomposed_by)) != {expected_run}:
-            raise PublicationValidationError(
-                "decomposition artifact does not bind every concept to the "
-                "expected run identifier"
-            )
-    extra_run_subjects = set(graph.subjects(decomposed_by, None)) - subjects
-    if extra_run_subjects:
+    if run_codes != expected:
         raise PublicationValidationError(
-            "decomposition artifact binds an unexpected subject to a run identifier"
+            "decomposition artifact does not bind every concept "
+            "to the expected run identifier"
         )
+    return digest.hexdigest()
+
+
+def _seal_validated_artifact(
+    artifact: Path, expected_codes: Collection[str], run_id: str
+) -> tuple[str, Path]:
+    descriptor, name = tempfile.mkstemp(
+        prefix=f".{artifact.name}.", suffix=".sealed", dir=artifact.parent
+    )
+    sealed_path = artifact.parent / os.path.basename(name)
+    stream = None
+    try:
+        stream = os.fdopen(descriptor, "wb")
+        identity = _stream_artifact_contract(
+            artifact, expected_codes, run_id, sealed=stream
+        )
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
+        return identity, sealed_path
+    except BaseException as original:
+        _cleanup_failed_publication_file(descriptor, stream, sealed_path, original)
+        raise
 
 
 def validate_artifact(
@@ -190,7 +276,7 @@ def validate_artifact(
     run_id: str,
 ) -> str:
     """Validate exact concept/run membership and return the byte identity."""
-    identity, _payload = _validated_artifact_payload(
+    identity = _validated_artifact_payload(
         artifact,
         expected_codes=expected_codes,
         run_id=run_id,
@@ -203,15 +289,8 @@ def _validated_artifact_payload(
     *,
     expected_codes: Collection[str],
     run_id: str,
-) -> tuple[str, bytes]:
-    payload, graph = _read_artifact_graph(artifact)
-    if any(graph.triples((URIRef(vocab.PUBLICATION_MARKER), None, None))):
-        raise PublicationValidationError(
-            "decomposition artifact contains the reserved publication marker"
-        )
-    subjects = _validated_concept_subjects(graph, expected_codes)
-    _validate_run_membership(graph, subjects, run_id)
-    return hashlib.sha256(payload).hexdigest(), payload
+) -> str:
+    return _stream_artifact_contract(artifact, expected_codes, run_id)
 
 
 def staging_graph_iri(run_id: str) -> str:
@@ -392,6 +471,27 @@ def _durable_write(payload: bytes, destination: Path) -> None:
     _fsync_publication_directory(destination.parent)
 
 
+def _durable_copy(source: Path, destination: Path) -> None:
+    """Atomically copy a sealed artifact without materializing it in memory."""
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = destination.parent / os.path.basename(temporary_name)
+    stream = None
+    try:
+        stream = os.fdopen(file_descriptor, "wb")
+        with source.open("rb") as source_stream:
+            shutil.copyfileobj(source_stream, stream, length=1024 * 1024)
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
+        os.replace(temporary, destination)
+    except BaseException as original:
+        _cleanup_failed_publication_file(file_descriptor, stream, temporary, original)
+        raise
+    _fsync_publication_directory(destination.parent)
+
+
 async def _record_failure_without_masking(
     provenance: PublicationProvenance,
     run_id: str,
@@ -413,7 +513,7 @@ async def _record_failure_without_masking(
 
 async def _replace_graph(
     client: PublicationGraphClient,
-    payload: bytes,
+    artifact: Path,
     marker: PublicationMarker,
     *,
     predecessor: PublicationMarker | None,
@@ -426,14 +526,17 @@ async def _replace_graph(
             f"current={current!r}, intent={marker!r}, predecessor={predecessor!r}"
         )
     staging_graph = staging_graph_iri(marker.run_id)
-    await client.load(
-        payload,
-        content_type="text/turtle",
-        graph_iri=staging_graph,
-        replace=True,
-    )
+    with tempfile.TemporaryDirectory(
+        prefix="publication-nt-", dir=artifact.parent
+    ) as directory:
+        ntriples = Path(directory) / "publication.nt"
+        await _convert_publication_ntriples(artifact, ntriples)
+        await _load_ntriples_chunks(client, ntriples, staging_graph)
     try:
-        await client.update(build_replacement_update(marker, staging_graph))
+        await client.update(
+            build_replacement_update(marker, staging_graph),
+            timeout_seconds=PUBLICATION_REQUEST_TIMEOUT_SECONDS,
+        )
     except asyncio.CancelledError:
         raise
     except BaseException as original:
@@ -442,6 +545,90 @@ async def _replace_graph(
         if current != marker and await _replacement_committed(client, marker, original):
             return
         raise
+
+
+async def _convert_publication_ntriples(artifact: Path, destination: Path) -> None:
+    configured = os.environ.get(JENA_INSTALL_DIR_ENV)
+    if not configured:
+        raise PublicationValidationError(
+            f"{JENA_INSTALL_DIR_ENV} is required for publication"
+        )
+    installation = Path(configured)
+    await asyncio.to_thread(identify_jena_installation, installation)
+    with destination.open("xb") as output, tempfile.TemporaryFile() as errors:
+        process = await asyncio.create_subprocess_exec(
+            str(installation / "bin/riot"),
+            "--syntax=TURTLE",
+            "--stream=NTRIPLES",
+            str(artifact),
+            stdout=output,
+            stderr=errors,
+        )
+        try:
+            async with asyncio.timeout(1800):
+                await process.wait()
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
+            raise
+        if process.returncode:
+            errors.seek(max(0, errors.tell() - 4000))
+            raise PublicationValidationError(
+                "Jena publication conversion failed: "
+                f"{errors.read().decode(errors='replace')}"
+            )
+
+
+async def _load_ntriples_chunks(
+    client: PublicationGraphClient,
+    source: Path,
+    staging_graph: str,
+    *,
+    chunk_bytes: int = 200_000_000,
+) -> None:
+    if chunk_bytes < 1:
+        raise ValueError("chunk_bytes must be positive")
+    with source.open("rb") as stream:
+        index = 0
+        while True:
+            start = stream.tell()
+            with tempfile.TemporaryFile(dir=source.parent) as chunk:
+                size = _fill_ntriples_chunk(stream, chunk, chunk_bytes)
+                if not size and index:
+                    break
+                chunk.seek(0)
+                try:
+                    await client.load(
+                        chunk,
+                        content_type="application/n-triples",
+                        graph_iri=staging_graph,
+                        replace=index == 0,
+                        timeout_seconds=PUBLICATION_REQUEST_TIMEOUT_SECONDS,
+                    )
+                except Exception as exc:
+                    raise PublicationValidationError(
+                        f"publication chunk {index + 1} bytes "
+                        f"[{start}, {start + size}) failed: {exc}"
+                    ) from exc
+            index += 1
+            if not size:
+                break
+
+
+def _fill_ntriples_chunk(stream: BinaryIO, chunk: BinaryIO, limit: int) -> int:
+    size = 0
+    while line := stream.readline(limit + 1):
+        if len(line) > limit:
+            raise PublicationValidationError(
+                "N-Triples line exceeds publication chunk limit"
+            )
+        if size + len(line) > limit:
+            stream.seek(-len(line), os.SEEK_CUR)
+            break
+        chunk.write(line)
+        size += len(line)
+    return size
 
 
 async def _replacement_committed(
@@ -490,7 +677,6 @@ async def _publish_started_artifact(
     *,
     marker: PublicationMarker,
     artifact: Path,
-    payload: bytes,
     destination: Path,
     metrics: dict[str, object],
     load_to_store: bool,
@@ -500,8 +686,15 @@ async def _publish_started_artifact(
 ) -> None:
     try:
         if load_to_store:
-            await _replace_graph(client, payload, marker, predecessor=predecessor)
-        _durable_write(payload, destination)
+            await _replace_graph(client, artifact, marker, predecessor=predecessor)
+        else:
+            with tempfile.TemporaryDirectory(
+                prefix="ontoprism-validate-", dir=artifact.parent
+            ) as directory:
+                await _convert_publication_ntriples(
+                    artifact, Path(directory) / "validated.nt"
+                )
+        _durable_copy(artifact, destination)
         finished = await provenance.finish_run(
             marker.run_id,
             source_identity=marker.source_identity,
@@ -512,9 +705,6 @@ async def _publish_started_artifact(
             raise RunStateError(
                 f"finish_run found no decomp_run row for run_id={marker.run_id!r}"
             )
-        # The staging file is what a retry republishes from, so it outlives every
-        # step that can still fail.
-        artifact.unlink()
     except BaseException as original:
         try:
             await _record_failure_without_masking(
@@ -687,13 +877,41 @@ async def publish_artifact(
         validated_metrics = PersistedRunMetrics.model_validate(metrics).model_dump(
             exclude_unset=True
         )
-        representation_identity, payload = _validated_artifact_payload(
-            artifact,
-            expected_codes=expected_codes,
-            run_id=run_id,
+        representation_identity, sealed_artifact = _seal_validated_artifact(
+            artifact, expected_codes, run_id
         )
     except (PublicationValidationError, ValidationError) as exc:
         raise PublicationPreflightError(str(exc)) from exc
+    try:
+        return await _publish_sealed_artifact(
+            run_id=run_id,
+            source_identity=source_identity,
+            artifact=artifact,
+            sealed_artifact=sealed_artifact,
+            destination=destination,
+            representation_identity=representation_identity,
+            metrics=validated_metrics,
+            load_to_store=load_to_store,
+            client=client,
+            provenance=provenance,
+        )
+    finally:
+        sealed_artifact.unlink(missing_ok=True)
+
+
+async def _publish_sealed_artifact(
+    *,
+    run_id: str,
+    source_identity: str,
+    artifact: Path,
+    sealed_artifact: Path,
+    destination: Path,
+    representation_identity: str,
+    metrics: dict[str, object],
+    load_to_store: bool,
+    client: PublicationGraphClient,
+    provenance: PublicationProvenance,
+) -> PublicationMarker:
     journaled = False
     completed = False
     try:
@@ -710,16 +928,18 @@ async def publish_artifact(
             journaled = True
             await _publish_started_artifact(
                 marker=marker,
-                artifact=artifact,
-                payload=payload,
+                artifact=sealed_artifact,
                 destination=destination,
-                metrics=validated_metrics,
+                metrics=metrics,
                 load_to_store=load_to_store,
                 predecessor=predecessor,
                 client=client,
                 provenance=provenance,
             )
             completed = True
+            # The original staging file is what a retry republishes from, so it
+            # outlives every step that can still fail.
+            artifact.unlink()
     except Exception as exc:
         if completed:
             raise PublicationFinalizationError(

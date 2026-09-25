@@ -67,8 +67,10 @@ proxy, set adapter-node `ADDRESS_HEADER` (and `XFF_DEPTH` for `x-forwarded-for`)
 that proxy overwrites the selected header; otherwise leave them unset.
 
 NCIt is published by EVS as stated and inferred RDF/XML OWL. QLever indexes
-N-Triples/Turtle/N-Quads, so the build uses Apache Jena RIOT only as a streaming,
-serialization-preserving RDF/XML-to-N-Triples converter. The installer downloads the
+N-Triples/Turtle/N-Quads, so index construction uses Apache Jena RIOT as a streaming,
+serialization-preserving RDF/XML-to-N-Triples converter. Decomposition publication
+also uses RIOT to convert Turtle to N-Triples before uploading bounded chunks.
+The installer downloads the
 pinned Apache archive over HTTPS, verifies its SHA-256 digest, and records its exact
 identity before the build can use it:
 
@@ -76,8 +78,9 @@ identity before the build can use it:
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
 ```
 
-`cp .env.example .env` configures this certified repository-local installation for
-every `pdm run` command; no per-shell export is required.
+`cp .env.example .env` configures `ONTOPRISM_JENA_DIR` for this certified
+repository-local installation in `pdm run` commands. It does **not** install Java
+or set `JAVA_HOME` for the launching terminal.
 
 The pinned converter archive digest is
 `sha256:653108a91fd9b309a89bc756258bae0bca01587cef475942d11852e3beba2ae3`
@@ -85,6 +88,83 @@ The pinned converter archive digest is
 RIOT runs inside the digest-pinned Java runtime declared in
 `ontolib.core.data_build_tools`; no host Java installation is required for NCIt index
 construction.
+
+### Host Java is required for decomposition publication
+
+Unlike containerized index construction, `decompose --out` (with or without `--load`, including publication
+on `--resume`) executes `$ONTOPRISM_JENA_DIR/bin/riot` **on the host**. Install a
+JDK **21 or newer**; Java 21 LTS is the recommended baseline. The pinned Jena 6.1.0
+RIOT class uses Java class-file version 65 (Java 21). The launcher's generic
+missing-Java message mentions Java 11; that is not sufficient for this release.
+
+RIOT selects Java in this order:
+
+1. `JAVA`, if set: the Java executable path.
+2. `$JAVA_HOME/bin/java`, if `JAVA_HOME` is set.
+3. `java` found on `PATH`, if neither variable is set.
+
+`JAVA_HOME` is therefore optional **only when `PATH` resolves to a working supported
+Java**. On macOS, `/usr/bin/java` may be Apple's launcher stub rather than an
+installed JDK: `command -v java` alone is not a readiness check. A stale `JAVA` or
+`JAVA_HOME` overrides a working Java elsewhere on `PATH`. The spelling is
+`JAVA_HOME`, not `JAVE_HOME`.
+
+On the owner's Mac, `/usr/bin/java` **is only the macOS launcher stub**, and the
+default terminal `PATH` contains no JDK. Set `JAVA_HOME` explicitly there; do not
+assume that a terminal which finds `/usr/bin/java` can run RIOT.
+
+Example for Homebrew on macOS (run in the terminal that will launch publication):
+
+```bash
+brew install openjdk@21
+unset JAVA
+export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+For a JDK registered with macOS, `export JAVA_HOME="$(/usr/libexec/java_home -v 21)"`
+is another option. On Linux, install your distribution's OpenJDK 21 package and set
+`JAVA_HOME` to its actual JDK directory, or ensure its `bin/java` is on `PATH`.
+Set these in the launching shell or job environment; configuring another terminal
+does not change an already running process. A separate worktree/virtualenv still
+needs host Java; Python dependency installation does not supply it.
+
+Before starting a long run, check the Java selected by RIOT and the pinned RIOT
+installation from that same terminal and worktree:
+
+```bash
+"${JAVA:-${JAVA_HOME:+$JAVA_HOME/bin/}java}" -version
+unset JENA_HOME  # let the pinned launcher locate its own installation
+pdm run python -c 'import os; from pathlib import Path; from ontolib.core.data_build_tools import identify_jena_installation; print(identify_jena_installation(Path(os.environ["ONTOPRISM_JENA_DIR"])))'
+```
+
+The second command invokes real `riot --version` as part of revalidating the
+configured Jena installation. A missing JDK surfaces as `ToolIdentityError` with
+the launcher's diagnostic and guidance naming both `JAVA_HOME` and
+`ONTOPRISM_JENA_DIR`, before publication conversion/upload. An older runtime
+may instead report `UnsupportedClassVersionError`. Fix the launching environment;
+do not rerun decomposition or alter the store to diagnose Java discovery.
+
+For a store-free conversion check, run:
+
+```bash
+pdm run test-integration -k test_publication_java -v
+```
+
+This explicitly selected local-tool contract runs real RIOT with `JAVA_HOME`
+unset and Java on a controlled `PATH`, with Java available only via `JAVA_HOME`,
+and with Java absent. It checks RDF-list and language-tag preservation and
+missing-Java failure propagation using only tiny temporary files. It also verifies
+that invalid Turtle cannot complete file-only publication or create its destination.
+It requires the
+installed pinned Jena and host JDK and runs in the CI integration lane, where those
+tools are installed; a skipped/deselected test is not a pass.
+
+Owner-verified production observation (2026-09-25): from the pinned #127 worktree,
+OpenJDK **21.0.12.1** installed via `/opt/homebrew/opt/openjdk@21` ran the real pinned
+RIOT through `_convert_publication_ntriples`, converting the **1.68 GB** publication
+artifact in **15 seconds** to **8,395,660 triples**, without errors. This verifies
+conversion on Java 21, not completion of the subsequent graph publication.
 
 ## 2. Build the ontology indexes, then start services
 
@@ -490,6 +570,9 @@ pdm run decompose \
   --out data/ncit_decomposed.ttl
 ```
 
+The command defaults to the reviewed genus-chain walker depth 7 used by the packaged
+normalized group policy; the documented invocation therefore needs no depth override.
+
 A full run takes about fifteen hours, so by default it is preceded by a preflight: the
 branch's tracked stratified SME sample (for neoplasm
 `samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
@@ -512,7 +595,7 @@ available (the rehearsal's progress lines on stderr are prefixed `preflight `; t
 run's id is on the first unprefixed `run=` line): in September 2026 ten of thirteen
 full runs were lost to short timeouts and late-surfacing errors.
 
-For the deterministic, review-only 26.07d M1 slice:
+For the deterministic 26.07d M1 review slice:
 
 ```bash
 pdm run decompose \
@@ -525,8 +608,9 @@ pdm run decompose \
 The sample manifest records the exact ordered codes, overlapping strata and rationales,
 source identity/version, and selection method. Its digest is part of run/resume identity.
 Sample execution validates every code against the revalidated hierarchy before
-provenance, requires `--out`, and rejects `--total-limit`, `--load`, and equivalence
-emission. It does not replace the later full-corpus acceptance run.
+provenance, requires `--out`, and rejects `--total-limit` and equivalence emission.
+Adding `--load` publishes the sample as a provisional expert-review demonstration;
+it does not replace the full-corpus run or establish scientific acceptance.
 
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint

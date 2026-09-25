@@ -10,7 +10,7 @@ import type {
 	IcdoRecordLevel,
 	IcdoRepositorySort,
 	ConceptDecomposition,
-	EnhancedNcitShowcaseView,
+	PublicationProgress,
 	ConceptDetail,
 	ConceptAlignments,
 	Neighborhood,
@@ -35,7 +35,7 @@ import {
 	icdoListPath,
 	icdoSearchPath,
 	ncitDecompositionPath,
-	ncitEnhancedShowcasePath,
+	decompositionPublicationProgressPath,
 	ncitMappingsPath,
 	type IcdoDataset,
 	type IcdoPageFor
@@ -296,17 +296,8 @@ export function getDecomposition(
 	);
 }
 
-/** Explicit local enhanced-NCIt showcase; ordinary decomposition remains unchanged. */
-export function getEnhancedNcitShowcase(
-	code: string,
-	fetchImpl?: typeof fetch,
-	signal?: AbortSignal
-): Promise<EnhancedNcitShowcaseView> {
-	return getJson<EnhancedNcitShowcaseView>(
-		apiUrl(ncitEnhancedShowcasePath(code)),
-		fetchImpl,
-		signal
-	);
+export function getPublicationProgress(fetchImpl?: typeof fetch): Promise<PublicationProgress> {
+	return getJson<PublicationProgress>(apiUrl(decompositionPublicationProgressPath()), fetchImpl);
 }
 
 /** All terminology alignments for an NCIt concept (both directions). */

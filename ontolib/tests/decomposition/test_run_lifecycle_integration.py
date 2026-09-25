@@ -19,6 +19,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
+from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -861,6 +862,40 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         await dispose_engine(engine)
 
 
+async def test_label_failure_is_stored_as_named_work_item_error() -> None:
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await store.fail_work_item(
+            run_id,
+            "C0",
+            claim,
+            ConceptLabelError({"C0": "has no stated label"}),
+        )
+
+        conn = await asyncpg.connect(_dsn())
+        try:
+            row = await conn.fetchrow(
+                "SELECT state, error_type, error_message FROM decomp_work_item "
+                "WHERE run_id = $1 AND concept_code = 'C0'",
+                run_id,
+            )
+        finally:
+            await conn.close()
+        assert dict(row) == {
+            "state": "failed",
+            "error_type": "ConceptLabelError",
+            "error_message": "concept C0 has no stated label",
+        }
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_database_rejects_invalid_states_and_identity_mutation() -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
@@ -1289,6 +1324,48 @@ async def test_the_completion_recount_is_available_before_publication() -> None:
         ) in str(drift.value)
         assert (await store.get_run(run_id)).status == "running"  # type: ignore[union-attr]
     finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_completion_preconditions_are_available_before_publication() -> None:
+    """Source, materialized worklist, and running status can all be checked before
+    the artifact and publication stages without changing ``finish_run``'s copies."""
+    run_id = _new_run_id("neoplasm")
+    fingerprint = _fingerprint()
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", fingerprint)
+        await store.require_completion_preconditions(
+            run_id, fingerprint.source_identity
+        )
+
+        with pytest.raises(RunIdentityMismatchError, match="completion source"):
+            await store.require_completion_preconditions(run_id, "b" * 64)
+
+        await conn.execute(
+            "DELETE FROM decomp_work_item WHERE run_id = $1 AND concept_code = 'C1'",
+            run_id,
+        )
+        with pytest.raises(RunIdentityMismatchError, match="materialized worklist"):
+            await store.require_completion_preconditions(
+                run_id, fingerprint.source_identity
+            )
+        await conn.execute(
+            "INSERT INTO decomp_work_item (run_id, concept_code, ordinal) "
+            "VALUES ($1, 'C1', 1)",
+            run_id,
+        )
+
+        assert await store.fail_run(run_id, RuntimeError("stop"))
+        with pytest.raises(RunStateError, match="not running"):
+            await store.require_completion_preconditions(
+                run_id, fingerprint.source_identity
+            )
+    finally:
+        await conn.close()
         await _cleanup([run_id])
         await dispose_engine(engine)
 

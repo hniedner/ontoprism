@@ -169,6 +169,19 @@ fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_small_publication_exposes_outcome_flag_and_demo_marker"]
+fixtures = ["isolated_qlever_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_large_integration.py"
+fixtures = ["isolated_qlever_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_resume_integration.py"
+fixtures = ["isolated_postgres_settings", "isolated_qlever_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
 tests = ["test_postgres_advisory_lock_excludes_and_then_admits_a_publisher"]
 fixtures = ["isolated_postgres_settings"]
 
@@ -210,6 +223,11 @@ fixtures = ["isolated_qlever_settings"]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_part_of_closure_rejects_row_sentinel_and_malformed_target"]
 fixtures = ["isolated_qlever_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_cached_and_uncached_complete_definitions_match_in_disposable_qlever"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_fixture_safety_integration.py"

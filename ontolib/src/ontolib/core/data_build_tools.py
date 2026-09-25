@@ -366,7 +366,10 @@ def identify_jena_installation(
     observed = (result.stdout or result.stderr).strip()
     if result.returncode != 0:
         raise ToolIdentityError(
-            f"Jena version probe exited {result.returncode}: {observed}"
+            f"Jena version probe exited {result.returncode}: {observed}\n"
+            f"Check {JENA_INSTALL_DIR_ENV} points to the pinned Jena installation "
+            "and JAVA_HOME points to a JDK >=21 (or put its java on PATH); "
+            "unset a stale JAVA override."
         )
     if artifact.identity.version not in observed:
         raise ToolIdentityError(

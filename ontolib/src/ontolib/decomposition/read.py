@@ -9,10 +9,12 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast, get_args
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.models import AxisSource, ConceptOutcome
+from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
+    PublicationProgress,
     UpstreamMapping,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
 
 Row = Mapping[str, str | None]
 _SHA256_LENGTH = 64
+_OUTCOMES = tuple(get_args(ConceptOutcome))
+_REVIEW_FLAGS = tuple(get_args(ReviewFlagKind))
 
 
 def _local(iri: str) -> str:
@@ -157,36 +161,146 @@ def _merge_constituent(
     )
 
 
+def _record_review_flag(row: Row, flags: set[tuple[str, str]]) -> None:
+    kind, reason = row.get("flagKind"), row.get("flagReason")
+    if any(row.get(key) is not None for key in ("flag", "flagKind", "flagReason")):
+        if not kind or not reason:
+            raise ValueError("published review flag requires a kind and reason")
+        flags.add((kind, reason))
+
+
 def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposition:
     """Fold the (repeating) result rows into one decomposition for *code*.
 
     Status/date repeat on every row (SPARQL cross-product with the constituents); the
     constituents are de-duplicated by (axis, filler) and sorted for determinism.
     """
-    status: str | None = None
-    decomposed_on: str | None = None
+    scalar: dict[str, str | None] = dict.fromkeys(
+        (
+            "status",
+            "decomposedOn",
+            "publicationStatus",
+            "publicationNotice",
+            "outcome",
+            "outcomeReason",
+        ),
+        None,
+    )
+    flags: set[tuple[str, str]] = set()
     constituents: dict[tuple[str, str], DecompositionConstituent] = {}
 
     for row in rows:
-        status = status or row.get("status")
-        decomposed_on = decomposed_on or row.get("decomposedOn")
-        axis_iri = row.get("axis")
-        filler_iri = row.get("filler")
-        if not axis_iri or not filler_iri:
-            continue
-        key = (axis_iri, filler_iri)
-        candidate = _constituent_from_row(code, axis_iri, filler_iri, row)
-        constituents[key] = _merge_constituent(
-            constituents.get(key),
-            candidate,
-        )
+        for name, current in scalar.items():
+            scalar[name] = current or row.get(name)
+        _record_review_flag(row, flags)
+        _record_constituent(code, row, constituents)
 
-    return ConceptDecomposition(
-        code=code,
-        is_legacy_precoordinated=status == vocab.LEGACY_PRECOORDINATED,
-        decomposed_on=decomposed_on,
-        constituents=sorted(constituents.values(), key=lambda c: (c.axis, c.filler)),
+    return ConceptDecomposition.model_validate(
+        {
+            "code": code,
+            "publication_status": scalar["publicationStatus"],
+            "publication_notice": scalar["publicationNotice"],
+            "outcome": scalar["outcome"],
+            "outcome_reason": scalar["outcomeReason"],
+            "review_flags": [
+                ConceptReviewFlag.model_validate({"kind": kind, "reason": reason})
+                for kind, reason in sorted(flags)
+            ],
+            "is_legacy_precoordinated": (
+                scalar["status"] == vocab.LEGACY_PRECOORDINATED
+            ),
+            "decomposed_on": scalar["decomposedOn"],
+            "constituents": sorted(
+                constituents.values(), key=lambda c: (c.axis, c.filler)
+            ),
+        }
     )
+
+
+def publication_progress_from_rows(rows: Iterable[Row]) -> PublicationProgress | None:
+    """Build published-run progress from backend query aggregates."""
+    materialized = tuple(rows)
+    if not materialized:
+        return None
+    run_id = _publication_progress_identity(materialized)
+    outcome_counts = dict.fromkeys(_OUTCOMES, 0)
+    flag_counts = dict.fromkeys(_REVIEW_FLAGS, 0)
+    for row in materialized:
+        _record_progress_count(row, outcome_counts, flag_counts)
+    return PublicationProgress.model_validate(
+        {
+            "run_id": run_id,
+            "publication_status": vocab.PROVISIONAL,
+            "publication_notice": vocab.EXPERT_REVIEW_NOTICE,
+            "total_concepts": sum(outcome_counts.values()),
+            "outcome_counts": outcome_counts,
+            "review_flag_counts": flag_counts,
+        }
+    )
+
+
+def _publication_progress_identity(rows: tuple[Row, ...]) -> str:
+    run_ids = {row.get("run") for row in rows}
+    _require_single_progress_value(run_ids, "publication progress has no unique run")
+    _require_exact_progress_value(
+        rows,
+        "publicationStatus",
+        vocab.PROVISIONAL,
+        "publication progress is not provisional",
+    )
+    _require_exact_progress_value(
+        rows,
+        "publicationNotice",
+        vocab.EXPERT_REVIEW_NOTICE,
+        "publication progress has an unexpected notice",
+    )
+    return cast("str", next(iter(run_ids)))
+
+
+def _require_single_progress_value(values: set[str | None], message: str) -> None:
+    if None in values or len(values) != 1:
+        raise ValueError(message)
+
+
+def _require_exact_progress_value(
+    rows: tuple[Row, ...], field: str, expected: str, message: str
+) -> None:
+    if {row.get(field) for row in rows} != {expected}:
+        raise ValueError(message)
+
+
+def _record_progress_count(
+    row: Row,
+    outcomes: dict[ConceptOutcome, int],
+    flags: dict[ReviewFlagKind, int],
+) -> None:
+    category = row.get("category")
+    value = row.get("value")
+    try:
+        count = int(row.get("count") or "")
+    except ValueError as exc:
+        raise ValueError("publication progress contains an invalid count") from exc
+    if category == "outcome" and value in outcomes:
+        outcomes[cast("ConceptOutcome", value)] = count
+        return
+    if category == "review-flag" and value in flags:
+        flags[cast("ReviewFlagKind", value)] = count
+        return
+    raise ValueError("publication progress contains an unknown D93 category")
+
+
+def _record_constituent(
+    code: str,
+    row: Row,
+    constituents: dict[tuple[str, str], DecompositionConstituent],
+) -> None:
+    axis_iri = row.get("axis")
+    filler_iri = row.get("filler")
+    if not axis_iri or not filler_iri:
+        return
+    key = (axis_iri, filler_iri)
+    candidate = _constituent_from_row(code, axis_iri, filler_iri, row)
+    constituents[key] = _merge_constituent(constituents.get(key), candidate)
 
 
 def attach_upstream(

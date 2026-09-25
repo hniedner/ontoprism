@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import runpy
 import subprocess
@@ -30,6 +31,13 @@ from ontolib.terminologies.ncit.sibling_store import (
     CandidateGraph,
     CandidateObservation,
 )
+
+
+@pytest.mark.unit
+def test_production_walker_depth_defaults_to_reviewed_depth_seven() -> None:
+    assert decompose.RunConfig(branch="neoplasm").walker_max_depth == 7
+    assert inspect.signature(decompose._run).parameters["walker_max_depth"].default == 7
+    assert inspect.signature(decompose.main).parameters["walker_max_depth"].default == 7
 
 
 @pytest.mark.unit
@@ -97,6 +105,19 @@ def test_residual_progress_prints_milestones(
     )
 
 
+@pytest.mark.unit
+def test_source_preflight_progress_prints_with_run_and_rehearsal_prefixes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    decompose._print_source_preflight_progress(0, 2001, "C1")
+    decompose._print_source_preflight_progress(1000, 2001, "C1000", prefix="preflight ")
+
+    assert capsys.readouterr().err == (
+        "phase=source-preflight completed=0/2001 active=C1\n"
+        "preflight phase=source-preflight completed=1000/2001 active=C1000\n"
+    )
+
+
 class _RunClient:
     def __init__(
         self,
@@ -126,6 +147,8 @@ class _RunClient:
 class _RunLabelStore:
     async def labels_for(self, _codes: list[str]) -> dict[str, str]:
         return {}
+
+    exact_labels_for = labels_for
 
     async def search(self, _term: str, *, limit: int) -> SimpleNamespace:
         assert limit == 5
@@ -257,7 +280,7 @@ async def test_load_is_coordinated_inside_pipeline_before_run_completion(
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
     monkeypatch.setattr(decompose, "ncit_sparql_client", lambda _url: client)
-    store = SimpleNamespace(labels_for=AsyncMock())
+    store = SimpleNamespace(exact_labels_for=AsyncMock())
     monkeypatch.setattr(decompose, "NcitGraphStore", lambda _client: store)
     pipeline = AsyncMock(return_value=decompose.RunMetrics())
     monkeypatch.setattr(decompose, "run_pipeline", pipeline)
@@ -603,7 +626,6 @@ def test_cli_rejects_load_without_output_before_starting_event_loop(
     ("out", "load", "total_limit", "message"),
     [
         (None, False, None, "requires --out"),
-        (Path("review.ttl"), True, None, "cannot be combined with --load"),
         (Path("review.ttl"), False, 1, "mutually exclusive"),
     ],
 )
@@ -738,6 +760,33 @@ def test_main_prints_metrics_and_forwards_resume_options(
         "unknown=0 minted=1 coverage=50.00% "
         "residual_precoordination=50.00% (1/2)\n"
     )
+
+
+@pytest.mark.unit
+def test_main_allows_sample_manifest_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = AsyncMock(return_value=decompose.RunMetrics(total_in_scope=1))
+    monkeypatch.setattr(decompose, "_run", run)
+    sample = tmp_path / "sample.json"
+    output = tmp_path / "sample.ttl"
+
+    decompose.main(
+        source_manifest=tmp_path / "candidate.json",
+        branch=decompose.DecompositionBranch.NEOPLASM,
+        out=output,
+        load=True,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+        sample_manifest=sample,
+    )
+
+    assert run.await_args.kwargs["sample_manifest"] == sample
+    assert run.await_args.kwargs["out"] == output
+    assert run.await_args.kwargs["load"] is True
+    assert run.await_args.kwargs["rehearsal"] is False
 
 
 def _metrics(total: int, *, decomposed: int | None = None) -> decompose.RunMetrics:

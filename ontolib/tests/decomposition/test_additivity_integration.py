@@ -50,7 +50,7 @@ async def test_loading_writer_output_leaves_default_graph_unchanged(
         )
     ]
     out = tmp_path / "additivity.ttl"
-    await write_ttl(decs, dest=out, run_id="additivity-test")
+    await write_ttl(decs, dest=out)
 
     async with SparqlHttpClient.for_qlever(url, named_graphs=()) as client:
         count_before = await client.count()

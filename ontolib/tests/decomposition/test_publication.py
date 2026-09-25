@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from unittest.mock import AsyncMock
 
 import pytest
 import rdflib
 
-from ontolib.decomposition import vocab
-from ontolib.decomposition.legacy_writer import write_ttl
+from ontolib.decomposition import publication, vocab
+from ontolib.decomposition.legacy_writer import write_ttl as render_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance_models import (
+    ConceptPublication,
     PublicationMarkerSnapshot,
     RunSummary,
 )
@@ -51,6 +54,34 @@ def _decomposition(code: str = "C1") -> Decomposition:
                 source_roles=("R101",),
             )
         ],
+    )
+
+
+async def write_ttl(decompositions, dest, *, run_id, **kwargs):
+    """Supply the explicit C1 work-item outcome used by these lifecycle fixtures."""
+    return await render_ttl(
+        decompositions,
+        dest,
+        run_id=run_id,
+        publications=(
+            ConceptPublication(
+                concept_code="C1", outcome="decomposed", reason="fixture selection"
+            ),
+        )
+        if decompositions
+        else (),
+        **kwargs,
+    )
+
+
+@pytest.fixture(autouse=True)
+def conversion_double(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests isolate publication journaling and reconciliation. Real Jena
+    # conversion and graph equivalence are exercised by integration contracts.
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
     )
 
 
@@ -107,14 +138,18 @@ class _GraphClient:
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None:
-        assert content_type == "text/turtle"
+        assert content_type == "application/n-triples"
+        assert timeout_seconds == publication.PUBLICATION_REQUEST_TIMEOUT_SECONDS
         assert replace is True
         self.events.append("stage")
         self.loaded_payload = data if isinstance(data, bytes) else data.read()
         self.loaded_graph = graph_iri
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         del update
         self.events.append("replace")
         if self.update_error is not None:
@@ -128,7 +163,9 @@ class _BlockingGraphClient(_GraphClient):
         super().__init__()
         self.update_started = asyncio.Event()
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         del update
         self.events.append("replace")
         self.update_started.set()
@@ -298,6 +335,29 @@ async def test_artifact_validation_binds_exact_codes_run_and_bytes(
 
 
 @pytest.mark.unit
+async def test_artifact_validation_does_not_materialize_an_rdflib_graph(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], artifact, run_id="neoplasm-run-1")
+
+    monkeypatch.setattr(
+        rdflib.Graph,
+        "triples",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("validation materialized and queried an RDF graph")
+        ),
+    )
+
+    assert validate_artifact(
+        artifact,
+        expected_codes={"C1"},
+        run_id="neoplasm-run-1",
+    )
+
+
+@pytest.mark.unit
 async def test_artifact_validation_rejects_reserved_publication_marker(
     tmp_path: Path,
 ) -> None:
@@ -333,6 +393,15 @@ async def test_empty_decomposition_artifact_is_valid_and_malformed_turtle_is_not
         == hashlib.sha256(empty_artifact.read_bytes()).hexdigest()
     )
 
+    invalid_utf8 = tmp_path / "invalid-utf8.ttl"
+    invalid_utf8.write_bytes(b"\xff\n")
+    with pytest.raises(PublicationValidationError, match="UTF-8"):
+        validate_artifact(
+            invalid_utf8,
+            expected_codes=set(),
+            run_id="neoplasm-empty",
+        )
+
     malformed = tmp_path / "malformed.ttl"
     malformed.write_text("this is not Turtle {", encoding="utf-8")
     with pytest.raises(PublicationValidationError, match="valid Turtle"):
@@ -350,6 +419,15 @@ def test_artifact_validation_rejects_missing_foreign_and_extra_run_subjects(
     missing = tmp_path / "missing.ttl"
     with pytest.raises(PublicationValidationError, match="could not be read"):
         validate_artifact(missing, expected_codes=set(), run_id="run-1")
+
+    missing.write_text(
+        f'<{vocab.DEMONSTRATION_MARKER}> <{vocab.PUBLICATION_STATUS}> "provisional" .\n'
+        f"<{vocab.DEMONSTRATION_MARKER}> <{vocab.PUBLICATION_NOTICE}> "
+        f'"{vocab.EXPERT_REVIEW_NOTICE}" .\n'
+        f'<{NCIT_NS}C1> <{vocab.CONCEPT_OUTCOME}> "unknown" .\n'
+    )
+    with pytest.raises(PublicationValidationError, match="run"):
+        validate_artifact(missing, expected_codes={"C1"}, run_id="run-1")
 
     foreign = tmp_path / "foreign.ttl"
     foreign.write_text(
@@ -381,6 +459,32 @@ def test_artifact_validation_rejects_missing_foreign_and_extra_run_subjects(
     )
     with pytest.raises(PublicationValidationError, match="unexpected subject"):
         validate_artifact(extra, expected_codes={"C1"}, run_id="run-1")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("subject", "run", "message"),
+    [
+        ("urn:foreign", "run-1", "concept-outcome subject is not an NCIt"),
+        (NCIT_NS, "run-1", "empty NCIt concept code"),
+        (f"{NCIT_NS}C1", "another-run", "expected run identifier"),
+    ],
+)
+def test_streaming_validation_rejects_invalid_outcome_and_run_bindings(
+    tmp_path: Path,
+    subject: str,
+    run: str,
+    message: str,
+) -> None:
+    artifact = tmp_path / "invalid-binding.ttl"
+    artifact.write_text(
+        f'<{subject}> <{vocab.CONCEPT_OUTCOME}> "decomposed" .\n'
+        f'<{subject}> <{vocab.DECOMPOSED_BY}> "{run}" .\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PublicationValidationError, match=message):
+        validate_artifact(artifact, expected_codes={"C1"}, run_id="run-1")
 
 
 @pytest.mark.unit

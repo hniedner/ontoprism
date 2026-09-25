@@ -3,7 +3,9 @@
 import pytest
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.decomposition.read_queries import (
+    build_decomposition_query,
+)
 
 
 @pytest.mark.unit

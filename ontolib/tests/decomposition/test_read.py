@@ -4,8 +4,15 @@ import pytest
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.models import AxisSource
-from ontolib.decomposition.read import decomposition_from_rows
-from ontolib.decomposition.read_models import DecompositionConstituent
+from ontolib.decomposition.read import (
+    decomposition_from_rows,
+    publication_progress_from_rows,
+)
+from ontolib.decomposition.read_models import (
+    ConceptDecomposition,
+    DecompositionConstituent,
+    PublicationProgress,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 
@@ -45,6 +52,127 @@ def _row(**kw: str) -> dict[str, str | None]:
     ):
         row["sourceRole"] = axis
     return row
+
+
+@pytest.mark.unit
+def test_publication_progress_fills_all_d93_counts_from_aggregates() -> None:
+    progress = publication_progress_from_rows(
+        [
+            {
+                "run": "run-1",
+                "publicationStatus": vocab.PROVISIONAL,
+                "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+                "category": "outcome",
+                "value": "decomposed",
+                "count": "3",
+            },
+            {
+                "run": "run-1",
+                "publicationStatus": vocab.PROVISIONAL,
+                "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+                "category": "review-flag",
+                "value": "needs-review",
+                "count": "2",
+            },
+        ]
+    )
+
+    assert progress is not None
+    assert progress.total_concepts == 3
+    assert progress.outcome_counts == {
+        "decomposed": 3,
+        "residual": 0,
+        "semantic-excluded": 0,
+        "atomic-no-op": 0,
+        "unknown": 0,
+    }
+    assert progress.review_flag_counts == {
+        "needs-review": 2,
+        "unresolved-r101-loss": 0,
+        "mint-filler": 0,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"run": None}, "no unique run"),
+        ({"run": "run-2"}, "no unique run"),
+        ({"count": None}, "invalid count"),
+        ({"publicationStatus": "accepted"}, "not provisional"),
+        ({"publicationNotice": "release"}, "unexpected notice"),
+        ({"category": "disposition", "value": "include"}, "unknown D93 category"),
+    ],
+)
+def test_publication_progress_rejects_untrusted_graph_metadata(
+    change: dict[str, str | None], message: str
+) -> None:
+    row = {
+        "run": "run-1",
+        "publicationStatus": vocab.PROVISIONAL,
+        "publicationNotice": vocab.EXPERT_REVIEW_NOTICE,
+        "category": "outcome",
+        "value": "decomposed",
+        "count": "1",
+    }
+
+    with pytest.raises(ValueError, match=message):
+        publication_progress_from_rows([row, row | change])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("flag", [{"flagKind": "needs-review"}, {"flagReason": "why"}])
+def test_incomplete_review_flag_is_not_silently_dropped(flag: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="review flag"):
+        decomposition_from_rows("C1", [flag])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"), [("outcome_reason", ""), ("publication_notice", "release")]
+)
+def test_published_concept_requires_reason_and_exact_notice(
+    field: str, value: str
+) -> None:
+    payload = {
+        "code": "C1",
+        "is_legacy_precoordinated": False,
+        "publication_status": "provisional",
+        "publication_notice": vocab.EXPERT_REVIEW_NOTICE,
+        "outcome": "unknown",
+        "outcome_reason": "not resolved",
+    }
+    with pytest.raises(ValueError, match=field):
+        ConceptDecomposition.model_validate(payload | {field: value})
+
+
+@pytest.mark.unit
+def test_publication_progress_is_absent_without_a_published_graph() -> None:
+    assert publication_progress_from_rows([]) is None
+
+
+@pytest.mark.unit
+def test_progress_rejects_negative_outcome_even_if_total_balances() -> None:
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        PublicationProgress(
+            run_id="run",
+            publication_status="provisional",
+            publication_notice=vocab.EXPERT_REVIEW_NOTICE,
+            total_concepts=0,
+            outcome_counts={
+                "decomposed": -1,
+                "residual": 1,
+                "unknown": 0,
+                "atomic-no-op": 0,
+                "semantic-excluded": 0,
+            },
+            review_flag_counts={
+                "needs-review": 0,
+                "mint-filler": 0,
+                "unresolved-r101-loss": 0,
+            },
+        )
 
 
 @pytest.mark.unit
@@ -164,6 +292,30 @@ def test_not_decomposed_concept_resolves_without_flag() -> None:
     d = decomposition_from_rows("C0", [_row()])
     assert d.is_legacy_precoordinated is False
     assert d.constituents == []
+
+
+@pytest.mark.unit
+def test_published_concept_metadata_fails_closed_when_partial() -> None:
+    with pytest.raises(ValueError, match="metadata must be complete"):
+        ConceptDecomposition(
+            code="C1",
+            publication_status="provisional",
+            is_legacy_precoordinated=False,
+        )
+
+
+@pytest.mark.unit
+def test_review_flags_require_an_explicit_outcome() -> None:
+    with pytest.raises(ValueError, match="flags require"):
+        ConceptDecomposition.model_validate(
+            {
+                "code": "C1",
+                "review_flags": [
+                    {"kind": "needs-review", "reason": "site requires review"}
+                ],
+                "is_legacy_precoordinated": False,
+            }
+        )
 
 
 @pytest.mark.unit

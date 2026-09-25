@@ -47,7 +47,7 @@ describe('buildBreadcrumbs', () => {
 		const pagePaths = new Set(Object.keys(pageModules).map(concretePagePath));
 		const repositoryPaths = [...pagePaths].filter((path) => path.startsWith('/repositories/'));
 
-		expect(repositoryPaths).toHaveLength(14);
+		expect(repositoryPaths).toHaveLength(15);
 		for (const routePath of repositoryPaths) {
 			for (const crumb of buildBreadcrumbs(routePath)) {
 				expect(pagePaths, `${routePath} generated missing page ${crumb.href}`).toContain(crumb.href);

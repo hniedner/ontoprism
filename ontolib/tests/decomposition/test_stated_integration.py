@@ -28,6 +28,7 @@ from ontolib.decomposition.axis_diagnostics import (
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
+    AnchorDefinitionRowsCache,
     build_complete_definition_query,
     read_complete_definition,
 )
@@ -102,6 +103,72 @@ def _reachable(url: str) -> bool:
         return False
     resp.raise_for_status()
     return True
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_cached_and_uncached_complete_definitions_match_in_disposable_qlever(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdf: <{RDF_NS}> .
+
+        ncit:C99701 owl:equivalentClass [
+            owl:intersectionOf (ncit:C99703 [
+                a owl:Restriction ; owl:onProperty ncit:R101 ;
+                owl:someValuesFrom ncit:C99711
+            ])
+        ] .
+        ncit:C99702 owl:equivalentClass [
+            owl:intersectionOf (ncit:C99703 [
+                a owl:Restriction ; owl:onProperty ncit:R105 ;
+                owl:someValuesFrom ncit:C99712
+            ])
+        ] .
+        ncit:C99703 owl:equivalentClass [
+            owl:intersectionOf (ncit:C99704 [
+                a owl:Restriction ; owl:onProperty ncit:R108 ;
+                owl:someValuesFrom ncit:C99713
+            ])
+        ] .
+    """
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        uncached = (
+            await read_complete_definition(client.select, "C99701"),
+            await read_complete_definition(client.select, "C99702"),
+        )
+        query_count = 0
+
+        async def counted_select(
+            query: str, *, required_variables: Collection[str] = ()
+        ) -> Sequence[Mapping[str, str | None]]:
+            nonlocal query_count
+            query_count += 1
+            return await client.select(query, required_variables=required_variables)
+
+        cache = AnchorDefinitionRowsCache()
+        cached = (
+            await read_complete_definition(
+                counted_select, "C99701", anchor_rows_cache=cache
+            ),
+            await read_complete_definition(
+                counted_select, "C99702", anchor_rows_cache=cache
+            ),
+        )
+
+    assert cached == uncached
+    assert query_count == 3
 
 
 def _stated_loaded(url: str) -> bool:
@@ -398,6 +465,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
     fixture = f"""
         @prefix ncit: <{NCIT_NS}> .
         @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
 
         ncit:C99750 ncit:P106 "Neoplastic Process" ;
             owl:equivalentClass [
@@ -414,6 +482,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
                       owl:someValuesFrom ncit:C99753 ]
                 )
             ] .
+        ncit:C99751 rdfs:label "Stage I Test Parent Neoplasm" .
         ncit:C99752 ncit:P106 "Anatomic Structure, System, or Substance" .
         ncit:C99753 ncit:P106 "Cell" .
     """

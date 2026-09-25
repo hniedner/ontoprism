@@ -233,6 +233,7 @@ class SparqlHttpClient(SparqlTransportClient):
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None:
         """Upload RDF, losslessly normalizing Turtle for QLever.
 
@@ -259,4 +260,5 @@ class SparqlHttpClient(SparqlTransportClient):
             content_type=content_type,
             graph_iri=graph_iri,
             replace=replace,
+            timeout_seconds=timeout_seconds,
         )

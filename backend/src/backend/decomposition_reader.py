@@ -3,8 +3,10 @@
 from collections.abc import Collection
 from typing import Protocol
 
-from ontolib.decomposition.enhanced_showcase import build_showcase_decision_query
-from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.decomposition.read_queries import (
+    build_decomposition_query,
+    build_publication_progress_query,
+)
 
 
 class _SelectClient(Protocol):
@@ -27,6 +29,13 @@ class DecompositionReader:
         return await self._client.select(
             build_decomposition_query(concept_code),
             required_variables={
+                "publicationStatus",
+                "publicationNotice",
+                "outcome",
+                "outcomeReason",
+                "flag",
+                "flagKind",
+                "flagReason",
                 "status",
                 "decomposedOn",
                 "axis",
@@ -36,9 +45,16 @@ class DecompositionReader:
             },
         )
 
-    async def showcase_rows_for(self, concept_code: str) -> list[dict[str, str]]:
-        """Return the isolated activation rows without joining base constituents."""
+    async def publication_progress_rows(self) -> list[dict[str, str]]:
+        """Return backend-computed D93 aggregates for the published graph."""
         return await self._client.select(
-            build_showcase_decision_query(concept_code),
-            required_variables={"payload"},
+            build_publication_progress_query(),
+            required_variables={
+                "run",
+                "publicationStatus",
+                "publicationNotice",
+                "category",
+                "value",
+                "count",
+            },
         )

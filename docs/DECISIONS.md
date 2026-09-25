@@ -1685,6 +1685,11 @@ memory headroom.
 
 ### D55. Persist the canonical stratified sample definition in run identity
 
+**Superseded in part by the owner-approved M1.6.1 sample publication (#427, D93):**
+sample runs may use `--load` with `--out`; they publish the same provisional
+expert-review notice, recorded outcomes and review flags as full runs. They still
+reject `--total-limit` and equivalence emission. Publication is not acceptance.
+
 `--total-limit` is a deterministic truncation, not a stratified sample: it cannot
 guarantee coverage of rare staging editions, semantic exclusions, deep genus DAGs,
 multi-valued/grouped definitions, NLP/mint paths, region/organ resolution, or atomic
@@ -1802,6 +1807,12 @@ and its distinct contracts.
 ## 2026-07-30 — decomposition publication is journaled and reconcilable
 
 ### D53. Commit each system at its native boundary; reconcile marker-ahead retries
+
+**M1.6.1 implementation update (#426/#443):** artifact membership and run links are
+checked while streaming and sealing the file. RIOT parses Turtle before either
+file-only completion or graph loading; the full artifact is never materialized in
+an rdflib graph. Graph loading uses disk-backed N-Triples chunks, followed by the
+existing atomic promotion and marker reconciliation.
 
 PostgreSQL, a filesystem, and Oxigraph cannot participate in one atomic commit. Marking
 the run complete before publishing the file and graph exposed a false success, while a

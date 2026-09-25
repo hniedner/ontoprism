@@ -889,6 +889,9 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
         '"legacy-precoordinated" ; '
         "<https://w3id.org/ontoprism/vocab#decomposedBy> "
         f'"{_CURRENT_EVIDENCE_RUN_ID}" .\n'
+        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135> "
+        '<https://w3id.org/ontoprism/vocab#conceptOutcome> "decomposed" ; '
+        '<https://w3id.org/ontoprism/vocab#outcomeReason> "engine output" .\n'
     )
     representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     fingerprint = RunFingerprint(

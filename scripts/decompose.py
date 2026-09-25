@@ -144,6 +144,16 @@ def _print_residual_progress(
         )
 
 
+def _print_source_preflight_progress(
+    completed: int, total: int, active: str, *, prefix: str = ""
+) -> None:
+    print(
+        f"{prefix}phase=source-preflight completed={completed}/{total} active={active}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
@@ -178,7 +188,7 @@ async def _run(
     emit_equivalence: bool,
     resume: str | None,
     total_limit: int | None,
-    walker_max_depth: int = 5,
+    walker_max_depth: int = 7,
     sample_manifest: Path | None = None,
     rehearsal: bool = False,
     progress: ProgressCallback | None = None,
@@ -229,13 +239,16 @@ async def _run(
                                 source_manifest,
                                 settings.ncit_sparql_url,
                             ),
-                            get_labels=store.labels_for,
+                            get_labels=store.exact_labels_for,
                             label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
                             total_limit=total_limit,
                             progress=(
                                 progress
                                 if progress is not None
                                 else partial(_print_progress, prefix=prefix)
+                            ),
+                            source_preflight_progress=partial(
+                                _print_source_preflight_progress, prefix=prefix
                             ),
                             residual_progress=partial(
                                 _print_residual_progress, prefix=prefix
@@ -334,16 +347,16 @@ def main(
         int,
         typer.Option(
             "--walker-max-depth",
-            help="Genus-chain walker recursion depth (default 5).",
+            help="Genus-chain walker recursion depth (default 7).",
         ),
-    ] = 5,
+    ] = 7,
     sample_manifest: Annotated[
         Path | None,
         typer.Option(
             "--sample-manifest",
             help=(
                 "Run an explicit source-bound review sample. Requires --out and "
-                "cannot be combined with --load or --total-limit."
+                "cannot be combined with --total-limit."
             ),
         ),
     ] = None,
@@ -372,8 +385,6 @@ def main(
     if sample_manifest is not None:
         if out is None:
             raise typer.BadParameter("--sample-manifest requires --out")
-        if load:
-            raise typer.BadParameter("--sample-manifest cannot be combined with --load")
         if total_limit is not None:
             raise typer.BadParameter(
                 "--sample-manifest and --total-limit are mutually exclusive"
