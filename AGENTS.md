@@ -219,8 +219,12 @@ as addressed. A verified finding (reproduced, or code plus a triggering input or
 is never a suggestion, whatever the reviewer labels it, and always continues (D95).
 
 Verify a finding by reproduction or code plus triggering input/state. Drop an
-unverified claim with a one-line PR-body reason. Fix findings on a new issue branch into
-the milestone. Defer only a major out-of-scope finding needing its own design, tests and
+unverified claim with a one-line PR-body reason.
+Once all milestone issues are implemented, fix pre-PR review findings and reasonable
+suggestions directly on the milestone branch. Commit coherent fixes there, run targeted
+tests and the required pre-PR gates, and rerun affected review dimensions until all five
+converge. Do not create corrective issue branches for this cycle.
+Defer only a major out-of-scope finding needing its own design, tests and
 review: search issue bodies and comments first, then list the issue/comment URL and the
 contract sentence excluding it in the PR body. Use `issue-steward` for proposed
 deferrals or tracker passes. New issue placement or milestone reorganisation requires
