@@ -1124,7 +1124,12 @@ def test_composed_readiness_rejects_false_clear_detector_for_stale_grouping(
         group.packet_identity,
     )
     assert violations[0] == ()
-    assert violations[1] == ("C100051:normalized-group-mismatch",)
+    assert violations[1] == (
+        "C100051:normalized-group-mismatch",
+        "C162226:normalized-group-mismatch",
+        "C181564:normalized-group-mismatch",
+        "C186620:normalized-group-mismatch",
+    )
     assert violations[2] == (
         "policy-evidence-binding",
         "policy-comparison-binding",

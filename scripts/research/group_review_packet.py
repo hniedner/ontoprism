@@ -858,13 +858,7 @@ def _concept_packet(
         if comparison.code in REVIEWED_STAGE_CODES
         else ()
     )
-    reviewed_partition = (
-        tuple((pair,) for pair in decision_target_pair_set)
-        if comparison.code in {"C181564", "C186620", "C162226"}
-        else (decision_target_pair_set,)
-        if decision_target_pair_set
-        else ()
-    )
+    reviewed_partition = (decision_target_pair_set,) if decision_target_pair_set else ()
     target = set(decision_target_pair_set)
     non_target_groups: dict[tuple[object, ...], list[Pair]] = {}
     for item in evidence.constituents:

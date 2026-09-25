@@ -18,6 +18,8 @@ from scripts.research.current_evidence import (
 
 from ontolib.decomposition.normalized_group_policy import (
     ACTIVE_GROUP_CODES,
+    CERVICAL_STAGE_APPROVALS,
+    CERVICAL_STAGE_RATIONALE,
     DETERMINISTIC_SOURCE_CODES,
     PAIR_ONLY_CODES,
     UNRESOLVED_ABSTENTION_BLOCKS,
@@ -547,6 +549,19 @@ def _policy_row(
     diagnosis_pairs = historical_concept.grouping_diagnosis.affected_pairs
     if len(diagnosis_pairs) < _MIN_DIAGNOSIS_PAIRS:
         raise ValueError(f"historical diagnosis lacks affected pairs for {code}")
+    historical_decision = HistoricalDecision(
+        review_row_identity=historical_row.review_row_identity,
+        decision=historical_row.decision,
+        pair_decision=historical_row.pair_decision,
+        reviewer=reviewer,
+        review_date=review_date,
+        rationale=rationale,
+        rationale_sha256=historical_row.rationale_sha256,
+    )
+    if code in CERVICAL_STAGE_APPROVALS:
+        if decision_target_pair_set != CERVICAL_STAGE_APPROVALS[code]:
+            raise ValueError(f"cervical stage approval target differs: {code}")
+        historical_decision = cervical_stage_decision(code)
     reviewed_blocks = set(reviewed_partition)
     blocks = tuple(
         _policy_block_for_partition(
@@ -556,18 +571,9 @@ def _policy_row(
             rule_kind,
             reviewed_blocks,
             source_evidence_identity,
-            historical_row.review_row_identity,
+            historical_decision.review_row_identity,
         )
         for block in output_partition
-    )
-    historical_decision = HistoricalDecision(
-        review_row_identity=historical_row.review_row_identity,
-        decision=historical_row.decision,
-        pair_decision=historical_row.pair_decision,
-        reviewer=reviewer,
-        review_date=review_date,
-        rationale=rationale,
-        rationale_sha256=historical_row.rationale_sha256,
     )
     payload = {
         "concept_code": code,
@@ -595,6 +601,21 @@ def _policy_row(
         ),
     }
     return NormalizedGroupPolicyRow(**payload, row_identity=canonical_identity(payload))
+
+
+def cervical_stage_decision(code: str) -> HistoricalDecision:
+    """Encode the #355 approval in the existing policy decision format."""
+    return HistoricalDecision(
+        review_row_identity=canonical_identity(
+            (code, CERVICAL_STAGE_APPROVALS[code], CERVICAL_STAGE_RATIONALE)
+        ),
+        decision="Approve system/value co-membership",
+        pair_decision=None,
+        reviewer="R. Hannes Niedner, M.D.",
+        review_date="2026-09-25",
+        rationale=CERVICAL_STAGE_RATIONALE,
+        rationale_sha256=hashlib.sha256(CERVICAL_STAGE_RATIONALE.encode()).hexdigest(),
+    )
 
 
 def _policy_block_for_partition(
