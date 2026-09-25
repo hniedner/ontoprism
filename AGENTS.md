@@ -51,7 +51,7 @@ moving or reordering issues.
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
    (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues with a
-   link to each issue's demo comment, all five verdicts, every dropped and deferred
+   link to each issue's demo result comment, all five verdicts, every dropped and deferred
    finding, every item placed in "Hardening (when touched)", every red CI run restored
    without prior approval, and every pending milestone edit.
 4. Merge only after all expected checks pass, then watch CI on the exact merge SHA.
@@ -106,10 +106,13 @@ and passes. Whether a `main` merge released is not judged here (#131).
   migration of the configured Postgres before running it.
 - Every issue body has an estimate (so the twice-the-estimate stop can fire) and a demo in
   its Done when: a screenshot or Playwright flow for GUI work; before/after
-  `pdm run oracle-metrics` output for engine work (the command arrives with R0.2, #416);
-  for other work, the observable before/after the Done when names. Post the demo as an
-  issue comment before the local merge; the milestone PR body links each issue's demo
-  comment. No demo, no merge.
+  `pdm run oracle-metrics` output for engine work; for other work, the observable
+  before/after the Done when names. A missing estimate or demo is not itself a reason to
+  stop: before starting, post your own estimate (time and expected net non-test lines)
+  and demo plan as an issue comment and proceed; if you expect the issue to exceed the
+  size cap, stop and ask the owner to split it. Before the local merge, post the demo result (the before/after itself, not the
+  plan) as an issue comment; the milestone PR body links each issue's demo result. No
+  demo, no merge.
 - Two corrective owner comments on one issue: stop and ask the owner to split it.
 - No process, harness, CI or agent-configuration work unless something is actually
   blocked, and only with the owner's approval before it starts. A red gate-of-record CI
