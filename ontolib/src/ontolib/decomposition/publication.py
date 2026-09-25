@@ -9,11 +9,16 @@ import re
 import shutil
 import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import rdflib
 from pydantic import ValidationError
 
+from ontolib.core.data_build_tools import (
+    JENA_INSTALL_DIR_ENV,
+    identify_jena_installation,
+)
 from ontolib.decomposition import vocab
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
@@ -25,7 +30,6 @@ from ontolib.terminologies.namespaces import NCIT_NS
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Collection, Mapping, Sequence
     from contextlib import AbstractAsyncContextManager
-    from pathlib import Path
     from typing import BinaryIO
 
     from ontolib.decomposition.provenance_models import RunSummary
@@ -48,9 +52,12 @@ class PublicationGraphClient(Protocol):
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None: ...
 
-    async def update(self, update: str) -> None: ...
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None: ...
 
 
 class PublicationProvenance(Protocol):
@@ -84,6 +91,9 @@ class PublicationProvenance(Protocol):
         metrics: dict[str, object],
         representation_identity: str | None = None,
     ) -> bool: ...
+
+
+PUBLICATION_REQUEST_TIMEOUT_SECONDS = 900
 
 
 class PublicationValidationError(RuntimeError):
@@ -516,15 +526,17 @@ async def _replace_graph(
             f"current={current!r}, intent={marker!r}, predecessor={predecessor!r}"
         )
     staging_graph = staging_graph_iri(marker.run_id)
-    with artifact.open("rb") as stream:
-        await client.load(
-            stream,
-            content_type="text/turtle",
-            graph_iri=staging_graph,
-            replace=True,
-        )
+    with tempfile.TemporaryDirectory(
+        prefix="publication-nt-", dir=artifact.parent
+    ) as directory:
+        ntriples = Path(directory) / "publication.nt"
+        await _convert_publication_ntriples(artifact, ntriples)
+        await _load_ntriples_chunks(client, ntriples, staging_graph)
     try:
-        await client.update(build_replacement_update(marker, staging_graph))
+        await client.update(
+            build_replacement_update(marker, staging_graph),
+            timeout_seconds=PUBLICATION_REQUEST_TIMEOUT_SECONDS,
+        )
     except asyncio.CancelledError:
         raise
     except BaseException as original:
@@ -533,6 +545,90 @@ async def _replace_graph(
         if current != marker and await _replacement_committed(client, marker, original):
             return
         raise
+
+
+async def _convert_publication_ntriples(artifact: Path, destination: Path) -> None:
+    configured = os.environ.get(JENA_INSTALL_DIR_ENV)
+    if not configured:
+        raise PublicationValidationError(
+            f"{JENA_INSTALL_DIR_ENV} is required for publication"
+        )
+    installation = Path(configured)
+    await asyncio.to_thread(identify_jena_installation, installation)
+    with destination.open("xb") as output, tempfile.TemporaryFile() as errors:
+        process = await asyncio.create_subprocess_exec(
+            str(installation / "bin/riot"),
+            "--syntax=TURTLE",
+            "--stream=NTRIPLES",
+            str(artifact),
+            stdout=output,
+            stderr=errors,
+        )
+        try:
+            async with asyncio.timeout(1800):
+                await process.wait()
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
+            raise
+        if process.returncode:
+            errors.seek(max(0, errors.tell() - 4000))
+            raise PublicationValidationError(
+                "Jena publication conversion failed: "
+                f"{errors.read().decode(errors='replace')}"
+            )
+
+
+async def _load_ntriples_chunks(
+    client: PublicationGraphClient,
+    source: Path,
+    staging_graph: str,
+    *,
+    chunk_bytes: int = 200_000_000,
+) -> None:
+    if chunk_bytes < 1:
+        raise ValueError("chunk_bytes must be positive")
+    with source.open("rb") as stream:
+        index = 0
+        while True:
+            start = stream.tell()
+            with tempfile.TemporaryFile(dir=source.parent) as chunk:
+                size = _fill_ntriples_chunk(stream, chunk, chunk_bytes)
+                if not size and index:
+                    break
+                chunk.seek(0)
+                try:
+                    await client.load(
+                        chunk,
+                        content_type="application/n-triples",
+                        graph_iri=staging_graph,
+                        replace=index == 0,
+                        timeout_seconds=PUBLICATION_REQUEST_TIMEOUT_SECONDS,
+                    )
+                except Exception as exc:
+                    raise PublicationValidationError(
+                        f"publication chunk {index + 1} bytes "
+                        f"[{start}, {start + size}) failed: {exc}"
+                    ) from exc
+            index += 1
+            if not size:
+                break
+
+
+def _fill_ntriples_chunk(stream: BinaryIO, chunk: BinaryIO, limit: int) -> int:
+    size = 0
+    while line := stream.readline(limit + 1):
+        if len(line) > limit:
+            raise PublicationValidationError(
+                "N-Triples line exceeds publication chunk limit"
+            )
+        if size + len(line) > limit:
+            stream.seek(-len(line), os.SEEK_CUR)
+            break
+        chunk.write(line)
+        size += len(line)
+    return size
 
 
 async def _replacement_committed(

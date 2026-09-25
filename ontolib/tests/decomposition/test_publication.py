@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from unittest.mock import AsyncMock
 
 import pytest
 import rdflib
 
-from ontolib.decomposition import vocab
+from ontolib.decomposition import publication, vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance_models import (
@@ -51,6 +53,17 @@ def _decomposition(code: str = "C1") -> Decomposition:
                 source_roles=("R101",),
             )
         ],
+    )
+
+
+@pytest.fixture(autouse=True)
+def conversion_double(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests isolate publication journaling and reconciliation. Real Jena
+    # conversion and graph equivalence are exercised by integration contracts.
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
     )
 
 
@@ -107,14 +120,18 @@ class _GraphClient:
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None:
-        assert content_type == "text/turtle"
+        assert content_type == "application/n-triples"
+        assert timeout_seconds == publication.PUBLICATION_REQUEST_TIMEOUT_SECONDS
         assert replace is True
         self.events.append("stage")
         self.loaded_payload = data if isinstance(data, bytes) else data.read()
         self.loaded_graph = graph_iri
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         del update
         self.events.append("replace")
         if self.update_error is not None:
@@ -128,7 +145,9 @@ class _BlockingGraphClient(_GraphClient):
         super().__init__()
         self.update_started = asyncio.Event()
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         del update
         self.events.append("replace")
         self.update_started.set()

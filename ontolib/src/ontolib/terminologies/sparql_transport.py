@@ -182,6 +182,21 @@ def parse_ask_result(data: object) -> bool:
     return result
 
 
+def _request_timeout_options(seconds: float | None) -> dict[str, Any]:
+    if seconds is None:
+        return {}
+    if not 0 < seconds < float("inf"):
+        raise ValueError("request timeout must be finite and positive")
+    return {"timeout": seconds + 30}
+
+
+def _with_request_timeout(url: str, seconds: float | None) -> str:
+    if seconds is None:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}timeout={max(1, round(seconds * 1000))}ms"
+
+
 class SparqlTransportClient:
     """Minimal async SPARQL client over an SPARQL HTTP endpoint."""
 
@@ -253,6 +268,7 @@ class SparqlTransportClient:
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None:
         """Bulk-load RDF into the store via the SPARQL Graph Store Protocol.
 
@@ -279,7 +295,10 @@ class SparqlTransportClient:
         )
         try:
             response = await request(
-                url, content=content, headers={"Content-Type": content_type}
+                _with_request_timeout(url, timeout_seconds),
+                content=content,
+                headers={"Content-Type": content_type},
+                **_request_timeout_options(timeout_seconds),
             )
         except _RETRYABLE as e:
             raise StorageError(
@@ -296,7 +315,9 @@ class SparqlTransportClient:
                 f"{response.text[:200]}"
             )
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         """Execute one SPARQL Update request without automatic replay.
 
         A transport failure can happen after the server commits, so retrying here
@@ -308,9 +329,10 @@ class SparqlTransportClient:
         """
         try:
             response = await self._get_client().post(
-                self._update_url,
+                _with_request_timeout(self._update_url, timeout_seconds),
                 content=update.encode("utf-8"),
                 headers={"Content-Type": _SPARQL_UPDATE},
+                **_request_timeout_options(timeout_seconds),
             )
         except _RETRYABLE as exc:
             raise StorageError(
