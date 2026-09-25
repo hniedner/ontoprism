@@ -104,6 +104,17 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
 
+@pytest.fixture(autouse=True)
+def publication_conversion_double(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Orchestrator tests isolate external RIOT; test_publication_java exercises
+    # actual parsing and file-only failure propagation in the integration lane.
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
+    )
+
+
 def _iri(code: str) -> str:
     return f"{NCIT_NS}{code}"
 
