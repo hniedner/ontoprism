@@ -273,6 +273,38 @@ async def test_qlever_client_normalizes_turtle_collections_before_upload(
 
 
 @pytest.mark.unit
+async def test_publication_timeouts_are_request_scoped(endpoint_origin: str) -> None:
+    async with SparqlHttpClient.for_qlever(endpoint_origin) as client:
+        await client.load(
+            b'<urn:test:s> <urn:test:p> "value" .',
+            content_type="application/n-triples",
+            graph_iri="urn:test:g",
+            timeout_seconds=900,
+        )
+        await client.update("CLEAR SILENT GRAPH <urn:test:g>", timeout_seconds=0.001)
+        await client.update("CLEAR SILENT GRAPH <urn:test:g>")
+    assert _ProfileHandler.requests[0][2] == {
+        "graph": ["urn:test:g"],
+        "timeout": ["900000ms"],
+    }
+    assert _ProfileHandler.requests[1][2] == {"timeout": ["1ms"]}
+    assert _ProfileHandler.requests[2][2] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("seconds", [0, -1, float("inf"), float("nan")])
+async def test_invalid_request_timeout_sends_no_update(
+    endpoint_origin: str, seconds: float
+) -> None:
+    async with SparqlHttpClient.for_qlever(endpoint_origin) as client:
+        with pytest.raises(ValueError, match="finite and positive"):
+            await client.update(
+                "CLEAR SILENT GRAPH <urn:test:g>", timeout_seconds=seconds
+            )
+    assert _ProfileHandler.requests == []
+
+
+@pytest.mark.unit
 def test_standard_profile_factory_declares_three_protocol_paths() -> None:
     profile = SparqlEndpointProfile.for_standard_paths("http://example.test/service/")
 

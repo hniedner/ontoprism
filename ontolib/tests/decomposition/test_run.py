@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +15,7 @@ from uuid import UUID
 
 import pytest
 
-from ontolib.decomposition import axes, vocab
+from ontolib.decomposition import axes, publication, vocab
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
@@ -449,13 +450,16 @@ class _PublishingFakeClient(_FakeClient):
         content_type: str,
         graph_iri: str | None = None,
         replace: bool = True,
+        timeout_seconds: float | None = None,
     ) -> None:
-        assert content_type == "text/turtle"
+        assert content_type == "application/n-triples"
         assert replace is True
         self.loaded_payload = data.read()
         self.loaded_graph = graph_iri
 
-    async def update(self, update: str) -> None:
+    async def update(
+        self, update: str, *, timeout_seconds: float | None = None
+    ) -> None:
         self.replacement_update = update
 
 
@@ -2409,7 +2413,13 @@ async def test_run_pipeline_writes_ttl_when_out_is_set(tmp_path: Path) -> None:
 @pytest.mark.unit
 async def test_sample_run_with_load_publishes_through_the_decomposed_graph_path(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        publication,
+        "_convert_publication_ntriples",
+        AsyncMock(side_effect=shutil.copyfile),
+    )
     client = _PublishingFakeClient(pages=[["C1"]])
     provenance = _mock_provenance()
     out = tmp_path / "sample.ttl"
