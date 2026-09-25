@@ -1,6 +1,7 @@
 """Manifest-bound repository metadata contracts."""
 
 import hashlib
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -707,10 +708,12 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
         sha256="d" * 64,
     )
     proof_loads = 0
+    observation_started = threading.Event()
 
     def _validate_proof(_path: Path):
         nonlocal proof_loads
         proof_loads += 1
+        assert observation_started.wait(1), "file proof blocked live observation"
         return manifest, artifact
 
     monkeypatch.setattr(
@@ -720,6 +723,7 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
     async def _observe(
         _url: str,
     ) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        observation_started.set()
         return (
             UberonIndexObservation.model_validate(manifest.observation.model_dump()),
             _uberon_counts(),
