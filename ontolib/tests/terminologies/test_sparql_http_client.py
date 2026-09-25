@@ -292,6 +292,19 @@ async def test_publication_timeouts_are_request_scoped(endpoint_origin: str) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("seconds", [0, -1, float("inf"), float("nan")])
+async def test_invalid_request_timeout_sends_no_update(
+    endpoint_origin: str, seconds: float
+) -> None:
+    async with SparqlHttpClient.for_qlever(endpoint_origin) as client:
+        with pytest.raises(ValueError, match="finite and positive"):
+            await client.update(
+                "CLEAR SILENT GRAPH <urn:test:g>", timeout_seconds=seconds
+            )
+    assert _ProfileHandler.requests == []
+
+
+@pytest.mark.unit
 def test_standard_profile_factory_declares_three_protocol_paths() -> None:
     profile = SparqlEndpointProfile.for_standard_paths("http://example.test/service/")
 

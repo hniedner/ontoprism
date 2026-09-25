@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -80,3 +81,82 @@ async def test_overlong_line_fails_without_partial_upload(tmp_path: Path) -> Non
             client, path, "urn:test:g", chunk_bytes=10
         )
     client.load.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_conversion_requires_configured_jena(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ONTOPRISM_JENA_DIR", raising=False)
+    destination = tmp_path / "output.nt"
+    with pytest.raises(
+        publication.PublicationValidationError, match="ONTOPRISM_JENA_DIR"
+    ):
+        await publication._convert_publication_ntriples(
+            tmp_path / "input.ttl", destination
+        )
+    assert not destination.exists()
+
+
+@pytest.mark.unit
+async def test_conversion_failure_exposes_jena_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ONTOPRISM_JENA_DIR", str(tmp_path))
+    monkeypatch.setattr(publication, "identify_jena_installation", lambda _: None)
+    process = AsyncMock()
+    process.returncode = 1
+
+    async def launch(*args, **kwargs):
+        kwargs["stderr"].write(b"invalid Turtle at line 3")
+        return process
+
+    monkeypatch.setattr(publication.asyncio, "create_subprocess_exec", launch)
+    with pytest.raises(
+        publication.PublicationValidationError, match="invalid Turtle at line 3"
+    ):
+        await publication._convert_publication_ntriples(
+            tmp_path / "input.ttl", tmp_path / "out.nt"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("already_exited", [False, True])
+async def test_cancelled_conversion_reaps_its_own_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_exited: bool
+) -> None:
+    monkeypatch.setenv("ONTOPRISM_JENA_DIR", str(tmp_path))
+    monkeypatch.setattr(publication, "identify_jena_installation", lambda _: None)
+    started = asyncio.Event()
+    reaped = False
+
+    class Process:
+        returncode = 0 if already_exited else None
+        killed = False
+
+        async def wait(self):
+            nonlocal reaped
+            if not started.is_set():
+                started.set()
+                await asyncio.Event().wait()
+            reaped = True
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+    process = Process()
+    monkeypatch.setattr(
+        publication.asyncio, "create_subprocess_exec", AsyncMock(return_value=process)
+    )
+    task = asyncio.create_task(
+        publication._convert_publication_ntriples(
+            tmp_path / "in.ttl", tmp_path / "out.nt"
+        )
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert reaped
+    assert process.killed is not already_exited

@@ -185,14 +185,14 @@ def parse_ask_result(data: object) -> bool:
 def _request_timeout_options(seconds: float | None) -> dict[str, Any]:
     if seconds is None:
         return {}
-    if not 0 < seconds < float("inf"):
-        raise ValueError("request timeout must be finite and positive")
     return {"timeout": seconds + 30}
 
 
 def _with_request_timeout(url: str, seconds: float | None) -> str:
     if seconds is None:
         return url
+    if not 0 < seconds < float("inf"):
+        raise ValueError("request timeout must be finite and positive")
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}timeout={max(1, round(seconds * 1000))}ms"
 
