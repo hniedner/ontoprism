@@ -148,15 +148,15 @@ do not rerun decomposition or alter the store to diagnose Java discovery.
 For a store-free conversion check, run:
 
 ```bash
-pdm run agent-test ontolib/tests/decomposition/test_publication_java.py -v
+pdm run test-integration -k test_publication_java -v
 ```
 
 This explicitly selected local-tool contract runs real RIOT with `JAVA_HOME`
 unset and Java on a controlled `PATH`, with Java available only via `JAVA_HOME`,
 and with Java absent. It checks RDF-list and language-tag preservation and
 missing-Java failure propagation using only tiny temporary files. It requires the
-installed pinned Jena and host JDK and is marked `full_build`, excluded from the
-ordinary CI integration lane; a skipped/deselected test is not a pass.
+installed pinned Jena and host JDK and runs in the CI integration lane, where those
+tools are installed; a skipped/deselected test is not a pass.
 
 Owner-verified production observation (2026-09-25): from the pinned #127 worktree,
 OpenJDK **21.0.12.1** installed via `/opt/homebrew/opt/openjdk@21` ran the real pinned

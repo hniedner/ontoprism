@@ -13,9 +13,9 @@ from rdflib import RDF, Graph, Literal, Namespace
 from ontolib.core.data_build_tools import ToolIdentityError
 from ontolib.decomposition.publication import _convert_publication_ntriples
 
-# Requires the installed pinned Jena and a host JDK; run explicitly, not in the
-# hermetic unit lane. Unlike store integration tests this never provisions services.
-pytestmark = pytest.mark.full_build
+# The integration lane installs pinned Jena and Java. This contract itself uses
+# only local processes and temporary files; it never provisions a store.
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
