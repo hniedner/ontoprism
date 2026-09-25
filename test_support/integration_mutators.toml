@@ -174,11 +174,11 @@ fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_large_integration.py"
-fixtures = ["qlever_resource_provisioner"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_resume_integration.py"
-fixtures = ["isolated_postgres_settings", "qlever_resource_provisioner"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"

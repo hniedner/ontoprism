@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
+
 from ontolib.decomposition.publication import PublicationMarker
 from test_support.integration_resources import IntegrationResourceOwner, run_docker
 
@@ -48,3 +50,10 @@ def publication_marker() -> PublicationMarker:
         representation_identity="b" * 64,
         built_at=datetime.now(UTC),
     )
+
+
+@pytest.fixture(name="isolated_qlever_url")
+def isolated_qlever_url(qlever_resource_provisioner) -> Iterator[str]:
+    """Test-module override: same owned lifecycle, production memory flags."""
+    with publication_qlever(qlever_resource_provisioner) as url:
+        yield url

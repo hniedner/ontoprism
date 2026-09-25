@@ -13,7 +13,9 @@ from unittest.mock import AsyncMock
 import pytest
 import typer
 from scripts import decompose
-from test_support.publication_qlever import publication_qlever
+from test_support.publication_qlever import (
+    isolated_qlever_url as publication_qlever_fixture,  # noqa: F401 - pytest fixture
+)
 from typer.testing import CliRunner
 
 from backend.config import get_settings
@@ -64,7 +66,7 @@ def old_publication(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 @pytest.mark.full_build
 async def test_old_publication_failure_resumes_without_redecomposition(
     tmp_path: Path,
-    qlever_resource_provisioner,
+    isolated_qlever_url: str,
     monkeypatch: pytest.MonkeyPatch,
     old_publication: ModuleType,
 ) -> None:
@@ -78,18 +80,17 @@ async def test_old_publication_failure_resumes_without_redecomposition(
     run_ids = []
     current_publish = pipeline.publish_artifact
     try:
-        with publication_qlever(qlever_resource_provisioner) as url:
-            completed = await _resume_contract(
-                url,
-                policy,
-                monkeypatch,
-                old_publication,
-                store,
-                output,
-                run_ids,
-                current_publish,
-            )
-            assert completed.publication_state == "published"
+        completed = await _resume_contract(
+            isolated_qlever_url,
+            policy,
+            monkeypatch,
+            old_publication,
+            store,
+            output,
+            run_ids,
+            current_publish,
+        )
+        assert completed.publication_state == "published"
     finally:
         await dispose_engine(engine)
 
