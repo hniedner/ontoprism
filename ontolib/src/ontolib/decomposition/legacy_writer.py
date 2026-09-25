@@ -249,7 +249,6 @@ def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
 def _render_one(
     dec: Decomposition,
     *,
-    run_id: str = "",
     emitted_on: date,
 ) -> list[str]:
     """Render Turtle triples for a single *dec* into a list of statement strings."""
@@ -263,9 +262,6 @@ def _render_one(
         f"   {_p(vocab.DECOMPOSED_ON)}"
         f' "{emitted_on}"^^<http://www.w3.org/2001/XMLSchema#date> .',
     )
-
-    if run_id:
-        lines.append(f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .')
 
     lines.extend(_render_constituent(subj, dec.code, c) for c in dec.constituents)
     lines.extend(_render_complete_definition(subj, dec))
@@ -362,7 +358,6 @@ async def write_ttl(
         buf.extend(
             _render_one(
                 dec,
-                run_id=run_id,
                 emitted_on=emitted_on,
             )
         )
