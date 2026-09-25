@@ -7,13 +7,14 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 from __future__ import annotations
 
 import re
-from typing import Literal, Self, get_args
+from typing import Self, get_args
 
 from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.decomposition.models import AxisSource, ConceptOutcome
 from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
+from ontolib.decomposition.vocab import PublicationNotice, PublicationStatus
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,
@@ -116,8 +117,8 @@ class ConceptDecomposition(StrictBoundaryModel):
     """
 
     code: str
-    publication_status: Literal["provisional"] | None = None
-    publication_notice: Literal["expert review, not an NCIt release"] | None = None
+    publication_status: PublicationStatus | None = None
+    publication_notice: PublicationNotice | None = None
     outcome: ConceptOutcome | None = None
     outcome_reason: str | None = Field(default=None, min_length=1)
     review_flags: list[ConceptReviewFlag] = Field(default_factory=list)
@@ -135,8 +136,8 @@ class PublicationProgress(StrictBoundaryModel):
     """Backend-computed counts for the graph's currently published D93 run."""
 
     run_id: str = Field(min_length=1)
-    publication_status: Literal["provisional"]
-    publication_notice: str = Field(min_length=1)
+    publication_status: PublicationStatus
+    publication_notice: PublicationNotice
     total_concepts: int = Field(ge=0)
     outcome_counts: dict[ConceptOutcome, NonNegativeInt]
     review_flag_counts: dict[ReviewFlagKind, NonNegativeInt]

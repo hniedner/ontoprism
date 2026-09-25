@@ -23,6 +23,8 @@ def build_decomposition_query(concept_code: str) -> str:
         ValueError: if *concept_code* is not injection-safe.
     """
     concept_uri = safe_iri(concept_code, NCIT_NS)
+    # Gate the banner on concept presence; FILTER EXISTS hit a QLever planner
+    # assertion, while this bounded subquery preserves absent-concept reads.
     return f"""
         SELECT ?publicationStatus ?publicationNotice ?outcome ?outcomeReason
                ?flag ?flagKind ?flagReason ?status ?decomposedOn

@@ -7,6 +7,8 @@ writes (#4) and the read API/UI (#9) consume. See the engine design doc (§4.1-�
 
 from __future__ import annotations
 
+from typing import Literal, get_args
+
 # Persistent w3id identifier (design §14 decision 3) — need not resolve to be a valid
 # namespace, but is community-standard and controllable via a one-line redirect PR.
 ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"
@@ -57,8 +59,10 @@ HAS_REVIEW_FLAG = f"{ONTOPRISM_NS}hasReviewFlag"
 REVIEW_FLAG_KIND = f"{ONTOPRISM_NS}reviewFlagKind"
 REVIEW_FLAG_REASON = f"{ONTOPRISM_NS}reviewFlagReason"
 
-PROVISIONAL = "provisional"
-EXPERT_REVIEW_NOTICE = "expert review, not an NCIt release"
+PublicationStatus = Literal["provisional"]
+PublicationNotice = Literal["expert review, not an NCIt release"]
+PROVISIONAL: PublicationStatus = get_args(PublicationStatus)[0]
+EXPERT_REVIEW_NOTICE: PublicationNotice = get_args(PublicationNotice)[0]
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"

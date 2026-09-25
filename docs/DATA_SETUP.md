@@ -91,7 +91,7 @@ construction.
 
 ### Host Java is required for decomposition publication
 
-Unlike containerized index construction, `decompose --load` (including publication
+Unlike containerized index construction, `decompose --out` (with or without `--load`, including publication
 on `--resume`) executes `$ONTOPRISM_JENA_DIR/bin/riot` **on the host**. Install a
 JDK **21 or newer**; Java 21 LTS is the recommended baseline. The pinned Jena 6.1.0
 RIOT class uses Java class-file version 65 (Java 21). The launcher's generic
@@ -154,7 +154,9 @@ pdm run test-integration -k test_publication_java -v
 This explicitly selected local-tool contract runs real RIOT with `JAVA_HOME`
 unset and Java on a controlled `PATH`, with Java available only via `JAVA_HOME`,
 and with Java absent. It checks RDF-list and language-tag preservation and
-missing-Java failure propagation using only tiny temporary files. It requires the
+missing-Java failure propagation using only tiny temporary files. It also verifies
+that invalid Turtle cannot complete file-only publication or create its destination.
+It requires the
 installed pinned Jena and host JDK and runs in the CI integration lane, where those
 tools are installed; a skipped/deselected test is not a pass.
 

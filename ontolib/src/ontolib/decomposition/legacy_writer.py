@@ -341,6 +341,8 @@ async def write_ttl(
     ValueError
         When *emit_equivalence* is requested. Reversible equivalence emission needs
         a separately validated proof-bearing export mode (D43).
+        Also when run-bound decompositions lack publication records, or records
+        are supplied without a run identifier.
     """
     if emit_equivalence:
         raise ValueError(

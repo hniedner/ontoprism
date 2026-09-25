@@ -222,6 +222,16 @@ async def test_run_id_is_rendered(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 async def test_run_export_requires_recorded_outcomes(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="run identifier"):
+        await write_ttl(
+            [],
+            tmp_path / "out.ttl",
+            publications=(
+                ConceptPublication(
+                    concept_code="C1", outcome="unknown", reason="unresolved"
+                ),
+            ),
+        )
     with pytest.raises(ValueError, match="publication records"):
         await write_ttl(
             [Decomposition(code="C1", semantic_type=None)],
