@@ -1,6 +1,7 @@
 """NCIt repository read endpoints: concept detail, search, graph neighborhood,
 mappings."""
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Mapping
@@ -22,7 +23,7 @@ from backend.dependencies import (
     XrefReads,
 )
 from backend.icdo_datasets import ServedIcdoDataset
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.logging_config import get_logger
@@ -86,9 +87,8 @@ def _showcase_policy_for(
 
 async def _xref_expected(
     metadata: RepositoryMetadataReads, *, include_icdo: bool
-) -> XrefReadPolicy:
-    ncit = await metadata.ncit()
-    uberon = await metadata.uberon()
+) -> tuple[NcitRepositoryReady, XrefReadPolicy]:
+    ncit, uberon = await asyncio.gather(metadata.ncit(), metadata.uberon())
     if isinstance(ncit, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, ncit.model_dump(mode="json")
@@ -106,7 +106,7 @@ async def _xref_expected(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, icdo.model_dump(mode="json")
         )
-    return XrefReadPolicy(
+    return ncit, XrefReadPolicy(
         uberon=UberonReadIdentity(
             ncit_source_identity=ncit.source_identity,
             uberon_source_identity=uberon.source_identity,
@@ -354,15 +354,10 @@ async def concept_mappings(
         safe_iri(code, NCIT_NS)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    repository = await metadata.ncit()
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, repository.model_dump(mode="json")
-        )
     entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
         x_icdo_entitlement
     )
-    expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
+    repository, expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
     try:
         rows = await xref_store.mappings_for_identifiers({code}, expected=expected)
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
@@ -403,7 +398,9 @@ async def concept_decomposition(
     entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
         x_icdo_entitlement
     )
-    expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
+    _repository, expected = await _xref_expected(
+        metadata, include_icdo=entitled_to_icdo
+    )
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:

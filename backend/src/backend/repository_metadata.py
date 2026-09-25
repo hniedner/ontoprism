@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import sqlite3
@@ -571,18 +572,6 @@ def _select_uberon_static_proof(
     return cached
 
 
-async def _select_uberon_live_observation(
-    manifest: UberonIndexManifest,
-    cached: tuple[str, UberonIndexObservation, UberonClassCounts] | None,
-    endpoint_url: str,
-    *,
-    force: bool,
-) -> tuple[str, UberonIndexObservation, UberonClassCounts]:
-    del cached, force
-    observation, class_counts = await observe_uberon_repository(endpoint_url)
-    return manifest.source_identity, observation, class_counts
-
-
 class RepositoryMetadataService:
     """Certify live proxy state without ever inferring an active identity."""
 
@@ -598,9 +587,6 @@ class RepositoryMetadataService:
         self._icdo = icdo
         self._uberon_static_proof: (
             tuple[UberonIndexManifest, UberonArtifactManifest, str] | None
-        ) = None
-        self._uberon_live_observation: (
-            tuple[str, UberonIndexObservation, UberonClassCounts] | None
         ) = None
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
@@ -641,18 +627,25 @@ class RepositoryMetadataService:
         """Return an immutable-manifest/live-observation-bound Uberon/CL identity."""
         active = _active_store_path(self._settings.uberon_store_dir)
         try:
-            self._uberon_static_proof = _select_uberon_static_proof(
-                active, self._uberon_static_proof, force=force
+            proof, live = await asyncio.gather(
+                asyncio.to_thread(
+                    _select_uberon_static_proof,
+                    active,
+                    self._uberon_static_proof,
+                    force=force,
+                ),
+                observe_uberon_repository(self._settings.uberon_sparql_url),
+                return_exceptions=True,
             )
-            manifest, artifact, manifest_identity = self._uberon_static_proof
+            # Collect both results on ordinary failure, preserving proof-error priority.
+            if isinstance(proof, BaseException):
+                raise proof
+            self._uberon_static_proof = proof
+            manifest, artifact, manifest_identity = proof
             _require_configured_uberon_artifact(artifact, self._settings)
-            self._uberon_live_observation = await _select_uberon_live_observation(
-                manifest,
-                self._uberon_live_observation,
-                self._settings.uberon_sparql_url,
-                force=force,
-            )
-            _, observation, class_counts = self._uberon_live_observation
+            if isinstance(live, BaseException):
+                raise live
+            observation, class_counts = live
             _require_certified_uberon_observation(manifest, observation, self._settings)
             return bind_uberon_repository_metadata(
                 manifest,

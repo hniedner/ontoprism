@@ -6,8 +6,10 @@ label join, and the 503 mapping when the embedding backend is unavailable. The
 live-store variants live in ``test_ncit_api_integration.py``.
 """
 
+import asyncio
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -16,9 +18,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from backend.api.v1.ncit import _xref_expected
 from backend.api.v1.ncit import router as ncit_router
 from backend.config import get_settings
 from backend.dependencies import (
+    RepositoryMetadataReader,
     get_embedding_store,
     get_ncit_search_index,
     get_ncit_store,
@@ -30,6 +34,7 @@ from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.store import XrefReadPolicy
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.ncit.models import (
     BrowsePage,
@@ -206,6 +211,58 @@ class _Xrefs:
                 for value in ("8240/3", "8241/3", "8248/1")
             ]
         }
+
+
+@pytest.mark.unit
+def test_mapping_response_uses_same_certified_source_as_mapping_lookup() -> None:
+    class ChangingMetadata(_Metadata):
+        reads = 0
+
+        async def ncit(self) -> SimpleNamespace:
+            self.reads += 1
+            return SimpleNamespace(
+                source_identity=str(self.reads) * 64, manifest_identity="e" * 64
+            )
+
+    class SourceCheckingXrefs:
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], *, expected: XrefReadPolicy
+        ) -> dict[str, list[MappingResult]]:
+            assert expected.uberon is not None
+            assert expected.uberon.ncit_source_identity == "1" * 64
+            return {code: [] for code in identifiers}
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_repository_metadata] = ChangingMetadata
+    app.dependency_overrides[get_xref_store] = SourceCheckingXrefs
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C100054/mappings")
+    assert response.status_code == 200
+    assert response.json()["repository_source_identity"] == "1" * 64
+
+
+@pytest.mark.unit
+async def test_independent_metadata_checks_do_not_serialize_request_latency() -> None:
+    ncit_started, uberon_started = asyncio.Event(), asyncio.Event()
+
+    class ConcurrentMetadata(_Metadata):
+        async def ncit(self) -> SimpleNamespace:
+            ncit_started.set()
+            await uberon_started.wait()
+            return await super().ncit()
+
+        async def uberon(self) -> SimpleNamespace:
+            uberon_started.set()
+            await ncit_started.wait()
+            return await super().uberon()
+
+    async with asyncio.timeout(1):
+        repository, policy = await _xref_expected(
+            cast("RepositoryMetadataReader", ConcurrentMetadata()), include_icdo=False
+        )
+    assert policy.uberon is not None
+    assert policy.uberon.ncit_source_identity == repository.source_identity
 
 
 class _UnhealthyMetadata:
