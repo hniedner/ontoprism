@@ -1,7 +1,8 @@
 # Evidence destinations
 
-`docs/evidence/` contains tracked explanatory prose about evidence boundaries and
-destinations. It is documentation, not a store for non-documentary evidence. The
+`docs/evidence/` contains tracked explanatory prose about evidence boundaries,
+destinations and decision rationales. It is documentation, not a store for
+non-documentary evidence. The
 top-level `evidence/` directory now has one deliberately narrow admission governed by
 its exact inventory test and group-review loader, not by a generic pre-commit policy.
 

@@ -31,6 +31,7 @@ from scripts.research.current_evidence import (
     _row_replay,
     _typed_diagnosis,
     generate_current_evidence,
+    generate_rehearsal_oracle_evidence,
     regenerate_current_comparison,
     validate_current_comparison,
 )
@@ -43,6 +44,7 @@ from scripts.research.golden_review import (
 )
 
 from ontolib.decomposition.evaluation import PartitionDiagnosis, compare_full_partition
+from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
@@ -61,10 +63,13 @@ from ontolib.decomposition.normalized_group_policy import (
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    CompletedRehearsalForOracleMetrics,
     CompletedRunForEvidence,
+    ConceptPublication,
     RunFingerprint,
     WorkItemOutcome,
 )
+from ontolib.decomposition.publication import PublicationValidationError
 
 _GOLDEN = Path(__file__).parent / "golden"
 _ORACLE = _GOLDEN / "neoplasm-adjudicated.json"
@@ -238,19 +243,102 @@ class _Store:
         return self.decompositions
 
 
-def _empty_artifact(path: Path) -> None:
-    code = _fingerprint().worklist[0]
-    triples = (
-        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
-        "<https://w3id.org/ontoprism/vocab#representationStatus> "
-        '"legacy-precoordinated" ; '
-        '<https://w3id.org/ontoprism/vocab#decomposedBy> "current-run" .\n'
-        f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
-        '<https://w3id.org/ontoprism/vocab#conceptOutcome> "atomic-no-op" ; '
-        "<https://w3id.org/ontoprism/vocab#outcomeReason> "
-        '"in-scope concept was not detected as pre-coordinated" .'
+class _RehearsalStore(_Store):
+    async def completed_rehearsal_for_oracle_metrics(
+        self, run_id: str
+    ) -> CompletedRehearsalForOracleMetrics:
+        assert run_id == "current-run"
+        return CompletedRehearsalForOracleMetrics(
+            run_id=run_id,
+            ncit_version="26.07d",
+            fingerprint=self.completed.fingerprint.model_copy(
+                update={"rehearsal_nonce": "oracle-outcomes-test", "load_mode": "none"}
+            ),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("defect", [None, "missing", "extra", "wrong-run"])
+async def test_rehearsal_oracle_artifact_requires_every_worklist_outcome(
+    tmp_path: Path, defect: str | None
+) -> None:
+    artifact = tmp_path / "rehearsal.ttl"
+    _empty_artifact(artifact)
+    store = _RehearsalStore(artifact)
+    store.decompositions = []
+    for index, outcome in enumerate(store.outcomes):
+        kind = {
+            "C102883": "atomic-no-op",
+            "C162770": "semantic-excluded",
+        }.get(outcome.concept_code, "decomposed")
+        store.outcomes[index] = outcome.model_copy(
+            update={"outcome": kind, "is_decomposed": kind == "decomposed"}
+        )
+        if kind == "decomposed":
+            store.decompositions.append(
+                Decomposition(
+                    code=outcome.concept_code,
+                    semantic_type="Neoplastic Process",
+                    constituents=(),
+                )
+            )
+    publications = [
+        ConceptPublication(
+            concept_code=o.concept_code, outcome=o.outcome, reason="sample outcome"
+        )
+        for o in store.outcomes
+        if o.outcome is not None
+    ]
+    if defect == "missing":
+        publications = [p for p in publications if p.concept_code != "C102883"]
+    elif defect == "extra":
+        publications.append(
+            ConceptPublication(
+                concept_code="C999", outcome="atomic-no-op", reason="outside sample"
+            )
+        )
+    await write_ttl(
+        store.decompositions,
+        artifact,
+        run_id="wrong-run" if defect == "wrong-run" else "current-run",
+        publications=publications,
     )
-    path.write_text(triples + "\n")
+    invocation = generate_rehearsal_oracle_evidence(
+        sample_manifest=_MANIFEST,
+        oracle=_ORACLE,
+        row_decisions=_ROWS,
+        proposal_registry=_REGISTRY,
+        proposal_registry_migration=_REGISTRY_MIGRATION,
+        run_id="current-run",
+        artifact=artifact,
+        engine_output=tmp_path / "engine.json",
+        comparison_output=tmp_path / "comparison.json",
+        store=store,
+    )
+    if defect is not None:
+        message = "run identifier" if defect == "wrong-run" else "expected concept set"
+        with pytest.raises(PublicationValidationError, match=message):
+            await invocation
+        return
+    evidence, comparison = await invocation
+    outcomes = {c.code: c.outcome for c in evidence.concepts}
+    assert outcomes["C162770"] == "semantic-excluded"
+    assert outcomes["C102883"] == "atomic-no-op"
+    assert set(outcomes) == set(_fingerprint().worklist)
+    assert comparison.metrics.full_partition_agreement.denominator == 20
+
+
+def _empty_artifact(path: Path) -> None:
+    path.write_text(
+        "".join(
+            f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
+            '<https://w3id.org/ontoprism/vocab#decomposedBy> "current-run" .\n'
+            f"<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}> "
+            f'<https://w3id.org/ontoprism/vocab#conceptOutcome> "{outcome}" .\n'
+            for index, code in enumerate(_fingerprint().worklist)
+            for outcome in ["decomposed" if index == 0 else "atomic-no-op"]
+        )
+    )
 
 
 def _repeated_occurrence_decomposition() -> Decomposition:

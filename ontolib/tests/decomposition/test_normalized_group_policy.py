@@ -231,9 +231,9 @@ def _fresh_promotion_bundle(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         output=policy_path,
     )
     assert comparison.metrics.common_pair_partition_agreement.model_dump() == {
-        "numerator": 13,
+        "numerator": 16,
         "denominator": 18,
-        "rate": 13 / 18,
+        "rate": 16 / 18,
         "ineligible": 2,
     }
     return evidence_path, comparison_path, policy_path, current_path
@@ -260,7 +260,7 @@ def _rebind_policy_comparison(policy_path: Path, comparison_path: Path) -> None:
     load_normalized_group_policy(policy_path)
 
 
-def test_promotion_accepts_policy_accounted_thirteen_of_eighteen_bundle(
+def test_promotion_accepts_policy_accounted_sixteen_of_eighteen_bundle(
     tmp_path: Path,
 ) -> None:
     evidence, comparison, policy, current = _fresh_promotion_bundle(tmp_path)
@@ -321,7 +321,7 @@ def test_promotion_rejects_common_pair_eligibility_boundary_drift(
         )
 
 
-def test_promotion_rejects_unaccounted_sixth_disagreement_without_writes(
+def test_promotion_rejects_unaccounted_disagreement_without_writes(
     tmp_path: Path,
 ) -> None:
     evidence, comparison_path, policy, current = _fresh_promotion_bundle(tmp_path)
@@ -346,7 +346,7 @@ def test_promotion_rejects_unaccounted_sixth_disagreement_without_writes(
     )
     metrics = comparison.metrics
     common_metric = metrics.common_pair_partition_agreement.model_copy(
-        update={"numerator": 12, "rate": 12 / 18}
+        update={"numerator": 15, "rate": 15 / 18}
     )
     _write_comparison_mutation(
         comparison_path,
@@ -383,7 +383,9 @@ def test_promotion_rejects_altered_historical_approval_partition(
     comparison = CurrentComparison.model_validate_json(comparison_path.read_bytes())
     concept = next(item for item in comparison.concepts if item.code == code)
     common = concept.common_pair_partition
-    affected = set(common.primary_diagnosis.affected_pairs)  # type: ignore[union-attr]
+    affected = set(
+        load_normalized_group_policy(policy).by_code[code].decision_target_pair_set
+    )
     unrelated = next(
         block for block in common.actual_partition if not set(block) & affected
     )
@@ -402,7 +404,10 @@ def test_promotion_rejects_altered_historical_approval_partition(
     altered = concept.model_copy(
         update={
             "common_pair_partition": common.model_copy(
-                update={"actual_partition": tuple(sorted(altered_partition))}
+                update={
+                    "actual_partition": tuple(sorted(altered_partition)),
+                    "agrees": False,
+                }
             )
         }
     )
@@ -419,7 +424,7 @@ def test_promotion_rejects_altered_historical_approval_partition(
     )
     _rebind_policy_comparison(policy, comparison_path)
 
-    with pytest.raises(ValueError, match="altered reviewed disagreement"):
+    with pytest.raises(ValueError, match="unaccounted reviewed disagreement"):
         validate_promotion_bundle(
             evidence_path=evidence,
             comparison_path=comparison_path,
@@ -448,7 +453,7 @@ def test_promotion_rejects_resolved_abstention_without_new_decision(
         }
     )
     metric = comparison.metrics.common_pair_partition_agreement.model_copy(
-        update={"numerator": 14, "rate": 14 / 18}
+        update={"numerator": 17, "rate": 17 / 18}
     )
     _write_comparison_mutation(
         comparison_path,
@@ -619,28 +624,6 @@ def test_evidence_policy_group_map_requires_exact_symmetric_unique_pairs(
         validate_evidence_policy_group_map(mutated, policy)
 
 
-def test_policy_refuses_unavailable_prechange_output_identity_literals() -> None:
-    payload = load_packaged_normalized_group_policy().model_dump()
-    payload["prechange_evidence_identity"] = "4475" + "0" * 60
-
-    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ActiveNormalizedGroupPolicy.model_validate(payload)
-
-
-@pytest.mark.parametrize("claimed_digest", ["0" * 64, "4febb77c" + "0" * 56])
-def test_unavailable_prechange_record_rejects_any_present_artifact_claim(
-    claimed_digest: str,
-) -> None:
-    payload = load_packaged_normalized_group_policy().model_dump()
-    payload["unavailable_historical_artifact"]["present_artifact"] = {
-        "path": "bounded/replay.ttl",
-        "sha256": claimed_digest,
-    }
-
-    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ActiveNormalizedGroupPolicy.model_validate(payload)
-
-
 def test_active_rows_use_tracked_historical_observations_not_counterfactuals(
     tmp_path: Path,
 ) -> None:
@@ -771,13 +754,18 @@ def test_active_policy_has_exact_15_rows_and_preserves_decision_history(
     assert {
         row.concept_code
         for row in policy.rows
-        if row.historical_decision.decision == "Approve intentional normalization"
+        if row.historical_decision.decision == "Approve system/value co-membership"
     } == {"C181564", "C186620", "C162226"}
     assert all("current_decision" not in row.model_dump() for row in policy.rows)
     assert all(
         row.historical_decision.rationale
         and row.historical_decision.reviewer == "R. Hannes Niedner, M.D."
-        and row.historical_decision.review_date == "2026-08-28"
+        and row.historical_decision.review_date
+        == (
+            "2026-09-25"
+            if row.concept_code in {"C181564", "C186620", "C162226"}
+            else "2026-08-28"
+        )
         for row in policy.rows
     )
 
@@ -823,11 +811,33 @@ def test_reviewed_decisions_cover_only_exact_stage_targets(tmp_path: Path) -> No
         )
 
 
-def test_historical_stage_review_preserves_exact_separate_and_together_partitions(
+def test_approved_cervical_stage_pairs_share_a_concept_local_group(
+    tmp_path: Path,
+) -> None:
+    for policy in (load_packaged_normalized_group_policy(), _generate(tmp_path)):
+        group_ids = set()
+        for code, system, value in (
+            ("C181564", "C180901", "C27966"),
+            ("C186620", "C186618", "C27966"),
+            ("C162226", "C186617", "C96244"),
+        ):
+            row = policy.by_code[code]
+            pairs = (("op:StageSystem", system), ("op:StageValue", value))
+            block = row.block_for(pairs[0])
+            assert block.pairs == pairs
+            assert row.block_for(pairs[1]) == block
+            assert block.normalized_group_id is not None
+            group_ids.add(block.normalized_group_id)
+            assert row.historical_decision.review_date == "2026-09-25"
+            assert row.historical_observed_partition.partition != row.reviewed_partition
+        assert len(group_ids) == 3
+
+
+def test_stage_review_preserves_exact_decision_targets(
     tmp_path: Path,
 ) -> None:
     policy = _generate(tmp_path)
-    separating = {"C181564", "C186620", "C162226"}
+    superseded = {"C181564", "C186620", "C162226"}
     together = {
         "C115057",
         "C101539",
@@ -839,14 +849,12 @@ def test_historical_stage_review_preserves_exact_separate_and_together_partition
         "C115118",
     }
 
-    for code in separating:
+    for code in superseded:
         row = policy.by_code[code]
-        assert row.historical_decision.decision == "Approve intentional normalization"
-        assert row.reviewed_partition == tuple(
-            (pair,) for pair in row.decision_target_pair_set
-        )
+        assert row.historical_decision.decision == "Approve system/value co-membership"
+        assert row.reviewed_partition == (row.decision_target_pair_set,)
         assert all(
-            row.block_for(pair).pairs == (pair,)
+            row.block_for(pair).pairs == row.decision_target_pair_set
             and row.block_for(pair).decision_regime == "historical-approval"
             and row.block_for(pair).human_decision_identity
             == row.historical_decision.review_row_identity

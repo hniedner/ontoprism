@@ -1630,11 +1630,8 @@ async def _generate_current_evidence_for_run(
         raise CurrentEvidenceValidationError("work item outcomes do not match worklist")
     if any(item.state != "complete" or item.outcome is None for item in outcomes):
         raise CurrentEvidenceValidationError("run contains an incomplete work item")
-    decomposed_codes = tuple(
-        item.concept_code for item in outcomes if item.outcome == "decomposed"
-    )
     representation_identity = validate_artifact(
-        artifact, expected_codes=decomposed_codes, run_id=run_id
+        artifact, expected_codes=manifest.codes, run_id=run_id
     )
     if (
         expected_representation_identity is not None

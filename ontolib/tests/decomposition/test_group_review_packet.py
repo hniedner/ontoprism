@@ -197,8 +197,8 @@ def test_reviewed_stage_targets_are_exact_and_exclude_proposals() -> None:
         by_code["C115057"].decision_target_pair_set,
     )
     for code in ("C181564", "C186620", "C162226"):
-        assert by_code[code].reviewed_partition == tuple(
-            (pair,) for pair in by_code[code].decision_target_pair_set
+        assert by_code[code].reviewed_partition == (
+            by_code[code].decision_target_pair_set,
         )
     assert all(
         not filler.startswith("MINT-")

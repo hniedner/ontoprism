@@ -275,13 +275,17 @@ the number is left unused.
 
 **Decision:** normalized projection groups are a separate plane from source structural groups and
 axis-ambiguity groups. Policy rows preserve the tracked historical expected and observed partitions,
-exact pair-level source facts and coordinates, and the historical reviewer/date/rationale identity
+exact pair-level source facts and coordinates, and the applicable reviewer/date/rationale identity
 (`pdm run agent-test ontolib/tests/decomposition/test_normalized_group_policy.py -v`). Human review
-governs only its exact StageSystem/StageValue target subset. C181564, C186620, and C162226 retain the
-reviewed singleton partition; the eight reviewed rows whose exact historical partition keeps stage
-method and value together retain one shared stage block. Other pairs remain machine/source-derived
+governs only its exact StageSystem/StageValue target subset. **Superseded in part, 2026-09-25 (#355):**
+the owner approved one concept-local shared stage block for C181564, C186620 and C162226,
+replacing their August 28 singleton approvals, not their source axioms or oracle entries.
+Distinct axes remain independently queryable; the group expresses value under the named edition,
+not filler identity or cross-edition equivalence. The evidence and limitations are retained in
+[the cervical-stage rationale](evidence/cervical-stage-grouping-355.md). The other eight reviewed
+stage rows retain their shared blocks. Other pairs remain machine/source-derived
 and carry no human identity (`pdm run agent-test
-ontolib/tests/decomposition/test_normalized_group_policy.py::test_historical_stage_review_preserves_exact_separate_and_together_partitions
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_reviewed_decisions_cover_only_exact_stage_targets
 -v`).
 
 C27262 and C102870 retain their historical `Abstain / escalate` records. Their disputed morphology
@@ -294,6 +298,17 @@ digest, run/family, overwrite reason, and evidentiary use `none`; it is not a pa
 supply evidence bytes (`pdm run agent-test
 ontolib/tests/decomposition/test_normalized_group_policy.py::test_unavailable_prechange_metadata_is_self_contained
 -v`).
+
+**Scoring decision, 2026-09-25 (#355):** `pdm run oracle-metrics` reports these explicit
+abstentions separately from decided common partitions. Its conditional agreement denominator is
+the number of concepts with at least two shared scoreable pairs and no unresolved shared member
+of those abstention blocks. Decision coverage uses all concepts with at least two shared pairs;
+agree/disagree/abstain and insufficient-common counts are printed. A null group outside an
+explicit abstention block is still a singleton, not an inferred abstention. Pair precision/recall
+and full-cohort exact partition agreement retain their populations; an independently missing or
+extra pair still prevents full agreement. The existing comparison artifact remains a raw
+null-as-singleton diagnostic, not a scientific disposition of abstentions. Conditional reporting
+does not improve engine output. The 20-concept reference remains unchanged.
 
 HL7 mCODE Cancer Stage 4.0.0 STU4 distinguishes the staging system in `method` from the stage in
 `value[x]` within one assessment

@@ -53,6 +53,20 @@ UNRESOLVED_ABSTENTION_BLOCKS = {
     "C27262": frozenset({("op:Morphology", "C35501"), ("op:Morphology", "C9290")}),
     "C102870": frozenset({("op:Morphology", "C121619"), ("op:Morphology", "C39986")}),
 }
+CERVICAL_STAGE_APPROVALS = {
+    "C181564": (("op:StageSystem", "C180901"), ("op:StageValue", "C27966")),
+    "C186620": (("op:StageSystem", "C186618"), ("op:StageValue", "C27966")),
+    "C162226": (("op:StageSystem", "C186617"), ("op:StageValue", "C96244")),
+}
+CERVICAL_STAGE_RATIONALE = (
+    "Owner/SME approval 2026-09-25, #355: retain distinct StageSystem and StageValue "
+    "axes in one concept-local group, expressing this value under this edition. "
+    "Supersedes the 2026-08-28 singleton approval, retained in "
+    "evidence/group-review-rationale-26.07d.md. Stage meaning is edition-dependent "
+    "(doi:10.1016/j.ygyno.2020.03.027; doi:10.3322/caac.21663); mCODE represents "
+    "method and value within one assessment. No filler or cross-edition equivalence. "
+    "Rationale: docs/evidence/cervical-stage-grouping-355.md."
+)
 
 
 def canonical_identity(value: object) -> str:

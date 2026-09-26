@@ -24,6 +24,7 @@ from sqlalchemy import event
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import provenance as provenance_module
+from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -44,6 +45,7 @@ from ontolib.decomposition.provenance import (
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
+    ConceptPublication,
     RunFingerprint,
     RunResumeIdentity,
 )
@@ -883,15 +885,18 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
     store = ProvenanceStore(make_sessionmaker(engine))
     manifest = load_sample_manifest(_CURRENT_MANIFEST)
     artifact = tmp_path / "decomposed.ttl"
-    artifact.write_text(
-        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135> "
-        "<https://w3id.org/ontoprism/vocab#representationStatus> "
-        '"legacy-precoordinated" ; '
-        "<https://w3id.org/ontoprism/vocab#decomposedBy> "
-        f'"{_CURRENT_EVIDENCE_RUN_ID}" .\n'
-        "<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135> "
-        '<https://w3id.org/ontoprism/vocab#conceptOutcome> "decomposed" ; '
-        '<https://w3id.org/ontoprism/vocab#outcomeReason> "engine output" .\n'
+    await write_ttl(
+        [_repeated_occurrence_decomposition()],
+        artifact,
+        run_id=_CURRENT_EVIDENCE_RUN_ID,
+        publications=tuple(
+            ConceptPublication(
+                concept_code=code,
+                outcome="decomposed" if code == "C6135" else "atomic-no-op",
+                reason="sample outcome",
+            )
+            for code in manifest.codes
+        ),
     )
     representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     fingerprint = RunFingerprint(

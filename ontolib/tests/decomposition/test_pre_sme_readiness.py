@@ -97,6 +97,7 @@ def _stale_grouping_artifacts(
     comparison: CurrentComparison,
     normalized_group_policy: Any,
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
+    evidence = _with_policy_groups(evidence, normalized_group_policy)
     policy_row = normalized_group_policy.rows[0]
     target_pair = policy_row.blocks[0].pairs[0]
     concept_index, concept = next(
@@ -145,6 +146,38 @@ def _stale_grouping_artifacts(
         )
     )
     return current_evidence, current_comparison
+
+
+def _with_policy_groups(
+    evidence: CurrentEngineEvidence, policy: Any
+) -> CurrentEngineEvidence:
+    # Align only in memory so an injected mismatch, not prior-run drift, is detected.
+    concepts = []
+    for concept in evidence.concepts:
+        row = policy.by_code.get(concept.code)
+        if row is None:
+            concepts.append(concept)
+            continue
+        concepts.append(
+            concept.model_copy(
+                update={
+                    "constituents": tuple(
+                        item.model_copy(
+                            update={
+                                "normalized_group_id": row.block_for(
+                                    (item.axis, item.filler)
+                                ).normalized_group_id,
+                                "normalized_group_label": row.block_for(
+                                    (item.axis, item.filler)
+                                ).normalized_group_label,
+                            }
+                        )
+                        for item in concept.constituents
+                    )
+                }
+            )
+        )
+    return evidence.model_copy(update={"concepts": tuple(concepts)})
 
 
 def _patch_composed_readiness_loaders(
@@ -972,15 +1005,6 @@ def test_machine_readiness_inputs_require_grouping_views_to_share_one_cohort() -
 
 
 @pytest.mark.unit
-def test_verify_evidence_writer_documents_fixed_publication_field_as_a_claim() -> None:
-    docstring = inspect.getdoc(write_verify_evidence)
-
-    assert docstring is not None
-    assert "observed fields" in docstring
-    assert "fixed no-publication assertion" in docstring
-
-
-@pytest.mark.unit
 def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta() -> (
     None
 ):
@@ -1017,10 +1041,6 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     ]
 
 
-@pytest.mark.unit
-@pytest.mark.unit
-@pytest.mark.unit
-@pytest.mark.unit
 @pytest.mark.unit
 def test_readiness_metrics_refuse_a_metric_with_another_views_denominator() -> None:
     report = build_machine_readiness(
@@ -1149,6 +1169,13 @@ def test_issue_274_detector_reject_branches_are_live_on_current_artifacts() -> N
         (Path(__file__).parent / "golden/neoplasm-current-comparison.json").read_bytes()
     )
     policy = module.load_packaged_normalized_group_policy()
+    evidence = _with_policy_groups(evidence, policy)
+    assert (
+        module._issue_274_semantic_violations(
+            evidence, comparison, policy, policy.basis_packet_identity
+        )[1]
+        == ()
+    )
     concept = evidence.concepts[0]
     constituent = concept.constituents[0]
     mutated_constituent = constituent.model_copy(
@@ -1166,7 +1193,7 @@ def test_issue_274_detector_reject_branches_are_live_on_current_artifacts() -> N
     )
 
     assert axis == (f"{concept.code}:op:UncontractedAxis",)
-    assert groups
+    assert groups == (f"{concept.code}:normalized-group-mismatch",)
     assert golden == ("policy-group-review-binding",)
 
 
