@@ -117,6 +117,7 @@ class ConceptDecomposition(StrictBoundaryModel):
     """
 
     code: str
+    run_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]+$")
     publication_status: PublicationStatus | None = None
     publication_notice: PublicationNotice | None = None
     outcome: ConceptOutcome | None = None

@@ -1,16 +1,37 @@
 <script lang="ts">
-	import { getDecomposition } from '$lib/api';
-	import type { ConceptDecomposition, DecompositionConstituent } from '$lib/types';
+	import { getDecomposition, getConstituentEvidence } from '$lib/api';
+	import type { ConceptDecomposition, DecompositionConstituent, ConstituentEvidence } from '$lib/types';
 	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 	import { handleLatest } from '$lib/latest';
+    import FillerSupportSummary from './FillerSupportSummary.svelte';
 
 	let { code }: { code: string } = $props();
 
 	let data = $state<ConceptDecomposition | null>(null);
 	let loaded = $state(false);
 	let unavailable = $state(false);
+    let evidence = $state<ConstituentEvidence[] | null>(null);
+    let evidenceError = $state(false);
+
+    $effect(() => {
+        evidence = null;
+        evidenceError = false;
+        const result = data;
+        if (!result?.run_id || !result.constituents.length) return;
+        const controller = new AbortController();
+        return handleLatest(getConstituentEvidence(result.run_id, result.code, controller.signal), {
+            ready: (rows) => {
+                const matches = rows.length === result.constituents.length && result.constituents.every(c =>
+                    rows.filter(r => r.run_id === result.run_id && r.concept_code === result.code && r.axis === c.axis && r.filler_code === c.filler).length === 1);
+                if (matches) evidence = rows;
+                else evidenceError = true;
+            },
+            failed: () => (evidenceError = true),
+            settled: () => {}
+        }, () => controller.abort());
+    });
 
 	$effect(() => {
 		loaded = false;
@@ -74,6 +95,7 @@
 	{:else if !data?.is_legacy_precoordinated}
 		<p class="text-sm italic text-subtle">No published decomposition is available.</p>
 	{:else}
-		<DecompositionAxes {axes} />
+        <FillerSupportSummary {evidence} failed={evidenceError} runId={data?.run_id ?? null} />
+		<DecompositionAxes {axes} {evidence} publicationStatus={data?.publication_status ?? null} />
 	{/if}
 </section>

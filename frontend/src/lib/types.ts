@@ -387,6 +387,7 @@ export interface DecompositionConstituent {
 }
 
 export type ConceptDecomposition = {
+    run_id?: string | null;
     code: string;
     is_legacy_precoordinated: boolean;
 	decomposed_on: string | null;
@@ -411,6 +412,22 @@ export type DecompositionOutcome =
 	| 'semantic-excluded'
 	| 'atomic-no-op'
 	| 'unknown';
+
+export interface ConstituentEvidence {
+    run_id: string;
+    concept_code: string;
+    axis: string;
+    filler_code: string;
+    axis_source: 'role' | 'parent' | 'nlp';
+    support: 'restriction-backed' | 'genus-backed' | 'not-source-backed';
+    policy_choices: ('axis-assignment' | 'collapse' | 'grouping')[];
+    inferred_assertions: string[];
+    sources: {
+        fact_id: string; kind: 'restriction' | 'genus'; anchor_code: string;
+        group_id: string; depth: number; role_code: string | null; filler_code: string;
+        occurrence_id: string | null; structural_path: number[];
+    }[];
+}
 
 export type DecompositionReviewFlagKind =
 	| 'needs-review'

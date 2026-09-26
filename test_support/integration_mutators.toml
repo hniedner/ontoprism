@@ -170,7 +170,7 @@ fixtures = ["isolated_qlever_settings"]
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
 tests = ["test_small_publication_exposes_outcome_flag_and_demo_marker"]
-fixtures = ["isolated_qlever_settings"]
+fixtures = ["isolated_qlever_settings", "preserved_decomposed_graph"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_large_integration.py"
@@ -205,14 +205,6 @@ fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_read_integration.py"
-fixtures = ["isolated_qlever_settings"]
-
-[[mutator]]
-path = "ontolib/tests/decomposition/test_enhanced_showcase_integration.py"
-tests = [
-  "test_showcase_activation_replaces_only_its_graph_on_real_qlever",
-  "test_showcase_verification_rejects_foreign_real_qlever_content",
-]
 fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]

@@ -3,7 +3,7 @@
 The behavioural guarantee for decomposition publication lives in
 ``ontolib/tests/decomposition/test_publication_integration.py`` (a sentinel added to the
 stated graph, and its triple count, survive a real publication). This text check
-additionally covers the showcase, xref and legacy writers, which that contract does not
+additionally covers the xref and legacy writers, which that contract does not
 exercise.
 """
 
@@ -70,17 +70,11 @@ def test_current_overlay_writers_cannot_target_the_stated_graph() -> None:
         "ontolib/src/ontolib/decomposition/publication.py",
         "build_replacement_update",
     )
-    showcase_update = _function_source(
-        "ontolib/src/ontolib/decomposition/enhanced_showcase.py",
-        "build_showcase_replacement_update",
-    )
 
     assert "public = vocab.DECOMPOSED_GRAPH_IRI" in publication_update
     assert "GRAPH <{public}>" in publication_update
-    assert "GRAPH <{SHOWCASE_GRAPH_IRI}>" in showcase_update
-    for update in (publication_update, showcase_update):
-        assert "STATED_GRAPH_IRI" not in update
-        assert stated_iri not in update
+    assert "STATED_GRAPH_IRI" not in publication_update
+    assert stated_iri not in publication_update
 
     graph_agnostic_writer = _read("ontolib/src/ontolib/decomposition/legacy_writer.py")
     xref_writer_modules = (

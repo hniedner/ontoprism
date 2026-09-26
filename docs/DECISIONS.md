@@ -52,6 +52,8 @@ publication (#314) move to M1.10.
 
 ### D93. The enhanced NCIt is an expert-review demonstration: publish everything, flag instead of withhold
 
+The seven-concept showcase overlay, its Disposition vocabulary and operator commands were retired in #353; stored data is retained pending owner-directed cleanup.
+
 **Context.** #127 planned to withhold review-required concepts and unreconciled MINT
 fillers, and #417 planned to refuse a whole publication while unexplained R101 loss existed
 (the D74 release blocker).
@@ -322,6 +324,9 @@ and byte digests only after generation; this decision intentionally predeclares 
 
 ### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
 
+The observations below describe 2026-09-04; for commands inspecting the now-retired showcase,
+use the pre-retirement revision `36bfa958aafd5cca7d828bd5d85fd4cb6a268255` as shown.
+
 **Current observation:** the repository contains implemented NCIt local-store readers,
 backend endpoints, frontend routes, curation support, and decomposition surfaces; it does not
 contain a generic ontology-adapter type or system (`git ls-files
@@ -341,7 +346,7 @@ Official-source protection is write isolation, not a prohibition on reading the 
 current overlay publishers and writers use decomposed, enhanced-showcase, upstream-xref, and their
 scoped staging/generation graphs; the stated constant's only result among the inspected overlay
 write modules is its import and valid source-release `SELECT` in `enhanced_showcase.py` (`git grep -n
-STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/publication.py
+STATED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 -- ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
 ontolib/src/ontolib/decomposition/legacy_writer.py
 ontolib/src/ontolib/repositories/xref/publication.py
@@ -349,11 +354,11 @@ ontolib/src/ontolib/repositories/xref/ttl_writer.py
 ontolib/src/ontolib/decomposition/vocab.py
 ontolib/src/ontolib/repositories/xref/vocab.py
 ontolib/src/ontolib/terminologies/ncit/owl_load.py`, 2026-09-04; expected output is the constant
-definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI --
+definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
 ontolib/src/ontolib/decomposition/legacy_writer.py ontolib/src/ontolib/decomposition/vocab.py`,
-`git grep -n SHOWCASE_GRAPH_IRI --
+`git grep -n SHOWCASE_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/enhanced_showcase.py`, and `git grep -n
 NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/publication.py
 ontolib/src/ontolib/repositories/xref/ttl_writer.py
@@ -365,7 +370,7 @@ view.
 The current OntoPrism-authored decomposition, upstream-xref, and enhanced-showcase graphs all use
 NCI-domain graph IRIs (`git grep -n DECOMPOSED_GRAPH_IRI --
 ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2 NCIT_UPSTREAM_XREF_GRAPH_IRI --
-ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/enhanced_showcase.py`, 2026-09-04; expected output gives the two
 literal graph IRIs and shows the showcase IRI derived beneath the decomposed IRI). These collectively
 are namespace debt, not official NCI identifiers. Future enhanced exports require an

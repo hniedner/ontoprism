@@ -41,30 +41,20 @@ class _Result:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("operation", "activate"),
+    "operation",
     [
-        ("activate-enhanced-ncit-showcase", True),
-        ("verify-enhanced-ncit-showcase", False),
+        "activate-enhanced-ncit-showcase",
+        "verify-enhanced-ncit-showcase",
     ],
 )
-def test_showcase_operations_are_fixed_and_refuse_free_form_arguments(
+def test_retired_showcase_operations_are_refused(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     operation: str,
-    activate: bool,
 ) -> None:
-    calls: list[tuple[Path, bool]] = []
-    monkeypatch.setattr(
-        replay,
-        "_run_showcase_operator",
-        lambda root, runner, *, activate: calls.append((root, activate)) or 0,
-        raising=False,
-    )
-
-    assert run_agent_replay([operation], tmp_path, runner=_Runner()) == 0
-    assert calls == [(tmp_path.resolve(), activate)]
-    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
-        run_agent_replay([operation, "http://attacker.test/graph"], tmp_path)
+    runner = _Runner()
+    with pytest.raises(AgentReplayInputError, match="unsupported"):
+        run_agent_replay([operation], tmp_path, runner=runner)
+    assert runner.calls == []
 
 
 class _PodmanDiagnosticRunner:

@@ -10,6 +10,7 @@ import type {
 	IcdoRecordLevel,
 	IcdoRepositorySort,
 	ConceptDecomposition,
+    ConstituentEvidence,
 	PublicationProgress,
 	ConceptDetail,
 	ConceptAlignments,
@@ -294,6 +295,10 @@ export function getDecomposition(
 		fetchImpl,
 		signal
 	);
+}
+
+export function getConstituentEvidence(run: string, code: string, signal?: AbortSignal): Promise<ConstituentEvidence[]> {
+    return getJson<ConstituentEvidence[]>(apiUrl(`/api/v1/decomposition/runs/${encodeURIComponent(run)}/concepts/${encodeURIComponent(code)}/evidence`), undefined, signal);
 }
 
 export function getPublicationProgress(fetchImpl?: typeof fetch): Promise<PublicationProgress> {

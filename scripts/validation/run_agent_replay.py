@@ -2352,57 +2352,6 @@ def _audit_primary_sites(values: list[str], root: Path, runner: CommandRunner) -
     return 0
 
 
-def _run_showcase_operator(root: Path, runner: CommandRunner, *, activate: bool) -> int:
-    settings = importlib.import_module("backend.config").Settings()
-    client_factory = importlib.import_module(
-        "ontolib.terminologies.ncit.client"
-    ).ncit_sparql_client
-    readiness = importlib.import_module("ontolib.decomposition.showcase_readiness")
-    git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
-    operation = (
-        "activate-enhanced-ncit-showcase"
-        if activate
-        else "verify-enhanced-ncit-showcase"
-    )
-
-    async def execute() -> None:
-        async with client_factory(settings.ncit_sparql_url) as client:
-            function = (
-                readiness.activate_showcase_readiness
-                if activate
-                else readiness.verify_showcase_readiness
-            )
-            await function(
-                client,
-                output=root / "tmp/m1-6-enhanced-showcase-readiness.json",
-                git_head=git_head,
-                producing_command=f"pdm run agent-replay {operation}",
-            )
-
-    asyncio.run(execute())
-    return 0
-
-
-def _activate_enhanced_ncit_showcase(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if values:
-        raise AgentReplayInputError(
-            "activate-enhanced-ncit-showcase accepts no arguments"
-        )
-    return _run_showcase_operator(root, runner, activate=True)
-
-
-def _verify_enhanced_ncit_showcase(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if values:
-        raise AgentReplayInputError(
-            "verify-enhanced-ncit-showcase accepts no arguments"
-        )
-    return _run_showcase_operator(root, runner, activate=False)
-
-
 def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("inspect-podman accepts no arguments")
@@ -3761,9 +3710,7 @@ def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> i
 
 # Frozen command registry: remove retired one-off operations; never add new ones.
 _OPERATIONS: dict[str, Operation] = {
-    "activate-enhanced-ncit-showcase": _activate_enhanced_ncit_showcase,
     "consolidate-obsolete": _consolidate_obsolete,
-    "verify-enhanced-ncit-showcase": _verify_enhanced_ncit_showcase,
     "inspect-podman": _inspect_podman,
     "ensure-podman-stack": _ensure_podman_stack,
     "activate-podman-docker-context": _activate_podman_docker_context,
