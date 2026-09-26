@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { DecompositionConstituent } from '$lib/types';
-	import ReviewBadge from '$lib/components/ReviewBadge.svelte';
+	import type { DecompositionConstituent, ConstituentEvidence } from '$lib/types';
+    import ConstituentSource from './ConstituentSource.svelte';
+    import ConstituentStatus from './ConstituentStatus.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 
 	interface AxisGroup {
@@ -10,7 +11,7 @@
 		items: DecompositionConstituent[];
 	}
 
-	let { axes }: { axes: AxisGroup[] } = $props();
+	let { axes, evidence = null, publicationStatus = null }: { axes: AxisGroup[]; evidence?: ConstituentEvidence[] | null; publicationStatus?: 'provisional' | null } = $props();
 
 	interface DisplayConstituent {
 		axisLabel: string;
@@ -31,7 +32,8 @@
 
 {#snippet constituent(display: DisplayConstituent, showAxis: boolean)}
 	{@const c = display.item}
-	<li class="flex items-center gap-2 text-sm">
+    {@const source = evidence?.find(row => row.axis === c.axis && row.filler_code === c.filler)}
+	<li class="flex flex-wrap items-center gap-2 text-sm">
 		{#if showAxis}
 			<span class="font-mono text-xs uppercase tracking-wide text-muted">{display.axisLabel}</span>
 		{/if}
@@ -41,19 +43,8 @@
 			>{c.filler_label ?? c.filler}</a
 		>
 		<span class="font-mono text-xs text-subtle">{c.filler}</span>
-		{#if c.most_specific}
-			<span
-				class="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-xs text-muted"
-				title="Chosen as the most-specific filler over its ancestors">leaf</span
-			>
-		{/if}
-		{#if c.source_group_ids.length}
-			<span class="text-xs text-subtle">Source groups: {c.source_group_ids.join(', ')}</span>
-		{/if}
-		{#if c.axis_ambiguous}
-			<span class="text-xs text-subtle">Ambiguous axis</span>
-		{/if}
-		<ReviewBadge visible={c.needs_review} />
+        <ConstituentStatus constituent={c} {publicationStatus} />
+        {#if source}<ConstituentSource evidence={source} />{/if}
 	</li>
 {/snippet}
 

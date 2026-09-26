@@ -4,8 +4,8 @@ import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
 import type { ConceptDecomposition } from '$lib/types';
 
-vi.mock('$lib/api', () => ({ getDecomposition: vi.fn() }));
-import { getDecomposition } from '$lib/api';
+vi.mock('$lib/api', () => ({ getDecomposition: vi.fn(), getConstituentEvidence: vi.fn() }));
+import { getDecomposition, getConstituentEvidence } from '$lib/api';
 
 const mock = vi.mocked(getDecomposition);
 
@@ -57,6 +57,45 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+    it('keeps decomposition visible when evidence fails and does not claim zero support', async () => {
+        mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
+        vi.mocked(getConstituentEvidence).mockRejectedValue(new Error('source unavailable'));
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByRole('alert')).toHaveTextContent('Source evidence unavailable');
+        expect(screen.getByRole('link', { name: 'Thyroid Gland' })).toBeInTheDocument();
+        expect(screen.queryByText('Source-backed filler share')).not.toBeInTheDocument();
+    });
+
+    it('rejects missing evidence rows instead of reporting zero support', async () => {
+        mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
+        vi.mocked(getConstituentEvidence).mockResolvedValue([]);
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByRole('alert')).toHaveTextContent('Filler support is not known');
+        expect(screen.queryByText('Source-backed filler share')).not.toBeInTheDocument();
+    });
+
+    it('shows literal filler support separately from provisional and review status', async () => {
+        mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
+        vi.mocked(getConstituentEvidence).mockResolvedValue([
+            { run_id: 'published-run', concept_code: 'C6135', axis: 'R88', filler_code: 'C27970',
+              axis_source: 'role', support: 'restriction-backed', policy_choices: ['axis-assignment'],
+              inferred_assertions: [], sources: [{ fact_id: 'fact', kind: 'restriction', anchor_code: 'C6135',
+                group_id: 'group', depth: 0, role_code: 'R88', filler_code: 'C27970', occurrence_id: 'occurrence', structural_path: [0,1] }] },
+            { run_id: 'published-run', concept_code: 'C6135', axis: 'R101', filler_code: 'C12400',
+              axis_source: 'role', support: 'not-source-backed', policy_choices: ['collapse'],
+              inferred_assertions: ['No exact linked stated filler'], sources: [] }
+        ]);
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByText('Source-backed filler share')).toBeInTheDocument();
+        expect(screen.getByText(/literally stated in NCIt.*not.*accepted or correct/)).toBeInTheDocument();
+        expect(screen.getByText('restriction-backed: 1/2 (50.0%)')).toBeInTheDocument();
+        expect(screen.getByText('genus-backed: 0/2 (0.0%)')).toBeInTheDocument();
+        expect(screen.getByText('not-source-backed: 1/2 (50.0%)')).toBeInTheDocument();
+        expect(screen.getByText('R88 some C27970')).toBeInTheDocument();
+        expect(screen.getByText('No exact linked stated filler')).toBeInTheDocument();
+        expect(screen.getAllByText('provisional')).toHaveLength(2);
+    });
+
 	it('aborts replaced requests and ignores their late success and error', async () => {
 		mock.mockClear();
 		const first = Promise.withResolvers<ConceptDecomposition>();
