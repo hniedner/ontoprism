@@ -623,6 +623,51 @@ bytes; there is no cross-system rollback guarantee.
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
 
+### Rebuild QLever after graph publication
+
+After a successful `decompose --load`, rebuild the NCIt index with the server's
+`cmd=rebuild-index` HTTP operation. The CLI reports that this manual step is due;
+it does **not** trigger it. SPARQL publication initially lives in QLever's delta
+block (`ncit.update-triples`), where large graphs can make cold decomposition reads
+slow. Rebuilding merges the current data, including updates, into the index; it is
+not a decomposition rerun or republication and does not change PostgreSQL run rows
+or the published Turtle file.
+
+Before the operation, record the public graph's exact `GRAPH <iri>` count and
+publication marker, certification result, update-file size, and available disk.
+Retain previous index directories: QLever defaults to
+`--rebuild-keep-previous-index-dirs original-and-most-recent`; if older backups
+already exist, arrange a retention policy that preserves them before rebuilding.
+Do not remove retained indexes without owner approval. Allow space for old and
+new indexes plus rebuild temporary files.
+
+Send `cmd=rebuild-index` to the configured NCIt endpoint and wait for the successful
+completion response, not merely request submission. A client timeout is an unknown
+outcome: inspect the server before retrying. The #448 disposable experiment answered
+queries during rebuild, but this is not a latency guarantee. After completion,
+check the active update-file size, unchanged public count/marker, and live NCIt
+certification, then compare cold/warm concept page and decomposition timings.
+The [#448 proof](https://github.com/hniedner/ontoprism/issues/448#issuecomment-5848850742)
+records the production-sized rehearsal and disk observations.
+
+Both compose QLever services use `--no-metrics-log` to avoid unbounded per-query
+JSONL logs. When applying this to an existing service, recreate its container and
+verify the running command **before** deleting the old `*.metrics-log.jsonl` file;
+deleting it while QLever still has it open does not stop disk use. Verify it is not
+recreated after queries. For agents, configured container recreation uses the
+repository's `agent-replay` stack wrappers.
+The QLever healthchecks allow a 15-minute startup grace period: replaying a large
+persisted delta legitimately prevents queries during startup. Interval and retries
+still apply after that grace period. In #448, NCIt became healthy in 151.6 seconds
+before rebuilding, versus 10.5 seconds afterward (including healthcheck polling).
+
+Stop measurement dev servers by their recorded PID/start time before stack
+operations: backend connections to a removed QLever can block the wrapper's strict
+fixed-port bind check. Empty `lsof` output does not prove bind availability while
+TCP teardown is pending. If the wrapper refuses a port after cleanup, allow teardown
+time and verify a strict bind without `SO_REUSEADDR` before an approved retry;
+never select a process to signal by its port.
+
 Every manifest records source version/hash, certified proxy `source_identity`, immutable
 model revision, vector dimension, expected unique-row count, code commit, build ID,
 sentinels, state, and timestamps;

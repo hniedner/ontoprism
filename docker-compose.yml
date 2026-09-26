@@ -11,7 +11,7 @@ services:
     command:
       - >-
         exec qlever-server -i ncit -p 7001 --no-access-check
-        --persist-updates --service-allowed-iri-prefixes -
+        --persist-updates --no-metrics-log --service-allowed-iri-prefixes -
         -j 2 -m 8G -c 1G -e 512M -s 30s
     ports:
       - "127.0.0.1:7888:7001"
@@ -27,6 +27,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      # Persisted SPARQL updates are replayed before the server accepts queries.
+      start_period: 15m
 
   qlever-uberon:
     image: docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6
@@ -36,7 +38,7 @@ services:
     command:
       - >-
         exec qlever-server -i uberon -p 7001 --no-access-check
-        --service-allowed-iri-prefixes -
+        --no-metrics-log --service-allowed-iri-prefixes -
         -j 2 -m 2G -c 256M -e 256M -s 30s
     ports:
       - "127.0.0.1:7889:7001"
@@ -52,6 +54,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 15m
 
   postgres:
     image: pgvector/pgvector@sha256:a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da

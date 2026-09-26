@@ -41,6 +41,52 @@ def test_production_walker_depth_defaults_to_reviewed_depth_seven() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("load", [False, True])
+def test_successful_load_reports_manual_index_rebuild_due(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    load: bool,
+) -> None:
+    monkeypatch.setattr(
+        decompose, "_run", AsyncMock(return_value=decompose.RunMetrics())
+    )
+
+    decompose.main(
+        source_manifest=tmp_path / "source.json",
+        out=tmp_path / "published.ttl",
+        load=load,
+        preflight=False,
+    )
+
+    output = capsys.readouterr().out
+    assert ("rebuild due" in output.lower()) is load
+    assert ("cmd=rebuild-index" in output) is load
+    assert ("not triggered automatically" in output) is load
+
+
+@pytest.mark.unit
+def test_failed_load_does_not_report_successful_publication_rebuild_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        decompose, "_run", AsyncMock(side_effect=RuntimeError("load failed"))
+    )
+
+    with pytest.raises(RuntimeError, match="load failed"):
+        decompose.main(
+            source_manifest=tmp_path / "source.json",
+            out=tmp_path / "published.ttl",
+            load=True,
+            preflight=False,
+        )
+
+    assert "rebuild due" not in capsys.readouterr().out.lower()
+
+
+@pytest.mark.unit
 def test_progress_message_reports_resume_rate_eta_and_active_concept() -> None:
     progress = RunProgress(
         run_id="neoplasm-run",
