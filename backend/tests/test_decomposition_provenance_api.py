@@ -14,6 +14,7 @@ from ontolib.decomposition.provenance_models import (
     RunSummary,
     WorkItemOutcome,
 )
+from ontolib.decomposition.source_support import ConstituentEvidence
 
 
 class _FakeProvenanceStore:
@@ -38,6 +39,21 @@ class _FakeProvenanceStore:
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         return [outcome for outcome in self._outcomes if outcome.run_id == run_id]
+
+    async def constituent_evidence(
+        self, run_id: str, concept_code: str
+    ) -> list[ConstituentEvidence]:
+        return [
+            ConstituentEvidence(
+                run_id=run_id,
+                concept_code=concept_code,
+                axis="op:Laterality",
+                filler_code="C1",
+                axis_source="nlp",
+                sources=[],
+                policy_choices=["axis-assignment"],
+            )
+        ]
 
     async def list_minted_concepts(
         self,
@@ -303,6 +319,72 @@ def test_get_run_found() -> None:
     resp = client.get("/api/v1/decomposition/runs/run-1")
     assert resp.status_code == 200
     assert resp.json()["id"] == "run-1"
+
+
+@pytest.mark.api
+def test_constituent_evidence_exposes_source_support_not_acceptance() -> None:
+    client = next(_client(_FakeProvenanceStore(runs=[_SAMPLE_RUN])))
+    response = client.get("/api/v1/decomposition/runs/run-1/concepts/C6135/evidence")
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert (item["run_id"], item["concept_code"]) == ("run-1", "C6135")
+    assert item["support"] == "not-source-backed"
+    assert item["sources"] == []
+    assert item["policy_choices"] == ["axis-assignment"]
+    assert item["inferred_assertions"] == [
+        "NLP-derived filler has no linked stated assertion"
+    ]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("run", "code", "expected"),
+    [
+        ("missing", "C1", 404),
+        ("run-1", "not-a-code", 422),
+        ("SELECT%20anything", "C1", 422),
+    ],
+)
+def test_constituent_evidence_rejects_missing_run_or_bad_code(
+    run: str,
+    code: str,
+    expected: int,
+) -> None:
+    client = next(_client(_FakeProvenanceStore(runs=[_SAMPLE_RUN])))
+    assert (
+        client.get(
+            f"/api/v1/decomposition/runs/{run}/concepts/{code}/evidence"
+        ).status_code
+        == expected
+    )
+
+
+@pytest.mark.api
+def test_constituent_evidence_reports_database_failure() -> None:
+    client = next(_client(_ErrorFakeStore()))
+    assert (
+        client.get("/api/v1/decomposition/runs/run-1/concepts/C1/evidence").status_code
+        == 503
+    )
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "error", [SQLAlchemyError("read failed"), ValueError("invalid source")]
+)
+def test_constituent_evidence_does_not_return_empty_on_failed_read(
+    error: Exception,
+) -> None:
+    class BrokenEvidence(_FakeProvenanceStore):
+        async def constituent_evidence(
+            self, run_id: str, concept_code: str
+        ) -> list[ConstituentEvidence]:
+            raise error
+
+    client = next(_client(BrokenEvidence(runs=[_SAMPLE_RUN])))
+    response = client.get("/api/v1/decomposition/runs/run-1/concepts/C1/evidence")
+    assert response.status_code == 503
+    assert response.json()["detail"] == str(error)
 
 
 @pytest.mark.api

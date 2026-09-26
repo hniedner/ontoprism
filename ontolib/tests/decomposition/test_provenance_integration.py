@@ -13,13 +13,14 @@ import asyncio
 import datetime
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import asyncpg
 import pytest
 from pydantic import ValidationError
 from scripts.research.current_evidence import generate_current_evidence
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -31,6 +32,7 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     DefinitionGroup,
+    GenusDefinitionFact,
     OccurrenceDisposition,
     RestrictionDefinitionFact,
     SourceDefinitionOccurrence,
@@ -323,6 +325,135 @@ def _repeated_occurrence_decomposition() -> Decomposition:
             for occurrence in occurrences
         ),
     )
+
+
+@pytest.mark.integration
+async def test_source_backed_fillers_require_exact_linked_stated_codes() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    original = _repeated_occurrence_decomposition()
+    definition = original.complete_definition
+    assert definition is not None
+    role = original.constituents[0]
+    genus_group = canonical_definition_group_id("C6135", ("genus:C999:defined",))
+    genus = GenusDefinitionFact(
+        fact_id=canonical_definition_fact_id(
+            "C6135", genus_group, "genus", "C999", "defined"
+        ),
+        anchor_code="C6135",
+        group_id=genus_group,
+        depth=0,
+        genus_code="C999",
+        is_defined=True,
+    )
+    constituents = (
+        role,
+        replace(
+            role,
+            axis="op:AssociatedSite",
+            filler_code="C123",
+            most_specific=True,
+            source_definition_ids=(),
+            source_occurrence_ids=(),
+        ),
+        Constituent(
+            axis="op:Morphology",
+            filler_code="C999",
+            axis_source="parent",
+            source_definition_ids=(genus.fact_id,),
+        ),
+        Constituent(axis="op:Laterality", filler_code="C12400", axis_source="nlp"),
+        replace(role, axis="op:ClinicalFinding", source_occurrence_ids=()),
+        replace(
+            role,
+            axis="op:NormalTissueOrigin",
+            normalized_group_id="c" * 64,
+            normalized_group_label="reviewed group",
+        ),
+    )
+    try:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        for run_id, values in ((_RUN_ID, constituents), (_RERUN_ID, (role,))):
+            await store.create_run(run_id, "26.07d", _fingerprint(("C6135",)))
+            claim = await store.claim_work_item(run_id, "C6135")
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                "C6135",
+                claim,
+                decomposition=replace(
+                    original,
+                    constituents=values,
+                    complete_definition=replace(
+                        definition,
+                        facts=(*definition.facts, genus),
+                        root_group_ids=(*definition.root_group_ids, genus_group),
+                        groups=(
+                            *definition.groups,
+                            DefinitionGroup(
+                                group_id=genus_group, anchor_code="C6135", depth=0
+                            ),
+                        ),
+                    ),
+                ),
+                semantic_types=("Neoplastic Process",),
+                minted=(),
+            )
+        evidence = await store.constituent_evidence(_RUN_ID, "C6135")
+        by_axis = {item.axis: item for item in evidence}
+        backed = by_axis["op:PrimarySite"]
+        assert backed.support == "restriction-backed"
+        assert len(backed.sources) == 2
+        assert {source.filler_code for source in backed.sources} == {"C12400"}
+        assert {source.anchor_code for source in backed.sources} == {"C6135"}
+        assert {tuple(source.structural_path) for source in backed.sources} == {
+            (0, 0),
+            (0, 1),
+        }
+        assert "axis-assignment" in backed.policy_choices
+        changed = by_axis["op:AssociatedSite"]
+        assert changed.support == "not-source-backed"
+        assert changed.inferred_assertions
+        assert "collapse" in changed.policy_choices
+        parent = by_axis["op:Morphology"]
+        assert parent.support == "genus-backed"
+        assert parent.sources[0].filler_code == "C999"
+        assert parent.sources[0].role_code is None
+        assert by_axis["op:Laterality"].support == "not-source-backed"
+        assert by_axis["op:ClinicalFinding"].support == "not-source-backed"
+        grouped = by_axis["op:NormalTissueOrigin"]
+        assert grouped.support == "restriction-backed"
+        assert "grouping" in grouped.policy_choices
+        assert len(await store.constituent_evidence(_RERUN_ID, "C6135")) == 1
+        assert await store.constituent_evidence(_RUN_ID, "C1") == []
+        assert await store.constituent_evidence("missing", "C6135") == []
+        # A source row with a related but different code cannot back the retained
+        # filler, even when all provenance links still exist in the database.
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE decomp_source_occurrence SET filler_code='C123' "
+                    "WHERE run_id=:run AND concept_code='C6135'"
+                ),
+                {"run": _RUN_ID},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE decomp_definition_fact SET filler_code='C123' "
+                    "WHERE run_id=:run AND concept_code='C6135' "
+                    "AND fact_kind='restriction'"
+                ),
+                {"run": _RUN_ID},
+            )
+        changed_sources = await store.constituent_evidence(_RUN_ID, "C6135")
+        assert all(
+            item.support == "not-source-backed"
+            for item in changed_sources
+            if item.axis_source == "role"
+        )
+    finally:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await dispose_engine(engine)
 
 
 def _atomic_observed_definition(code: str) -> CompleteDefinition:
