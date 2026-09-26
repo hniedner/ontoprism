@@ -342,6 +342,7 @@ def test_constituent_evidence_exposes_source_support_not_acceptance() -> None:
     [
         ("missing", "C1", 404),
         ("run-1", "not-a-code", 422),
+        ("SELECT%20anything", "C1", 422),
     ],
 )
 def test_constituent_evidence_rejects_missing_run_or_bad_code(

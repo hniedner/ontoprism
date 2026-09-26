@@ -87,7 +87,7 @@ async def list_run_outcomes(
 )
 async def constituent_evidence(
     store: ProvenanceReads,
-    run_id: str,
+    run_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_.:-]+$")],
     concept_code: Annotated[str, Path(pattern=r"^C[0-9]+$")],
 ) -> list[ConstituentEvidence]:
     """Exact stated filler support and separate engine choices, not acceptance."""
