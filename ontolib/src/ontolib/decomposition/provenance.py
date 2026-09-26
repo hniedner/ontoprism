@@ -81,6 +81,7 @@ from ontolib.decomposition.r101_run_conservation import (
     R101ConservationOccurrence,
     R101ConservationRecord,
 )
+from ontolib.decomposition.source_support import SOURCE_SUPPORT_SQL, ConstituentEvidence
 
 _logger = logging.getLogger(__name__)
 _MAX_BOUNDED_SELECTOR_CODES = 100
@@ -1587,6 +1588,20 @@ class ProvenanceStore:
 
     def __init__(self, sf: async_sessionmaker[AsyncSession]) -> None:
         self._sf = sf
+
+    async def constituent_evidence(
+        self, run_id: str, concept_code: str
+    ) -> list[ConstituentEvidence]:
+        """Join one concept's exact stated filler sources without creating evidence."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(SOURCE_SUPPORT_SQL),
+                {"run_id": run_id, "concept_code": concept_code},
+            )
+            return [
+                ConstituentEvidence.model_validate(dict(row))
+                for row in result.mappings()
+            ]
 
     @asynccontextmanager
     async def publication_lock(self) -> AsyncIterator[None]:
