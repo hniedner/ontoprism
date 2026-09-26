@@ -106,7 +106,7 @@ def test_oracle_report_separates_explicit_abstentions_from_decided_partitions() 
     assert _fraction(report, "common_pair_decision_coverage") == (16, 18)
     assert "partition_abstentions=C102870,C27262" in report
     assert _fraction(report, "full_partition_agreement")[1] == 20
-    assert "[full-cohort; includes 2 abstaining concepts]" in report
+    assert "[full-cohort; includes 2 common-pair abstentions]" in report
     # Null groups on non-abstaining concepts remain ordinary singleton partitions.
     assert "partition_abstentions=C100054" not in report
     original = oracle_metrics_report(evidence, oracle, rows, registry)

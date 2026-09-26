@@ -151,6 +151,7 @@ def _stale_grouping_artifacts(
 def _with_policy_groups(
     evidence: CurrentEngineEvidence, policy: Any
 ) -> CurrentEngineEvidence:
+    # Align only in memory so an injected mismatch, not prior-run drift, is detected.
     concepts = []
     for concept in evidence.concepts:
         row = policy.by_code.get(concept.code)

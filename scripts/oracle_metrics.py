@@ -109,7 +109,7 @@ def oracle_metrics_report(
                 metrics.full_partition_agreement.denominator,
                 metrics.full_partition_agreement.rate,
             )
-            + f" [full-cohort; includes {len(abstentions)} abstaining concepts]",
+            + f" [full-cohort; includes {len(abstentions)} common-pair abstentions]",
             _rate(
                 "common_pair_partition_agreement_decided_only",
                 agreements,
