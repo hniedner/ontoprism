@@ -16,7 +16,6 @@ default_weight_seconds = 1.621269
 "backend/tests/test_ncit_api_integration.py" = 2.334471
 "backend/tests/test_ncit_search_index_integration.py" = 0.785911
 "ontolib/tests/decomposition/test_additivity_integration.py" = 2.551549
-"ontolib/tests/decomposition/test_enhanced_showcase_integration.py" = 0.916706
 "ontolib/tests/decomposition/test_fixture_safety_integration.py" = 0.054132
 "ontolib/tests/decomposition/test_pre_resume_integration.py" = 1.836834
 "ontolib/tests/decomposition/test_provenance_integration.py" = 1.201892
