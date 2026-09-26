@@ -4,7 +4,7 @@ measurement_date = "2026-09-21"
 measurement_worktree_dirty = false
 measurement_command = "pdm run ci-test-measure-integration --output tmp/integration-file-durations.toml"
 selected_count = 305
-module_count = 35
+module_count = 34
 default_weight_seconds = 1.621269
 
 [weights]
