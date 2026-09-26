@@ -103,7 +103,7 @@ async def _ask(url: str, statement: str) -> bool:
     return bool(response.json()["boolean"])
 
 
-@pytest.mark.usefixtures("isolated_qlever_settings")
+@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
 async def test_small_publication_exposes_outcome_flag_and_demo_marker(
     tmp_path: Path,
     isolated_qlever_url: str,
