@@ -25,15 +25,16 @@ that must be considered together: it uses the existing group mechanism to retain
 the dependency without a new axis, filler, event entity or persistence format.
 Both axes remain independently queryable. No global stage-grouping rule is proposed.
 
-## Conflicting human records and NCIt source structure
+## Human records before approval and NCIt source structure
 
 The SME oracle groups these pairs in `neoplasm-adjudicated.json` (under
 `ontolib/tests/decomposition/golden/`); general review metadata dates to 2026-08-03.
 The later exact grouping review in
 [`group-review-rationale-26.07d.md`](../../evidence/group-review-rationale-26.07d.md),
 sections 1–3, approves separate groups (R. Hannes Niedner, M.D., 2026-08-28).
-D87 and the packaged `normalized-group-policy.json` preserve those singleton
-approvals. Neither chronology nor a higher agreement score resolves authority.
+D87 and the packaged `normalized-group-policy.json` preserved those singleton
+approvals before the September 25 supersession. Neither chronology nor a higher
+agreement score alone resolved authority.
 
 The frozen NCIt 26.07d packet records the system as inherited R88 at depth 1 and
 the value as direct R88 at depth 0, in different source structural groups:
@@ -119,7 +120,7 @@ It is not used for substantive claims beyond identifying the 2009 revision.
   This is a general modeling principle, not inspection of SNOMED's exact cervical
   cancer concepts. No licensed release was accessed.
 
-## Inference, limitations and approval needed
+## Inference, limitations and approval granted
 
 Clinical literature establishes that stage meaning depends on its framework.
 NCIt preserves both constituents; mCODE associates distinct method/result fields;

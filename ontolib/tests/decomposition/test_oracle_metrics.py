@@ -102,10 +102,11 @@ def test_oracle_report_separates_explicit_abstentions_from_decided_partitions() 
     abstaining = evidence.model_copy(update={"concepts": concepts})
     report = oracle_metrics_report(abstaining, oracle, rows, registry)
     assert "[decided-only; agrees=13; disagrees=3; abstains=2; ineligible=2]" in report
-    assert _fraction(report, "common_pair_partition_agreement") == (13, 16)
+    assert _fraction(report, "common_pair_partition_agreement_decided_only") == (13, 16)
     assert _fraction(report, "common_pair_decision_coverage") == (16, 18)
     assert "partition_abstentions=C102870,C27262" in report
     assert _fraction(report, "full_partition_agreement")[1] == 20
+    assert "[full-cohort; includes 2 abstaining concepts]" in report
     # Null groups on non-abstaining concepts remain ordinary singleton partitions.
     assert "partition_abstentions=C100054" not in report
     original = oracle_metrics_report(evidence, oracle, rows, registry)
@@ -122,7 +123,7 @@ def test_oracle_report_separates_explicit_abstentions_from_decided_partitions() 
         }
     )
     empty = oracle_metrics_report(sparse, oracle, rows, registry)
-    assert "common_pair_partition_agreement=0/0 (not-computed)" in empty
+    assert "common_pair_partition_agreement_decided_only=0/0 (not-computed)" in empty
     assert "common_pair_decision_coverage=0/0 (not-computed)" in empty
     assert "partition_abstentions=none" in empty
 
@@ -152,6 +153,9 @@ def test_oracle_report_separates_explicit_abstentions_from_decided_partitions() 
         }
     )
     decided = oracle_metrics_report(resolved, oracle, rows, registry)
-    assert _fraction(decided, "common_pair_partition_agreement") == (14, 17)
+    assert _fraction(decided, "common_pair_partition_agreement_decided_only") == (
+        14,
+        17,
+    )
     assert _fraction(decided, "common_pair_decision_coverage") == (17, 18)
     assert decided.endswith("partition_abstentions=C102870")

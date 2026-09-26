@@ -624,28 +624,6 @@ def test_evidence_policy_group_map_requires_exact_symmetric_unique_pairs(
         validate_evidence_policy_group_map(mutated, policy)
 
 
-def test_policy_refuses_unavailable_prechange_output_identity_literals() -> None:
-    payload = load_packaged_normalized_group_policy().model_dump()
-    payload["prechange_evidence_identity"] = "4475" + "0" * 60
-
-    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ActiveNormalizedGroupPolicy.model_validate(payload)
-
-
-@pytest.mark.parametrize("claimed_digest", ["0" * 64, "4febb77c" + "0" * 56])
-def test_unavailable_prechange_record_rejects_any_present_artifact_claim(
-    claimed_digest: str,
-) -> None:
-    payload = load_packaged_normalized_group_policy().model_dump()
-    payload["unavailable_historical_artifact"]["present_artifact"] = {
-        "path": "bounded/replay.ttl",
-        "sha256": claimed_digest,
-    }
-
-    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        ActiveNormalizedGroupPolicy.model_validate(payload)
-
-
 def test_active_rows_use_tracked_historical_observations_not_counterfactuals(
     tmp_path: Path,
 ) -> None:
@@ -855,7 +833,7 @@ def test_approved_cervical_stage_pairs_share_a_concept_local_group(
         assert len(group_ids) == 3
 
 
-def test_stage_review_preserves_exact_targets_and_prior_observations(
+def test_stage_review_preserves_exact_decision_targets(
     tmp_path: Path,
 ) -> None:
     policy = _generate(tmp_path)

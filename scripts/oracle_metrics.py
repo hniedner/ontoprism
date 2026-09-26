@@ -54,7 +54,7 @@ def oracle_metrics_report(
     rows: RowDecisionExport,
     registry: ProposalRegistry,
 ) -> str:
-    """Report decided common partitions separately from explicit #355 abstentions.
+    """Render pair/full/decided-common scores, coverage, abstentions and SME baseline.
 
     Pair scores and full exact partition agreement keep their original populations.
     The underlying comparison retains the original null-as-singleton diagnostic;
@@ -108,9 +108,10 @@ def oracle_metrics_report(
                 metrics.full_partition_agreement.numerator,
                 metrics.full_partition_agreement.denominator,
                 metrics.full_partition_agreement.rate,
-            ),
+            )
+            + f" [full-cohort; includes {len(abstentions)} abstaining concepts]",
             _rate(
-                "common_pair_partition_agreement",
+                "common_pair_partition_agreement_decided_only",
                 agreements,
                 decided,
                 agreements / decided if decided else None,

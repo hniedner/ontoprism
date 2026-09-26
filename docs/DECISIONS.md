@@ -285,7 +285,7 @@ not filler identity or cross-edition equivalence. The evidence and limitations a
 [the cervical-stage rationale](evidence/cervical-stage-grouping-355.md). The other eight reviewed
 stage rows retain their shared blocks. Other pairs remain machine/source-derived
 and carry no human identity (`pdm run agent-test
-ontolib/tests/decomposition/test_normalized_group_policy.py::test_stage_review_preserves_exact_targets_and_prior_observations
+ontolib/tests/decomposition/test_normalized_group_policy.py::test_reviewed_decisions_cover_only_exact_stage_targets
 -v`).
 
 C27262 and C102870 retain their historical `Abstain / escalate` records. Their disputed morphology
