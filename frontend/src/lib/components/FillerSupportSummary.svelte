@@ -11,7 +11,7 @@
         <p>The filler is literally stated in NCIt; this does not mean the decomposition is accepted or correct.</p>
         {#each kinds as kind (kind)}
             {@const count = evidence.filter(row => row.support === kind).length}
-            <p>{kind}: {count}/{evidence.length} ({(100 * count / evidence.length).toFixed(1)}%)</p>
+            <p>{`${kind}: ${count}/${evidence.length} (${(100 * count / evidence.length).toFixed(1)}%)`}</p>
         {/each}
     </div>
 {:else if failed}

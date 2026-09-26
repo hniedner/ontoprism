@@ -57,6 +57,13 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+    it('marks a proposed filler with the D93 mint flag without source groups', async () => {
+        mock.mockResolvedValue({ ...decomposed, constituents: [{ ...decomposed.constituents[0],
+            filler: 'MINT-one', source_group_ids: [], normalized_group_id: null, normalized_group_label: null }] });
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByText('mint-filler: proposed filler')).toBeInTheDocument();
+        expect(screen.queryByText(/Source groups:/)).not.toBeInTheDocument();
+    });
     it('keeps decomposition visible when evidence fails and does not claim zero support', async () => {
         mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
         vi.mocked(getConstituentEvidence).mockRejectedValue(new Error('source unavailable'));

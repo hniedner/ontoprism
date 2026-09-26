@@ -2,6 +2,16 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import { expect, it } from 'vitest';
 import ConstituentSource from './ConstituentSource.svelte';
 
+it('shows a source gap without inventing a source link or policy decision', () => {
+    render(ConstituentSource, { evidence: {
+        run_id: 'run', concept_code: 'C1', axis: 'op:Laterality', filler_code: 'MINT-one', axis_source: 'nlp',
+        support: 'not-source-backed', policy_choices: [], inferred_assertions: [], sources: []
+    } });
+    expect(screen.getByText('No exact linked stated filler source.')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Policy choices/)).not.toBeInTheDocument();
+});
+
 it('opens the exact stated genus locator and distinguishes policy choices', async () => {
     render(ConstituentSource, { evidence: {
         run_id: 'run', concept_code: 'C1', axis: 'op:Morphology', filler_code: 'C2', axis_source: 'parent',
