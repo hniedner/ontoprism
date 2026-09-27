@@ -15,15 +15,22 @@ from ontolib.decomposition.source_support import ConstituentEvidence, StatedFill
     "run",
     [
         None,
-        SimpleNamespace(status="running", publication_state="published"),
-        SimpleNamespace(status="complete", publication_state="pending"),
+        SimpleNamespace(
+            status="running", publication_state="published", ncit_version="26.07d"
+        ),
+        SimpleNamespace(
+            status="complete", publication_state="pending", ncit_version="26.07d"
+        ),
     ],
 )
 async def test_report_refuses_nonpublished_run_without_success_output(
     monkeypatch, capsys, run
 ):
     engine = SimpleNamespace(dispose=AsyncMock())
-    store = SimpleNamespace(get_run=AsyncMock(return_value=run))
+    store = SimpleNamespace(
+        get_run=AsyncMock(return_value=run),
+        work_item_outcomes=AsyncMock(return_value=[]),
+    )
     monkeypatch.setattr(
         source_backed_fillers, "create_async_engine", lambda *a, **kw: engine
     )

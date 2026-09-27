@@ -11,8 +11,21 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture(autouse=True)
 async def _bounded_cache_test():
-    async with asyncio.timeout(10):
+    loop = asyncio.get_running_loop()
+    original = loop.get_task_factory()
+
+    def factory(loop, coro, **kwargs):
+        async def bounded():
+            async with asyncio.timeout(10):
+                return await coro
+
+        return asyncio.Task(bounded(), loop=loop, **kwargs)
+
+    loop.set_task_factory(factory)
+    try:
         yield
+    finally:
+        loop.set_task_factory(original)
 
 
 class _Clock:

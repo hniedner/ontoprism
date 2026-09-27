@@ -170,21 +170,40 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
 
 
 @pytest.mark.api
-@pytest.mark.parametrize("endpoint", ["/ready", "/api/v1/refresh"])
+@pytest.mark.parametrize(
+    ("endpoint", "repository"),
+    [
+        ("/ready", "ncit"),
+        ("/ready", "uberon"),
+        ("/api/v1/refresh", "ncit"),
+        ("/api/v1/refresh", "uberon"),
+        ("/api/v1/refresh/ncit/search-index", "ncit"),
+        ("/api/v1/refresh/uberon/search-index", "uberon"),
+    ],
+)
 def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
-    endpoint, monkeypatch
+    endpoint, repository, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
 
     class DriftedMetadata(_Metadata):
         async def ncit(self, *, force=False):
-            if force:
+            if force and repository == "ncit":
                 return RepositoryUnhealthy(
                     repository="ncit",
                     reason="observation-mismatch",
                     message="live source changed",
                 )
             return self._ncit
+
+        async def uberon(self, *, force=False):
+            if force and repository == "uberon":
+                return RepositoryUnhealthy(
+                    repository="uberon",
+                    reason="observation-mismatch",
+                    message="live source changed",
+                )
+            return _uberon_ready()
 
     app = create_app()
     app.dependency_overrides[get_repository_metadata] = lambda: DriftedMetadata(
@@ -196,12 +215,19 @@ def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
             if endpoint == "/ready"
             else client.post(endpoint, headers={"X-ICDO-Entitlement": "licensed"})
         )
-    if endpoint == "/ready":
+    if endpoint != "/api/v1/refresh":
         assert response.status_code == 503
         assert response.json()["detail"]["reason"] == "observation-mismatch"
     else:
         assert response.status_code == 200
-        assert response.json()["repositories"][0]["state"] == "unhealthy"
+        assert (
+            next(
+                r
+                for r in response.json()["repositories"]
+                if r["repository"] == repository
+            )["state"]
+            == "unhealthy"
+        )
 
 
 @pytest.mark.api
