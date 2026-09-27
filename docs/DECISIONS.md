@@ -27,7 +27,8 @@ decomposition acceptance"); Stage 4 curator editing v0 ("M1.9 · Local proposal 
 Stage 5 a first graph-balance measurement ("M5 · Measure & improve graph balance"); Stage 6
 cloud ("M1.10 · Cloud deployment for multi-user expert access"). The rules in AGENTS.md
 "Issue size, demos and approvals" make the reset enforceable at every merge: a size cap
-(about 400 net non-test lines per issue, tests at most 1.5 times that); owner approval
+(about 400 net non-test lines per issue; tests normally within 1.5 times that, more when
+every test covers a Done-when behaviour or owner-approved policy, amended 2026-09-27); owner approval
 before new persistence; an estimate and a demo in every issue (when the body lacks one,
 the agent posts its own estimate and demo plan before starting, and proceeds); two corrective owner
 comments mean asking the owner to split; no process work unless something is blocked; only

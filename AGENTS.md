@@ -98,9 +98,12 @@ and passes. Whether a `main` merge released is not judged here (#131).
 
 ## Issue size, demos and approvals (D95)
 
-- An issue changes at most about 400 net lines of non-test code, and its tests at most
-  1.5 times that. Going over: stop and ask the owner to split the issue. A split never
-  separates code from the tests that motivated it.
+- An issue changes at most about 400 net lines of non-test code. Going over: stop and ask
+  the owner to split the issue. A split never separates code from the tests that
+  motivated it. Tests normally stay within 1.5 times the code; more is allowed without
+  stopping when every test covers a behaviour named in the issue's Done when or in an
+  owner-approved policy. List that mapping in the demo result; the milestone review's
+  test-validity dimension checks it for padding.
 - New persistence needs the owner's approval, written in the issue, before work starts:
   a migration, a table, a persisted file format, or an identity/hash field. Announce a
   migration of the configured Postgres before running it.
