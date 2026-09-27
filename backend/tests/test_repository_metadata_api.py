@@ -7,7 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_repository_metadata
+from backend.dependencies import (
+    get_ncit_search_index,
+    get_ncit_store,
+    get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
+)
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import (
@@ -20,6 +26,7 @@ from backend.repository_metadata import (
     UberonClassCounts,
     UberonRepositoryReady,
 )
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 from ontolib.terminologies.uberon.store import (
     CertifiedUberonIndexObservation,
@@ -209,6 +216,22 @@ def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
     app.dependency_overrides[get_repository_metadata] = lambda: DriftedMetadata(
         _ncit_ready()
     )
+
+    class UnreachableStore:
+        async def embedding_records(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+        async def search_records(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+    class UnreachableIndex:
+        async def rebuild(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+    app.dependency_overrides[get_ncit_store] = UnreachableStore
+    app.dependency_overrides[get_uberon_store] = UnreachableStore
+    app.dependency_overrides[get_ncit_search_index] = UnreachableIndex
+    app.dependency_overrides[get_uberon_search_index] = UnreachableIndex
     with TestClient(app) as client:
         response = (
             client.get(endpoint)
