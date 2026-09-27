@@ -50,6 +50,9 @@ class _FakeSession:
     async def __aexit__(self, *_exc: object) -> bool:
         return False
 
+    def begin(self) -> _FakeSession:
+        return self
+
     async def execute(self, sql: Any, params: dict[str, Any]) -> _FakeResult:
         self._calls.append((str(sql), params))
         if "WITH active AS" in str(sql):
@@ -109,7 +112,7 @@ async def test_similar_ncit_queries_concept_table_and_coerces_scores() -> None:
 
     assert hits == [("C9305", 0.91), ("C12345", 0.0)]
     assert all(isinstance(score, float) for _, score in hits)
-    sql, params = sf.calls[0]
+    sql, params = sf.calls[-1]
     assert "ncit_concepts" in sql
     assert "state = 'complete'" in sql
     assert "is_active" in sql
@@ -124,11 +127,19 @@ async def test_similar_cde_builds_composite_doc_id_for_cde_table() -> None:
     hits = await store.similar_cde("100", "2.0", limit=3)
 
     assert hits == [("200:1.0", 0.8)]
-    sql, params = sf.calls[0]
+    sql, params = sf.calls[-1]
     assert "cde_repository" in sql
     assert "state = 'complete'" in sql
     # doc_id is the composite {public_id}:{version} key, not the bare public_id.
     assert params == {"corpus": "cadsr", "doc_id": "100:2.0", "limit": 3}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("limit", [0, -1, 51, True, 10.5, "50; RESET ALL"])
+async def test_similar_rejects_invalid_budget_input(limit):
+    store = EmbeddingStore(_FakeSessionFactory(rows=[]))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="similarity limit"):
+        await store.similar_ncit("C3262", limit=limit)
 
 
 @pytest.mark.unit
