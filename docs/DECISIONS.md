@@ -7,6 +7,53 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-27 — correct the output and seek independent expert review
+
+### D96. Focus on the NCIt Neoplasm demonstrator; independent expert gate G1 precedes another full run
+
+**Context.** A corpus-level evaluation of the published run and an independent
+adversarial review found redundant broader fillers, qualifier genera on the morphology
+axis, indiscriminate multi-valued-axis flags, and misleading delta labels. Passing
+tests and a single-concept demo had not exposed the corpus-level problems. The owner
+authorized the revised sequence in #455. Evidence and read-only measurements are recorded
+in #454–#470.
+
+**Decision (owner, 2026-09-27).** The product is an **NCIt Neoplasm decomposition
+demonstrator with expert review**. Until G1 passes, park the ontology-generic platform
+(D86), NAACCR (D40), vision stages 3–5 (grounding, literature and balance), the
+post-coordination grammar (#6), cloud deployment (M1.10), xref/bridge work (M2–M4), and
+literature generation (M5.5). D93's publication-with-flags policy, D94's local-first
+delivery, and D95's issue-size, demo and approval rules remain in force.
+
+Close out M1.8 with corrected delta labels (#454) and this decision. Then M1.8.1 prepares
+corrected output and a static expert packet, in order #456–#461. The independent expert
+gate G1 precedes any further full run or new feature milestone; preparing the bounded
+expert packet is not permission for another full corpus run. Later engine cleanup,
+expert-directed changes and review UI follow their milestone order, not early starts.
+
+**G1 stop rule.** If no independent expert engages by **2026-11-06**, stop platform work
+and write up the findings—told closure, P334 histology anchoring, detector saturation,
+and D58 primary-site cases—for NCI EVS. The owner recruits the experts and records their
+decisions on morphology semantics, per-axis cardinality and go/no-go.
+
+**Reporting and execution.** From #457 on, every engine report gives both the official
+oracle score (flagged emissions unscoreable) and the plain exact-pair score. Until #457
+lands, `oracle-metrics` output (the official score) is the oracle demo. On the published run:
+
+| Scoring view | Precision | Recall |
+|---|---:|---:|
+| Official scorer, as recorded in D95 | 111/132 (0.841) | 111/153 (0.7255) |
+| Plain exact pairs | 145/175 (0.829) | 145/154 (0.942) |
+
+The true-positive difference is the **34 flagged true positives**, not improved output.
+Neither view replaces the other; the #44 precision/recall gate of at least 0.9 is unmet.
+The execution guardrails are in AGENTS.md (Current scope and expert gate; Long-running jobs).
+
+**Why.** Fixing and exposing the actual output before adding more platform or UI work
+keeps the demonstrator useful to its intended experts. Independent review determines
+the unresolved semantic choices; more machinery and another expensive run cannot
+substitute for that engagement.
+
 ## 2026-09-23 — roadmap reset: an expert demonstration, local first, small issues with demos
 
 ### D95. Issues are small, show a demo, and need approval for new persistence; review drops suggestions after a dimension's third round

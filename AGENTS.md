@@ -9,6 +9,20 @@ library. Product goals: `README.md`. Architecture: `docs/ARCHITECTURE.md`. Decis
 These rules bind every agent and harness. The issue body is the contract; only the
 owner changes it.
 
+## Current scope and expert gate (D96)
+
+The product is an **NCIt Neoplasm decomposition demonstrator with expert review**.
+Until independent expert gate G1 passes, ontology-generic platform work, NAACCR,
+vision stages 3–5, post-coordination grammar, cloud, xref/bridge work and literature
+generation are parked. Follow the owner-approved milestone order; do not start later
+engine or UI milestones early. The bounded M1.8.1 expert packet prepares G1; it does
+not authorize a full corpus run.
+
+Independent experts review before any further full run or new feature milestone.
+If no independent expert engages by **2026-11-06**, stop platform work and write up the
+findings (told closure, P334 histology anchoring, detector saturation, D58 cases) for
+NCI EVS. The owner records G1's decisions and go/no-go.
+
 ## Workflow
 
 Work is organised in milestones. A milestone branch (`feat/m<number>-<slug>`) starts
@@ -172,11 +186,22 @@ information: fix and rerun its failing lane, then run full `verify` once at the 
 
 ## Long-running jobs
 
+Look at corpus shape before building on a run's output. From #457 on, every engine
+report gives both the official oracle score (flagged emissions unscoreable) and the
+plain exact-pair score. Until #457 lands, `oracle-metrics` output (the official score)
+is the oracle demo. Every engine change shows corpus shape on the seeded 1,000-concept
+sample rehearsal (or on a stored full run). Demos show whole-run
+distributions, not only one hand-picked concept. At the start of an engine milestone,
+check the applicable decisions against the implementation. Profile before optimising.
+Cleanup in a runtime import path (engine, backend, `oracle-metrics`) is not deferred
+as "when touched".
+
 Preflight the whole path on a small sample; validate inputs before the expensive step;
 set timeout to at least 1.5 times expected duration or run in the background and poll;
 use resume; never require a commit/clean tree; never overwrite completed artifacts.
 Judge engine changes on the 20-concept SME oracle (D63), not a full corpus. Schedule a
-full run only after several fixes and with owner agreement.
+full run only after several fixes, with a written corpus-shape prediction and owner
+agreement, and only after G1. Never substitute a full run for independent expert review.
 
 ## Domain and architecture
 
