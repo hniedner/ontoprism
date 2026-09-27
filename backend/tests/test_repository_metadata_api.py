@@ -112,7 +112,9 @@ class _Metadata:
         self._icdo = icdo
         self.icdo_calls = 0
 
-    async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
+    async def ncit(
+        self, *, force: bool = False
+    ) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
@@ -165,6 +167,41 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
             _uberon_ready().model_dump(mode="json"),
         ],
     }
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("endpoint", ["/ready", "/api/v1/refresh"])
+def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
+    endpoint, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+
+    class DriftedMetadata(_Metadata):
+        async def ncit(self, *, force=False):
+            if force:
+                return RepositoryUnhealthy(
+                    repository="ncit",
+                    reason="observation-mismatch",
+                    message="live source changed",
+                )
+            return self._ncit
+
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: DriftedMetadata(
+        _ncit_ready()
+    )
+    with TestClient(app) as client:
+        response = (
+            client.get(endpoint)
+            if endpoint == "/ready"
+            else client.post(endpoint, headers={"X-ICDO-Entitlement": "licensed"})
+        )
+    if endpoint == "/ready":
+        assert response.status_code == 503
+        assert response.json()["detail"]["reason"] == "observation-mismatch"
+    else:
+        assert response.status_code == 200
+        assert response.json()["repositories"][0]["state"] == "unhealthy"
 
 
 @pytest.mark.api

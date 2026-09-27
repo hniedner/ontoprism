@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await app.state.repository_metadata.aclose()
         version_check.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await version_check
@@ -166,7 +167,7 @@ def create_app() -> FastAPI:
         repositories = []
         for repository_id in local_repository_ids():
             if repository_id == "ncit":
-                repositories.append(await metadata.ncit())
+                repositories.append(await metadata.ncit(force=True))
             elif repository_id == "cadsr":
                 repositories.append(metadata.cadsr())
             elif repository_id == "uberon":
