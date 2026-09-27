@@ -663,6 +663,11 @@ class RepositoryMetadataService:
             ),
         )
 
+    def start(self) -> None:
+        """Schedule worker-local warm-up and refresh for both ontology repositories."""
+        self._ncit_cache.start()
+        self._uberon_cache.start()
+
     async def aclose(self) -> None:
         await asyncio.gather(self._ncit_cache.aclose(), self._uberon_cache.aclose())
 

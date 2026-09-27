@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     version_check = asyncio.create_task(
         check_ncit_version(client, settings.ncit_expected_version)
     )
+    app.state.repository_metadata.start()
     try:
         yield
     finally:

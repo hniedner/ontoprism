@@ -1,5 +1,6 @@
 """Behavioral tests for platform hardening: rate limiting, version check, readiness."""
 
+import asyncio
 import logging
 from collections.abc import Iterator
 
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from backend.config import get_settings
 from backend.main import check_ncit_version, create_app
 from backend.middleware import RateLimitMiddleware, RequestContextMiddleware
+from backend.repository_metadata import RepositoryMetadataService
 from ontolib.core.exceptions import StorageError
 
 
@@ -38,6 +40,35 @@ class _FakeClient:
         if self._fail:
             raise StorageError("store unreachable")
         return self._version
+
+
+@pytest.mark.unit
+async def test_lifespan_warms_both_repositories_without_blocking_and_cancels(
+    monkeypatch,
+):
+    started = [asyncio.Event(), asyncio.Event()]
+    cancelled = [asyncio.Event(), asyncio.Event()]
+
+    def validation(index):
+        async def live(self):
+            started[index].set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled[index].set()
+
+        return live
+
+    monkeypatch.setattr(RepositoryMetadataService, "_ncit_live", validation(0))
+    monkeypatch.setattr(RepositoryMetadataService, "_uberon_live", validation(1))
+    monkeypatch.setattr(
+        "backend.repository_metadata._certification_inputs", lambda *args: b"proof"
+    )
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(asyncio.gather(*(e.wait() for e in started)), 1)
+        assert not any(e.is_set() for e in cancelled)
+    assert all(e.is_set() for e in cancelled)
 
 
 # --------------------------------------------------------------------- rate limit
