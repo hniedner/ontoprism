@@ -482,6 +482,9 @@ async def test_delta_preserves_occurrences_and_isolates_run_links() -> None:
         assert len(rows) == 2
         assert {tuple(r.structural_path) for r in rows} == {(0, 0), (0, 1)}
         assert {r.category for r in rows} == {"projected"}
+        assert {r.walker_max_depth for r in rows} == {
+            _fingerprint(("C6135",)).walker_max_depth
+        }
         assert {r.retained_filler for r in rows} == {"C12400"}
         rerun = await store.enhancement_delta(_RERUN_ID, "C6135")
         assert len(rerun) == 2

@@ -6,6 +6,81 @@ from ontolib.decomposition.enhancement_delta import DeltaOccurrence
 
 
 @pytest.mark.parametrize(
+    "role",
+    [
+        "R88",
+        "R100",
+        "R101",
+        "R102",
+        "R103",
+        "R104",
+        "R105",
+        "R106",
+        "R107",
+        "R108",
+        "R110",
+        "R176",
+        "R126",
+        "R174",
+    ],
+)
+@pytest.mark.parametrize(("depth", "bound"), [(1, 7), (7, 7), (8, 7), (7, 9)])
+def test_dropped_axis_role_uses_only_recorded_depth_reason(role, depth, bound):
+    row = DeltaOccurrence.model_validate(
+        {
+            "occurrence_id": "occ",
+            "source_fact_id": "fact",
+            "source_group_id": "group",
+            "anchor_code": "C1",
+            "depth": depth,
+            "walker_max_depth": bound,
+            "structural_path": [0],
+            "role_code": role,
+            "filler_code": "C2",
+            "disposition": None,
+            "normalized_axis": None,
+            "retained_filler": None,
+            "target_exists": False,
+            "links": [],
+            "conservation_category": None,
+            "conservation_reason": None,
+        }
+    )
+    assert row.category == "not-projected"
+    assert row.reason == (
+        "beyond the walker depth bound (D58)"
+        if depth >= bound
+        else "dropped by a projection rule (generic filler, held role or inherited "
+        "non-core role); this engine version records no per-fact reason"
+    )
+
+
+def test_excludes_role_is_outside_axes_even_beyond_depth_bound():
+    row = DeltaOccurrence.model_validate(
+        {
+            "occurrence_id": "occ",
+            "source_fact_id": "fact",
+            "source_group_id": "group",
+            "anchor_code": "C1",
+            "depth": 8,
+            "walker_max_depth": 7,
+            "structural_path": [0],
+            "role_code": "R139",
+            "filler_code": "C2",
+            "disposition": None,
+            "normalized_axis": None,
+            "retained_filler": None,
+            "target_exists": False,
+            "links": [],
+            "conservation_category": None,
+            "conservation_reason": None,
+        }
+    )
+    assert row.category == "not-considered"
+    assert row.reason == "stated in NCIt; not part of the decomposition's axes"
+
+
+@pytest.mark.parametrize(
     "kind", ["retained-routed", "retained-unknown", "retained-policy-veto"]
 )
 @pytest.mark.parametrize("role", ["R101", "R103", "R104", "R105"])
@@ -16,6 +91,7 @@ def test_retained_requires_exact_occurrence_link(kind: str, role: str) -> None:
         "source_group_id": "group",
         "anchor_code": "C1",
         "depth": 0,
+        "walker_max_depth": 7,
         "structural_path": [0],
         "role_code": role,
         "filler_code": "C2",
@@ -48,6 +124,7 @@ def test_collapse_target_not_unresolved_label_decides_representation(
         "source_group_id": "group",
         "anchor_code": "C1",
         "depth": 2,
+        "walker_max_depth": 7,
         "structural_path": [0, 1],
         "role_code": "R101",
         "filler_code": "C2",
@@ -71,7 +148,7 @@ def test_collapse_target_not_unresolved_label_decides_representation(
     [
         ("unresolved", "missing-disposition", [], "not-projected"),
         ("unchanged-unprojected", "concept-not-decomposed", [], "not-projected"),
-        (None, None, [], "not-considered"),
+        (None, None, [], "not-projected"),
         (
             "unresolved",
             "missing-disposition",
@@ -92,6 +169,7 @@ def test_absent_disposition_does_not_hide_or_guess(
         source_group_id="group",
         anchor_code="C1",
         depth=0,
+        walker_max_depth=7,
         structural_path=[0],
         role_code="R101",
         filler_code="C2",
@@ -109,5 +187,5 @@ def test_absent_disposition_does_not_hide_or_guess(
         assert row.reason == "unclassified"
     elif expected == "not-considered":
         assert row.reason == "stated in NCIt; not part of the decomposition's axes"
-    else:
+    elif reason is not None:
         assert row.reason == reason

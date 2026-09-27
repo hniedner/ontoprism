@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field, computed_field
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 
 DeltaCategory = Literal[
     "projected",
@@ -15,6 +16,9 @@ DeltaCategory = Literal[
 ]
 RETAINED = frozenset({"retained-routed", "retained-unknown", "retained-policy-veto"})
 COLLAPSED = frozenset({"collapsed-is-a", "collapsed-r82", "collapsed-mixed"})
+_DECOMPOSITION_ROLES = frozenset(
+    role for contract in AXIS_CONTRACTS.values() for role in contract.source_roles
+) | {"R176", "R126", "R174"}
 
 
 class DeltaLink(StrictBoundaryModel):
@@ -28,6 +32,7 @@ class DeltaOccurrence(StrictBoundaryModel):
     source_group_id: str
     anchor_code: str
     depth: int = Field(ge=0)
+    walker_max_depth: int = Field(gt=0)
     structural_path: list[int]
     role_code: str
     filler_code: str
@@ -66,7 +71,11 @@ class DeltaOccurrence(StrictBoundaryModel):
         states: dict[tuple[str | None, str | None], DeltaCategory] = {
             ("unresolved", "missing-disposition"): "not-projected",
             ("unchanged-unprojected", "concept-not-decomposed"): "not-projected",
-            (None, None): "not-considered",
+            (None, None): (
+                "not-projected"
+                if self.role_code in _DECOMPOSITION_ROLES
+                else "not-considered"
+            ),
         }
         return states.get(
             (self.conservation_category, self.conservation_reason), "unclassified"
@@ -79,12 +88,22 @@ class DeltaOccurrence(StrictBoundaryModel):
             return "unclassified"
         if self.category == "not-considered":
             return "stated in NCIt; not part of the decomposition's axes"
-        return self.conservation_reason or self.disposition or "unclassified"
+        if self.conservation_reason is not None:
+            return self.conservation_reason
+        if self.disposition is not None:
+            return self.disposition
+        if self.depth >= self.walker_max_depth:
+            return "beyond the walker depth bound (D58)"
+        return (
+            "dropped by a projection rule (generic filler, held role or inherited "
+            "non-core role); this engine version records no per-fact reason"
+        )
 
 
 DELTA_SQL = """
 SELECT o.occurrence_id, o.source_fact_id, o.source_group_id, o.anchor_code,
        o.depth, o.structural_path, o.role_code, o.filler_code,
+       CAST(run.fingerprint->>'walker_max_depth' AS integer) AS walker_max_depth,
        d.disposition, d.normalized_axis, d.retained_filler,
        r.category AS conservation_category, r.reason AS conservation_reason,
        EXISTS (SELECT 1 FROM decomp_constituent c WHERE c.run_id=o.run_id
@@ -96,6 +115,7 @@ SELECT o.occurrence_id, o.source_fact_id, o.source_group_id, o.anchor_code,
          AND l.concept_code=o.concept_code AND l.occurrence_id=o.occurrence_id),
          '[]'::jsonb) AS links
 FROM decomp_source_occurrence o
+JOIN decomp_run run ON run.id=o.run_id
 LEFT JOIN decomp_occurrence_disposition d USING(run_id,concept_code,occurrence_id)
 LEFT JOIN decomp_r101_conservation r USING(run_id,concept_code,occurrence_id)
 WHERE o.run_id=:run_id AND o.concept_code=:concept_code ORDER BY o.occurrence_id

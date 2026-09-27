@@ -64,8 +64,9 @@ class _FakeProvenanceStore:
                 source_group_id="group",
                 anchor_code=concept_code,
                 depth=0,
+                walker_max_depth=7,
                 structural_path=[0],
-                role_code="R104",
+                role_code="R139",
                 filler_code="C2",
                 disposition=None,
                 normalized_axis=None,
@@ -243,7 +244,7 @@ def test_delta_api_returns_stated_roles_without_inventing_loss() -> None:
     assert response.status_code == 200
     row = response.json()[0]
     assert row["anchor_code"] == "C6135"
-    assert row["role_code"] == "R104"
+    assert row["role_code"] == "R139"
     assert row["category"] == "not-considered"
     assert row["reason"] == "stated in NCIt; not part of the decomposition's axes"
 

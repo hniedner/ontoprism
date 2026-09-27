@@ -7,6 +7,7 @@ vi.mock('$lib/api', () => ({ getEnhancementDelta: vi.fn() }));
 import { getEnhancementDelta } from '$lib/api';
 const mock = vi.mocked(getEnhancementDelta);
 const occurrence = (category: DeltaOccurrence['category'], id = category): DeltaOccurrence => ({
+    walker_max_depth: 7,
     occurrence_id: id, source_fact_id: 'fact', source_group_id: 'group', anchor_code: 'C10',
     depth: 1, structural_path: [0, 1], role_code: 'R101', filler_code: 'C2',
     disposition: null, normalized_axis: null, retained_filler: null, target_exists: false,
