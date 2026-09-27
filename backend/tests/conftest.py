@@ -21,7 +21,7 @@ from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 class _IsolatedRepositoryMetadata:
     """Certified identity seam for run-owned disposable repository fixtures."""
 
-    async def ncit(self) -> NcitRepositoryReady:
+    async def ncit(self, *, force: bool = False) -> NcitRepositoryReady:
         return NcitRepositoryReady(
             source_identity="f" * 64,
             manifest_identity="e" * 64,

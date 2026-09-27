@@ -1,13 +1,16 @@
 """Manifest-bound repository metadata contracts."""
 
 import hashlib
+import json
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
+import backend.repository_metadata as module
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
@@ -42,6 +45,7 @@ from ontolib.terminologies.ncit.sibling_store import (
 from ontolib.terminologies.uberon.store import (
     UBERON_INDEX_MANIFEST_FILENAME,
     CertifiedUberonIndexObservation,
+    UberonArtifactError,
     UberonArtifactManifest,
     UberonIndexManifest,
     UberonIndexObservation,
@@ -627,6 +631,7 @@ async def test_service_certifies_exact_active_ncit_manifest(
     active.mkdir()
     manifest_path = active / ".ontoprism-ncit-candidate.json"
     manifest_path.write_bytes(b'{"exact":"manifest"}\n')
+    (tmp_path / ".qlever-ncit.activation.json").write_text("{}")
     observation = _observation()
     manifest = _manifest(observation).model_copy(
         update={"candidate_path": str(active), "active_store_path": str(active)}
@@ -660,6 +665,131 @@ async def test_service_certifies_exact_active_ncit_manifest(
         == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     )
     assert service.cadsr().state == "ready"
+
+
+async def test_ncit_cache_expires_without_sliding_and_force_evicts_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = tmp_path / "ncit"
+    active.mkdir()
+    (active / ".ontoprism-ncit-candidate.json").write_text("{}")
+    (tmp_path / ".ncit.activation.json").write_text("{}")
+    manifest = _manifest(_observation())
+    monkeypatch.setattr(module, "validate_ncit_sibling_manifest", lambda path: manifest)
+    monkeypatch.setattr(module, "read_activation_journal", lambda path: _journal())
+    observe = AsyncMock(return_value=_observation())
+    monkeypatch.setattr(module, "observe_ncit_candidate", observe)
+    now = [100.0]
+    service = RepositoryMetadataService(
+        settings=_Settings(str(active), "http://ncit.test"),
+        cadsr=_CertifiedCadsr(),
+        clock=lambda: now[0],
+    )
+    assert (await service.ncit()).state == "ready"
+    now[0] = 399.0
+    assert (await service.ncit()).state == "ready"
+    assert observe.await_count == 1
+    now[0] = 400.0
+    assert (await service.ncit()).state == "ready"
+    assert observe.await_count == 2
+    observe.side_effect = StorageError("offline")
+    assert (await service.ncit(force=True)).reason == "repository-unreachable"
+    assert (await service.ncit()).state == "unhealthy"
+    assert observe.await_count == 4
+    observe.side_effect = None
+    assert (await service.ncit()).state == "ready"
+    assert observe.await_count == 5
+
+
+@pytest.mark.parametrize("changed_input", ["manifest", "journal", "owner", "endpoint"])
+async def test_ncit_local_input_change_evicts_cached_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changed_input: str,
+) -> None:
+    active = tmp_path / "ncit"
+    active.mkdir()
+    paths = {
+        "manifest": active / ".ontoprism-ncit-candidate.json",
+        "journal": tmp_path / ".ncit.activation.json",
+        "owner": active / ".ontoprism-ncit-owner",
+    }
+    for path in paths.values():
+        path.write_text("old")
+    monkeypatch.setattr(
+        module, "validate_ncit_sibling_manifest", lambda path: _manifest(_observation())
+    )
+    journal = [_journal()]
+    monkeypatch.setattr(module, "read_activation_journal", lambda path: journal[0])
+    observe = AsyncMock(return_value=_observation())
+    monkeypatch.setattr(module, "observe_ncit_candidate", observe)
+    settings = _Settings(str(active), "http://ncit.test")
+    service = RepositoryMetadataService(settings=settings, cadsr=_CertifiedCadsr())
+    assert (await service.ncit()).state == "ready"
+    if changed_input == "endpoint":
+        settings.ncit_sparql_url = "http://new.test"
+    else:
+        paths[changed_input].write_text("new")
+    journal[0] = journal[0].model_copy(
+        update={"phase": "preflight", "activated_at": None}
+    )
+    result = await service.ncit()
+    assert isinstance(result, RepositoryUnhealthy)
+    assert result.reason == "activation-incomplete"
+    assert observe.await_count == 2
+    await service.aclose()
+
+
+@pytest.mark.parametrize("change", ["replace", "remove", "symlink", "malformed"])
+async def test_uberon_referenced_proof_change_invalidates_healthy_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    store = tmp_path / "uberon"
+    store.mkdir()
+    artifact_path = tmp_path / "artifact.json"
+    artifact_path.write_text("old")
+    (store / UBERON_INDEX_MANIFEST_FILENAME).write_text(
+        json.dumps({"artifact_manifest_path": str(artifact_path)})
+    )
+    settings = _Settings(
+        str(tmp_path / "ncit"), "http://ncit.test", uberon_store_dir=str(store)
+    )
+    observed = _certified_uberon_observation()
+    manifest = _uberon_manifest_for_test(artifact_path, observed).model_copy(
+        update={"installed_at": datetime(2026, 8, 12, tzinfo=UTC)}
+    )
+
+    def validate(path):
+        if artifact_path.read_text() != "old":
+            raise UberonArtifactError("changed artifact proof")
+        return manifest, _artifact_for_settings(settings)
+
+    monkeypatch.setattr(module, "validate_uberon_index_proof", validate)
+    observe = AsyncMock(return_value=(observed, _uberon_counts()))
+    monkeypatch.setattr(module, "observe_uberon_repository", observe)
+    service = RepositoryMetadataService(settings=settings, cadsr=_CertifiedCadsr())
+    assert (await service.uberon()).state == "ready"
+    assert (await service.uberon()).state == "ready"
+    assert observe.await_count == 1
+    if change == "remove":
+        artifact_path.unlink()
+    elif change == "symlink":
+        target = tmp_path / "target.json"
+        target.write_text("old")
+        artifact_path.unlink()
+        artifact_path.symlink_to(target)
+    else:
+        artifact_path.write_text("new" if change == "replace" else "{")
+    assert (await service.uberon()).state == "unhealthy"
+    if artifact_path.is_symlink():
+        artifact_path.unlink()
+    artifact_path.write_text("old")
+    assert (await service.uberon()).state == "ready"
+    assert observe.await_count >= 2
+    await service.aclose()
 
 
 @pytest.mark.asyncio
@@ -758,7 +888,7 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
 
 
 @pytest.mark.asyncio
-async def test_normal_uberon_read_revalidates_changed_live_content(
+async def test_expired_uberon_read_revalidates_changed_live_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = tmp_path / "qlever-uberon"
@@ -793,8 +923,15 @@ async def test_normal_uberon_read_revalidates_changed_live_content(
     monkeypatch.setattr(
         "backend.repository_metadata.observe_uberon_repository", _observe
     )
-    service = RepositoryMetadataService(settings=settings, cadsr=_CertifiedCadsr())
+    now = [0.0]
+    service = RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), clock=lambda: now[0]
+    )
     assert isinstance(await service.uberon(), UberonRepositoryReady)
+    now[0] = 299.0
+    assert isinstance(await service.uberon(), UberonRepositoryReady)
+    assert calls == 1
+    now[0] = 300.0
     changed = await service.uberon()
     assert isinstance(changed, RepositoryUnhealthy)
     assert changed.reason == "observation-mismatch"
@@ -1038,7 +1175,7 @@ async def test_service_refuses_serving_content_outside_configured_pins(
     ("symlink", "message"),
     [
         ("store", "active store is not an exact directory"),
-        ("manifest", "active manifest is not an exact regular file"),
+        ("manifest", "proof path is a symlink"),
     ],
 )
 async def test_service_refuses_identity_from_symlinked_ncit_proof_paths(

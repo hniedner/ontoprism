@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -19,6 +21,7 @@ from pydantic import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.certification_cache import CertificationCache
 from backend.icdo_datasets import ServedIcdoDataset
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.icdo.store import (
@@ -561,15 +564,66 @@ def _unhealthy[RepositoryNameT: RepositoryName](
     )
 
 
-def _select_uberon_static_proof(
-    active: Path,
-    cached: tuple[UberonIndexManifest, UberonArtifactManifest, str] | None,
-    *,
-    force: bool,
-) -> tuple[UberonIndexManifest, UberonArtifactManifest, str]:
-    if force or cached is None:
-        return _load_uberon_manifest(active)
-    return cached
+def _proof_file(path: Path) -> tuple[str, bytes | None]:
+    """Capture small proof bytes and missing/invalid path state for validation."""
+    if path.is_symlink():
+        raise RepositoryMetadataError("manifest-invalid", "proof path is a symlink")
+    if not path.exists():
+        return ("missing", None)
+    if not path.is_file():
+        return ("not-file", None)
+    return ("file", path.read_bytes())
+
+
+def _input_setting_names(repository: str) -> tuple[str, ...]:
+    return (
+        ("ncit_store_dir", "ncit_sparql_url")
+        if repository == "ncit"
+        else tuple(
+            name
+            for name in _MetadataSettings.__annotations__
+            if name.startswith("uberon_")
+        )
+    )
+
+
+def _certification_inputs(settings: _MetadataSettings, repository: str) -> object:
+    active = _active_store_path(getattr(settings, f"{repository}_store_dir"))
+    configured = tuple(
+        getattr(settings, name) for name in _input_setting_names(repository)
+    )
+    directory = (active.is_symlink(), active.is_dir())
+    if repository == "ncit":
+        paths = (
+            active / CANDIDATE_MANIFEST_FILENAME,
+            active.parent / f".{active.name}.activation.json",
+            active / ".ontoprism-ncit-owner",
+        )
+    else:
+        paths = (active / UBERON_INDEX_MANIFEST_FILENAME,)
+    files = tuple(_proof_file(path) for path in paths)
+    if repository == "uberon":
+        files += _uberon_referenced_inputs(files[0][1])
+        files += (_proof_file(active / ".ontoprism-uberon-owner"),)
+    return configured, directory, files
+
+
+def _uberon_referenced_inputs(
+    payload_bytes: bytes | None,
+) -> tuple[tuple[str, bytes | None], ...]:
+    if payload_bytes is not None:
+        try:
+            payload = json.loads(payload_bytes)
+            reference = (
+                payload.get("artifact_manifest_path")
+                if isinstance(payload, dict)
+                else None
+            )
+        except ValueError, UnicodeError:
+            reference = None  # The uncached proof loader returns the typed refusal.
+        if isinstance(reference, str):
+            return (_proof_file(Path(reference)),)
+    return ()
 
 
 class RepositoryMetadataService:
@@ -581,15 +635,48 @@ class RepositoryMetadataService:
         settings: _MetadataSettings,
         cadsr: _CadsrCertification,
         icdo: _IcdoCertification | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
         self._cadsr = cadsr
         self._icdo = icdo
-        self._uberon_static_proof: (
-            tuple[UberonIndexManifest, UberonArtifactManifest, str] | None
-        ) = None
+        self._ncit_cache = CertificationCache(
+            clock=clock,
+            inputs=lambda: _certification_inputs(settings, "ncit"),
+            validate=self._ncit_live,
+            healthy=lambda value: value.state == "ready",
+            changed=lambda: _unhealthy(
+                "ncit",
+                "observation-mismatch",
+                RuntimeError("NCIt inputs changed during certification"),
+            ),
+        )
+        self._uberon_cache = CertificationCache(
+            clock=clock,
+            inputs=lambda: _certification_inputs(settings, "uberon"),
+            validate=self._uberon_live,
+            healthy=lambda value: value.state == "ready",
+            changed=lambda: _unhealthy(
+                "uberon",
+                "observation-mismatch",
+                RuntimeError("Uberon inputs changed during certification"),
+            ),
+        )
 
-    async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
+    async def aclose(self) -> None:
+        await asyncio.gather(self._ncit_cache.aclose(), self._uberon_cache.aclose())
+
+    async def ncit(
+        self, *, force: bool = False
+    ) -> NcitRepositoryReady | RepositoryUnhealthy:
+        try:
+            return await self._ncit_cache.get(force=force)
+        except RepositoryMetadataError as exc:
+            return _unhealthy("ncit", exc.reason, exc)
+        except OSError as exc:
+            return _unhealthy("ncit", "manifest-invalid", exc)
+
+    async def _ncit_live(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         """Return a manifest/journal/live-observation-bound NCIt identity."""
         active = _active_store_path(self._settings.ncit_store_dir)
         try:
@@ -624,15 +711,23 @@ class RepositoryMetadataService:
     async def uberon(
         self, *, force: bool = False
     ) -> UberonRepositoryReady | RepositoryUnhealthy[Literal["uberon"]]:
+        try:
+            return await self._uberon_cache.get(force=force)
+        except RepositoryMetadataError as exc:
+            return _unhealthy("uberon", exc.reason, exc)
+        except OSError as exc:
+            return _unhealthy("uberon", "manifest-invalid", exc)
+
+    async def _uberon_live(
+        self,
+    ) -> UberonRepositoryReady | RepositoryUnhealthy[Literal["uberon"]]:
         """Return an immutable-manifest/live-observation-bound Uberon/CL identity."""
         active = _active_store_path(self._settings.uberon_store_dir)
         try:
             proof, live = await asyncio.gather(
                 asyncio.to_thread(
-                    _select_uberon_static_proof,
+                    _load_uberon_manifest,
                     active,
-                    self._uberon_static_proof,
-                    force=force,
                 ),
                 observe_uberon_repository(self._settings.uberon_sparql_url),
                 return_exceptions=True,
@@ -640,7 +735,6 @@ class RepositoryMetadataService:
             # Collect both results on ordinary failure, preserving proof-error priority.
             if isinstance(proof, BaseException):
                 raise proof
-            self._uberon_static_proof = proof
             manifest, artifact, manifest_identity = proof
             _require_configured_uberon_artifact(artifact, self._settings)
             if isinstance(live, BaseException):

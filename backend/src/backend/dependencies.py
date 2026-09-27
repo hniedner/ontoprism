@@ -111,7 +111,7 @@ class RepositoryMetadataReader(Protocol):
     """Read exact, certified identities for the active repository proxies."""
 
     async def ncit(
-        self,
+        self, *, force: bool = False
     ) -> NcitRepositoryReady | RepositoryUnhealthy[Literal["ncit"]]: ...
 
     def cadsr(

@@ -67,7 +67,7 @@ async def refresh(
     """Re-certify local proxies and return their certified repository identities."""
     icdo = await metadata.icdo_access(force=True)
     repositories: list[RepositoryMetadata] = [
-        await metadata.ncit(),
+        await metadata.ncit(force=True),
         metadata.cadsr(),
         await metadata.uberon(force=True),
         *icdo.values(),
@@ -185,7 +185,7 @@ async def rebuild_ncit_search_index(
     instead of a live SPARQL scan. An unhealthy NCIt repository returns 503; a store
     or DB failure during the rebuild returns 502.
     """
-    repository = await metadata.ncit()
+    repository = await metadata.ncit(force=True)
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
