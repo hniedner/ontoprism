@@ -10,9 +10,16 @@ from uuid import UUID
 import pytest
 
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
-from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.embeddings.store import EmbeddingStore, _search_budget
 
 _ACTIVE_BUILD = UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.mark.parametrize(
+    ("limit", "budget"), [(1, "40"), (10, "40"), (20, "42"), (50, "102")]
+)
+def test_owner_approved_search_budget_floor_and_headroom(limit, budget):
+    assert _search_budget(limit) == budget
 
 
 class _FakeResult:

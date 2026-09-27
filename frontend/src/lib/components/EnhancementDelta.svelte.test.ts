@@ -37,12 +37,18 @@ it('counts every category and links source occurrences and retained collapse tar
     expect(within(section).getByText(/"links"/)).toHaveTextContent('missing-disposition');
 });
 
-it('shows zero counts and an explicit empty not-projected state', async () => {
+it('does not imply a known-zero delta when no source occurrences were recorded', async () => {
     mock.mockResolvedValue([]);
     render(EnhancementDelta, { runId: 'run-1', code: 'C1' });
+    expect(await screen.findByText(/No stated role occurrences were recorded/)).toBeInTheDocument();
+    expect(screen.queryByText('Projected: 0')).not.toBeInTheDocument();
+});
+
+it('shows known zero not-projected count when recorded occurrences are all represented', async () => {
+    mock.mockResolvedValue([occurrence('projected')]);
+    render(EnhancementDelta, { runId: 'run-1', code: 'C1' });
     expect(await screen.findByText('No stated role occurrences are classified as not projected.')).toBeInTheDocument();
-    expect(screen.getByText('Unclassified: 0')).toBeInTheDocument();
-    expect(screen.getByText('Projected: 0')).toBeInTheDocument();
+    expect(screen.getByText('Not projected: 0')).toBeInTheDocument();
 });
 
 it('shows unavailable rather than a false empty state on failure', async () => {
@@ -65,7 +71,7 @@ it('clears old rows while loading and ignores replaced requests late success and
     expect(await screen.findByText('Loading stated occurrence delta')).toBeInTheDocument();
     await view.rerender({ runId: 'run-2', code: 'C2' });
     await view.rerender({ runId: 'run-2', code: 'C3' });
-    third.resolve([]);
+    third.resolve([occurrence('projected')]);
     await screen.findByText('Not projected: 0');
     first.resolve([occurrence('not-projected')]);
     second.reject(new Error('stale failure'));

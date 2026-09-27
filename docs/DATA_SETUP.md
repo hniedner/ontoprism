@@ -661,8 +661,9 @@ verify the running command **before** deleting the old `*.metrics-log.jsonl` fil
 deleting it while QLever still has it open does not stop disk use. Verify it is not
 recreated after queries. For agents, configured container recreation uses the
 repository's `agent-replay` stack wrappers.
-The QLever healthchecks allow a 15-minute startup grace period: replaying a large
-persisted delta legitimately prevents queries during startup. Interval and retries
+Both QLever healthchecks allow a 15-minute startup grace period. For NCIt, replaying a large
+persisted delta legitimately prevents queries during startup; Uberon's matching grace
+period does not imply persisted-delta replay. Interval and retries
 still apply after that grace period. In #448, NCIt became healthy in 151.6 seconds
 before rebuilding, versus 10.5 seconds afterward (including healthcheck polling).
 

@@ -62,7 +62,7 @@ describe('DecompositionPanel', () => {
         vi.mocked(getConstituentEvidence).mockResolvedValue([]);
         render(DecompositionPanel, { code: 'C6135' });
         expect(await screen.findByRole('heading', { name: /Additive provisional enhancement/ })).toBeInTheDocument();
-        expect(await screen.findByText('Not projected: 0')).toBeInTheDocument();
+        expect(await screen.findByText(/No stated role occurrences were recorded/)).toBeInTheDocument();
         expect(screen.getByText('engine emitted 2 constituents', { exact: true })).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'Thyroid Gland' })).toHaveAttribute('href', '/repositories/ncit/C12400');
     });

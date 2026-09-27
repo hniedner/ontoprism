@@ -381,7 +381,7 @@ contain a generic ontology-adapter type or system (`git ls-files
 ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
 frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontolib/src
 backend/src frontend/src`, which returned no matches, 2026-09-04). Current decomposition
-extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI --
+extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition`, 2026-09-04; expected output includes stated-graph query clauses
 in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
 `fanout_baseline.py`, `enhanced_showcase.py` (import plus source-release `SELECT`), and
@@ -391,9 +391,9 @@ DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, 2026
 output is no result from the first command and the decomposed-graph query from the second).
 
 Official-source protection is write isolation, not a prohibition on reading the source. The
-current overlay publishers and writers use decomposed, enhanced-showcase, upstream-xref, and their
+overlay publishers and writers inspected in 2026-09-04 used decomposed, enhanced-showcase, upstream-xref, and their
 scoped staging/generation graphs; the stated constant's only result among the inspected overlay
-write modules is its import and valid source-release `SELECT` in `enhanced_showcase.py` (`git grep -n
+write modules was its import and valid source-release `SELECT` in `enhanced_showcase.py` (retired in #353; `git grep -n
 STATED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 -- ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
 ontolib/src/ontolib/decomposition/legacy_writer.py

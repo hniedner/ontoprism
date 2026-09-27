@@ -1,17 +1,17 @@
 """Read-time stated filler support, distinct from validation of engine decisions."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 
-from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.models import AxisSource
 
 SupportKind = Literal["restriction-backed", "genus-backed", "not-source-backed"]
 PolicyChoice = Literal["axis-assignment", "collapse", "grouping"]
 
 
-class StatedFillerSource(StrictBoundaryModel):
+class StatedFillerSource(StrictFrozenBoundaryModel):
     """A stored stated fact locator; not a claim of normalized-axis equivalence."""
 
     fact_id: str
@@ -25,7 +25,7 @@ class StatedFillerSource(StrictBoundaryModel):
     structural_path: list[int]
 
 
-class ConstituentEvidence(StrictBoundaryModel):
+class ConstituentEvidence(StrictFrozenBoundaryModel):
     run_id: str
     concept_code: str
     axis: str
@@ -33,6 +33,12 @@ class ConstituentEvidence(StrictBoundaryModel):
     axis_source: AxisSource
     sources: list[StatedFillerSource]
     policy_choices: list[PolicyChoice]
+
+    @model_validator(mode="after")
+    def _homogeneous_sources(self) -> Self:
+        if len({source.kind for source in self.sources}) > 1:
+            raise ValueError("constituent sources mix restriction and genus evidence")
+        return self
 
     @computed_field
     @property

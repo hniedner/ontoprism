@@ -9,6 +9,12 @@ from backend.certification_cache import CertificationCache
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+async def _bounded_cache_test():
+    async with asyncio.timeout(10):
+        yield
+
+
 class _Clock:
     def __init__(self):
         self.now = 0.0

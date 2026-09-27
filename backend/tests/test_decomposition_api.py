@@ -65,6 +65,20 @@ class _MissingProjectionClient(SparqlHttpClient):
         return {"head": {"vars": []}, "results": {"bindings": []}}
 
 
+@pytest.mark.api
+def test_corrupt_compact_graph_is_service_failure_not_invalid_code():
+    class CorruptReader:
+        async def rows_for(self, code):
+            raise ValueError("published constituent is missing required fields")
+
+    app = create_app()
+    app.dependency_overrides[get_decomposition_reader] = CorruptReader
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C6135/decomposition")
+    assert response.status_code == 503
+    assert "published constituent" in response.text
+
+
 class _FakeStore:
     async def labels_for(self, codes: list[str]) -> dict[str, str]:
         known = {"C27970": "Stage III", "C12400": "Thyroid Gland"}

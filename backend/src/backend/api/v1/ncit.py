@@ -364,10 +364,11 @@ async def concept_decomposition(
     typed terminology alignments are attached per constituent. ICD-O mappings require
     the server capability and a valid ``X-ICDO-Entitlement``.
     """
+    _validate_decomposition_code(code)
     try:
         rows = await reader.rows_for(code)
-    except ValueError as exc:  # code failed the IRI-safety guard
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     decomposition = _read_decomposition(code, rows)
     entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
         x_icdo_entitlement
@@ -390,6 +391,13 @@ async def concept_decomposition(
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return decomposition
+
+
+def _validate_decomposition_code(code: str) -> None:
+    try:
+        safe_iri(code, NCIT_NS)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
 
 
 def _read_decomposition(code: str, rows: list[dict[str, str]]) -> ConceptDecomposition:

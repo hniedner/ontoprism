@@ -11,6 +11,13 @@ _logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class _Entry[T]:
+    inputs: object
+    started: float
+    result: T
+
+
+@dataclass(frozen=True)
 class _Flight[T]:
     task: asyncio.Task[T]
     inputs: object
@@ -37,7 +44,7 @@ class CertificationCache[T]:
         self._validate = validate
         self._healthy = healthy
         self._changed = changed
-        self._entry: tuple[object, float, T] | None = None
+        self._entry: _Entry[T] | None = None
         self._flight: _Flight[T] | None = None
         self._tasks: set[asyncio.Task[T]] = set()
         self._closed = False
@@ -62,7 +69,7 @@ class CertificationCache[T]:
             if self._entry is not None:
                 delay = max(
                     0.0,
-                    self._entry[1]
+                    self._entry.started
                     + CERTIFICATION_HEALTHY_SECONDS
                     - CERTIFICATION_REFRESH_LEAD_SECONDS
                     - self._clock(),
@@ -81,19 +88,20 @@ class CertificationCache[T]:
         if not self._refresh_due():
             return
         inputs = self._read_inputs()
-        if self._entry is not None and self._entry[0] != inputs:
+        if self._entry is not None and self._entry.inputs != inputs:
             self._entry = None
         result = await asyncio.shield(self._begin(inputs, force=False, background=True))
         if not self._healthy(result):
             _logger.warning(
-                "Background repository certification returned an unhealthy result"
+                "Background certification produced no reusable result (unhealthy, "
+                "inputs changed, expired or superseded)"
             )
 
     def _refresh_due(self) -> bool:
         if self._entry is None:
             return True
         due = (
-            self._entry[1]
+            self._entry.started
             + CERTIFICATION_HEALTHY_SECONDS
             - CERTIFICATION_REFRESH_LEAD_SECONDS
         )
@@ -107,7 +115,7 @@ class CertificationCache[T]:
         if flight is None or flight.background:
             entry = self._valid_entry()
             if entry is not None:
-                return entry[2]
+                return entry.result
         self._entry = None
         if flight is not None:
             return await asyncio.shield(flight.task)
@@ -121,10 +129,10 @@ class CertificationCache[T]:
             self._flight = None
             raise
 
-    def _valid_entry(self) -> tuple[object, float, T] | None:
+    def _valid_entry(self) -> _Entry[T] | None:
         if (
             self._entry is not None
-            and self._clock() - self._entry[1] < CERTIFICATION_HEALTHY_SECONDS
+            and self._clock() - self._entry.started < CERTIFICATION_HEALTHY_SECONDS
         ):
             return self._entry
         return None
@@ -143,7 +151,7 @@ class CertificationCache[T]:
         if flight is not None and not flight.reusable(inputs, force=force):
             self._flight = None
             flight = None
-        if force or (self._entry is not None and self._entry[0] != inputs):
+        if force or (self._entry is not None and self._entry.inputs != inputs):
             self._entry = None
         return flight
 
@@ -162,7 +170,7 @@ class CertificationCache[T]:
                 self._entry = None
                 return self._changed()
             if self._healthy(result):
-                self._entry = (inputs, started, result)
+                self._entry = _Entry(inputs, started, result)
             else:
                 self._entry = None
             return result

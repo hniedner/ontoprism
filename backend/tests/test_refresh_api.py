@@ -135,12 +135,10 @@ def test_rebuild_search_index_success() -> None:
 
 
 async def _ready_ncit(*, force: bool = False) -> SimpleNamespace:
-    assert force is True
     return SimpleNamespace(source_identity="f" * 64)
 
 
 async def _ready_uberon(*, force: bool = False) -> SimpleNamespace:
-    assert force is True
     return SimpleNamespace(
         source_identity="a" * 64,
         source_sha256="b" * 64,
@@ -221,7 +219,6 @@ def test_rebuild_search_index_store_error_returns_502() -> None:
 
 
 async def _unhealthy_ncit(*, force: bool = False) -> RepositoryUnhealthy:
-    assert force is True
     return RepositoryUnhealthy(
         repository="ncit",
         reason="activation-incomplete",

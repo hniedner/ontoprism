@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, computed_field
 
-from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 
 DeltaCategory = Literal[
@@ -21,12 +21,12 @@ _DECOMPOSITION_ROLES = frozenset(
 ) | {"R176", "R126", "R174"}
 
 
-class DeltaLink(StrictBoundaryModel):
+class DeltaLink(StrictFrozenBoundaryModel):
     axis: str
     filler_code: str
 
 
-class DeltaOccurrence(StrictBoundaryModel):
+class DeltaOccurrence(StrictFrozenBoundaryModel):
     occurrence_id: str
     source_fact_id: str
     source_group_id: str

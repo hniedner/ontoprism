@@ -576,14 +576,10 @@ def _proof_file(path: Path) -> tuple[str, bytes | None]:
 
 
 def _input_setting_names(repository: str) -> tuple[str, ...]:
-    return (
-        ("ncit_store_dir", "ncit_sparql_url")
-        if repository == "ncit"
-        else tuple(
-            name
-            for name in _MetadataSettings.__annotations__
-            if name.startswith("uberon_")
-        )
+    return tuple(
+        name
+        for name in _MetadataSettings.__annotations__
+        if name.startswith(f"{repository}_")
     )
 
 

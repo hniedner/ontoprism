@@ -39,24 +39,6 @@ class _Result:
         self.stderr = stderr
 
 
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "operation",
-    [
-        "activate-enhanced-ncit-showcase",
-        "verify-enhanced-ncit-showcase",
-    ],
-)
-def test_retired_showcase_operations_are_refused(
-    tmp_path: Path,
-    operation: str,
-) -> None:
-    runner = _Runner()
-    with pytest.raises(AgentReplayInputError, match="unsupported"):
-        run_agent_replay([operation], tmp_path, runner=runner)
-    assert runner.calls == []
-
-
 class _PodmanDiagnosticRunner:
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path
@@ -276,6 +258,8 @@ def test_wrapper_rejects_retired_issue_127_experiment_operations(
     tmp_path: Path,
 ) -> None:
     retired = {
+        "activate-enhanced-ncit-showcase",
+        "verify-enhanced-ncit-showcase",
         "decompose-current",
         "read-issue",
         "inspect-current-replay",

@@ -31,6 +31,8 @@
         <p role="alert">Stated occurrence delta unavailable; counts are not known.</p>
     {:else if rows === null}
         <LoadingState active label="Loading stated occurrence delta" minHeight="4rem" />
+    {:else if rows.length === 0}
+        <p>No stated role occurrences were recorded for this concept in this run. The delta cannot establish whether NCIt has no stated roles; see the concept outcome above.</p>
     {:else}
         {#if !rows.some(row => row.category === 'not-projected')}
             <p>No stated role occurrences are classified as not projected.</p>
