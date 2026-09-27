@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import get_decomposition_reader, get_provenance_store
 from backend.main import create_app
+from ontolib.decomposition.enhancement_delta import DeltaOccurrence
 from ontolib.decomposition.provenance_models import (
     MintedConcept,
     RunSummary,
@@ -52,6 +53,27 @@ class _FakeProvenanceStore:
                 axis_source="nlp",
                 sources=[],
                 policy_choices=["axis-assignment"],
+            )
+        ]
+
+    async def enhancement_delta(self, run_id: str, concept_code: str):
+        return [
+            DeltaOccurrence(
+                occurrence_id="occurrence",
+                source_fact_id="fact",
+                source_group_id="group",
+                anchor_code=concept_code,
+                depth=0,
+                structural_path=[0],
+                role_code="R104",
+                filler_code="C2",
+                disposition=None,
+                normalized_axis=None,
+                retained_filler=None,
+                target_exists=False,
+                links=[],
+                conservation_category=None,
+                conservation_reason=None,
             )
         ]
 
@@ -212,6 +234,50 @@ def _client(
     app.dependency_overrides[get_provenance_store] = lambda: fake
     with TestClient(app) as client:
         yield client
+
+
+@pytest.mark.api
+def test_delta_api_returns_stated_roles_without_inventing_loss() -> None:
+    client = next(_client(_FakeProvenanceStore(runs=[_SAMPLE_RUN])))
+    response = client.get("/api/v1/decomposition/runs/run-1/concepts/C6135/delta")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["anchor_code"] == "C6135"
+    assert row["role_code"] == "R104"
+    assert row["category"] == "not-considered"
+    assert row["reason"] == "stated in NCIt; not part of the decomposition's axes"
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("run_id", "code", "expected"), [("absent", "C6135", 404), ("run-1", "bad", 422)]
+)
+def test_delta_api_rejects_missing_run_and_invalid_concept(
+    run_id, code, expected
+) -> None:
+    client = next(_client(_FakeProvenanceStore(runs=[_SAMPLE_RUN])))
+    assert (
+        client.get(
+            f"/api/v1/decomposition/runs/{run_id}/concepts/{code}/delta"
+        ).status_code
+        == expected
+    )
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "error", [SQLAlchemyError("offline"), ValueError("invalid persisted row")]
+)
+def test_delta_api_failure_is_not_an_empty_delta(error) -> None:
+    class BrokenDelta(_FakeProvenanceStore):
+        async def enhancement_delta(self, run_id: str, concept_code: str):
+            raise error
+
+    client = next(_client(BrokenDelta(runs=[_SAMPLE_RUN])))
+    assert (
+        client.get("/api/v1/decomposition/runs/run-1/concepts/C6135/delta").status_code
+        == 503
+    )
 
 
 @pytest.mark.api

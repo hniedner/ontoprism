@@ -726,3 +726,23 @@ export interface RelatedArticlesResult {
 	link_type: string;
 	related_pmids: string[];
 }
+export type DeltaCategory = 'projected' | 'represented-through-collapse' | 'not-projected' | 'not-considered' | 'unclassified';
+export interface DeltaOccurrence {
+    occurrence_id: string;
+    source_fact_id: string;
+    source_group_id: string;
+    anchor_code: string;
+    depth: number;
+    structural_path: number[];
+    role_code: string;
+    filler_code: string;
+    disposition: string | null;
+    normalized_axis: string | null;
+    retained_filler: string | null;
+    target_exists: boolean;
+    links: { axis: string; filler_code: string }[];
+    conservation_category: string | null;
+    conservation_reason: string | null;
+    category: DeltaCategory;
+    reason: string;
+}

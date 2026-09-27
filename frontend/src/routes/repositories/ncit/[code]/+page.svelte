@@ -56,11 +56,17 @@
 </div>
 <NcitConceptGraph code={detail.code} graph={data.graph} />
 
+<div class="mt-6 grid gap-6 md:grid-cols-2">
+    <div>
+        <h2 class="mb-3 text-lg font-semibold">Official NCIt</h2>
+        <p class="mb-3 text-sm text-muted">The original concept remains unchanged. The enhancement adds a provisional representation, not equivalence or scientific acceptance.</p>
+        <RelationshipList title="Roles" items={detail.roles} />
+    </div>
+    <DecompositionPanel code={detail.code} />
+</div>
 <div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-	<RelationshipList title="Roles" items={detail.roles} />
 	<RelationshipList title="Associations" items={detail.associations} />
 	<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
-	<DecompositionPanel code={detail.code} />
 	<MappedCdes code={detail.code} />
 	<SimilarConcepts code={detail.code} />
 </div>
