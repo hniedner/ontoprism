@@ -728,6 +728,7 @@ export interface RelatedArticlesResult {
 }
 export type DeltaCategory = 'projected' | 'represented-through-collapse' | 'not-projected' | 'not-considered' | 'unclassified';
 export interface DeltaOccurrence {
+    walker_max_depth: number;
     occurrence_id: string;
     source_fact_id: string;
     source_group_id: string;

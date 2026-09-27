@@ -73,11 +73,11 @@ async def test_published_delta_covers_all_roles_and_real_collapse_targets() -> N
                 {
                     "projected": 6,
                     "represented-through-collapse": 5,
-                    "not-projected": 1,
-                    "not-considered": 22,
+                    "not-projected": 11,
+                    "not-considered": 12,
                 },
             ),
-            ("C100054", {"projected": 6, "not-considered": 3}),
+            ("C100054", {"projected": 6, "not-projected": 1, "not-considered": 2}),
         ]:
             rows = await store.enhancement_delta(_RUN, code)
             assert Counter(row.category for row in rows) == counts
@@ -108,7 +108,17 @@ async def test_published_delta_covers_all_roles_and_real_collapse_targets() -> N
                     assert (row.normalized_axis, row.retained_filler) in {
                         (t.axis, t.filler_code) for t in targets
                     }
-                if row.category == "not-projected":
+                if row.conservation_reason == "missing-disposition":
                     assert row.reason == "missing-disposition"
+                if row.disposition is None and row.role_code == "R104":
+                    assert row.category == "not-projected"
+                    assert row.walker_max_depth == 7
+                    assert row.reason == (
+                        "beyond the walker depth bound (D58)"
+                        if row.depth >= 7
+                        else "dropped by a projection rule (generic filler, held role "
+                        "or inherited non-core role); this engine version records "
+                        "no per-fact reason"
+                    )
     finally:
         await engine.dispose()
