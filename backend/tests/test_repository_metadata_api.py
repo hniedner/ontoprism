@@ -7,7 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_repository_metadata
+from backend.dependencies import (
+    get_ncit_search_index,
+    get_ncit_store,
+    get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
+)
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import (
@@ -20,6 +26,7 @@ from backend.repository_metadata import (
     UberonClassCounts,
     UberonRepositoryReady,
 )
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 from ontolib.terminologies.uberon.store import (
     CertifiedUberonIndexObservation,
@@ -112,7 +119,9 @@ class _Metadata:
         self._icdo = icdo
         self.icdo_calls = 0
 
-    async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
+    async def ncit(
+        self, *, force: bool = False
+    ) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
@@ -165,6 +174,83 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
             _uberon_ready().model_dump(mode="json"),
         ],
     }
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("endpoint", "repository"),
+    [
+        ("/ready", "ncit"),
+        ("/ready", "uberon"),
+        ("/api/v1/refresh", "ncit"),
+        ("/api/v1/refresh", "uberon"),
+        ("/api/v1/refresh/ncit/search-index", "ncit"),
+        ("/api/v1/refresh/uberon/search-index", "uberon"),
+    ],
+)
+def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
+    endpoint, repository, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+
+    class DriftedMetadata(_Metadata):
+        async def ncit(self, *, force=False):
+            if force and repository == "ncit":
+                return RepositoryUnhealthy(
+                    repository="ncit",
+                    reason="observation-mismatch",
+                    message="live source changed",
+                )
+            return self._ncit
+
+        async def uberon(self, *, force=False):
+            if force and repository == "uberon":
+                return RepositoryUnhealthy(
+                    repository="uberon",
+                    reason="observation-mismatch",
+                    message="live source changed",
+                )
+            return _uberon_ready()
+
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: DriftedMetadata(
+        _ncit_ready()
+    )
+
+    class UnreachableStore:
+        async def embedding_records(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+        async def search_records(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+    class UnreachableIndex:
+        async def rebuild(self, *args, **kwargs):
+            raise StorageError("disposable boundary unavailable")
+
+    app.dependency_overrides[get_ncit_store] = UnreachableStore
+    app.dependency_overrides[get_uberon_store] = UnreachableStore
+    app.dependency_overrides[get_ncit_search_index] = UnreachableIndex
+    app.dependency_overrides[get_uberon_search_index] = UnreachableIndex
+    with TestClient(app) as client:
+        response = (
+            client.get(endpoint)
+            if endpoint == "/ready"
+            else client.post(endpoint, headers={"X-ICDO-Entitlement": "licensed"})
+        )
+    if endpoint != "/api/v1/refresh":
+        assert response.status_code == 503
+        assert response.json()["detail"]["reason"] == "observation-mismatch"
+    else:
+        assert response.status_code == 200
+        assert (
+            next(
+                r
+                for r in response.json()["repositories"]
+                if r["repository"] == repository
+            )["state"]
+            == "unhealthy"
+        )
 
 
 @pytest.mark.api

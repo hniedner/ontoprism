@@ -238,18 +238,10 @@ pdm run agent-replay podman-compose-down
 pdm run agent-replay podman-app-smoke
 ```
 
-The enhanced-NCIt showcase has two fixed local operator commands:
-
-```bash
-pdm run agent-replay activate-enhanced-ncit-showcase
-pdm run agent-replay verify-enhanced-ncit-showcase
-```
-
-Activation replaces only the isolated showcase graph at the configured NCIt endpoint;
-verification is read-only. Both require exact packaged-decision readback and write ignored
-local evidence to `tmp/m1-6-enhanced-showcase-readiness.json`. This is local graph
-activation evidence, not production readiness, scientific publication, equivalence, or
-NCI adoption.
+The seven-concept enhanced-NCIt showcase and its operator commands were retired in #353.
+Use the published #127 run and its D93 outcomes and flags for expert-review demonstrations.
+Retirement does not remove the old isolated graph or local artifacts; stored-data cleanup
+requires a separate owner decision.
 
 To make an unwrapped, literal `pdm run verify` use Podman, activate the dedicated Docker
 context first:
@@ -630,6 +622,83 @@ state ahead of PostgreSQL. Matching retries reconcile before replaying the same 
 bytes; there is no cross-system rollback guarantee.
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
+
+### Rebuild QLever after graph publication
+
+After a successful `decompose --load`, rebuild the NCIt index with the server's
+`cmd=rebuild-index` HTTP operation. The CLI reports that this manual step is due;
+it does **not** trigger it. SPARQL publication initially lives in QLever's delta
+block (`ncit.update-triples`), where large graphs can make cold decomposition reads
+slow. Rebuilding merges the current data, including updates, into the index; it is
+not a decomposition rerun or republication and does not change PostgreSQL run rows
+or the published Turtle file.
+After publication, call the backend's `GET /ready` and require a healthy response;
+it forces fresh certification rather than retaining a pre-publication cache entry.
+
+Before the operation, record the public graph's exact `GRAPH <iri>` count and
+publication marker, certification result, update-file size, and available disk.
+Retain previous index directories: QLever defaults to
+`--rebuild-keep-previous-index-dirs original-and-most-recent`; if older backups
+already exist, arrange a retention policy that preserves them before rebuilding.
+Do not remove retained indexes without owner approval. Allow space for old and
+new indexes plus rebuild temporary files.
+
+Send `cmd=rebuild-index` to the configured NCIt endpoint and wait for the successful
+completion response, not merely request submission. A client timeout is an unknown
+outcome: inspect the server before retrying. The #448 disposable experiment answered
+queries during rebuild, but this is not a latency guarantee. After completion,
+check the active update-file size, unchanged public count/marker, and live NCIt
+certification, then compare cold/warm concept page and decomposition timings.
+Call `GET /ready` after the rebuild too: this forces re-certification and replaces
+cached pre-rebuild observations. Without that call, unchanged local proof files
+allow cached certification to remain reusable for up to 300 seconds.
+The [#448 proof](https://github.com/hniedner/ontoprism/issues/448#issuecomment-5848850742)
+records the production-sized rehearsal and disk observations.
+
+Both compose QLever services use `--no-metrics-log` to avoid unbounded per-query
+JSONL logs. When applying this to an existing service, recreate its container and
+verify the running command **before** deleting the old `*.metrics-log.jsonl` file;
+deleting it while QLever still has it open does not stop disk use. Verify it is not
+recreated after queries. For agents, configured container recreation uses the
+repository's `agent-replay` stack wrappers.
+Both QLever healthchecks allow a 15-minute startup grace period. For NCIt, replaying a large
+persisted delta legitimately prevents queries during startup; Uberon's matching grace
+period does not imply persisted-delta replay. Interval and retries
+still apply after that grace period. In #448, NCIt became healthy in 151.6 seconds
+before rebuilding, versus 10.5 seconds afterward (including healthcheck polling).
+
+Stop measurement dev servers by their recorded PID/start time before stack
+operations: backend connections to a removed QLever can block the wrapper's strict
+fixed-port bind check. Empty `lsof` output does not prove bind availability while
+TCP teardown is pending. If the wrapper refuses a port after cleanup, allow teardown
+time and verify a strict bind without `SO_REUSEADDR` before an approved retry;
+never select a process to signal by its port.
+
+### Request-time certification freshness
+
+NCIt and Uberon healthy certification is cached per backend worker for **300 s**,
+defined by `CERTIFICATION_HEALTHY_SECONDS`. Age starts when validation begins and
+does not slide on reads. Expired entries are not served during validation, and
+unhealthy results are not cached between requests. Failures evict healthy entries;
+there is no stale fallback. This window is for the single-operator local instance
+and must be reconsidered for the multi-user cloud deployment (M1.10).
+
+Each access compares the small local proof inputs as bytes in memory (NCIt
+manifest, activation journal and owner marker; Uberon index manifest, referenced
+artifact manifest and owner marker), plus endpoint/store/source settings. Changes
+invalidate reuse; changes during validation discard its healthy result. Full
+validation retains the existing source and serving checks. Source-file or live-store
+changes without changed proof inputs are detected on forced validation or expiry,
+not continuously. Certification is not a live availability guarantee for cached
+results; data requests still propagate their own store failures.
+
+Concurrent callers share one validation per repository/current inputs. Forced
+validation supersedes earlier ordinary work; overlapping forced requests may share
+the new forced validation. `/ready`, repository refresh, and search-index rebuild
+admission force live validation. A cancelled waiter does not cancel shared work;
+application shutdown cancels and awaits owned certification tasks. No certification
+cache is persisted or shared across workers: operators must force `/ready` on each
+worker, or restart the backend workers, after out-of-band publication/rebuild.
 
 Every manifest records source version/hash, certified proxy `source_identity`, immutable
 model revision, vector dimension, expected unique-row count, code commit, build ID,

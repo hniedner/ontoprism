@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from backend.decomposition_reader import DecompositionReader
 from ontolib.decomposition import vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
@@ -23,7 +24,6 @@ from ontolib.decomposition.models import (
     canonical_definition_group_id,
 )
 from ontolib.decomposition.read import decomposition_from_rows
-from ontolib.decomposition.read_queries import build_decomposition_query
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
             graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
             replace=True,
         )
-        rows = await client.select(build_decomposition_query("C6135"))
+        rows = await DecompositionReader(client).rows_for("C6135")
 
     decomposition = decomposition_from_rows("C6135", rows)
     assert decomposition.is_legacy_precoordinated is True
@@ -130,7 +130,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
             graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
             replace=True,
         )
-        rows = await client.select(build_decomposition_query("C6135"))
+        rows = await DecompositionReader(client).rows_for("C6135")
         fact_rows = await client.select(
             "SELECT ?fact WHERE { "
             f"GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}> {{ "

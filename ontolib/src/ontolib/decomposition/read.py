@@ -178,6 +178,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     scalar: dict[str, str | None] = dict.fromkeys(
         (
             "status",
+            "run",
             "decomposedOn",
             "publicationStatus",
             "publicationNotice",
@@ -198,6 +199,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
     return ConceptDecomposition.model_validate(
         {
             "code": code,
+            "run_id": scalar["run"],
             "publication_status": scalar["publicationStatus"],
             "publication_notice": scalar["publicationNotice"],
             "outcome": scalar["outcome"],

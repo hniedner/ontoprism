@@ -2,11 +2,12 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import DecompositionReads, ProvenanceReads
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
+from ontolib.decomposition.enhancement_delta import DeltaOccurrence
 from ontolib.decomposition.provenance_models import (
     MintedConcept,
     RunSummary,
@@ -14,6 +15,7 @@ from ontolib.decomposition.provenance_models import (
 )
 from ontolib.decomposition.read import publication_progress_from_rows
 from ontolib.decomposition.read_models import PublicationProgress
+from ontolib.decomposition.source_support import ConstituentEvidence
 
 router = APIRouter(prefix="/api/v1/decomposition", tags=["decomposition"])
 
@@ -77,6 +79,39 @@ async def list_run_outcomes(
             )
         return await store.work_item_outcomes(run_id)
     except SQLAlchemyError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+
+@router.get(
+    "/runs/{run_id}/concepts/{concept_code}/evidence",
+    response_model=list[ConstituentEvidence],
+)
+async def constituent_evidence(
+    store: ProvenanceReads,
+    run_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_.:-]+$")],
+    concept_code: Annotated[str, Path(pattern=r"^C[0-9]+$")],
+) -> list[ConstituentEvidence]:
+    """Exact stated filler support and separate engine choices, not acceptance."""
+    await get_run(store, run_id)
+    try:
+        return await store.constituent_evidence(run_id, concept_code)
+    except (SQLAlchemyError, ValueError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+
+@router.get(
+    "/runs/{run_id}/concepts/{concept_code}/delta", response_model=list[DeltaOccurrence]
+)
+async def enhancement_delta(
+    store: ProvenanceReads,
+    run_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_.:-]+$")],
+    concept_code: Annotated[str, Path(pattern=r"^C[0-9]+$")],
+) -> list[DeltaOccurrence]:
+    """All stated occurrences and their additive projection state for this run."""
+    await get_run(store, run_id)
+    try:
+        return await store.enhancement_delta(run_id, concept_code)
+    except (SQLAlchemyError, ValueError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
 

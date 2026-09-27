@@ -39,34 +39,6 @@ class _Result:
         self.stderr = stderr
 
 
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("operation", "activate"),
-    [
-        ("activate-enhanced-ncit-showcase", True),
-        ("verify-enhanced-ncit-showcase", False),
-    ],
-)
-def test_showcase_operations_are_fixed_and_refuse_free_form_arguments(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    operation: str,
-    activate: bool,
-) -> None:
-    calls: list[tuple[Path, bool]] = []
-    monkeypatch.setattr(
-        replay,
-        "_run_showcase_operator",
-        lambda root, runner, *, activate: calls.append((root, activate)) or 0,
-        raising=False,
-    )
-
-    assert run_agent_replay([operation], tmp_path, runner=_Runner()) == 0
-    assert calls == [(tmp_path.resolve(), activate)]
-    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
-        run_agent_replay([operation, "http://attacker.test/graph"], tmp_path)
-
-
 class _PodmanDiagnosticRunner:
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path
@@ -286,6 +258,8 @@ def test_wrapper_rejects_retired_issue_127_experiment_operations(
     tmp_path: Path,
 ) -> None:
     retired = {
+        "activate-enhanced-ncit-showcase",
+        "verify-enhanced-ncit-showcase",
         "decompose-current",
         "read-issue",
         "inspect-current-replay",

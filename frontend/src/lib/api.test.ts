@@ -11,6 +11,7 @@ import {
 	listUberon,
 	searchUberon,
 	getDecomposition,
+    getEnhancementDelta,
 	getCdeNeighborhood,
 	searchCadsr,
 	listCadsr,
@@ -26,6 +27,18 @@ import { getArticle, getRelatedArticles, searchPubmed } from './api.pubmed';
 import { postJsonBody } from './api';
 
 describe('apiUrl', () => {
+    it('reads a run-scoped delta and propagates failure instead of returning an empty list', async () => {
+        const fetcher = vi.fn().mockResolvedValue(jsonResponse([{ category: 'unclassified', reason: 'unclassified' }]));
+        vi.stubGlobal('fetch', fetcher);
+        try {
+            const controller = new AbortController();
+            expect(await getEnhancementDelta('run:1', 'C6135', controller.signal)).toEqual([{ category: 'unclassified', reason: 'unclassified' }]);
+            expect(fetcher.mock.calls[0][0]).toBe('/api/v1/decomposition/runs/run%3A1/concepts/C6135/delta');
+            expect(fetcher.mock.calls[0][1].signal).toBe(controller.signal);
+            fetcher.mockResolvedValue(new Response('offline', { status: 503 }));
+            await expect(getEnhancementDelta('run:1', 'C6135')).rejects.toThrow();
+        } finally { vi.unstubAllGlobals(); }
+    });
 	it('returns the bare path when there are no params', () => {
 		expect(apiUrl('/api/v1/ncit/concepts/C3262')).toBe('/api/v1/ncit/concepts/C3262');
 	});

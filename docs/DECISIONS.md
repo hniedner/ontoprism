@@ -7,6 +7,53 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-27 — correct the output and seek independent expert review
+
+### D96. Focus on the NCIt Neoplasm demonstrator; independent expert gate G1 precedes another full run
+
+**Context.** A corpus-level evaluation of the published run and an independent
+adversarial review found redundant broader fillers, qualifier genera on the morphology
+axis, indiscriminate multi-valued-axis flags, and misleading delta labels. Passing
+tests and a single-concept demo had not exposed the corpus-level problems. The owner
+authorized the revised sequence in #455. Evidence and read-only measurements are recorded
+in #454–#470.
+
+**Decision (owner, 2026-09-27).** The product is an **NCIt Neoplasm decomposition
+demonstrator with expert review**. Until G1 passes, park the ontology-generic platform
+(D86), NAACCR (D40), vision stages 3–5 (grounding, literature and balance), the
+post-coordination grammar (#6), cloud deployment (M1.10), xref/bridge work (M2–M4), and
+literature generation (M5.5). D93's publication-with-flags policy, D94's local-first
+delivery, and D95's issue-size, demo and approval rules remain in force.
+
+Close out M1.8 with corrected delta labels (#454) and this decision. Then M1.8.1 prepares
+corrected output and a static expert packet, in order #456–#461. The independent expert
+gate G1 precedes any further full run or new feature milestone; preparing the bounded
+expert packet is not permission for another full corpus run. Later engine cleanup,
+expert-directed changes and review UI follow their milestone order, not early starts.
+
+**G1 stop rule.** If no independent expert engages by **2026-11-06**, stop platform work
+and write up the findings—told closure, P334 histology anchoring, detector saturation,
+and D58 primary-site cases—for NCI EVS. The owner recruits the experts and records their
+decisions on morphology semantics, per-axis cardinality and go/no-go.
+
+**Reporting and execution.** From #457 on, every engine report gives both the official
+oracle score (flagged emissions unscoreable) and the plain exact-pair score. Until #457
+lands, `oracle-metrics` output (the official score) is the oracle demo. On the published run:
+
+| Scoring view | Precision | Recall |
+|---|---:|---:|
+| Official scorer, as recorded in D95 | 111/132 (0.841) | 111/153 (0.7255) |
+| Plain exact pairs | 145/175 (0.829) | 145/154 (0.942) |
+
+The true-positive difference is the **34 flagged true positives**, not improved output.
+Neither view replaces the other; the #44 precision/recall gate of at least 0.9 is unmet.
+The execution guardrails are in AGENTS.md (Current scope and expert gate; Long-running jobs).
+
+**Why.** Fixing and exposing the actual output before adding more platform or UI work
+keeps the demonstrator useful to its intended experts. Independent review determines
+the unresolved semantic choices; more machinery and another expensive run cannot
+substitute for that engagement.
+
 ## 2026-09-23 — roadmap reset: an expert demonstration, local first, small issues with demos
 
 ### D95. Issues are small, show a demo, and need approval for new persistence; review drops suggestions after a dimension's third round
@@ -27,7 +74,8 @@ decomposition acceptance"); Stage 4 curator editing v0 ("M1.9 · Local proposal 
 Stage 5 a first graph-balance measurement ("M5 · Measure & improve graph balance"); Stage 6
 cloud ("M1.10 · Cloud deployment for multi-user expert access"). The rules in AGENTS.md
 "Issue size, demos and approvals" make the reset enforceable at every merge: a size cap
-(about 400 net non-test lines per issue, tests at most 1.5 times that); owner approval
+(about 400 net non-test lines per issue; tests normally within 1.5 times that, more when
+every test covers a Done-when behaviour or owner-approved policy, amended 2026-09-27); owner approval
 before new persistence; an estimate and a demo in every issue (when the body lacks one,
 the agent posts its own estimate and demo plan before starting, and proceeds); two corrective owner
 comments mean asking the owner to split; no process work unless something is blocked; only
@@ -51,6 +99,8 @@ roles (#312), the full proposal workbench (#311), submission export (#313) and p
 publication (#314) move to M1.10.
 
 ### D93. The enhanced NCIt is an expert-review demonstration: publish everything, flag instead of withhold
+
+The seven-concept showcase overlay, its Disposition vocabulary and operator commands were retired in #353; stored data is retained pending owner-directed cleanup.
 
 **Context.** #127 planned to withhold review-required concepts and unreconciled MINT
 fillers, and #417 planned to refuse a whole publication while unexplained R101 loss existed
@@ -322,13 +372,16 @@ and byte digests only after generation; this decision intentionally predeclares 
 
 ### D86. The target is ontology-generic; the current implementation and primary product are NCIt-centered
 
+The observations below describe 2026-09-04; for commands inspecting the now-retired showcase,
+use the pre-retirement revision `36bfa958aafd5cca7d828bd5d85fd4cb6a268255` as shown.
+
 **Current observation:** the repository contains implemented NCIt local-store readers,
 backend endpoints, frontend routes, curation support, and decomposition surfaces; it does not
 contain a generic ontology-adapter type or system (`git ls-files
 ontolib/src/ontolib/terminologies/ncit backend/src/backend/api
 frontend/src/routes/repositories/ncit` and `git grep -n OntologyAdapter -- ontolib/src
 backend/src frontend/src`, which returned no matches, 2026-09-04). Current decomposition
-extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI --
+extraction and analysis read the official stated source (`git grep -n STATED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition`, 2026-09-04; expected output includes stated-graph query clauses
 in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
 `fanout_baseline.py`, `enhanced_showcase.py` (import plus source-release `SELECT`), and
@@ -338,10 +391,10 @@ DECOMPOSED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/read_queries.py`, 2026
 output is no result from the first command and the decomposed-graph query from the second).
 
 Official-source protection is write isolation, not a prohibition on reading the source. The
-current overlay publishers and writers use decomposed, enhanced-showcase, upstream-xref, and their
+overlay publishers and writers inspected in 2026-09-04 used decomposed, enhanced-showcase, upstream-xref, and their
 scoped staging/generation graphs; the stated constant's only result among the inspected overlay
-write modules is its import and valid source-release `SELECT` in `enhanced_showcase.py` (`git grep -n
-STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition/publication.py
+write modules was its import and valid source-release `SELECT` in `enhanced_showcase.py` (retired in #353; `git grep -n
+STATED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 -- ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
 ontolib/src/ontolib/decomposition/legacy_writer.py
 ontolib/src/ontolib/repositories/xref/publication.py
@@ -349,11 +402,11 @@ ontolib/src/ontolib/repositories/xref/ttl_writer.py
 ontolib/src/ontolib/decomposition/vocab.py
 ontolib/src/ontolib/repositories/xref/vocab.py
 ontolib/src/ontolib/terminologies/ncit/owl_load.py`, 2026-09-04; expected output is the constant
-definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI --
+definition plus that import and `SELECT`). `git grep -n DECOMPOSED_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/publication.py
 ontolib/src/ontolib/decomposition/enhanced_showcase.py
 ontolib/src/ontolib/decomposition/legacy_writer.py ontolib/src/ontolib/decomposition/vocab.py`,
-`git grep -n SHOWCASE_GRAPH_IRI --
+`git grep -n SHOWCASE_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/enhanced_showcase.py`, and `git grep -n
 NCIT_UPSTREAM_XREF_GRAPH_IRI -- ontolib/src/ontolib/repositories/xref/publication.py
 ontolib/src/ontolib/repositories/xref/ttl_writer.py
@@ -365,7 +418,7 @@ view.
 The current OntoPrism-authored decomposition, upstream-xref, and enhanced-showcase graphs all use
 NCI-domain graph IRIs (`git grep -n DECOMPOSED_GRAPH_IRI --
 ontolib/src/ontolib/decomposition/vocab.py`, `git grep -n -A 2 NCIT_UPSTREAM_XREF_GRAPH_IRI --
-ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI --
+ontolib/src/ontolib/repositories/xref/vocab.py`, and `git grep -n SHOWCASE_GRAPH_IRI 36bfa958aafd5cca7d828bd5d85fd4cb6a268255 --
 ontolib/src/ontolib/decomposition/enhanced_showcase.py`, 2026-09-04; expected output gives the two
 literal graph IRIs and shows the showcase IRI derived beneath the decomposed IRI). These collectively
 are namespace debt, not official NCI identifiers. Future enhanced exports require an

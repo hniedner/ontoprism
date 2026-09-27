@@ -1,6 +1,6 @@
 """Hermetic tests for the decomposition read endpoint (fake client + store)."""
 
-from collections.abc import Collection, Iterator
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +26,7 @@ from ontolib.repositories.xref.vocab import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.sparql_transport import safe_iri
 
 
 def _row(**kw: str) -> dict[str, str | None]:
@@ -45,15 +46,13 @@ def _row(**kw: str) -> dict[str, str | None]:
 
 
 class _FakeClient:
-    """Returns canned decomposition rows regardless of the query."""
+    """Code-based reader double; transport assembly has its own contracts."""
 
     def __init__(self, rows: list[dict[str, str | None]]) -> None:
         self._rows = rows
 
-    async def select(
-        self, query: str, *, required_variables: Collection[str] = ()
-    ) -> list[dict[str, str]]:
-        _ = query, required_variables
+    async def rows_for(self, concept_code: str) -> list[dict[str, str]]:
+        safe_iri(concept_code, NCIT_NS)
         return [
             {key: value for key, value in row.items() if value is not None}
             for row in self._rows
@@ -64,6 +63,20 @@ class _MissingProjectionClient(SparqlHttpClient):
     async def select_raw(self, query: str) -> dict[str, object]:
         _ = query
         return {"head": {"vars": []}, "results": {"bindings": []}}
+
+
+@pytest.mark.api
+def test_corrupt_compact_graph_is_service_failure_not_invalid_code():
+    class CorruptReader:
+        async def rows_for(self, code):
+            raise ValueError("published constituent is missing required fields")
+
+    app = create_app()
+    app.dependency_overrides[get_decomposition_reader] = CorruptReader
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C6135/decomposition")
+    assert response.status_code == 503
+    assert "published constituent" in response.text
 
 
 class _FakeStore:
@@ -115,9 +128,7 @@ def _client(
     rows: list[dict[str, str | None]], xrefs: _FakeXrefStore | None = None
 ) -> Iterator[TestClient]:
     app = create_app()
-    app.dependency_overrides[get_decomposition_reader] = lambda: DecompositionReader(
-        _FakeClient(rows)
-    )
+    app.dependency_overrides[get_decomposition_reader] = lambda: _FakeClient(rows)
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = lambda: xrefs or _FakeXrefStore()
     app.dependency_overrides[get_repository_metadata] = _FakeMetadata

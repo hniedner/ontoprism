@@ -15,6 +15,7 @@ from scripts import data_build
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import async_sessionmaker as sessionmaker
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -33,7 +34,7 @@ from ontolib.repositories.embeddings.publication import (
     coordinate_corpus_source_replacement,
     replacing_corpus_source,
 )
-from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.embeddings.store import _SIMILAR_SQL, EmbeddingStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -164,6 +165,94 @@ async def test_complete_candidate_activates_rows_and_manifest_together(
             text("SELECT count(*) FROM embedding_corpus_staging")
         )
     assert staged == 0
+
+
+@pytest.mark.parametrize("corpus", [Corpus.NCIT, Corpus.CADSR])
+async def test_similar_query_uses_hnsw_and_preserves_neighbours(
+    session_factory, corpus
+):
+    table = "ncit_concepts" if corpus is Corpus.NCIT else "cde_repository"
+    probe = "C3262" if corpus is Corpus.NCIT else "2517527:4"
+    publisher = EmbeddingCorpusPublisher(
+        session_factory,
+        _build(_NEW_BUILD, corpus=corpus, expected=4, required=(probe,)),
+    )
+    await publisher.start()
+    await publisher.stage(
+        [
+            (probe, [1.0, 0.0] + [0.0] * 766, {}),
+            ("near", [0.9, 0.1] + [0.0] * 766, {}),
+            ("middle", [0.5, 0.5] + [0.0] * 766, {}),
+            ("far", [0.0, 1.0] + [0.0] * 766, {}),
+        ]
+    )
+    await publisher.publish()
+    async with session_factory() as session, session.begin():
+        # Four rows normally favour a sequential scan. Discourage that ONLY in
+        # this disposable transaction to check whether the real HNSW path exists.
+        await session.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = await session.execute(
+            text("EXPLAIN (ANALYZE, BUFFERS) " + _SIMILAR_SQL.format(table=table)),
+            {"corpus": corpus.value, "doc_id": probe, "limit": 2},
+        )
+        assert f"Index Scan using idx_{table}_hnsw" in "\n".join(r[0] for r in plan)
+    hits = await EmbeddingStore(session_factory)._similar(corpus, probe, 2)
+    assert [code for code, score in hits] == ["near", "middle"]
+    assert hits[0][1] == pytest.approx(0.9938837)
+    assert hits[1][1] == pytest.approx(0.7071068)
+    with pytest.raises(CorpusUnavailableError, match="lacks"):
+        await EmbeddingStore(session_factory)._similar(corpus, "missing", 2)
+
+
+@pytest.mark.parametrize("corpus", [Corpus.NCIT, Corpus.CADSR])
+@pytest.mark.parametrize("size", [4, 80])
+async def test_similar_fifty_has_full_count_and_transaction_local_budget(
+    session_factory, corpus, size
+):
+    table = "ncit_concepts" if corpus is Corpus.NCIT else "cde_repository"
+    probe = "C3262" if corpus is Corpus.NCIT else "2517527:4"
+    publisher = EmbeddingCorpusPublisher(
+        session_factory,
+        _build(_NEW_BUILD, corpus=corpus, expected=size, required=(probe,)),
+    )
+    await publisher.start()
+    await publisher.stage(
+        [
+            (probe if i == 0 else f"near-{i}", [1.0, i / 100] + [0.0] * 766, {})
+            for i in range(size)
+        ]
+    )
+    await publisher.publish()
+    # Pin one physical connection across the store's transaction and the next
+    # query, so a leaked session setting cannot hide behind pool checkout.
+    async with session_factory.kw["bind"].connect() as connection:
+        await connection.execute(text("SELECT '[1,0]'::vector <=> '[1,0]'::vector"))
+        default = await connection.scalar(
+            text("SELECT current_setting('hnsw.ef_search')")
+        )
+        await connection.execute(text("SET enable_seqscan = off"))
+        await connection.commit()
+        store = EmbeddingStore(sessionmaker(connection, expire_on_commit=False))
+        hits = await store._similar(corpus, probe, 50)
+        assert len(hits) == min(50, size - 1)
+        assert [code for code, _ in hits] == [
+            f"near-{i}" for i in range(1, min(51, size))
+        ]
+        assert (
+            await connection.scalar(text("SELECT current_setting('hnsw.ef_search')"))
+            == default
+        )
+        await connection.rollback()
+        async with connection.begin():
+            await connection.execute(
+                text("SELECT set_config('hnsw.ef_search', :budget, true)"),
+                {"budget": "102"},
+            )
+            plan = await connection.execute(
+                text("EXPLAIN (ANALYZE, BUFFERS) " + _SIMILAR_SQL.format(table=table)),
+                {"corpus": corpus.value, "doc_id": probe, "limit": 50},
+            )
+            assert f"Index Scan using idx_{table}_hnsw" in "\n".join(r[0] for r in plan)
 
 
 async def test_similar_results_are_ordered_by_descending_similarity(

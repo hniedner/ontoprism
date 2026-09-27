@@ -10,6 +10,8 @@ import type {
 	IcdoRecordLevel,
 	IcdoRepositorySort,
 	ConceptDecomposition,
+    ConstituentEvidence,
+    DeltaOccurrence,
 	PublicationProgress,
 	ConceptDetail,
 	ConceptAlignments,
@@ -294,6 +296,14 @@ export function getDecomposition(
 		fetchImpl,
 		signal
 	);
+}
+
+export function getConstituentEvidence(run: string, code: string, signal?: AbortSignal): Promise<ConstituentEvidence[]> {
+    return getJson<ConstituentEvidence[]>(apiUrl(`/api/v1/decomposition/runs/${encodeURIComponent(run)}/concepts/${encodeURIComponent(code)}/evidence`), undefined, signal);
+}
+
+export function getEnhancementDelta(run: string, code: string, signal?: AbortSignal): Promise<DeltaOccurrence[]> {
+    return getJson<DeltaOccurrence[]>(apiUrl(`/api/v1/decomposition/runs/${encodeURIComponent(run)}/concepts/${encodeURIComponent(code)}/delta`), undefined, signal);
 }
 
 export function getPublicationProgress(fetchImpl?: typeof fetch): Promise<PublicationProgress> {

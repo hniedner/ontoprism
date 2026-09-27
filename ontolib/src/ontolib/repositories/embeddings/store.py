@@ -18,6 +18,7 @@ from ontolib.repositories.embeddings.publication import (
 )
 
 _TABLE = {Corpus.NCIT: "ncit_concepts", Corpus.CADSR: "cde_repository"}
+_MAX_SIMILAR_LIMIT = 50
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # cosine distance operator is ``<=>``; similarity = 1 - distance.
+# A scalar probe permits the existing HNSW ordering path; a joined probe does not.
 _SIMILAR_SQL = """
     WITH active AS (
         SELECT 1 FROM embedding_corpus_manifest
@@ -33,10 +35,11 @@ _SIMILAR_SQL = """
         SELECT embedding FROM {table}
         WHERE doc_id = :doc_id AND EXISTS (SELECT 1 FROM active)
     ), hits AS (
-        SELECT t.doc_id, (1 - (t.embedding <=> q.embedding)) AS score
-        FROM {table} t, source q
-        WHERE t.doc_id <> :doc_id
-        ORDER BY t.embedding <=> q.embedding
+        SELECT t.doc_id,
+               (1 - (t.embedding <=> (SELECT embedding FROM source))) AS score
+        FROM {table} t
+        WHERE t.doc_id <> :doc_id AND EXISTS (SELECT 1 FROM source)
+        ORDER BY t.embedding <=> (SELECT embedding FROM source)
         LIMIT :limit
     )
     SELECT doc_id, score, true AS available, true AS source_exists FROM hits
@@ -45,6 +48,12 @@ _SIMILAR_SQL = """
     WHERE NOT EXISTS (SELECT 1 FROM hits)
     ORDER BY score DESC NULLS LAST
 """
+
+
+def _search_budget(limit: int) -> str:
+    if type(limit) is not int or not 1 <= limit <= _MAX_SIMILAR_LIMIT:
+        raise ValueError("similarity limit must be an integer between 1 and 50")
+    return str(max(40, 2 * (limit + 1)))
 
 
 class EmbeddingStore:
@@ -57,10 +66,17 @@ class EmbeddingStore:
     async def _similar(
         self, corpus: Corpus, doc_id: str, limit: int
     ) -> list[tuple[str, float]]:
+        budget = _search_budget(limit)
         # `table` is a fixed internal identifier (never user input); doc_id/limit bound.
         table = _TABLE[corpus]
         sql = text(_SIMILAR_SQL.format(table=table))
-        async with self._sf() as session:
+        async with self._sf() as session, session.begin():
+            # set_config(..., true) is parameter-bound SET LOCAL: enough HNSW
+            # candidates for the requested neighbours and the excluded source.
+            await session.execute(
+                text("SELECT set_config('hnsw.ef_search', :budget, true)"),
+                {"budget": budget},
+            )
             result = await session.execute(
                 sql, {"corpus": corpus.value, "doc_id": doc_id, "limit": limit}
             )

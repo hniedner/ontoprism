@@ -12,6 +12,7 @@ import pytest
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.decomposition_reader import DecompositionReader
 from ontolib.decomposition import vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
@@ -32,7 +33,6 @@ from ontolib.decomposition.read import (
     publication_progress_from_rows,
 )
 from ontolib.decomposition.read_queries import (
-    build_decomposition_query,
     build_publication_progress_query,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -103,7 +103,7 @@ async def _ask(url: str, statement: str) -> bool:
     return bool(response.json()["boolean"])
 
 
-@pytest.mark.usefixtures("isolated_qlever_settings")
+@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
 async def test_small_publication_exposes_outcome_flag_and_demo_marker(
     tmp_path: Path,
     isolated_qlever_url: str,
@@ -160,12 +160,12 @@ async def test_small_publication_exposes_outcome_flag_and_demo_marker(
         assert progress.outcome_counts["residual"] == 1
         assert progress.review_flag_counts["needs-review"] == 1
         published = decomposition_from_rows(
-            "C1", await client.select(build_decomposition_query("C1"))
+            "C1", await DecompositionReader(client).rows_for("C1")
         )
         assert published.outcome == "residual"
         assert published.review_flags[0].kind == "needs-review"
         outside = decomposition_from_rows(
-            "C2", await client.select(build_decomposition_query("C2"))
+            "C2", await DecompositionReader(client).rows_for("C2")
         )
         assert outside.outcome is None
         assert outside.publication_status is None
@@ -176,7 +176,7 @@ async def test_small_publication_exposes_outcome_flag_and_demo_marker(
         )
         with pytest.raises(ValueError, match="review flag"):
             decomposition_from_rows(
-                "C1", await client.select(build_decomposition_query("C1"))
+                "C1", await DecompositionReader(client).rows_for("C1")
             )
         await client.update(f"DROP SILENT GRAPH <{_PUBLIC}>")
         await client.update(f"DROP SILENT GRAPH <{_STAGING}>")

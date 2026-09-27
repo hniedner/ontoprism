@@ -412,6 +412,13 @@ def main(
         )
     )
     typer.echo(_summary_line(metrics))
+    if load:
+        typer.echo(
+            "QLever index rebuild due: run cmd=rebuild-index on the NCIt endpoint "
+            "after publication; not triggered automatically. Keep previous index "
+            "directories and verify graph count, marker, and certification "
+            "after completion (docs/DATA_SETUP.md)."
+        )
 
 
 def _rehearse(

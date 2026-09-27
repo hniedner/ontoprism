@@ -20,6 +20,11 @@ def _ncit(code: str) -> str:
     return f"{NCIT_NS}{code}"
 
 
+def test_decomposition_exposes_published_run_for_evidence_lookup() -> None:
+    result = decomposition_from_rows("C1", [{"run": "neoplasm-published"}])
+    assert result.run_id == "neoplasm-published"
+
+
 def _row(**kw: str) -> dict[str, str | None]:
     # legacy_writer always emits op:axisSource, so a realistic row always carries it.
     row = (
