@@ -6,6 +6,7 @@
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 	import { handleLatest } from '$lib/latest';
     import FillerSupportSummary from './FillerSupportSummary.svelte';
+    import EnhancementDelta from './EnhancementDelta.svelte';
 
 	let { code }: { code: string } = $props();
 
@@ -72,7 +73,7 @@
 
 <section class="rounded-xl border border-default bg-card p-4 shadow-sm">
 	<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
-		Decomposition
+		Additive provisional enhancement
 		{#if loaded && data?.is_legacy_precoordinated}
 			<RepresentationStatusBadge status="legacy-precoordinated" />
 		{/if}
@@ -98,4 +99,5 @@
         <FillerSupportSummary {evidence} failed={evidenceError} runId={data?.run_id ?? null} />
 		<DecompositionAxes {axes} {evidence} publicationStatus={data?.publication_status ?? null} />
 	{/if}
+    {#if data?.run_id}<EnhancementDelta runId={data.run_id} code={data.code} />{/if}
 </section>

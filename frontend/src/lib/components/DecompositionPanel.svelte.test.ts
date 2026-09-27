@@ -4,7 +4,7 @@ import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
 import type { ConceptDecomposition } from '$lib/types';
 
-vi.mock('$lib/api', () => ({ getDecomposition: vi.fn(), getConstituentEvidence: vi.fn() }));
+vi.mock('$lib/api', () => ({ getDecomposition: vi.fn(), getConstituentEvidence: vi.fn(), getEnhancementDelta: vi.fn().mockResolvedValue([]) }));
 import { getDecomposition, getConstituentEvidence } from '$lib/api';
 
 const mock = vi.mocked(getDecomposition);
@@ -57,6 +57,15 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+    it('shows additive provisional enhancement and an explicit delta beside published status', async () => {
+        mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
+        vi.mocked(getConstituentEvidence).mockResolvedValue([]);
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByRole('heading', { name: /Additive provisional enhancement/ })).toBeInTheDocument();
+        expect(await screen.findByText('Not projected: 0')).toBeInTheDocument();
+        expect(screen.getByText('engine emitted 2 constituents', { exact: true })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Thyroid Gland' })).toHaveAttribute('href', '/repositories/ncit/C12400');
+    });
     it('marks a proposed filler with the D93 mint flag without source groups', async () => {
         mock.mockResolvedValue({ ...decomposed, constituents: [{ ...decomposed.constituents[0],
             filler: 'MINT-one', source_group_ids: [], normalized_group_id: null, normalized_group_label: null }] });

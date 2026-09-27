@@ -17,6 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
@@ -1588,6 +1590,18 @@ class ProvenanceStore:
 
     def __init__(self, sf: async_sessionmaker[AsyncSession]) -> None:
         self._sf = sf
+
+    async def enhancement_delta(
+        self, run_id: str, concept_code: str
+    ) -> list[DeltaOccurrence]:
+        """Classify all stored stated roles in one indexed run/concept slice."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(DELTA_SQL), {"run_id": run_id, "concept_code": concept_code}
+            )
+            return [
+                DeltaOccurrence.model_validate(dict(row)) for row in result.mappings()
+            ]
 
     async def constituent_evidence(
         self, run_id: str, concept_code: str

@@ -456,6 +456,44 @@ async def test_source_backed_fillers_require_exact_linked_stated_codes() -> None
         await dispose_engine(engine)
 
 
+@pytest.mark.integration
+async def test_delta_preserves_occurrences_and_isolates_run_links() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    original = _repeated_occurrence_decomposition()
+    try:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        for run_id, dispositions in (
+            (_RUN_ID, original.occurrence_dispositions),
+            (_RERUN_ID, ()),
+        ):
+            await store.create_run(run_id, "26.07d", _fingerprint(("C6135",)))
+            claim = await store.claim_work_item(run_id, "C6135")
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                "C6135",
+                claim,
+                decomposition=replace(original, occurrence_dispositions=dispositions),
+                semantic_types=("Neoplastic Process",),
+                minted=(),
+            )
+        rows = await store.enhancement_delta(_RUN_ID, "C6135")
+        assert len(rows) == 2
+        assert {tuple(r.structural_path) for r in rows} == {(0, 0), (0, 1)}
+        assert {r.category for r in rows} == {"projected"}
+        assert {r.retained_filler for r in rows} == {"C12400"}
+        rerun = await store.enhancement_delta(_RERUN_ID, "C6135")
+        assert len(rerun) == 2
+        assert {r.category for r in rerun} == {"unclassified"}
+        assert all(r.links and r.disposition is None for r in rerun)
+        assert await store.enhancement_delta(_RUN_ID, "C1") == []
+        assert await store.enhancement_delta("missing", "C6135") == []
+    finally:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await dispose_engine(engine)
+
+
 def _atomic_observed_definition(code: str) -> CompleteDefinition:
     group_id = canonical_definition_group_id(code, ("restriction:R101:C12400",))
     fact_id = canonical_definition_fact_id(

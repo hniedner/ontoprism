@@ -1,5 +1,7 @@
 """Read-only contract against the published #127 run and configured stated NCIt."""
 
+from collections import Counter
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -53,5 +55,60 @@ async def test_published_filler_sources_match_live_stated_facts() -> None:
         assert minted.support == "not-source-backed"
         assert minted.sources == []
         assert minted.inferred_assertions
+    finally:
+        await engine.dispose()
+
+
+async def test_published_delta_covers_all_roles_and_real_collapse_targets() -> None:
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.database_url,
+        connect_args={"server_settings": {"default_transaction_read_only": "on"}},
+    )
+    try:
+        store = ProvenanceStore(async_sessionmaker(engine))
+        for code, counts in [
+            (
+                "C115029",
+                {
+                    "projected": 6,
+                    "represented-through-collapse": 5,
+                    "not-projected": 1,
+                    "not-considered": 22,
+                },
+            ),
+            ("C100054", {"projected": 6, "not-considered": 3}),
+        ]:
+            rows = await store.enhancement_delta(_RUN, code)
+            assert Counter(row.category for row in rows) == counts
+            assert len({row.occurrence_id for row in rows}) == sum(counts.values())
+            async with ncit_sparql_client(settings.ncit_sparql_url) as client:
+                for anchor in {r.anchor_code for r in rows}:
+                    source = next(r for r in rows if r.anchor_code == anchor)
+                    definition = _definition_slice_from_rows(
+                        anchor_code=anchor,
+                        depth=source.depth,
+                        rows=await _read_anchor_definition_rows(
+                            client.select_once, anchor
+                        ),
+                        root_code=code,
+                    )
+                    assert {
+                        (r.occurrence_id, r.role_code, r.filler_code)
+                        for r in rows
+                        if r.anchor_code == anchor
+                    } == {
+                        (o.occurrence_id, o.role_code, o.filler_code)
+                        for o in definition.occurrences
+                    }
+            targets = await store.constituent_evidence(_RUN, code)
+            for row in rows:
+                if row.category == "represented-through-collapse":
+                    assert not row.links
+                    assert (row.normalized_axis, row.retained_filler) in {
+                        (t.axis, t.filler_code) for t in targets
+                    }
+                if row.category == "not-projected":
+                    assert row.reason == "missing-disposition"
     finally:
         await engine.dispose()
