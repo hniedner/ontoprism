@@ -7,6 +7,39 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-28 — the curated projection uses the told hierarchy and the plain nested-value rule
+
+### D97. Told named hierarchy edges are sufficient for axis-local specificity collapse
+
+**Context.** The projection queried `rdfs:subClassOf+` separately for each concept even
+though the run had already loaded the source's named hierarchy. That query omits defined
+classes whose named genera occur in `owl:equivalentClass` intersections. The reduction
+also retained a broader filler whenever its narrower paths ended at more than one leaf,
+which contradicted D15/D19's distinction between nested and co-equal values.
+
+**Decision.** Specificity uses the run's one told hierarchy: named
+`rdfs:subClassOf` edges plus named `owl:intersectionOf` members of
+`owl:equivalentClass`, as read by `scope.read_scope_hierarchy_edges`. There is no second
+per-concept subsumption query. Within one final routed axis, a broader filler is removed
+when at least one narrower filler is retained; unrelated co-equal fillers remain. A
+deterministic retained narrower filler records the occurrence disposition and its
+source-bound specificity path. D59 keeps
+`op:AssociatedLineageClassification` outside this reduction, and `op:Morphology` remains
+outside it until G1 decides its semantics.
+
+This amends D21 item 1 for the current curated projection: a relation present in the
+told hierarchy is known nested and is collapsed rather than preserved as uncertain.
+It does not claim a complete OWL entailment closure and does not change D21 item 3's
+requirement for a stated-definition closure or real reasoner in round-trip fidelity.
+When specificity removes a pair pinned by the normalized-group policy, the policy is
+applied to the pairs still present and publication carries the review flag reason
+`group-policy pair not emitted`; absence is not a run error.
+
+**Why.** These edges are source statements, not inferred-graph observations, and the
+loaded hierarchy includes the defined-class genus relation that `rdfs:subClassOf+`
+misses. The plain rule removes every provably nested broader value while preserving the
+multi-valued, non-nested facts D19 protects.
+
 ## 2026-09-27 — correct the output and seek independent expert review
 
 ### D96. Focus on the NCIt Neoplasm demonstrator; independent expert gate G1 precedes another full run

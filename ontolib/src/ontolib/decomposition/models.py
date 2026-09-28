@@ -637,7 +637,7 @@ class Constituent:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SpecificityPathEdge:
-    """One source-bound accepted edge in a transitive mixed specificity path."""
+    """One source-bound accepted edge in a transitive specificity path."""
 
     kind: SpecificityRelationKind
     broader_code: str
@@ -703,11 +703,18 @@ def _require_r82_disposition(disposition: OccurrenceDisposition) -> None:
 
 
 def _require_specificity_path(disposition: OccurrenceDisposition) -> None:
-    path = disposition.specificity_path
-    if disposition.kind != "collapsed-mixed":
-        if path:
-            raise ValueError("only mixed collapse carries a specificity path")
+    if disposition.kind == "collapsed-is-a":
+        _require_is_a_specificity_path(disposition)
         return
+    if disposition.kind == "collapsed-mixed":
+        _require_mixed_specificity_path(disposition)
+        return
+    if disposition.specificity_path:
+        raise ValueError("only specificity collapse carries a specificity path")
+
+
+def _require_mixed_specificity_path(disposition: OccurrenceDisposition) -> None:
+    path = disposition.specificity_path
     if not _is_mixed_specificity_path(path):
         raise ValueError("mixed collapse requires both specificity edge kinds")
     if path[0].broader_code != disposition.source_filler:
@@ -716,6 +723,20 @@ def _require_specificity_path(disposition: OccurrenceDisposition) -> None:
         raise ValueError("mixed specificity path does not end at retained filler")
     if not _is_contiguous_specificity_path(path):
         raise ValueError("mixed specificity path is not contiguous")
+
+
+def _require_is_a_specificity_path(disposition: OccurrenceDisposition) -> None:
+    path = disposition.specificity_path
+    if not path:
+        return
+    if {edge.kind for edge in path} != {"is-a"}:
+        raise ValueError("is-a collapse path contains another relation kind")
+    if path[0].broader_code != disposition.source_filler:
+        raise ValueError("specificity path does not start at source filler")
+    if path[-1].narrower_code != disposition.retained_filler:
+        raise ValueError("specificity path does not end at retained filler")
+    if not _is_contiguous_specificity_path(path):
+        raise ValueError("specificity path is not contiguous")
 
 
 def _is_mixed_specificity_path(path: tuple[SpecificityPathEdge, ...]) -> bool:

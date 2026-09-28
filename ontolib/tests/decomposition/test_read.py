@@ -95,6 +95,7 @@ def test_publication_progress_fills_all_d93_counts_from_aggregates() -> None:
         "needs-review": 2,
         "unresolved-r101-loss": 0,
         "mint-filler": 0,
+        "group-policy-pair-not-emitted": 0,
     }
 
 
@@ -176,6 +177,7 @@ def test_progress_rejects_negative_outcome_even_if_total_balances() -> None:
                 "needs-review": 0,
                 "mint-filler": 0,
                 "unresolved-r101-loss": 0,
+                "group-policy-pair-not-emitted": 0,
             },
         )
 

@@ -1312,6 +1312,77 @@ def test_runtime_policy_refuses_pair_and_evidence_drift() -> None:
         apply_normalized_group_policy(wrong_evidence, policy)
 
 
+def test_runtime_policy_flags_a_pinned_pair_that_is_no_longer_emitted() -> None:
+    policy = load_packaged_normalized_group_policy()
+    row = policy.by_code["C115057"]
+    missing = row.output_partition[0][0]
+    all_constituents = tuple(
+        Constituent(axis=axis, filler_code=filler, axis_source="nlp")
+        for block in row.output_partition
+        for axis, filler in block
+    )
+    runtime_row = row.model_copy(
+        update={
+            "input_pair_evidence_identity": _constituent_evidence_identity(
+                all_constituents
+            ),
+            "source_pair_evidence": tuple(
+                evidence.model_copy(
+                    update={
+                        "source_fact_ids": (),
+                        "source_occurrence_ids": (),
+                        "source_coordinates": (),
+                        "occurrence_availability": (
+                            "unavailable-current-source-coordinate"
+                        ),
+                    }
+                )
+                for evidence in row.source_pair_evidence
+            ),
+            "blocks": tuple(
+                block.model_copy(
+                    update={
+                        "source_fact_ids": (),
+                        "source_occurrence_ids": (),
+                        "source_group_ids": (),
+                        "source_coordinates": (),
+                        "occurrence_availability": (
+                            "unavailable-current-source-coordinate"
+                        ),
+                    }
+                )
+                for block in row.blocks
+            ),
+        }
+    )
+    policy = policy.model_copy(
+        update={
+            "rows": tuple(
+                runtime_row if item.concept_code == row.concept_code else item
+                for item in policy.rows
+            )
+        }
+    )
+    constituents = tuple(
+        item for item in all_constituents if (item.axis, item.filler_code) != missing
+    )
+    decomposition = Decomposition(
+        code=row.concept_code,
+        semantic_type="Neoplastic Process",
+        constituents=constituents,
+    )
+
+    applied = apply_normalized_group_policy(decomposition, policy)
+
+    assert not isinstance(applied, NotApplicable)
+    assert applied.missing_pairs == (missing,)
+    assert all(
+        item.normalized_group_id
+        == runtime_row.block_for((item.axis, item.filler_code)).normalized_group_id
+        for item in applied.decomposition.constituents
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

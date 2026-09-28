@@ -857,7 +857,12 @@ class WorkItemOutcome(BaseModel):
         return self
 
 
-ReviewFlagKind = Literal["needs-review", "unresolved-r101-loss", "mint-filler"]
+ReviewFlagKind = Literal[
+    "needs-review",
+    "unresolved-r101-loss",
+    "mint-filler",
+    "group-policy-pair-not-emitted",
+]
 
 
 class ConceptReviewFlag(BaseModel):

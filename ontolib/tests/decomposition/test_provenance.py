@@ -21,11 +21,15 @@ from ontolib.decomposition.models import (
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
     RunStateError,
     _concept_outcome_reason,
+    _missing_group_policy_pairs,
     _publication_flags,
 )
 from ontolib.decomposition.provenance_models import (
@@ -101,7 +105,7 @@ def test_publication_reasons_cover_every_concept_outcome(
 
 
 @pytest.mark.unit
-def test_publication_flags_derive_all_three_reasoned_kinds() -> None:
+def test_publication_flags_include_a_missing_group_policy_pair() -> None:
     flags = _publication_flags(
         cast(
             "Any",
@@ -122,6 +126,16 @@ def test_publication_flags_derive_all_three_reasoned_kinds() -> None:
             (
                 {
                     "concept_code": "C1",
+                    "axis": "op:CellType",
+                    "filler_code": "C4",
+                },
+            ),
+        ),
+        cast(
+            "Any",
+            (
+                {
+                    "concept_code": "C1",
                     "axis": "op:Morphology",
                     "proposal_id": "MINT-abcdef123456",
                 },
@@ -133,8 +147,39 @@ def test_publication_flags_derive_all_three_reasoned_kinds() -> None:
         "needs-review",
         "unresolved-r101-loss",
         "mint-filler",
+        "group-policy-pair-not-emitted",
     }
-    assert all(flag.reason for flag in flags["C1"])
+    assert (
+        next(
+            flag.reason
+            for flag in flags["C1"]
+            if flag.kind == "group-policy-pair-not-emitted"
+        )
+        == "group-policy pair not emitted"
+    )
+
+
+@pytest.mark.unit
+def test_missing_group_policy_pair_is_derived_from_emitted_constituents() -> None:
+    policy = load_packaged_normalized_group_policy()
+    row = policy.by_code["C115057"]
+    missing = row.output_partition[0][0]
+    emitted = tuple(
+        {"concept_code": row.concept_code, "axis": axis, "filler_code": filler}
+        for block in row.output_partition
+        for axis, filler in block
+        if (axis, filler) != missing
+    )
+
+    rows = _missing_group_policy_pairs({row.concept_code}, cast("Any", emitted), policy)
+
+    assert rows == [
+        {
+            "concept_code": row.concept_code,
+            "axis": missing[0],
+            "filler_code": missing[1],
+        }
+    ]
 
 
 @pytest.mark.unit
