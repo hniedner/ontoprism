@@ -23,7 +23,6 @@ from ontolib.decomposition.extract import (
     PartOfPair,
     part_of_expansions_from_rows,
 )
-from ontolib.decomposition.label_validation import GenusLabelError
 from ontolib.decomposition.models import (
     CompleteDefinition,
     GenusDefinitionFact,
@@ -31,6 +30,9 @@ from ontolib.decomposition.models import (
     ResolvedR82PathEdge,
     RestrictionDefinitionFact,
     RoleRestriction,
+)
+from ontolib.decomposition.morphology_qualifier_policy import (
+    MORPHOLOGY_QUALIFIER_CODES,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -942,34 +944,6 @@ async def resolve_part_of_pairs(
     ).resolve()
 
 
-def build_morphology_query(concept_code: str) -> str:
-    """Fetch label, genus, and semantic type for *concept_code* and its genus chain.
-
-    Returns rows with ``?genus`` (genus code), ``?label`` (genus label), ``?depth``
-    (hop count from starting concept), needed to identify the morphology-bearing
-    parent (first non-staging genus).
-
-    Raises:
-        ValueError: if *concept_code* is not injection-safe.
-    """
-    concept_uri = safe_iri(concept_code, NCIT_NS)
-    semantic_type_uri = f"{NCIT_NS}{SEMANTIC_TYPE}"
-    return f"""{_PREFIXES}
-        SELECT ?genus ?label ?depth WHERE {{
-            GRAPH <{STATED_GRAPH_IRI}> {{
-                <{concept_uri}> owl:equivalentClass ?ec .
-                ?ec owl:intersectionOf ?list .
-                ?list rdf:first ?first .
-                ?list rdf:rest*/rdf:first ?genus .
-                OPTIONAL {{ ?genus rdfs:label ?label . }}
-                OPTIONAL {{ ?genus <{semantic_type_uri}> ?stype . }}
-            }}
-            BIND(REPLACE(STR(?first), ".*#", "") AS ?first_code)
-            BIND(IF(?genus = ?first, 0, 1) AS ?depth)
-        }}
-    """
-
-
 def build_semantic_type_query(concept_code: str) -> str:
     """The ``P106`` semantic-type literal(s) for *concept_code* in the stated graph.
 
@@ -1060,29 +1034,6 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
 )
 
 
-_STAGING_LABEL_MARKERS = frozenset(
-    {
-        "Stage I",
-        "Stage II",
-        "Stage III",
-        "Stage IV",
-        "AJCC",
-        " v7",
-        " v8",
-        "Unresectable",
-        "Recurrent",
-        "Metastatic",
-        " by ",  # "by AJCC v7 Stage"
-    }
-)
-
-
-def _is_staging_concept_label(label: str) -> bool:
-    """True if *label* matches a staging qualifier pattern."""
-    label_lower = label.lower()
-    return any(m.lower() in label_lower for m in _STAGING_LABEL_MARKERS)
-
-
 def _required_row_binding(row: Mapping[str, str | None], binding: str) -> str:
     value = row.get(binding)
     if not value:
@@ -1097,27 +1048,6 @@ def _genus_code_from_iri(genus_iri: str) -> str:
     if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
         raise ValueError(f"genus member is not an NCIt concept code: {code!r}")
     return code
-
-
-async def _fetch_genus_label(
-    select_fn: SelectRows,
-    genus_iri: str,
-) -> str:
-    """Fetch exactly one stated genus label; reject missing or ambiguous labels."""
-    label_query = f"""{_PREFIXES}
-        SELECT ?label WHERE {{
-            GRAPH <{STATED_GRAPH_IRI}> {{
-                <{genus_iri}> rdfs:label ?label .
-            }}
-        }}
-    """
-    rows = await select_fn(label_query, required_variables={"label"})
-    if not rows:
-        raise GenusLabelError("genus concept has no stated label")
-    labels = {_required_row_binding(row, "label") for row in rows}
-    if len(labels) != 1:
-        raise GenusLabelError("genus concept has multiple distinct stated labels")
-    return next(iter(labels))
 
 
 async def _get_genus_from_intersection(
@@ -1152,9 +1082,8 @@ async def resolve_morphology_filler(
 ) -> str | None:
     """Resolve the morphology filler from the genus chain of *code*.
 
-    Walks the genus chain, returning the first non-staging genus code.
-    Staging concepts are identified by labels containing stage markers
-    (Stage I-IV, AJCC, v7/v8, Unresectable, etc.).
+    Walks the genus chain, returning the first genus code outside the reviewed
+    NCIt-versioned staging and clinical-state qualifier list.
 
     Returns ``None`` if no morphology-bearing genus is found within max_depth.
     """
@@ -1170,10 +1099,7 @@ async def resolve_morphology_filler(
             return None
         visited.add(genus_code)
 
-        genus_iri = f"{NCIT_NS}{genus_code}"
-        label = await _fetch_genus_label(select_fn, genus_iri)
-
-        if not _is_staging_concept_label(label):
+        if genus_code not in MORPHOLOGY_QUALIFIER_CODES:
             return genus_code
 
         current_code = genus_code
@@ -1208,8 +1134,7 @@ async def _resolve_morphology_frontier(
             if genus_code == preferred:
                 selected.add(genus_code)
                 continue
-            label = await _fetch_genus_label(select_fn, f"{NCIT_NS}{genus_code}")
-            if not _is_staging_concept_label(label):
+            if genus_code not in MORPHOLOGY_QUALIFIER_CODES:
                 selected.add(genus_code)
             else:
                 next_frontier.add(genus_code)
@@ -1222,7 +1147,7 @@ async def resolve_morphology_fillers(
     *,
     max_depth: int = 5,
 ) -> tuple[str, ...]:
-    """Resolve every co-equal first non-staging genus in a complete definition.
+    """Resolve every co-equal first non-qualifier genus in a complete definition.
 
     Anonymous nested intersections can place more than one named genus at the same
     anchor.  Walking only the first RDF-list member loses those co-equal source facts,

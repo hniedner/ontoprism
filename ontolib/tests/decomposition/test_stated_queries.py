@@ -18,12 +18,10 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.stated_queries import (
     _advance_origin_paths,
     _intersection_hop_pattern,
-    _is_staging_concept_label,
     _make_r82_edge,
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
-    build_morphology_query,
     build_part_of_candidate_paths_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
@@ -167,15 +165,9 @@ async def test_plural_morphology_projection_retains_coequal_root_genera() -> Non
     )
 
     async def labels(query: str, *, required_variables=()):
-        if "rdf:first ?member" in query:
-            assert required_variables == {"member"}
-            return [{"member": _iri("C35501"), "type": f"{OWL_NS}Class"}]
-        assert required_variables == {"label"}
-        if _iri("C35501") in query:
-            return [{"label": "Acute Myeloid Leukemia"}]
-        if _iri("C9290") in query:
-            return [{"label": "Myeloid Leukemia"}]
-        raise AssertionError("unexpected genus label query")
+        assert "rdf:first ?member" in query
+        assert required_variables == {"member"}
+        return [{"member": _iri("C35501"), "type": f"{OWL_NS}Class"}]
 
     assert await resolve_morphology_fillers(labels, complete, max_depth=5) == (
         "C35501",
@@ -561,50 +553,44 @@ def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
 
 
 @pytest.mark.unit
-def test_build_morphology_query_is_scoped_to_stated_graph() -> None:
-    q = build_morphology_query("C6135")
-    assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
-    assert "rdfs:label" in q
-    assert "?label" in q
-
-
-@pytest.mark.unit
-def test_build_morphology_query_interpolates_code_safely() -> None:
-    q = build_morphology_query("C6135")
-    assert "Thesaurus.owl#C6135" in q
-
-
-@pytest.mark.unit
-def test_build_morphology_query_rejects_unsafe_code() -> None:
-    with pytest.raises(ValueError, match=r"[Uu]nsafe"):
-        build_morphology_query("C6135 > INJECT {")
-
-
-@pytest.mark.unit
 async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> None:
-    call_count = 0
-
     async def fake_select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        nonlocal call_count
-        call_count += 1
-        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
-        assert set(required_variables) == expected_variables
-        if call_count == 1:
-            return [{"member": _iri("C141041"), "type": None}]
-        if call_count == 2:
-            return [{"label": "Thyroid Gland Medullary Carcinoma by AJCC v7 Stage"}]
-        if call_count == 3:
-            return [{"member": _iri("C3879"), "type": None}]
-        if call_count == 4:
-            return [{"label": "Thyroid Gland Medullary Carcinoma"}]
-        return []
+        assert set(required_variables) == {"member"}
+        member = "C3879" if "#C141041>" in query else "C141041"
+        return [{"member": _iri(member), "type": None}]
 
     morphology = await resolve_morphology_filler(fake_select, "C6135")
     assert morphology == "C3879"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "qualifier_code",
+    [
+        pytest.param("C141041", id="staging"),
+        pytest.param("C120186", id="clinical-state"),
+        pytest.param("C3640", id="stage-0"),
+    ],
+)
+async def test_resolve_morphology_filler_skips_reviewed_qualifier_genera(
+    qualifier_code: str,
+) -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
+        member = "C4917" if f"#{qualifier_code}>" in query else qualifier_code
+        return [{"member": _iri(member), "type": None}]
+
+    morphology = await resolve_morphology_filler(fake_select, "C9000")
+
+    assert morphology == "C4917"
 
 
 @pytest.mark.unit
@@ -623,55 +609,33 @@ async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("ambiguous_result", ["member", "label"])
-async def test_resolve_morphology_filler_rejects_ambiguous_source_rows(
-    ambiguous_result: str,
-) -> None:
-    call_count = 0
-
+async def test_resolve_morphology_filler_rejects_ambiguous_source_rows() -> None:
     async def fake_select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        nonlocal call_count
         del query, required_variables
-        call_count += 1
-        if ambiguous_result == "member":
-            return [
-                {"member": _iri("C3879"), "type": None},
-                {"member": _iri("C141041"), "type": None},
-            ]
-        if call_count == 1:
-            return [{"member": _iri("C3879"), "type": None}]
-        return [{"label": "Label one"}, {"label": "Label two"}]
+        return [
+            {"member": _iri("C3879"), "type": None},
+            {"member": _iri("C141041"), "type": None},
+        ]
 
     with pytest.raises(ValueError, match="multiple"):
         await resolve_morphology_filler(fake_select, "C6135")
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("missing_binding", ["member", "label"])
-async def test_resolve_morphology_filler_rejects_missing_required_binding(
-    missing_binding: str,
-) -> None:
-    call_count = 0
-
+async def test_resolve_morphology_filler_rejects_missing_required_binding() -> None:
     async def fake_select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        nonlocal call_count
         del query, required_variables
-        call_count += 1
-        if missing_binding == "member":
-            return [{"member": _iri("C3879"), "type": None}, {}]
-        if call_count == 2:
-            return [{}]
-        return [{"member": _iri("C3879"), "type": None}]
+        return [{"member": _iri("C3879"), "type": None}, {}]
 
-    with pytest.raises(ValueError, match=missing_binding):
+    with pytest.raises(ValueError, match="member"):
         await resolve_morphology_filler(fake_select, "C6135")
 
 
@@ -705,55 +669,25 @@ async def test_resolve_morphology_filler_rejects_non_concept_ncit_member() -> No
 
 @pytest.mark.unit
 async def test_resolve_morphology_filler_skips_restriction_before_named_genus() -> None:
-    call_count = 0
-
     async def fake_select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            assert set(required_variables) == {"member"}
-            return [
-                {"member": "_:restriction", "type": OWL_NS + "Restriction"},
-                {"member": _iri("C3879"), "type": None},
-            ]
-        assert set(required_variables) == {"label"}
-        return [{"label": "Thyroid Gland Medullary Carcinoma"}]
+        del query
+        assert set(required_variables) == {"member"}
+        return [
+            {"member": "_:restriction", "type": OWL_NS + "Restriction"},
+            {"member": _iri("C3879"), "type": None},
+        ]
 
     assert await resolve_morphology_filler(fake_select, "C6135") == "C3879"
-
-
-@pytest.mark.unit
-async def test_resolve_morphology_filler_refuses_unlabelled_genus() -> None:
-    responses: list[list[dict[str, str | None]]] = [
-        [{"member": _iri("C141041"), "type": None}],
-        [],
-        [{"member": _iri("C3879"), "type": None}],
-        [{"label": "Thyroid Gland Medullary Carcinoma"}],
-    ]
-
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
-        assert set(required_variables) == expected_variables
-        return responses.pop(0)
-
-    with pytest.raises(ValueError, match="genus concept has no stated label"):
-        await resolve_morphology_filler(fake_select, "C6135")
-    assert len(responses) == 2
 
 
 @pytest.mark.unit
 async def test_resolve_morphology_filler_stops_on_genus_cycle() -> None:
     responses: list[list[dict[str, str | None]]] = [
         [{"member": _iri("C141041"), "type": None}],
-        [{"label": "Stage II Thyroid Gland Medullary Carcinoma"}],
         [{"member": _iri("C6135"), "type": None}],
     ]
 
@@ -773,7 +707,6 @@ async def test_resolve_morphology_filler_stops_on_genus_cycle() -> None:
 async def test_resolve_morphology_filler_stops_at_depth_bound() -> None:
     responses: list[list[dict[str, str | None]]] = [
         [{"member": _iri("C141041"), "type": None}],
-        [{"label": "Stage II Thyroid Gland Medullary Carcinoma"}],
     ]
 
     async def fake_select(
@@ -790,71 +723,17 @@ async def test_resolve_morphology_filler_stops_at_depth_bound() -> None:
 
 @pytest.mark.unit
 async def test_resolve_morphology_filler_returns_first_genus_if_not_staging() -> None:
-    call_count = 0
-
     async def fake_select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        nonlocal call_count
-        call_count += 1
-        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
-        assert set(required_variables) == expected_variables
-        # Call 1: build_genus_walk_members_query(C6135) then select_fn(queries[0])
-        # Call 2: select_fn(label_query) for C3879
-        if call_count == 1:
-            return [{"member": _iri("C3879"), "type": None}]
-        if call_count == 2 and "rdfs:label" in query:
-            return [{"label": "Thyroid Gland Medullary Carcinoma"}]
-        return []
+        del query
+        assert set(required_variables) == {"member"}
+        return [{"member": _iri("C3879"), "type": None}]
 
     morphology = await resolve_morphology_filler(fake_select, "C6135")
     assert morphology == "C3879"
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "label",
-    [
-        "Stage III Colon Cancer",
-        "Thyroid Gland Medullary Carcinoma by AJCC v7 Stage",
-        "Unresectable Pancreatic Carcinoma",
-        "Recurrent Glioblastoma",
-        "Metastatic Breast Carcinoma",
-    ],
-)
-def test_staging_label_markers_identify_staging_concepts(label: str) -> None:
-    assert _is_staging_concept_label(label) is True
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "label",
-    [
-        "Thyroid Gland Medullary Carcinoma",
-        "Colon Adenocarcinoma",
-        "Small Cell Lung Carcinoma",
-        "Invasive Ductal Carcinoma",
-    ],
-)
-def test_staging_label_markers_do_not_match_morphology_concepts(label: str) -> None:
-    assert _is_staging_concept_label(label) is False
-
-
-@pytest.mark.unit
-async def test_missing_genus_label_fails_closed() -> None:
-    async def select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        if "SELECT ?label" in query:
-            return []
-        return [{"member": _iri("C2")}]
-
-    with pytest.raises(ValueError, match="genus concept has no stated label"):
-        await resolve_morphology_filler(select, "C1")
 
 
 def _definition_rows(
