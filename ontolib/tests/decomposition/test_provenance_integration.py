@@ -19,6 +19,7 @@ from pathlib import Path
 import asyncpg
 import pytest
 from pydantic import ValidationError
+from scripts import oracle_metrics
 from scripts.research.current_evidence import generate_current_evidence
 from sqlalchemy import event, text
 
@@ -122,6 +123,119 @@ def _publication_fingerprint() -> RunFingerprint:
     return _fingerprint(()).model_copy(
         update={"output_mode": "file", "load_mode": "named-graph"}
     )
+
+
+@pytest.mark.integration
+async def test_stored_oracle_refuses_absent_incomplete_or_partial_cohort():
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        with pytest.raises(ValueError, match=r"missing oracle codes:.*C27262"):
+            await oracle_metrics._stored_report(_RUN_ID)
+        await store.create_run(_RUN_ID, "26.07d", _fingerprint(("C27262",)))
+        with pytest.raises(ValueError, match="incomplete oracle codes: C27262"):
+            await oracle_metrics._stored_report(_RUN_ID)
+        claim = await store.claim_work_item(_RUN_ID, "C27262")
+        assert claim is not None
+        await store.complete_work_item(
+            _RUN_ID,
+            "C27262",
+            claim,
+            decomposition=Decomposition(
+                code="C27262", semantic_type="Neoplastic Process", constituents=()
+            ),
+            semantic_types=("Neoplastic Process",),
+            minted=(),
+        )
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE decomp_run SET status='complete',finished_at=now() "
+                    "WHERE id=:run"
+                ),
+                {"run": _RUN_ID},
+            )
+        with pytest.raises(ValueError, match=r"missing oracle codes:.*C6135"):
+            await oracle_metrics._stored_report(_RUN_ID)
+    finally:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypatch):
+    fixture = {
+        "concepts": [
+            {
+                "code": "C1",
+                "adjudication": {"status": "accepted"},
+                "expected": {
+                    "constituents": [
+                        {
+                            "axis": "op:CellType",
+                            "filler": code,
+                            "needs_review": False,
+                            "provenance_status": "ncit-26.07d",
+                            "relationship_group": None,
+                        }
+                        for code in ("C2", "C3", "C4")
+                    ]
+                },
+            }
+        ]
+    }
+    (tmp_path / "neoplasm-adjudicated.json").write_text(json.dumps(fixture))
+    (tmp_path / "neoplasm-row-decisions.json").write_text(json.dumps({"rows": []}))
+    monkeypatch.setattr(oracle_metrics, "_GOLDEN", tmp_path)
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await store.create_run(_RUN_ID, "26.07d", _fingerprint(("C1",)))
+        claim = await store.claim_work_item(_RUN_ID, "C1")
+        assert claim is not None
+        await store.complete_work_item(
+            _RUN_ID,
+            "C1",
+            claim,
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=tuple(
+                    Constituent(
+                        axis="op:CellType",
+                        filler_code=code,
+                        axis_source="role",
+                        source_roles=("R105",),
+                        needs_review=code == "C3",
+                    )
+                    for code in ("C2", "C3", "C5")
+                ),
+            ),
+            semantic_types=("Neoplastic Process",),
+            minted=(),
+        )
+        # Complete oracle work items do not make a still-running run scoreable.
+        with pytest.raises(ValueError, match="is missing or incomplete"):
+            await oracle_metrics._stored_report(_RUN_ID)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE decomp_run SET status='complete', "
+                    "finished_at=now() WHERE id=:run"
+                ),
+                {"run": _RUN_ID},
+            )
+        report = await oracle_metrics._stored_report(_RUN_ID)
+        assert "exact_pair_precision=1/2 (0.500000)" in report
+        assert "exact_pair_recall=1/3 (0.333333)" in report
+        assert "plain_exact_pair_precision=2/3 (0.666667)" in report
+        assert "plain_exact_pair_recall=2/3 (0.666667)" in report
+        assert await oracle_metrics._stored_report(_RUN_ID) == report
+    finally:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await dispose_engine(engine)
 
 
 async def _cleanup(dsn: str) -> None:
