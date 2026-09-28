@@ -33,7 +33,7 @@ It does not claim a complete OWL entailment closure and does not change D21 item
 requirement for a stated-definition closure or real reasoner in round-trip fidelity.
 When specificity removes a pair pinned by the normalized-group policy, the policy is
 applied to the pairs still present and publication carries the review flag reason
-`group-policy pair not emitted`; absence is not a run error.
+`group-policy pair <axis> / <filler> not emitted`; absence is not a run error.
 
 **Why.** These edges are source statements, not inferred-graph observations, and the
 loaded hierarchy includes the defined-class genus relation that `rdfs:subClassOf+`

@@ -25,12 +25,13 @@ from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import (
+    MissingGroupPolicyPair,
     ProvenanceStore,
     RunIdentityMismatchError,
     RunStateError,
     _concept_outcome_reason,
-    _missing_group_policy_pairs,
     _publication_flags,
+    missing_group_policy_pairs,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -124,16 +125,8 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
         cast(
             "Any",
             (
-                {
-                    "concept_code": "C1",
-                    "axis": "op:CellType",
-                    "filler_code": "C4",
-                },
-                {
-                    "concept_code": "C1",
-                    "axis": "op:CellType",
-                    "filler_code": "C5",
-                },
+                MissingGroupPolicyPair("C1", "op:CellType", "C4"),
+                MissingGroupPolicyPair("C1", "op:CellType", "C5"),
             ),
         ),
         cast(
@@ -182,15 +175,9 @@ def test_missing_group_policy_pair_is_derived_from_emitted_constituents() -> Non
         if (axis, filler) != missing
     )
 
-    rows = _missing_group_policy_pairs({row.concept_code}, cast("Any", emitted), policy)
+    rows = missing_group_policy_pairs({row.concept_code}, cast("Any", emitted), policy)
 
-    assert rows == [
-        {
-            "concept_code": row.concept_code,
-            "axis": missing[0],
-            "filler_code": missing[1],
-        }
-    ]
+    assert rows == [MissingGroupPolicyPair(row.concept_code, missing[0], missing[1])]
 
 
 @pytest.mark.unit

@@ -104,6 +104,28 @@ def test_packet_rejects_missing_outcome_reason_and_flag_reason() -> None:
             render_packet((concept,), seed=472, frame_run="run", axis_definitions={})
 
 
+def test_proposed_filler_does_not_claim_cadsr_lookup_was_empty() -> None:
+    concept = _concept(
+        constituents=(
+            (
+                "op:Laterality",
+                "MINT-example",
+                "Proposed side",
+                True,
+                "proposed filler needs review",
+            ),
+        ),
+        cdes={"C10": (), "MINT-example": None},
+    )
+
+    html, _csv = render_packet(
+        (concept,), seed=472, frame_run="run", axis_definitions={}
+    )
+
+    assert "not applicable — proposed filler has no NCIt code" in html
+    assert "caDSR CDEs for constituent: none found" not in html
+
+
 def test_cde_cap_and_lookup_limit_label() -> None:
     known = tuple((str(i), "1", f"CDE {i}") for i in range(12))
     limited = tuple((str(i), "1", f"CDE {i}") for i in range(1000))

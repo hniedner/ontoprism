@@ -96,7 +96,7 @@ class AxisHierarchyEvidence:
     edges: tuple[HierarchyEdge, ...]
     disjoint_pairs: tuple[DisjointPair, ...]
     _parents: dict[str, list[str]] = field(init=False, repr=False, compare=False)
-    _range_paths: dict[str, dict[str, tuple[str, ...]]] = field(
+    _paths: dict[str, dict[str, tuple[str, ...]]] = field(
         init=False, repr=False, compare=False, default_factory=dict
     )
 
@@ -116,12 +116,12 @@ class AxisHierarchyEvidence:
             parents.setdefault(edge.child, []).append(edge.parent)
         object.__setattr__(self, "_parents", parents)
 
-    def ancestor_paths(self, code: str) -> dict[str, tuple[str, ...]]:
-        if code not in self._range_paths:
-            self._range_paths[code] = _ancestor_paths(code, self._parents)
-        return self._range_paths[code]
+    def ancestor_paths(self, code: str) -> Mapping[str, tuple[str, ...]]:
+        if code not in self._paths:
+            self._paths[code] = _ancestor_paths(code, self._parents)
+        return self._paths[code]
 
-    def range_paths(self, code: str) -> dict[str, tuple[str, ...]]:
+    def range_paths(self, code: str) -> Mapping[str, tuple[str, ...]]:
         return self.ancestor_paths(code)
 
 
@@ -463,8 +463,8 @@ def _ancestor_paths(
 
 
 def _negative_evidence(
-    filler_paths: dict[str, tuple[str, ...]],
-    range_paths: dict[str, tuple[str, ...]],
+    filler_paths: Mapping[str, tuple[str, ...]],
+    range_paths: Mapping[str, tuple[str, ...]],
     pairs: tuple[DisjointPair, ...],
 ) -> tuple[tuple[str, ...], tuple[str, ...], DisjointPair] | None:
     candidates = [

@@ -84,7 +84,12 @@ def render_packet(
             definition = axis_definitions.get(
                 axis, "NCIt source role; assess in context"
             )
-            cdes = _cde_items(concept.cdes[filler])
+            hits = concept.cdes[filler]
+            cdes = (
+                _cde_items(hits)
+                if hits is not None
+                else "not applicable — proposed filler has no NCIt code"
+            )
             constituents.append(
                 f"{_text(axis)} — {_text(filler)} {_text(label)}: "
                 f"{_text(definition)}; "
@@ -102,7 +107,10 @@ def render_packet(
         flags = _items(
             [f"{_text(kind)} — {_text(reason)}" for kind, reason in concept.flags]
         )
-        concept_cdes = _cde_items(concept.cdes[code])
+        concept_hits = concept.cdes[code]
+        if concept_hits is None:
+            raise ValueError("source concept requires a caDSR lookup")
+        concept_cdes = _cde_items(concept_hits)
         writer.writerow(
             (code, cohort, "morphology-choice", "op:Morphology", "", "", "")
         )

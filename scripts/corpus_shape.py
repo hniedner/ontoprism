@@ -17,7 +17,7 @@ from ontolib.decomposition.enhancement_delta import DeltaOccurrence, delta_sql
 from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
-from ontolib.decomposition.provenance import _missing_group_policy_pairs
+from ontolib.decomposition.provenance import missing_group_policy_pairs
 
 _WHOLE_RUN_DELTA_SQL = delta_sql(whole_run=True)
 _FLAG_SPLIT = (
@@ -160,13 +160,14 @@ async def _flag_counts(
         ),
         {"run_id": run_id, "codes": policy_codes},
     )
-    missing = _missing_group_policy_pairs(
+    missing = missing_group_policy_pairs(
         {row[0] for row in decomposed.all()}, emitted.mappings().all(), policy
     )
     counts["review-flags.other.group-policy-pair-not-emitted.total"] = len(missing)
     for row in missing:
-        reason = f"group-policy pair {row['axis']} / {row['filler_code']} not emitted"
-        counts["review-flags.other.group-policy-pair-not-emitted.reason." + reason] += 1
+        counts[
+            "review-flags.other.group-policy-pair-not-emitted.reason." + row.reason
+        ] += 1
 
 
 async def corpus_shape_counts(

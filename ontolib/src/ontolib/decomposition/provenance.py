@@ -7,7 +7,7 @@ import datetime
 import json as _json
 import logging
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from itertools import chain
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
@@ -20,8 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping, Sequence
-    from typing import Any
+    from collections.abc import AsyncIterator, Sequence
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
@@ -817,7 +816,7 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
 def _publication_flags(
     needs_review: Sequence[RowMapping],
     unresolved: Sequence[RowMapping],
-    group_policy_missing: Sequence[Mapping[str, Any]],
+    group_policy_missing: Sequence[MissingGroupPolicyPair],
     mints: Sequence[RowMapping],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
@@ -842,9 +841,9 @@ def _publication_flags(
         ),
         (
             (
-                row["concept_code"],
+                row.concept_code,
                 "group-policy-pair-not-emitted",
-                f"group-policy pair {row['axis']} / {row['filler_code']} not emitted",
+                row.reason,
             )
             for row in group_policy_missing
         ),
@@ -864,11 +863,22 @@ def _publication_flags(
     return flags
 
 
-def _missing_group_policy_pairs(
+@dataclass(frozen=True, slots=True)
+class MissingGroupPolicyPair:
+    concept_code: str
+    axis: str
+    filler_code: str
+
+    @property
+    def reason(self) -> str:
+        return f"group-policy pair {self.axis} / {self.filler_code} not emitted"
+
+
+def missing_group_policy_pairs(
     decomposed_codes: set[str],
     constituents: Sequence[RowMapping],
     policy: ActiveNormalizedGroupPolicy,
-) -> list[dict[str, str]]:
+) -> list[MissingGroupPolicyPair]:
     emitted: dict[str, set[tuple[str, str]]] = {}
     for row in constituents:
         emitted.setdefault(row["concept_code"], set()).add(
@@ -883,11 +893,7 @@ def _missing_group_policy_pairs(
             expected - emitted.get(policy_row.concept_code, set())
         ):
             missing.append(
-                {
-                    "concept_code": policy_row.concept_code,
-                    "axis": axis,
-                    "filler_code": filler_code,
-                }
+                MissingGroupPolicyPair(policy_row.concept_code, axis, filler_code)
             )
     return missing
 
@@ -896,7 +902,7 @@ async def _missing_group_policy_pairs_for_run(
     session: AsyncSession,
     run_id: str,
     outcomes: Sequence[WorkItemOutcome],
-) -> list[dict[str, str]]:
+) -> list[MissingGroupPolicyPair]:
     policy = load_packaged_normalized_group_policy()
     decomposed_codes = {
         item.concept_code for item in outcomes if item.outcome == "decomposed"
@@ -913,9 +919,7 @@ async def _missing_group_policy_pairs_for_run(
         ),
         {"run_id": run_id, "concept_codes": policy_codes},
     )
-    return _missing_group_policy_pairs(
-        decomposed_codes, result.mappings().all(), policy
-    )
+    return missing_group_policy_pairs(decomposed_codes, result.mappings().all(), policy)
 
 
 def _proposal_rows(

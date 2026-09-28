@@ -55,7 +55,7 @@ class ExpertConcept:
     flags: tuple[tuple[str, str], ...]
     genus: tuple[tuple[str, str], ...]
     anchors: tuple[tuple[str, str, bool], ...]
-    cdes: Mapping[str, tuple[tuple[str, str, str], ...]]
+    cdes: Mapping[str, tuple[tuple[str, str, str], ...] | None]
 
     @property
     def anchor_count(self) -> int:
@@ -148,7 +148,7 @@ def assemble_concept(
     labels: Mapping[str, str],
     genus: Sequence[str],
     anchors: Sequence[str],
-    cdes: Mapping[str, Sequence[CdeSummary]],
+    cdes: Mapping[str, Sequence[CdeSummary] | None],
     flags: Sequence[tuple[str, str]],
     stated_roles: Sequence[tuple[str, str, str, str]] = (),
 ) -> ExpertConcept:
@@ -199,7 +199,11 @@ def assemble_concept(
             for code in anchors
         ),
         cdes={
-            code: tuple((hit.public_id, hit.version, hit.long_name) for hit in hits)
+            code: (
+                tuple((hit.public_id, hit.version, hit.long_name) for hit in hits)
+                if hits is not None
+                else None
+            )
             for code, hits in cdes.items()
         },
     )
@@ -411,7 +415,7 @@ async def assemble_run(  # noqa: PLR0915 - bounded join of existing source reade
                         labels=labels,
                         genus=genus,
                         anchors=anchors[code],
-                        cdes={value: cde_hits.get(value, []) for value in local_codes},
+                        cdes={value: cde_hits.get(value) for value in local_codes},
                         flags=[(flag.kind, flag.reason) for flag in publication.flags],
                         stated_roles=stated_roles,
                     )
