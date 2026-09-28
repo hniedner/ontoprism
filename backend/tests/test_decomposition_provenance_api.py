@@ -347,6 +347,7 @@ def test_publication_progress_counts_are_computed_by_the_backend() -> None:
             "needs-review": 2,
             "unresolved-r101-loss": 0,
             "mint-filler": 0,
+            "group-policy-pair-not-emitted": 0,
         },
     }
 

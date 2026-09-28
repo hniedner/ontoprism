@@ -93,7 +93,7 @@ def select_constituents(*args: Any, **kwargs: Any):
                     ),
                 )
             },
-            "only mixed collapse",
+            "only specificity collapse",
         ),
         (
             {

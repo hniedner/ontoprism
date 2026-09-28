@@ -669,7 +669,7 @@ async def _routed_selection(
         source_identity=source_identity,
         collapse_policy=collapse_policy,
     )
-    ancestor_pairs = await _specificity_ancestor_pairs(client, routed_plan)
+    ancestor_pairs = _specificity_ancestor_pairs(routed_plan, diagnostic_source)
     part_of = await _part_of_pairs(client, routed_plan)
     return await _select_with_r82_evidence(
         client=client,
@@ -682,24 +682,18 @@ async def _routed_selection(
     )
 
 
-async def _specificity_ancestor_pairs(
-    client: DecompositionSparqlClient, routed_plan: fs.RoutedPlan
+def _specificity_ancestor_pairs(
+    routed_plan: fs.RoutedPlan,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
 ) -> set[extract.AncestorPair]:
-    specificity_codes = {
-        filler
+    return {
+        extract.AncestorPair(ancestor=broader, descendant=narrower)
         for _axis_name, fillers in routed_plan.specificity_groups
-        for filler in fillers
+        for narrower in fillers
+        for broader in fillers
+        if broader != narrower
+        and broader in diagnostic_source.snapshot.ancestor_paths(narrower)
     }
-    if not specificity_codes:
-        return set()
-    return set(
-        extract.ancestor_pairs_from_rows(
-            await client.select(
-                stated_queries.build_ancestor_pairs_query(specificity_codes),
-                required_variables={"ancestor", "descendant"},
-            )
-        )
-    )
 
 
 async def _part_of_pairs(

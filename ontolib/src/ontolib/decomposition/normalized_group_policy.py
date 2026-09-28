@@ -610,7 +610,7 @@ def apply_normalized_group_policy(
     row = policy.by_code.get(decomposition.code)
     if row is None:
         return NotApplicable(decomposition=decomposition)
-    _validate_decomposition_input(decomposition, row)
+    missing_pairs = _validate_decomposition_input(decomposition, row)
     _validate_genus_evidence(decomposition, row)
     grouped = []
     for item in decomposition.constituents:
@@ -623,12 +623,16 @@ def apply_normalized_group_policy(
                 normalized_group_label=block.normalized_group_label,
             )
         )
-    return Applied(decomposition=replace(decomposition, constituents=tuple(grouped)))
+    return Applied(
+        decomposition=replace(decomposition, constituents=tuple(grouped)),
+        missing_pairs=missing_pairs,
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class Applied:
     decomposition: Decomposition
+    missing_pairs: tuple[Pair, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -638,20 +642,45 @@ class NotApplicable:
 
 def _validate_decomposition_input(
     decomposition: Decomposition, row: NormalizedGroupPolicyRow
-) -> None:
+) -> tuple[Pair, ...]:
     constituents = tuple(decomposition.constituents)
     pairs = {(item.axis, item.filler_code) for item in constituents}
     expected_pairs = {pair for block in row.output_partition for pair in block}
-    if pairs != expected_pairs:
+    if pairs - expected_pairs:
         raise ValueError(
             f"normalized group policy pair set differs for {decomposition.code}"
         )
     if row.rule_kind == "reviewed-regrouping":
-        _validate_reviewed_decomposition_targets(decomposition.code, pairs, row)
-    if _constituent_evidence_identity(constituents) != row.input_pair_evidence_identity:
+        _validate_reviewed_decomposition_targets(
+            decomposition.code, expected_pairs, row
+        )
+    missing_pairs = expected_pairs - pairs
+    expected_identity = _expected_input_evidence_identity(row, pairs, missing_pairs)
+    if _constituent_evidence_identity(constituents) != expected_identity:
         raise ValueError(
             f"normalized group policy source evidence differs for {decomposition.code}"
         )
+    return tuple(sorted(missing_pairs))
+
+
+def _expected_input_evidence_identity(
+    row: NormalizedGroupPolicyRow,
+    pairs: set[Pair],
+    missing_pairs: set[Pair],
+) -> str:
+    if not missing_pairs:
+        return row.input_pair_evidence_identity
+    return canonical_identity(
+        tuple(
+            {
+                "pair": evidence.pair,
+                "source_definition_ids": evidence.source_fact_ids,
+                "source_occurrence_ids": evidence.source_occurrence_ids,
+            }
+            for evidence in sorted(row.source_pair_evidence, key=lambda item: item.pair)
+            if evidence.pair in pairs
+        )
+    )
 
 
 def _validate_reviewed_decomposition_targets(

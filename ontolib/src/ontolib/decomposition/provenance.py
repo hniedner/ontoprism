@@ -50,6 +50,10 @@ from ontolib.decomposition.models import (
     SourceDefinitionOccurrence,
     SpecificityPathEdge,
 )
+from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
+    load_packaged_normalized_group_policy,
+)
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE,
     CompletedRehearsalForOracleMetrics,
@@ -812,6 +816,7 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
 def _publication_flags(
     needs_review: Sequence[RowMapping],
     unresolved: Sequence[RowMapping],
+    group_policy_missing: Sequence[RowMapping],
     mints: Sequence[RowMapping],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
@@ -837,6 +842,14 @@ def _publication_flags(
         (
             (
                 row["concept_code"],
+                "group-policy-pair-not-emitted",
+                "group-policy pair not emitted",
+            )
+            for row in group_policy_missing
+        ),
+        (
+            (
+                row["concept_code"],
                 "mint-filler",
                 f"constituent {row['axis']} uses proposed filler {row['proposal_id']}",
             )
@@ -848,6 +861,60 @@ def _publication_flags(
             ConceptReviewFlag.model_validate({"kind": kind, "reason": reason})
         )
     return flags
+
+
+def _missing_group_policy_pairs(
+    decomposed_codes: set[str],
+    constituents: Sequence[RowMapping],
+    policy: ActiveNormalizedGroupPolicy,
+) -> list[dict[str, str]]:
+    emitted: dict[str, set[tuple[str, str]]] = {}
+    for row in constituents:
+        emitted.setdefault(row["concept_code"], set()).add(
+            (row["axis"], row["filler_code"])
+        )
+    missing = []
+    for policy_row in policy.rows:
+        if policy_row.concept_code not in decomposed_codes:
+            continue
+        expected = {pair for block in policy_row.output_partition for pair in block}
+        for axis, filler_code in sorted(
+            expected - emitted.get(policy_row.concept_code, set())
+        ):
+            missing.append(
+                {
+                    "concept_code": policy_row.concept_code,
+                    "axis": axis,
+                    "filler_code": filler_code,
+                }
+            )
+    return missing
+
+
+async def _missing_group_policy_pairs_for_run(
+    session: AsyncSession,
+    run_id: str,
+    outcomes: Sequence[WorkItemOutcome],
+) -> list[dict[str, str]]:
+    policy = load_packaged_normalized_group_policy()
+    decomposed_codes = {
+        item.concept_code for item in outcomes if item.outcome == "decomposed"
+    }
+    policy_codes = sorted(decomposed_codes & set(policy.by_code))
+    if not policy_codes:
+        return []
+    result = await session.execute(
+        text(
+            "SELECT concept_code, axis, filler_code "
+            "FROM decomp_constituent WHERE run_id=:run_id "
+            "AND concept_code = ANY(CAST(:concept_codes AS text[])) "
+            "ORDER BY concept_code, axis, filler_code"
+        ),
+        {"run_id": run_id, "concept_codes": policy_codes},
+    )
+    return _missing_group_policy_pairs(
+        decomposed_codes, result.mappings().all(), policy
+    )
 
 
 def _proposal_rows(
@@ -3053,9 +3120,13 @@ class ProvenanceStore:
                 ),
                 {"run_id": run_id},
             )
+            group_policy_missing = await _missing_group_policy_pairs_for_run(
+                session, run_id, outcomes
+            )
         flags = _publication_flags(
             needs_review.mappings().all(),
             unresolved.mappings().all(),
+            cast("Sequence[RowMapping]", group_policy_missing),
             mints.mappings().all(),
         )
         return tuple(

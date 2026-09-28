@@ -490,14 +490,13 @@ def _collapse_decision(
     candidate_paths: list[SpecificityPath], source_identity: str | None
 ) -> CollapseDecision | None:
     paths = [path for path in candidate_paths if path]
-    terminals = {path[-1][1] for path in paths}
-    if len(terminals) != 1:
+    if not paths:
         return None
     path = min(paths, key=lambda value: (len(value), value))
     relation_kind = _path_disposition_kind(path)
-    specificity_path = _mixed_path_evidence(path, relation_kind, source_identity)
+    specificity_path = _specificity_path_evidence(path, relation_kind, source_identity)
     return CollapseDecision(
-        retained_filler=next(iter(terminals)),
+        retained_filler=path[-1][1],
         relation_kind=relation_kind,
         specificity_path=specificity_path,
     )
@@ -512,15 +511,17 @@ def _path_disposition_kind(path: SpecificityPath) -> R101DispositionKind:
     return "collapsed-mixed"
 
 
-def _mixed_path_evidence(
+def _specificity_path_evidence(
     path: SpecificityPath,
     relation_kind: R101DispositionKind,
     source_identity: str | None,
 ) -> tuple[SpecificityPathEdge, ...]:
-    if relation_kind != "collapsed-mixed":
+    if relation_kind == "collapsed-r82":
         return ()
     if source_identity is None:
-        raise ValueError("mixed specificity path lacks source identity")
+        if relation_kind == "collapsed-mixed":
+            raise ValueError("mixed specificity path lacks source identity")
+        return ()
     return tuple(
         SpecificityPathEdge(
             kind=kind,

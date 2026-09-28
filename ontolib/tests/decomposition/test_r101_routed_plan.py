@@ -230,6 +230,66 @@ def test_transitive_collapse_disposition_names_the_surviving_leaf() -> None:
 
 
 @pytest.mark.unit
+def test_broader_filler_collapses_when_two_unrelated_narrower_fillers_survive() -> None:
+    rows = tuple(
+        _restriction(
+            code,
+            role="R105",
+            fact=str(index) * 64,
+            occurrence=str(index) * 64,
+        )
+        for index, code in enumerate(("C1", "C2", "C3"), start=1)
+    )
+    plan = build_routed_plan(
+        rows,
+        concept_code="C9000",
+        source_identity=_SOURCE,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    result = _reduce_routed_plan(
+        plan,
+        lambda broader, narrower: (broader, narrower) in {("C1", "C2"), ("C1", "C3")},
+    )
+
+    assert {row.filler_code for row in result.constituents} == {"C2", "C3"}
+    broad = next(row for row in result.dispositions if row.source_filler == "C1")
+    assert (broad.kind, broad.retained_filler) == ("collapsed-is-a", "C2")
+    assert tuple(
+        (edge.broader_code, edge.narrower_code, edge.kind)
+        for edge in broad.specificity_path
+    ) == (("C1", "C2", "is-a"),)
+
+
+@pytest.mark.unit
+def test_lineage_and_morphology_remain_outside_specificity_collapse() -> None:
+    plan = build_routed_plan(
+        (
+            _restriction("C12704", anchor="C3010", fact="1" * 64, occurrence="1" * 64),
+            _restriction("C12705", anchor="C3010", fact="2" * 64, occurrence="2" * 64),
+        ),
+        parent_morphologies=("C3", "C4"),
+        concept_code="C9000",
+        source_identity=_SOURCE,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
+    result = _reduce_routed_plan(
+        plan,
+        lambda broader, narrower: (
+            (broader, narrower) in {("C12704", "C12705"), ("C3", "C4")}
+        ),
+    )
+
+    assert {(row.axis, row.filler_code) for row in result.constituents} == {
+        ("op:AssociatedLineageClassification", "C12704"),
+        ("op:AssociatedLineageClassification", "C12705"),
+        ("op:Morphology", "C3"),
+        ("op:Morphology", "C4"),
+    }
+
+
+@pytest.mark.unit
 def test_mixed_chain_collapses_to_terminal_with_truthful_path() -> None:
     rows = tuple(
         _restriction(code, role="R100", fact=str(index) * 64, occurrence=letter * 64)
