@@ -40,14 +40,14 @@ _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
 _REVIEWED_UPDATED_ACTION_PINS = {
     ".github/workflows/ci.yml": {
         "docker/setup-buildx-action": (
-            "37fe631027851001ddb9b187196cc803df7f5f0e",
-            "v4.3.0",
+            "f87e5991a6d7451dcb8d9637bfbc97413f497069",
+            "v4.4.1",
         ),
     },
     ".github/workflows/scorecard.yml": {
         "github/codeql-action/upload-sarif": (
-            "b96794f015dfd88f77b49b1c93e0fa7110f94c63",
-            "v4.38.0",
+            "1c5b675653bb5c22dbe9b12b556ec555138e09fd",
+            "v4.38.1",
         ),
     },
 }
@@ -168,7 +168,7 @@ def test_full_application_images_are_exactly_digest_pinned() -> None:
         ),
         "frontend/Dockerfile": (
             "node:24-slim@sha256:"
-            "3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03"
+            "0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
         ),
     }
     for relative_path, expected_image in expected_from.items():
@@ -347,8 +347,8 @@ def test_workflow_action_contract_rejects_changed_sha_with_same_comment(
     _mutate_workflow(
         workflow_action_contract_root,
         ".github/workflows/ci.yml",
-        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
-        "docker/setup-buildx-action@47fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
+        "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1",
+        "docker/setup-buildx-action@e87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1",
     )
 
     with pytest.raises(AssertionError, match="does not match reviewed pin"):
@@ -363,11 +363,11 @@ def test_workflow_action_contract_rejects_changed_comment_with_same_sha(
         ".github/workflows/scorecard.yml",
         (
             "github/codeql-action/upload-sarif@"
-            "b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0"
+            "1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1"
         ),
         (
             "github/codeql-action/upload-sarif@"
-            "b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.1"
+            "1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.2"
         ),
     )
 
@@ -381,8 +381,8 @@ def test_workflow_action_contract_rejects_mutable_tag(
     _mutate_workflow(
         workflow_action_contract_root,
         ".github/workflows/ci.yml",
-        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0",
-        "docker/setup-buildx-action@v4.3.0  # v4.3.0",
+        "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1",
+        "docker/setup-buildx-action@v4.4.1  # v4.4.1",
     )
 
     with pytest.raises(AssertionError, match="40-character lowercase commit SHA"):
