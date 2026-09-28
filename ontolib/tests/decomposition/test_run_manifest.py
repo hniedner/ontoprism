@@ -78,7 +78,12 @@ def test_routing_identity_inventory_is_versioned_and_covers_route_semantics() ->
         Path("ontolib/src/ontolib/decomposition/detector.py"),
         Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
         Path("ontolib/src/ontolib/decomposition/models.py"),
+        Path("ontolib/src/ontolib/decomposition/morphology_qualifier_policy.py"),
         Path("ontolib/src/ontolib/decomposition/normalized_group_policy.py"),
+        Path(
+            "ontolib/src/ontolib/decomposition/data/"
+            "morphology-qualifier-genera-26.07d.json"
+        ),
         Path("ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"),
         Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
         Path("ontolib/src/ontolib/decomposition/stated_queries.py"),

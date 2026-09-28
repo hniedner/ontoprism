@@ -15,7 +15,7 @@ Scope of this orchestrator (documented boundaries, not oversights):
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
   ``stated_queries.resolve_morphology_fillers`` walks every co-equal genus branch to
-  its first non-staging genus, parent-derived fillers pass through projection-validity
+  its first non-qualifier genus, parent-derived fillers pass through projection-validity
   assessment before accepted ``op:Morphology`` constituents are appended, and
   ``detector.detect`` counts the axis once.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.

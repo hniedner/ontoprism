@@ -39,7 +39,9 @@ def _fingerprint(**changes: object) -> RunFingerprint:
         "worklist": ("C1", "C2", "C3", "C4", "C5"),
         "total_limit": None,
         "sample_manifest_identity": None,
-        "algorithm_version": "decomposition-v5",
+        "algorithm_version": branch_spec(
+            DecompositionBranch.NEOPLASM
+        ).algorithm_version,
         "config_version": "nested-definition-v2",
         "walker_max_depth": 5,
         "output_mode": "file",
