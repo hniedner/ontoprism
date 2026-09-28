@@ -7,6 +7,9 @@ from enum import StrEnum
 from typing import Literal
 
 from ontolib.decomposition import axes
+from ontolib.decomposition.morphology_qualifier_policy import (
+    MORPHOLOGY_QUALIFIER_LIST_VERSION,
+)
 
 ScopeRoot = Literal["C3262", "C2991"]
 ScopeVersion = Literal["stated-genus-subclass-v1"]
@@ -38,20 +41,21 @@ class BranchSpec:
 
 _SCOPE_VERSION: ScopeVersion = "stated-genus-subclass-v1"
 _AXIS_SEMANTIC_TYPES = tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
+_ALGORITHM_VERSION = f"decomposition-v5+{MORPHOLOGY_QUALIFIER_LIST_VERSION}"
 _BRANCH_SPECS = {
     DecompositionBranch.NEOPLASM: BranchSpec(
         root_code="C3262",
         scope_version=_SCOPE_VERSION,
         semantic_types=_AXIS_SEMANTIC_TYPES,
         algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
-        algorithm_version="decomposition-v5",
+        algorithm_version=_ALGORITHM_VERSION,
     ),
     DecompositionBranch.DISEASE: BranchSpec(
         root_code="C2991",
         scope_version=_SCOPE_VERSION,
         semantic_types=_AXIS_SEMANTIC_TYPES,
         algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
-        algorithm_version="decomposition-v5",
+        algorithm_version=_ALGORITHM_VERSION,
     ),
 }
 

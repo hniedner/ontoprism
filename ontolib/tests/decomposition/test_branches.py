@@ -13,6 +13,9 @@ from ontolib.decomposition.branches import (
     branch_spec,
     parse_branch,
 )
+from ontolib.decomposition.morphology_qualifier_policy import (
+    MORPHOLOGY_QUALIFIER_LIST_VERSION,
+)
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     RunFingerprint,
@@ -34,7 +37,10 @@ def test_neoplasm_and_disease_are_nested_scopes_with_one_algorithm() -> None:
     assert neoplasm.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
     assert disease.semantic_types == neoplasm.semantic_types
     assert neoplasm.scope_version == disease.scope_version
-    assert neoplasm.algorithm_version == disease.algorithm_version == "decomposition-v5"
+    assert neoplasm.algorithm_version == disease.algorithm_version
+    assert neoplasm.algorithm_version == (
+        f"decomposition-v5+{MORPHOLOGY_QUALIFIER_LIST_VERSION}"
+    )
 
 
 def test_disease_is_supported_but_regimen_remains_unimplemented() -> None:

@@ -1226,9 +1226,7 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
                 _role("R101", "Has_Primary_Site", "C2"),
             ]
         },
-        # genus chain: C1's first intersectionOf member is C99 (distinct from
-        # C1), with a non-staging label → morphology_filler resolves to C99
-        label_rows=[{"label": "Medullary Carcinoma"}],
+        # C99 is a named genus outside the reviewed qualifier list.
     )
     role_row = client._complete_rows["C1"][0]
     client._complete_rows["C1"] = [
@@ -1272,7 +1270,6 @@ async def test_run_guard_rejects_invalid_projection_without_altering_source() ->
         semantic_type_of_rows=[
             {"code": "C12431", "st": "Body Part, Organ, or Organ Component"}
         ],
-        label_rows=[{"label": "Anatomic Structure"}],
         hierarchy_edges=[
             ("C12218", "C12219"),
             ("C12431", "C12219"),
@@ -1439,10 +1436,9 @@ async def test_run_pipeline_propagates_per_concept_failures() -> None:
 
 
 @pytest.mark.unit
-async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -> None:
-    # Exercises the seam _decompose_one wires between the ancestor-pairs SPARQL
-    # response and filler_selection: C12400 is a stated ancestor of C12401 on the
-    # same axis, so only the leaf (C12401) should survive into the constituents.
+async def test_run_pipeline_selection_uses_loaded_told_hierarchy() -> None:
+    # The complete run-level hierarchy includes defined-class genus edges. C12400 is
+    # a told parent of C12401 on the same axis, so only C12401 survives.
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -1453,7 +1449,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
                 _role("R88", "Has_Stage", "C3"),
             ]
         },
-        ancestors=[{"ancestor": _iri("C12400"), "descendant": _iri("C12401")}],
+        hierarchy_edges=[("C12401", "C12400")],
         semantic_type_of_rows=[
             {"code": code, "st": "Body Part, Organ, or Organ Component"}
             for code in ("C12400", "C12401")
@@ -1467,12 +1463,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     ].constituents
     site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
-    (ancestor_query,) = [
-        query for query in client.queries if "rdfs:subClassOf+" in query
-    ]
-    assert "C12400" in ancestor_query
-    assert "C12401" in ancestor_query
-    assert "C3" not in ancestor_query
+    assert not any("rdfs:subClassOf+" in query for query in client.queries)
 
 
 @pytest.mark.unit
@@ -1582,9 +1573,7 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
     assert requirements_for("?overflowChild") == {frozenset({"overflowChild"})}
     assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
     assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
-    assert requirements_for("rdfs:subClassOf+") == {
-        frozenset({"ancestor", "descendant"})
-    }
+    assert requirements_for("rdfs:subClassOf+") == set()
     assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
         frozenset({"node", "kind", "target", "targetType"})
     }

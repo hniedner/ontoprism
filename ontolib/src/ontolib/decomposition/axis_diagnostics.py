@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations
 from typing import TYPE_CHECKING, Literal, Never, Protocol
 
@@ -95,6 +95,10 @@ class AxisHierarchyEvidence:
     source_identity: str
     edges: tuple[HierarchyEdge, ...]
     disjoint_pairs: tuple[DisjointPair, ...]
+    _parents: dict[str, list[str]] = field(init=False, repr=False, compare=False)
+    _paths: dict[str, dict[str, tuple[str, ...]]] = field(
+        init=False, repr=False, compare=False, default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         _require(self.source_identity, _SHA256, "source_identity")
@@ -107,6 +111,18 @@ class AxisHierarchyEvidence:
         _reject_cycles(edges)
         object.__setattr__(self, "edges", edges)
         object.__setattr__(self, "disjoint_pairs", pairs)
+        parents: dict[str, list[str]] = {}
+        for edge in edges:
+            parents.setdefault(edge.child, []).append(edge.parent)
+        object.__setattr__(self, "_parents", parents)
+
+    def ancestor_paths(self, code: str) -> Mapping[str, tuple[str, ...]]:
+        if code not in self._paths:
+            self._paths[code] = _ancestor_paths(code, self._parents)
+        return self._paths[code]
+
+    def range_paths(self, code: str) -> Mapping[str, tuple[str, ...]]:
+        return self.ancestor_paths(code)
 
 
 ValidReason = Literal["filler-is-range-or-descendant"]
@@ -428,11 +444,8 @@ async def read_axis_diagnostic_source(
 
 
 def _ancestor_paths(
-    code: str, edges: tuple[HierarchyEdge, ...]
+    code: str, parents: Mapping[str, Sequence[str]]
 ) -> dict[str, tuple[str, ...]]:
-    parents: dict[str, list[str]] = {}
-    for edge in edges:
-        parents.setdefault(edge.child, []).append(edge.parent)
     paths: dict[str, tuple[str, ...]] = {code: (code,)}
     queue: deque[tuple[str, ...]] = deque([(code,)])
     while queue:
@@ -450,8 +463,8 @@ def _ancestor_paths(
 
 
 def _negative_evidence(
-    filler_paths: dict[str, tuple[str, ...]],
-    range_paths: dict[str, tuple[str, ...]],
+    filler_paths: Mapping[str, tuple[str, ...]],
+    range_paths: Mapping[str, tuple[str, ...]],
     pairs: tuple[DisjointPair, ...],
 ) -> tuple[tuple[str, ...], tuple[str, ...], DisjointPair] | None:
     candidates = [
@@ -493,8 +506,8 @@ def classify_axis_range(
             **(common | {"range_code": contract.range_code}),
         )
 
-    filler_paths = _ancestor_paths(filler_code, snapshot.edges)
-    range_paths = _ancestor_paths(range_code, snapshot.edges)
+    filler_paths = snapshot.ancestor_paths(filler_code)
+    range_paths = snapshot.range_paths(range_code)
     valid_path = filler_paths.get(range_code)
     negative = _negative_evidence(filler_paths, range_paths, snapshot.disjoint_pairs)
     if valid_path is not None and negative is not None:

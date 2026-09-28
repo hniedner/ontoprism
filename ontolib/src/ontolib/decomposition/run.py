@@ -15,7 +15,7 @@ Scope of this orchestrator (documented boundaries, not oversights):
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
   ``stated_queries.resolve_morphology_fillers`` walks every co-equal genus branch to
-  its first non-staging genus, parent-derived fillers pass through projection-validity
+  its first non-qualifier genus, parent-derived fillers pass through projection-validity
   assessment before accepted ``op:Morphology`` constituents are appended, and
   ``detector.detect`` counts the axis once.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
@@ -669,7 +669,7 @@ async def _routed_selection(
         source_identity=source_identity,
         collapse_policy=collapse_policy,
     )
-    ancestor_pairs = await _specificity_ancestor_pairs(client, routed_plan)
+    ancestor_pairs = _specificity_ancestor_pairs(routed_plan, diagnostic_source)
     part_of = await _part_of_pairs(client, routed_plan)
     return await _select_with_r82_evidence(
         client=client,
@@ -682,24 +682,24 @@ async def _routed_selection(
     )
 
 
-async def _specificity_ancestor_pairs(
-    client: DecompositionSparqlClient, routed_plan: fs.RoutedPlan
+def _specificity_ancestor_pairs(
+    routed_plan: fs.RoutedPlan,
+    diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
 ) -> set[extract.AncestorPair]:
-    specificity_codes = {
-        filler
+    paths = {
+        narrower: diagnostic_source.snapshot.ancestor_paths(narrower)
         for _axis_name, fillers in routed_plan.specificity_groups
-        for filler in fillers
+        for narrower in fillers
     }
-    if not specificity_codes:
-        return set()
-    return set(
-        extract.ancestor_pairs_from_rows(
-            await client.select(
-                stated_queries.build_ancestor_pairs_query(specificity_codes),
-                required_variables={"ancestor", "descendant"},
+    result: set[extract.AncestorPair] = set()
+    for _axis_name, fillers in routed_plan.specificity_groups:
+        for narrower in fillers:
+            result.update(
+                extract.AncestorPair(ancestor=broader, descendant=narrower)
+                for broader in fillers & paths[narrower].keys()
+                if broader != narrower
             )
-        )
-    )
+    return result
 
 
 async def _part_of_pairs(

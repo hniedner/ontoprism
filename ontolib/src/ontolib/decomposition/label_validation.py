@@ -25,7 +25,3 @@ class ConceptLabelError(SourceLabelError):
                 f"concept {code} {reason}" for code, reason in self.problems.items()
             )
         )
-
-
-class GenusLabelError(SourceLabelError):
-    """A named genus lacks one exact stated label."""

@@ -20,7 +20,8 @@ describe('PublicationProgress', () => {
 				review_flag_counts: {
 					'needs-review': 4,
 					'unresolved-r101-loss': 1,
-					'mint-filler': 3
+					'mint-filler': 3,
+					'group-policy-pair-not-emitted': 2
 				}
 			}
 		});
@@ -29,7 +30,8 @@ describe('PublicationProgress', () => {
 		expect(screen.getByText('20')).toBeInTheDocument();
         for (const [label, count] of Object.entries({
             decomposed: 12, residual: 2, 'semantic-excluded': 3, 'atomic-no-op': 2,
-            unknown: 1, 'needs-review': 4, 'unresolved-r101-loss': 1, 'mint-filler': 3
+            unknown: 1, 'needs-review': 4, 'unresolved-r101-loss': 1, 'mint-filler': 3,
+            'group-policy-pair-not-emitted': 2
         })) expect(screen.getByText(label).nextElementSibling).toHaveTextContent(String(count));
 		expect(screen.queryByText('include', { exact: true })).not.toBeInTheDocument();
 		expect(screen.queryByText('exclude', { exact: true })).not.toBeInTheDocument();

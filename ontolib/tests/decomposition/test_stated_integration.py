@@ -515,6 +515,11 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
     restrictions = tuple(
         fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
     )
+    parent_genus = next(
+        fact
+        for fact in complete.facts
+        if isinstance(fact, GenusDefinitionFact) and fact.genus_code == "C99751"
+    )
     assert len(restrictions) == 2
     assert len(complete.groups) == 1
     facts_by_pair = {(item.role_code, item.filler_code): item for item in restrictions}
@@ -586,6 +591,12 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
                     if item.role_code == "R105"
                 )
             ),
+        ),
+        (
+            "op:Morphology",
+            "C99751",
+            (parent_genus.fact_id,),
+            (),
         ),
     ]
 
@@ -677,7 +688,7 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
         ("R101", "C99410", "C99401"),
         ("R101", "C99411", "C99402"),
     ]
-    assert morphology == "C99403"
+    assert morphology == "C99402"
 
     double_rows: dict[str, list[dict[str, str | None]]] = {}
     for code, genus, filler in (
@@ -1629,7 +1640,7 @@ async def test_resolve_morphology_filler_for_c6135() -> None:
             client.select, "C6135", max_depth=6
         )
 
-    # C3879 is "Thyroid Gland Medullary Carcinoma" - the first non-staging genus
+    # C3879 is "Thyroid Gland Medullary Carcinoma" - outside the qualifier list.
     assert morphology == "C3879"
 
 
