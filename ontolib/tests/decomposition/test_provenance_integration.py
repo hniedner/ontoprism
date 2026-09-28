@@ -20,6 +20,7 @@ import asyncpg
 import pytest
 from pydantic import ValidationError
 from scripts import oracle_metrics
+from scripts.corpus_shape import corpus_shape_counts
 from scripts.research.current_evidence import generate_current_evidence
 from sqlalchemy import event, text
 
@@ -233,6 +234,122 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
         assert "plain_exact_pair_precision=2/3 (0.666667)" in report
         assert "plain_exact_pair_recall=2/3 (0.666667)" in report
         assert await oracle_metrics._stored_report(_RUN_ID) == report
+    finally:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_corpus_shape_counts_every_section_from_a_stored_run():
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await _cleanup(_asyncpg_dsn(get_settings().database_url))
+        await store.create_run(_RUN_ID, "26.07d", _fingerprint(("C6135", "C2")))
+        source_backed = _repeated_occurrence_decomposition()
+        source_backed = replace(
+            source_backed,
+            constituents=(
+                replace(source_backed.constituents[0], needs_review=True),
+                Constituent(
+                    axis="op:PrimarySite",
+                    filler_code="C3",
+                    axis_source="role",
+                    source_roles=("R101",),
+                ),
+                Constituent(
+                    axis="op:Morphology",
+                    filler_code="C9",
+                    axis_source="role",
+                    source_roles=("R105",),
+                ),
+            ),
+        )
+        for code, decomposition in (
+            ("C6135", source_backed),
+            (
+                "C2",
+                Decomposition(
+                    code="C2",
+                    semantic_type="Neoplastic Process",
+                    constituents=(
+                        Constituent(
+                            axis="op:PrimarySite",
+                            filler_code="C4",
+                            axis_source="role",
+                            source_roles=("R101",),
+                            needs_review=True,
+                        ),
+                    ),
+                ),
+            ),
+        ):
+            claim = await store.claim_work_item(_RUN_ID, code)
+            assert claim is not None
+            minted = (
+                (MintedConcept(axis="op:Laterality", label="Left"),)
+                if code == "C2"
+                else ()
+            )
+            await store.complete_work_item(
+                _RUN_ID,
+                code,
+                claim,
+                decomposition=decomposition,
+                semantic_types=("Neoplastic Process",),
+                minted=minted,
+            )
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE decomp_run SET status='complete',finished_at=now() "
+                    "WHERE id=:run"
+                ),
+                {"run": _RUN_ID},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO decomp_residual_filler "
+                    "(run_id,filler_code,ordinal,state,attempt_count,source_identity,"
+                    "definition_identity,detector_identity,classification,"
+                    "completed_at) "
+                    "VALUES (:run,'C3',0,'complete',1,:identity,:identity,:identity,"
+                    "'precoordinated',now()),(:run,'C9',1,'complete',1,:identity,"
+                    ":identity,:identity,'precoordinated',now())"
+                ),
+                {"run": _RUN_ID, "identity": "a" * 64},
+            )
+        counts = await corpus_shape_counts(
+            _RUN_ID, database_url=get_settings().database_url
+        )
+        assert counts["outcomes.decomposed"] == 2
+        assert counts["constituents.total"] == 4
+        assert counts["constituents.axis.op:PrimarySite"] == 3
+        assert counts["concepts-with-multiple-values.axis.op:PrimarySite"] == 1
+        assert counts["review-flags.constituent.total"] == 2
+        assert counts["review-flags.other.mint-filler.total"] == 1
+        reason = "constituent op:PrimarySite / C12400 needs review"
+        assert (
+            counts[f"review-flags.constituent.axis.op:PrimarySite.reason.{reason}"] == 1
+        )
+        label = (
+            "flagged-constituents-by-retained-value-count-on-axis."
+            "co-occurrence-not-cause"
+        )
+        assert counts[f"{label}.axis.op:PrimarySite.exactly-one"] == 1
+        assert counts[f"{label}.axis.op:PrimarySite.more-than-one"] == 1
+        assert (
+            sum(value for key, value in counts.items() if key.startswith(label))
+            == counts["review-flags.constituent.total"]
+        )
+        assert counts["primary-site-more-than-one"] == 1
+        assert counts["residual-precoordinated.including-morphology"] == 1
+        assert counts["residual-precoordinated.excluding-morphology"] == 1
+        assert counts["stated-occurrences.total"] == 2
+        assert counts["stated-occurrences.category.projected"] == 2
+        assert (
+            counts["stated-occurrences.category.projected.reason.retained-routed"] == 2
+        )
     finally:
         await _cleanup(_asyncpg_dsn(get_settings().database_url))
         await dispose_engine(engine)
