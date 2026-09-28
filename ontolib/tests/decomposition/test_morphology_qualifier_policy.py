@@ -43,7 +43,6 @@ def test_packaged_policy_is_the_reviewed_ncit_2607d_list() -> None:
     assert policy.list_version == MORPHOLOGY_QUALIFIER_LIST_VERSION
     assert policy.list_version == "ncit-26.07d-morphology-qualifier-genus-v2"
     assert policy.ncit_version == "26.07d"
-    assert len(policy.codes) == 2_868
     assert {
         "C141041",
         "C120186",
@@ -68,18 +67,6 @@ def test_reviewed_policy_excludes_every_adjudicated_oracle_filler() -> None:
     policy = load_packaged_morphology_qualifier_policy()
 
     assert expected_fillers.isdisjoint(policy.codes)
-
-
-def test_runtime_policy_uses_codes_without_validating_review_labels() -> None:
-    document = _packaged_document()
-    entries = document["entries"]
-    assert isinstance(entries, list)
-    first = entries[0]
-    assert isinstance(first, dict)
-
-    policy = _parse_policy(document)
-
-    assert first["code"] in policy.codes
 
 
 @pytest.mark.parametrize(

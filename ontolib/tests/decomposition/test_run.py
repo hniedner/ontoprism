@@ -1226,9 +1226,7 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
                 _role("R101", "Has_Primary_Site", "C2"),
             ]
         },
-        # genus chain: C1's first intersectionOf member is C99 (distinct from
-        # C1), with a non-staging label → morphology_filler resolves to C99
-        label_rows=[{"label": "Medullary Carcinoma"}],
+        # C99 is a named genus outside the reviewed qualifier list.
     )
     role_row = client._complete_rows["C1"][0]
     client._complete_rows["C1"] = [
@@ -1272,7 +1270,6 @@ async def test_run_guard_rejects_invalid_projection_without_altering_source() ->
         semantic_type_of_rows=[
             {"code": "C12431", "st": "Body Part, Organ, or Organ Component"}
         ],
-        label_rows=[{"label": "Anatomic Structure"}],
         hierarchy_edges=[
             ("C12218", "C12219"),
             ("C12431", "C12219"),

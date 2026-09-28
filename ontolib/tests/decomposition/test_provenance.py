@@ -129,6 +129,11 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
                     "axis": "op:CellType",
                     "filler_code": "C4",
                 },
+                {
+                    "concept_code": "C1",
+                    "axis": "op:CellType",
+                    "filler_code": "C5",
+                },
             ),
         ),
         cast(
@@ -155,8 +160,14 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
             for flag in flags["C1"]
             if flag.kind == "group-policy-pair-not-emitted"
         )
-        == "group-policy pair not emitted"
+        == "group-policy pair op:CellType / C4 not emitted"
     )
+    missing_reasons = [
+        flag.reason
+        for flag in flags["C1"]
+        if flag.kind == "group-policy-pair-not-emitted"
+    ]
+    assert len(missing_reasons) == len(set(missing_reasons)) == 2
 
 
 @pytest.mark.unit

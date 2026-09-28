@@ -686,14 +686,20 @@ def _specificity_ancestor_pairs(
     routed_plan: fs.RoutedPlan,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
 ) -> set[extract.AncestorPair]:
-    return {
-        extract.AncestorPair(ancestor=broader, descendant=narrower)
+    paths = {
+        narrower: diagnostic_source.snapshot.ancestor_paths(narrower)
         for _axis_name, fillers in routed_plan.specificity_groups
         for narrower in fillers
-        for broader in fillers
-        if broader != narrower
-        and broader in diagnostic_source.snapshot.ancestor_paths(narrower)
     }
+    result: set[extract.AncestorPair] = set()
+    for _axis_name, fillers in routed_plan.specificity_groups:
+        for narrower in fillers:
+            result.update(
+                extract.AncestorPair(ancestor=broader, descendant=narrower)
+                for broader in fillers & paths[narrower].keys()
+                if broader != narrower
+            )
+    return result
 
 
 async def _part_of_pairs(

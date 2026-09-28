@@ -1640,7 +1640,7 @@ async def test_resolve_morphology_filler_for_c6135() -> None:
             client.select, "C6135", max_depth=6
         )
 
-    # C3879 is "Thyroid Gland Medullary Carcinoma" - the first non-staging genus
+    # C3879 is "Thyroid Gland Medullary Carcinoma" - outside the qualifier list.
     assert morphology == "C3879"
 
 

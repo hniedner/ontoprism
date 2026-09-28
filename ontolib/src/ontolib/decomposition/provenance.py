@@ -20,7 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator, Mapping, Sequence
+    from typing import Any
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
@@ -816,7 +817,7 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
 def _publication_flags(
     needs_review: Sequence[RowMapping],
     unresolved: Sequence[RowMapping],
-    group_policy_missing: Sequence[RowMapping],
+    group_policy_missing: Sequence[Mapping[str, Any]],
     mints: Sequence[RowMapping],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
@@ -843,7 +844,7 @@ def _publication_flags(
             (
                 row["concept_code"],
                 "group-policy-pair-not-emitted",
-                "group-policy pair not emitted",
+                f"group-policy pair {row['axis']} / {row['filler_code']} not emitted",
             )
             for row in group_policy_missing
         ),
@@ -3126,7 +3127,7 @@ class ProvenanceStore:
         flags = _publication_flags(
             needs_review.mappings().all(),
             unresolved.mappings().all(),
-            cast("Sequence[RowMapping]", group_policy_missing),
+            group_policy_missing,
             mints.mappings().all(),
         )
         return tuple(

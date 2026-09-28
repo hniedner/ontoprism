@@ -100,7 +100,10 @@ class DeltaOccurrence(StrictFrozenBoundaryModel):
         )
 
 
-DELTA_SQL = """
+def delta_sql(*, whole_run: bool = False) -> str:
+    """Use the same occurrence projection with a bounded or whole-run selector."""
+    concept_selector = "" if whole_run else " AND o.concept_code=:concept_code"
+    query = f"""
 SELECT o.occurrence_id, o.source_fact_id, o.source_group_id, o.anchor_code,
        o.depth, o.structural_path, o.role_code, o.filler_code,
        CAST(run.fingerprint->>'walker_max_depth' AS integer) AS walker_max_depth,
@@ -118,5 +121,9 @@ FROM decomp_source_occurrence o
 JOIN decomp_run run ON run.id=o.run_id
 LEFT JOIN decomp_occurrence_disposition d USING(run_id,concept_code,occurrence_id)
 LEFT JOIN decomp_r101_conservation r USING(run_id,concept_code,occurrence_id)
-WHERE o.run_id=:run_id AND o.concept_code=:concept_code ORDER BY o.occurrence_id
-"""
+ WHERE o.run_id=:run_id{concept_selector} ORDER BY o.occurrence_id
+"""  # noqa: S608 - fixed selector fragments; values use bound parameters
+    return query
+
+
+DELTA_SQL = delta_sql()

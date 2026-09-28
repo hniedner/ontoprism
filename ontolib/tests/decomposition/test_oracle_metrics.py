@@ -6,7 +6,13 @@ import sys
 from pathlib import Path
 
 import pytest
-from scripts.oracle_metrics import ExpectedConcept, StoredPair, read_oracle, score_pairs
+from scripts.oracle_metrics import (
+    ExpectedConcept,
+    StoredPair,
+    _conservation_counts,
+    read_oracle,
+    score_pairs,
+)
 
 pytestmark = pytest.mark.unit
 _GOLDEN = Path(__file__).parent / "golden"
@@ -58,6 +64,27 @@ def test_scores_distinguish_flagged_true_positive_false_positive_and_missed_pair
     assert "plain_exact_pair_recall=2/3 (0.666667)" in report
     assert "full_partition_agreement=0/1" in report
     assert "common_pair_partition_agreement_decided_only=0/0 (not-computed)" in report
+
+
+def test_report_conservation_categories_stay_distinct() -> None:
+    result = _conservation_counts(
+        {
+            "projected": 2,
+            "unchanged-unprojected": 3,
+            "one-step-r82": 4,
+            "closure-only-r82": 5,
+            "unresolved": 6,
+        }
+    )
+
+    assert result.model_dump() == {
+        "total": 20,
+        "projected": 2,
+        "unchanged_unprojected": 3,
+        "one_step_r82": 4,
+        "closure_only_r82": 5,
+        "unresolved": 6,
+    }
 
 
 def test_command_import_does_not_load_r103_review_chain():

@@ -7,7 +7,8 @@
         'atomic-no-op': 'atomic-no-op', unknown: 'unknown'
     };
     const flags: Record<DecompositionReviewFlagKind, string> = {
-        'needs-review': 'needs-review', 'unresolved-r101-loss': 'unresolved-r101-loss', 'mint-filler': 'mint-filler'
+        'needs-review': 'needs-review', 'unresolved-r101-loss': 'unresolved-r101-loss',
+        'mint-filler': 'mint-filler', 'group-policy-pair-not-emitted': 'group-policy-pair-not-emitted'
     };
 </script>
 

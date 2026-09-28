@@ -1375,7 +1375,9 @@ def test_runtime_policy_flags_a_pinned_pair_that_is_no_longer_emitted() -> None:
     applied = apply_normalized_group_policy(decomposition, policy)
 
     assert not isinstance(applied, NotApplicable)
-    assert applied.missing_pairs == (missing,)
+    assert missing not in {
+        (item.axis, item.filler_code) for item in applied.decomposition.constituents
+    }
     assert all(
         item.normalized_group_id
         == runtime_row.block_for((item.axis, item.filler_code)).normalized_group_id

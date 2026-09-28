@@ -432,7 +432,8 @@ export interface ConstituentEvidence {
 export type DecompositionReviewFlagKind =
 	| 'needs-review'
 	| 'unresolved-r101-loss'
-	| 'mint-filler';
+	| 'mint-filler'
+	| 'group-policy-pair-not-emitted';
 
 export interface DecompositionReviewFlag {
 	kind: DecompositionReviewFlagKind;

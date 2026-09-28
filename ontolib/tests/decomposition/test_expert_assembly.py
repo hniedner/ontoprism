@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from scripts.research import expert_assembly
 from scripts.research.expert_assembly import (
     _p334_carriers,
     _require_current_frame,
@@ -152,3 +153,76 @@ async def test_p334_lookup_uses_stated_graph_and_only_returns_ncit_carrier_codes
             ]
 
     assert await _p334_carriers(Client(), {"C1", "C2"}) == {"C1"}
+
+
+@pytest.mark.parametrize(
+    "carrier",
+    ["https://example.org/C1", "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C3"],
+)
+async def test_p334_lookup_rejects_foreign_carriers(carrier: str) -> None:
+    class Client:
+        async def select(self, _query: str, *, required_variables=()):
+            return [{"carrier": carrier}]
+
+    with pytest.raises(ValueError, match=r"not an NCIt|outside"):
+        await _p334_carriers(Client(), {"C1", "C2"})
+
+
+async def test_p334_lookup_batches_bounded_values() -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def select(self, query: str, *, required_variables=()):
+            self.queries.append(query)
+            return []
+
+    client = Client()
+    assert await _p334_carriers(client, {f"C{i}" for i in range(1, 83)}) == set()
+    assert len(client.queries) == 2
+
+
+@pytest.mark.parametrize(
+    "case", ["duplicate", "outside", "missing", "missing-decomposition"]
+)
+async def test_assemble_run_rejects_invalid_selected_frame_data(
+    monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    class Store:
+        async def get_run(self, _run_id: str):
+            return SimpleNamespace(status="complete")
+
+        async def fingerprint_for_run(self, _run_id: str):
+            return SimpleNamespace(worklist=tuple(f"C{i}" for i in range(1, 1001)))
+
+        async def work_item_outcomes(self, _run_id: str):
+            return [
+                SimpleNamespace(concept_code=f"C{i}", outcome="decomposed")
+                for i in range(1, 51)
+            ]
+
+        async def decompositions_for_run(self, _run_id: str):
+            count = 49 if case == "missing-decomposition" else 50
+            return [SimpleNamespace(code=f"C{i}") for i in range(1, count + 1)]
+
+        async def concept_publications_for_run(self, _run_id: str):
+            count = 49 if case == "missing" else 50
+            return [SimpleNamespace(concept_code=f"C{i}") for i in range(1, count + 1)]
+
+    class Engine:
+        async def dispose(self):
+            return None
+
+    monkeypatch.setattr(
+        expert_assembly, "create_async_engine", lambda *_a, **_k: Engine()
+    )
+    monkeypatch.setattr(expert_assembly, "make_sessionmaker", lambda _engine: None)
+    monkeypatch.setattr(expert_assembly, "ProvenanceStore", lambda _sf: Store())
+    monkeypatch.setattr(expert_assembly, "_require_current_frame", lambda _r, _f: None)
+    selected = [(f"C{i}", "random") for i in range(1, 51)]
+    if case == "duplicate":
+        selected[-1] = selected[0]
+    elif case == "outside":
+        selected[-1] = ("C1001", "random")
+    with pytest.raises(ValueError, match=r"unique|outside|missing|decomposed"):
+        await expert_assembly.assemble_run("run", selected)

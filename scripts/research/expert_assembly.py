@@ -7,7 +7,7 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -37,6 +37,7 @@ _RANDOM_SIZE = 30
 _PACKET_SIZE = _ORACLE_SIZE + _RANDOM_SIZE
 _FRAME_SIZE = 1_000
 _P334_BATCH = 80
+type Cohort = Literal["oracle", "random"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,7 @@ class ExpertConcept:
     """One reviewable source observation; no ICD-O value or adjudicated verdict."""
 
     code: str
-    cohort: str
+    cohort: Cohort
     label: str
     outcome: str
     outcome_reason: str
@@ -79,7 +80,7 @@ def _require_current_frame(run, fingerprint) -> None:
 
 def select_packet_sample(
     oracle: Sequence[str], decomposed: Iterable[str], *, seed: int
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, Cohort]]:
     """Append an unbiased seeded draw from decomposed, non-oracle frame codes."""
     if len(oracle) != _ORACLE_SIZE or len(set(oracle)) != _ORACLE_SIZE:
         raise ValueError("packet requires 20 unique oracle concepts")
@@ -87,7 +88,9 @@ def select_packet_sample(
     if len(eligible) < _RANDOM_SIZE:
         raise ValueError("not enough eligible decomposed concepts")
     sample = random.Random(seed).sample(eligible, _RANDOM_SIZE)  # noqa: S311
-    return [(code, "oracle") for code in oracle] + [(code, "random") for code in sample]
+    result: list[tuple[str, Cohort]] = [(code, "oracle") for code in oracle]
+    result.extend((code, "random") for code in sample)
+    return result
 
 
 def told_parent_index(edges: Sequence[HierarchyEdge]) -> dict[str, frozenset[str]]:
@@ -138,7 +141,7 @@ def review_reason(axis: str, filler: str, flagged: bool, ambiguous: bool) -> str
 def assemble_concept(
     detail: ConceptDetail,
     *,
-    cohort: str,
+    cohort: Cohort,
     outcome: str,
     outcome_reason: str,
     pairs: Sequence[tuple[str, str, bool, bool]],
@@ -204,7 +207,7 @@ def assemble_concept(
 
 async def sample_from_rehearsal(
     frame_run: str, frame_manifest: Path, oracle_path: Path, *, seed: int
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, Cohort]]:
     """Read only the completed corrected 1,000-concept sampling frame."""
     settings = get_settings()
     engine = create_async_engine(
@@ -261,7 +264,7 @@ async def _p334_carriers(client, codes: set[str]) -> set[str]:
 
 
 async def assemble_run(  # noqa: PLR0915 - bounded join of existing source readers
-    run_id: str, sample: Sequence[tuple[str, str]]
+    run_id: str, sample: Sequence[tuple[str, Cohort]]
 ) -> tuple[ExpertConcept, ...]:
     """Read 50 selected concepts from the complete file-only seeded frame run."""
     settings = get_settings()

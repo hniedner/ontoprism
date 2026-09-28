@@ -82,6 +82,17 @@ class StoredPair(BaseModel):
     normalized_group_id: str | None
 
 
+def _conservation_counts(counts: dict[str, int]) -> R101ConservationCounts:
+    return R101ConservationCounts(
+        total=sum(counts.values()),
+        projected=counts.get("projected", 0),
+        unchanged_unprojected=counts.get("unchanged-unprojected", 0),
+        one_step_r82=counts.get("one-step-r82", 0),
+        closure_only_r82=counts.get("closure-only-r82", 0),
+        unresolved=counts.get("unresolved", 0),
+    )
+
+
 def _rate(name: str, numerator: int, denominator: int) -> str:
     value = f"{numerator / denominator:.6f}" if denominator else "not-computed"
     return f"{name}={numerator}/{denominator} ({value})"
@@ -237,14 +248,7 @@ async def _stored_report(run_id: str) -> str:
                     {"run": run_id},
                 )
             }
-        conservation = R101ConservationCounts(
-            total=sum(counts.values()),
-            projected=counts.get("projected", 0),
-            unchanged_unprojected=counts.get("unchanged-unprojected", 0),
-            one_step_r82=counts.get("one-step-r82", 0),
-            closure_only_r82=counts.get("closure-only-r82", 0),
-            unresolved=counts.get("unresolved", 0),
-        )
+        conservation = _conservation_counts(counts)
         historical = json.loads((_GOLDEN / "neoplasm-row-decisions.json").read_text())[
             "rows"
         ]

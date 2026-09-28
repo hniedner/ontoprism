@@ -610,7 +610,7 @@ def apply_normalized_group_policy(
     row = policy.by_code.get(decomposition.code)
     if row is None:
         return NotApplicable(decomposition=decomposition)
-    missing_pairs = _validate_decomposition_input(decomposition, row)
+    _validate_decomposition_input(decomposition, row)
     _validate_genus_evidence(decomposition, row)
     grouped = []
     for item in decomposition.constituents:
@@ -623,16 +623,12 @@ def apply_normalized_group_policy(
                 normalized_group_label=block.normalized_group_label,
             )
         )
-    return Applied(
-        decomposition=replace(decomposition, constituents=tuple(grouped)),
-        missing_pairs=missing_pairs,
-    )
+    return Applied(decomposition=replace(decomposition, constituents=tuple(grouped)))
 
 
 @dataclass(frozen=True, slots=True)
 class Applied:
     decomposition: Decomposition
-    missing_pairs: tuple[Pair, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,7 +638,7 @@ class NotApplicable:
 
 def _validate_decomposition_input(
     decomposition: Decomposition, row: NormalizedGroupPolicyRow
-) -> tuple[Pair, ...]:
+) -> None:
     constituents = tuple(decomposition.constituents)
     pairs = {(item.axis, item.filler_code) for item in constituents}
     expected_pairs = {pair for block in row.output_partition for pair in block}
@@ -660,7 +656,6 @@ def _validate_decomposition_input(
         raise ValueError(
             f"normalized group policy source evidence differs for {decomposition.code}"
         )
-    return tuple(sorted(missing_pairs))
 
 
 def _expected_input_evidence_identity(

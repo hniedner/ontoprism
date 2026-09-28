@@ -187,7 +187,17 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
         ]
     }
     (tmp_path / "neoplasm-adjudicated.json").write_text(json.dumps(fixture))
-    (tmp_path / "neoplasm-row-decisions.json").write_text(json.dumps({"rows": []}))
+    (tmp_path / "neoplasm-row-decisions.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"row_type": "ENGINE SUGGESTION", "sme_action": "include"},
+                    {"row_type": "ENGINE SUGGESTION", "sme_action": "exclude"},
+                    {"row_type": "SME DECISION", "sme_action": "include"},
+                ]
+            }
+        )
+    )
     monkeypatch.setattr(oracle_metrics, "_GOLDEN", tmp_path)
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
@@ -229,6 +239,7 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
                 {"run": _RUN_ID},
             )
         report = await oracle_metrics._stored_report(_RUN_ID)
+        assert "historical_sme_include_rate=1/2 (0.500000)" in report
         assert "exact_pair_precision=1/2 (0.500000)" in report
         assert "exact_pair_recall=1/3 (0.333333)" in report
         assert "plain_exact_pair_precision=2/3 (0.666667)" in report
@@ -274,10 +285,10 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
                     semantic_type="Neoplastic Process",
                     constituents=(
                         Constituent(
-                            axis="op:PrimarySite",
-                            filler_code="C4",
+                            axis="op:Morphology",
+                            filler_code="C9",
                             axis_source="role",
-                            source_roles=("R101",),
+                            source_roles=("R105",),
                             needs_review=True,
                         ),
                     ),
@@ -324,26 +335,40 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
         )
         assert counts["outcomes.decomposed"] == 2
         assert counts["constituents.total"] == 4
-        assert counts["constituents.axis.op:PrimarySite"] == 3
+        assert counts["constituents.axis.op:PrimarySite"] == 2
         assert counts["concepts-with-multiple-values.axis.op:PrimarySite"] == 1
         assert counts["review-flags.constituent.total"] == 2
         assert counts["review-flags.other.mint-filler.total"] == 1
-        reason = "constituent op:PrimarySite / C12400 needs review"
+        missing_group_flags = counts[
+            "review-flags.other.group-policy-pair-not-emitted.total"
+        ]
+        assert missing_group_flags > 0
         assert (
-            counts[f"review-flags.constituent.axis.op:PrimarySite.reason.{reason}"] == 1
+            sum(
+                value
+                for key, value in counts.items()
+                if key.startswith(
+                    "review-flags.other.group-policy-pair-not-emitted.reason."
+                )
+            )
+            == missing_group_flags
+        )
+        reason = "constituent op:Morphology / C9 needs review"
+        assert (
+            counts[f"review-flags.constituent.axis.op:Morphology.reason.{reason}"] == 1
         )
         label = (
             "flagged-constituents-by-retained-value-count-on-axis."
             "co-occurrence-not-cause"
         )
-        assert counts[f"{label}.axis.op:PrimarySite.exactly-one"] == 1
+        assert counts[f"{label}.axis.op:Morphology.exactly-one"] == 1
         assert counts[f"{label}.axis.op:PrimarySite.more-than-one"] == 1
         assert (
             sum(value for key, value in counts.items() if key.startswith(label))
             == counts["review-flags.constituent.total"]
         )
         assert counts["primary-site-more-than-one"] == 1
-        assert counts["residual-precoordinated.including-morphology"] == 1
+        assert counts["residual-precoordinated.including-morphology"] == 2
         assert counts["residual-precoordinated.excluding-morphology"] == 1
         assert counts["stated-occurrences.total"] == 2
         assert counts["stated-occurrences.category.projected"] == 2

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import csv
 import io
+from argparse import Namespace
+from pathlib import Path
 
 import pytest
+from scripts.research import expert_packet
 from scripts.research.expert_assembly import ExpertConcept
 from scripts.research.expert_packet import render_packet
 
@@ -127,3 +130,41 @@ def test_cde_cap_and_lookup_limit_label() -> None:
         axis_definitions={"op:Morphology": "Type of neoplasm"},
     )
     assert csv_text == baseline_csv
+
+
+@pytest.mark.parametrize("existing", ["html", "divergent-csv", "same-path"])
+async def test_packet_command_refuses_to_overwrite_finished_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: str
+) -> None:
+    async def sample(*_args: object, **_kwargs: object):
+        return [("C10", "oracle")]
+
+    async def assemble(*_args: object, **_kwargs: object):
+        return (_concept(),)
+
+    monkeypatch.setattr(expert_packet, "sample_from_rehearsal", sample)
+    monkeypatch.setattr(expert_packet, "assemble_run", assemble)
+    html = tmp_path / "packet.html"
+    verdicts = html if existing == "same-path" else tmp_path / "verdicts.csv"
+    if existing == "html":
+        html.write_text("completed packet")
+    elif existing == "divergent-csv":
+        verdicts.write_text("reviewed answers")
+    request = Namespace(
+        frame_run="run",
+        frame_manifest=tmp_path / "sample.json",
+        oracle=tmp_path / "oracle.json",
+        seed=472,
+        html=html,
+        csv=verdicts,
+    )
+
+    with pytest.raises(ValueError, match=r"different paths|completed|differs"):
+        await expert_packet._run(request)
+
+    if existing == "html":
+        assert html.read_text() == "completed packet"
+    else:
+        assert not html.exists()
+    if existing == "divergent-csv":
+        assert verdicts.read_text() == "reviewed answers"

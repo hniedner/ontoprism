@@ -13,9 +13,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from backend.config import get_settings
-from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
+from ontolib.decomposition.enhancement_delta import DeltaOccurrence, delta_sql
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
+)
+from ontolib.decomposition.provenance import _missing_group_policy_pairs
 
-_WHOLE_RUN_DELTA_SQL = DELTA_SQL.replace("AND o.concept_code=:concept_code ", "")
+_WHOLE_RUN_DELTA_SQL = delta_sql(whole_run=True)
 _FLAG_SPLIT = (
     "flagged-constituents-by-retained-value-count-on-axis.co-occurrence-not-cause"
 )
@@ -34,6 +38,7 @@ async def _ordinary_counts(conn: AsyncConnection, run_id: str) -> Counter[str]:
             "review-flags.constituent.total": 0,
             "review-flags.other.mint-filler.total": 0,
             "review-flags.other.unresolved-r101-loss.total": 0,
+            "review-flags.other.group-policy-pair-not-emitted.total": 0,
         }
     )
     for outcome, count in await _grouped(
@@ -139,6 +144,29 @@ async def _flag_counts(
             count
         )
         counts["review-flags.other.mint-filler.total"] += int(count)
+    policy = load_packaged_normalized_group_policy()
+    policy_codes = [row.concept_code for row in policy.rows]
+    decomposed = await conn.execute(
+        text(
+            "SELECT concept_code FROM decomp_work_item WHERE run_id=:run_id "
+            "AND outcome='decomposed' AND concept_code=ANY(CAST(:codes AS text[]))"
+        ),
+        {"run_id": run_id, "codes": policy_codes},
+    )
+    emitted = await conn.execute(
+        text(
+            "SELECT concept_code,axis,filler_code FROM decomp_constituent "
+            "WHERE run_id=:run_id AND concept_code=ANY(CAST(:codes AS text[]))"
+        ),
+        {"run_id": run_id, "codes": policy_codes},
+    )
+    missing = _missing_group_policy_pairs(
+        {row[0] for row in decomposed.all()}, emitted.mappings().all(), policy
+    )
+    counts["review-flags.other.group-policy-pair-not-emitted.total"] = len(missing)
+    for row in missing:
+        reason = f"group-policy pair {row['axis']} / {row['filler_code']} not emitted"
+        counts["review-flags.other.group-policy-pair-not-emitted.reason." + reason] += 1
 
 
 async def corpus_shape_counts(

@@ -117,12 +117,12 @@ class AxisHierarchyEvidence:
         object.__setattr__(self, "_parents", parents)
 
     def ancestor_paths(self, code: str) -> dict[str, tuple[str, ...]]:
-        return _ancestor_paths(code, self._parents)
+        if code not in self._range_paths:
+            self._range_paths[code] = _ancestor_paths(code, self._parents)
+        return self._range_paths[code]
 
     def range_paths(self, code: str) -> dict[str, tuple[str, ...]]:
-        if code not in self._range_paths:
-            self._range_paths[code] = self.ancestor_paths(code)
-        return self._range_paths[code]
+        return self.ancestor_paths(code)
 
 
 ValidReason = Literal["filler-is-range-or-descendant"]
