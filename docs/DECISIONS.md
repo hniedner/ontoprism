@@ -7,6 +7,53 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-29 — curated evidence before expert curation in the graph viewer
+
+### D98. Build the Neoplasm demonstrator and evidence queue before expert gate G1
+
+**Context.** D96 required independent expert review before another full run or feature
+milestone. The owner now directs that curated-source and reasoner checks first identify
+what truly needs human judgment, and that experts work that queue in the completed
+graph-based curation interface. The static #461 packet is a development instrument, not
+the interface in which experts complete G1. This amends D96's sequence, not its product
+scope or the standing stop rule.
+
+**Decision (owner, 2026-09-29).** The product remains an **NCIt Neoplasm decomposition
+demonstrator with expert review**. Ontology-generic platform work, NAACCR, vision stages
+3–5, post-coordination grammar, cloud, promotion of mappings to identity grade, and
+literature generation are scheduled after G1 and start only after a "go" from it. Two
+things are not parked: correcting the existing cross-references (#226, #151, #159,
+#120), and keeping the repositories current (#490 to #494). Building one standard
+backend library and component set for the shipped repositories (#488) is internal
+reuse, not an ontology-generic platform. Follow the numbered delivery milestones (M10
+onward) by due date. Each states its value and issue order, has at most five issues,
+and ends with one reviewed PR to main. Split a stalled milestone rather than extending
+it. No new source release (NCIt, caDSR, Uberon, ICD-O) is activated on the instance
+until enhancements can be carried forward (#492 to #494).
+
+Evidence tiers are: **0** stated NCIt axioms; **1** expert-curated ontologies (Uberon,
+NCIt P334 / ICD-O-3, SNOMED MRCM, mCODE); **2** a description-logic reasoner; and
+**3** peer-reviewed literature linked to verified quotes. Tiers 0–2 run on an assertion
+before it reaches a human; unsupported or conflicting claims remain unresolved and enter
+the `needs-SME` queue. Engine semantics—per-axis cardinality, morphology and the residual
+metric—are proposed with curated sources and approved by the owner in their issues;
+conflicts between sources go to that queue, not to an automatic decision. Evidence
+milestones report the evidence-supported share and queue size by reason and axis, before
+and after.
+
+The corrected full run (#470) requires the owner's agreement and a written corpus-shape
+prediction, **not** prior passage of G1. From the merge of #482 on, a read-only smoke
+run against the configured stores precedes every milestone PR. At G1 independent
+experts work the `needs-SME` queue in the curation interface; the owner records their
+decisions and the go/no-go. If no independent expert has committed to sessions by
+**2026-11-06**, stop platform work and write up the findings (told closure, P334
+histology anchoring, detector saturation, D58 cases) for NCI EVS.
+
+**Why.** Sources and the reasoner can dispose of supported assertions before scarce
+independent expert time is spent; the interface makes residual ambiguity actionable.
+The owner-approved run and read-only smoke give the evidence and safety boundaries
+needed for that workflow without treating the static packet as a substitute for G1.
+
 ## 2026-09-28 — the curated projection uses the told hierarchy and the plain nested-value rule
 
 ### D97. Told named hierarchy edges are sufficient for axis-local specificity collapse
