@@ -81,6 +81,7 @@ class _FakeStore:
         offset: int,
         representation_status: RepresentationStatus | None = None,
         sort: str = "source",
+        column_text: dict[str, str] | None = None,
     ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
         return BrowsePage(
@@ -139,6 +140,7 @@ class _FakeIndex:
         offset: int,
         representation_status: RepresentationStatus | None = None,
         sort: str = "relevance",
+        column_text: dict[str, str] | None = None,
     ) -> SearchPage:
         self.searched = True
         self.search_calls.append((q, limit, offset, representation_status))

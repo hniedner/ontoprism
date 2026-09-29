@@ -9,12 +9,14 @@ export interface OffsetGridState<Sort extends string, Filters extends FilterSpec
 	offset: number;
 	sort: Sort;
 	filters: FilterState<Filters>;
+	textFilters?: Record<string, string>;
 }
 
 export interface OffsetGridSpec<Sort extends string, Filters extends FilterSpec = FilterSpec> {
 	defaultSort: Sort;
 	sorts: readonly Sort[];
 	filters: Filters;
+	textFilters?: readonly string[];
 	resultWindow?: number;
 }
 
@@ -66,6 +68,21 @@ function parseFilters<Filters extends FilterSpec>(params: URLSearchParams, spec:
 	return { value: value as FilterState<Filters>, invalid };
 }
 
+function parseTextFilters(params: URLSearchParams, columns: readonly string[] = []): Parsed<Record<string, string>> {
+	const values: Record<string, string> = {};
+	let invalid = false;
+	for (const column of columns) {
+		const key = `text_${column}`;
+		const raw = params.getAll(key);
+		if (!raw.length) continue;
+		const trimmed = raw[0].trim();
+		if (raw.length !== 1 || raw[0] !== trimmed || !trimmed || trimmed.length > 100 || [...trimmed].some((char) => char.charCodeAt(0) < 32)) invalid = true;
+		else values[column] = trimmed;
+	}
+	for (const key of params.keys()) if (key.startsWith('text_') && !columns.includes(key.slice(5))) invalid = true;
+	return { value: values, invalid };
+}
+
 function canonicalCursorGridSearch<Filters extends FilterSpec>(state: CursorGridState<Filters>, spec: CursorGridSpec<Filters>): string {
 	const params = new URLSearchParams();
 	if (state.query) params.set('q', state.query);
@@ -99,6 +116,7 @@ export function canonicalOffsetGridSearch<Sort extends string, Filters extends F
 	if (state.offset) params.set('offset', String(state.offset));
 	if (state.sort !== spec.defaultSort) params.set('sort', state.sort);
 	for (const key of Object.keys(spec.filters).sort()) for (const value of state.filters[key] ?? []) params.append(key, value);
+	for (const column of spec.textFilters ?? []) if (state.textFilters?.[column]) params.set(`text_${column}`, state.textFilters[column]);
 	return params.toString();
 }
 
@@ -109,8 +127,9 @@ export function parseOffsetGridUrl<Sort extends string, Filters extends FilterSp
 	const offset = parseOffset(url.searchParams, size.value, spec.resultWindow);
 	const sort = parseSort(url.searchParams, spec);
 	const filters = parseFilters(url.searchParams, spec);
-	const invalid = rawQuery !== query || size.invalid || offset.invalid || sort.invalid || filters.invalid;
-	const state = { size: size.value, offset: offset.value, sort: sort.value, filters: filters.value };
+	const textFilters = parseTextFilters(url.searchParams, spec.textFilters);
+	const invalid = rawQuery !== query || size.invalid || offset.invalid || sort.invalid || filters.invalid || textFilters.invalid;
+	const state = { size: size.value, offset: offset.value, sort: sort.value, filters: filters.value, ...(spec.textFilters ? { textFilters: textFilters.value } : {}) };
 	const canonical = canonicalOffsetGridSearch(query, state, spec);
 	if (invalid || url.search.slice(1) !== canonical) {
 		throw redirect(307, `${url.pathname}${canonical ? `?${canonical}` : ''}`);

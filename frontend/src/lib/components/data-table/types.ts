@@ -12,9 +12,13 @@ export interface DataTableCategoricalOption {
 	label: string;
 }
 
-export type DataTableFilter = { kind: 'categorical'; ariaLabel: string; options: readonly DataTableCategoricalOption[] };
+export type DataTableFilter =
+	| { kind: 'text'; ariaLabel: string }
+	| { kind: 'categorical'; ariaLabel: string; options: readonly DataTableCategoricalOption[]; textFilter?: boolean };
 
-export type DataTableFilterState = { kind: 'categorical'; selected: readonly string[] };
+export type DataTableFilterState =
+	| { kind: 'text'; text: string }
+	| { kind: 'categorical'; selected: readonly string[]; text?: string };
 
 export type DataTableFilterKeyMap = Readonly<Record<string, string>>;
 

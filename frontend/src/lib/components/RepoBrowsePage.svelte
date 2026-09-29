@@ -26,10 +26,11 @@
 		countLabel: (total: number, mode: 'browse' | 'search') => string;
 		results: Snippet<[H[], DataTableOperations, string]>;
 		filters?: Snippet;
-		initial: { result: P; query: string; offset: number; size: PageSize; sort: Sort; filters: Record<string, string[]> };
+		initial: { result: P; query: string; offset: number; size: PageSize; sort: Sort; filters: Record<string, string[]>; textFilters?: Record<string, string> };
 		defaultSort: Sort;
 		sortKeys: Readonly<Record<string, { asc: Sort; desc: Sort }>>;
 		filterKeys: DataTableFilterKeyMap;
+		textKeys?: DataTableFilterKeyMap;
 	}
 
 	let {
@@ -48,13 +49,14 @@
 		initial,
 		defaultSort,
 		sortKeys,
-		filterKeys
+		filterKeys,
+		textKeys = {}
 	}: Props = $props();
 
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
-	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0));
+	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0) || Object.values(initial.textFilters ?? {}).some(Boolean));
 
 	async function navigate(update: (params: SvelteURLSearchParams) => void): Promise<void> {
 		const params = new SvelteURLSearchParams(page.url.search);
@@ -88,14 +90,21 @@
 		if (new Set(mappedKeys).size !== mappedKeys.length || mappedKeys.some((key) => !Object.hasOwn(initial.filters, key)) || sourceKeys.some((key) => !mappedKeys.includes(key))) {
 			throw new Error('Repository filter mappings do not match loaded filter state.');
 		}
-		return Object.fromEntries(Object.entries(filterKeys).map(([columnId, key]) => [columnId, { kind: 'categorical', selected: initial.filters[key] } satisfies DataTableFilterState]));
+		if (Object.values(textKeys).some((key) => !key) || new Set(Object.values(textKeys)).size !== Object.values(textKeys).length || Object.keys(initial.textFilters ?? {}).some((key) => !Object.values(textKeys).includes(key))) {
+			throw new Error('Repository text mappings do not match loaded filter state.');
+		}
+		if (Object.keys(filterKeys).some((key) => textKeys[key] === undefined) && Object.keys(textKeys).length) throw new Error('Categorical column is missing text filter mapping.');
+		return Object.fromEntries([...new Set([...Object.keys(filterKeys), ...Object.keys(textKeys)])].map((columnId): [string, DataTableFilterState] => {
+			const text = initial.textFilters?.[textKeys[columnId]] ?? '';
+			const category = filterKeys[columnId];
+			return [columnId, category ? { kind: 'categorical', selected: initial.filters[category], ...(text ? { text } : {}) } : { kind: 'text', text }];
+		}));
 	});
 	const operations = $derived<DataTableOperations>({ kind: 'server', sort: sortState(initial.sort), defaultSort: sortState(defaultSort), activeSortLabel: sortLabel(initial.sort), filters: tableFilters, busy: loading, onintent: handleIntent });
 	let intentError = $state<string | null>(null);
 	function mappedFilterKey(columnId: string): string | null {
 		const key = filterKeys[columnId];
 		if (key !== undefined && Object.hasOwn(initial.filters, key)) return key;
-		intentError = `No server filter mapping for ${columnId}`;
 		return null;
 	}
 	function mappedSort(intent: Extract<DataTableIntent, { kind: 'sort' }>): Sort | null {
@@ -108,11 +117,14 @@
 		if (value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
 	function applyFilter(params: SvelteURLSearchParams, key: string, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
-		params.delete(key);
-		for (const value of intent.filter.selected) params.append(key, value);
+		if (key) params.delete(key);
+		if (intent.filter.kind === 'categorical') for (const value of intent.filter.selected) params.append(key, value);
+		const textKey = textKeys[intent.columnId];
+		if (textKey) { params.delete(`text_${textKey}`); if (intent.filter.text) params.set(`text_${textKey}`, intent.filter.text); }
 	}
 	function clearFilters(params: SvelteURLSearchParams): void {
 		for (const key of Object.keys(initial.filters)) params.delete(key);
+		for (const key of Object.values(textKeys)) params.delete(`text_${key}`);
 	}
 	function navigateTable(update: (params: SvelteURLSearchParams) => void): void {
 		intentError = null;
@@ -129,12 +141,14 @@
 		}
 		if (intent.kind === 'filter') {
 			const key = mappedFilterKey(intent.columnId);
-			if (key !== null) navigateTable((params) => applyFilter(params, key, intent));
+			if (key !== null || textKeys[intent.columnId]) navigateTable((params) => applyFilter(params, key ?? '', intent));
+			else intentError = `No server filter mapping for ${intent.columnId}`;
 			return;
 		}
 		if (intent.kind === 'clear-filter') {
 			const key = mappedFilterKey(intent.columnId);
-			if (key !== null) navigateTable((params) => params.delete(key));
+			if (key !== null || textKeys[intent.columnId]) navigateTable((params) => { if (key) params.delete(key); if (textKeys[intent.columnId]) params.delete(`text_${textKeys[intent.columnId]}`); });
+			else intentError = `No server filter mapping for ${intent.columnId}`;
 			return;
 		}
 		navigateTable((params) => {

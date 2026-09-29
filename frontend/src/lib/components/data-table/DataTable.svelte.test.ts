@@ -84,10 +84,61 @@ describe('DataTable server-owned operations', () => {
 			kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Archived', 'Current'] }
 		});
 		expect(bodyNames()).toEqual(['Beta', 'alpha']);
-		await fireEvent.click(within(dialog).getByRole('button', { name: 'Clear selections for Group' }));
+		await fireEvent.click(within(dialog).getByRole('button', { name: 'Clear filter for Group' }));
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filter', columnId: 'group' });
 		await fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'clear-filters' });
+	});
+
+	it('offers type-ahead on a categorical column without replacing multi-select', async () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, { rows, onintent });
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Group' }));
+		const dialog = screen.getByRole('dialog', { name: 'Group filter' });
+		await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Filter Group text' }), { target: { value: 'Current' } });
+		expect(within(dialog).getByRole('checkbox', { name: 'Current' })).toBeInTheDocument();
+		expect(within(dialog).queryByRole('checkbox', { name: 'Archived' })).not.toBeInTheDocument();
+		await fireEvent.click(within(dialog).getByRole('button', { name: 'Apply Group text' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: [], text: 'Current' } });
+		await fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Current' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Current'] } });
+	});
+
+	it('retains the applied categorical text when a selection changes after server navigation', async () => {
+		const onintent = vi.fn();
+		const view = render(DataTableTestHost, { rows, onintent, filters: { group: { kind: 'categorical', selected: [], text: 'Cur' } } });
+		await fireEvent.click(screen.getByRole('button', { name: /Filter Group, text: Cur/ }));
+		const dialog = screen.getByRole('dialog', { name: 'Group filter' });
+		expect(within(dialog).getByRole('textbox', { name: 'Filter Group text' })).toHaveValue('Cur');
+		await fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Current' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Current'], text: 'Cur' } });
+		await view.rerender({ rows, onintent, filters: { group: { kind: 'categorical', selected: ['Current'], text: 'Cur' } } });
+		expect(screen.getByRole('button', { name: 'Clear Group filter' })).toHaveTextContent('Group: Current, contains “Cur”');
+	});
+
+	it('offers a type-ahead text filter on a column without a controlled vocabulary', async () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, { rows, onintent });
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Name' }));
+		const dialog = screen.getByRole('dialog', { name: 'Name filter' });
+		await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Filter Name text' }), { target: { value: 'beta' } });
+		await fireEvent.submit(within(dialog).getByRole('button', { name: 'Apply Name text' }).closest('form')!);
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'beta' } });
+	});
+
+	it('shows the applied text alongside the categorical selection and clears both', async () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, {
+			rows,
+			onintent,
+			filters: { group: { kind: 'categorical', selected: ['Current'], text: 'Cur' }, name: { kind: 'text', text: 'Beta' } }
+		});
+		expect(screen.getByRole('button', { name: 'Clear Group filter' })).toHaveTextContent('Group: Current, contains “Cur”');
+		expect(screen.getByRole('button', { name: 'Clear Name filter' })).toHaveTextContent('Name: contains “Beta”');
+		await fireEvent.click(screen.getByRole('button', { name: 'Clear Group filter' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'clear-filter', columnId: 'group' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Reset table' }));
+		expect(onintent).toHaveBeenCalledWith({ kind: 'reset' });
 	});
 
 	it('renders active chips with human column and option labels without dropping selections', () => {
@@ -232,6 +283,7 @@ describe('DataTable fail-closed validation', () => {
 		['unconfigured filter', { operations: server({ filters: { missing: { kind: 'categorical', selected: ['x'] } } }) }, 'DataTable filter "missing" is not configured'],
 		['missing filter state', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }] } })], operations: server() }, 'DataTable column "name" is missing filter state'],
 		['invalid selected option', { columns: [column({ filter: { kind: 'categorical', ariaLabel: 'Groups', options: [{ value: 'a', label: 'A' }] } })], operations: server({ filters: { name: { kind: 'categorical', selected: ['b'] } } }) }, 'DataTable filter "name" selected an invalid option'],
+		['uncanonical text filter', { columns: [column({ filter: { kind: 'text', ariaLabel: 'Names' } })], operations: server({ filters: { name: { kind: 'text', text: ' Leading ' } } }) }, 'DataTable filter "name" text is invalid'],
 		['disabled sortable column', { columns: [column({ sortable: ['asc', 'desc'] })] }, 'DataTable operations "none" cannot configure sorting or filtering'],
 		['blank row ID', { getRowId: (): string => ' ' }, 'DataTable row IDs must not be empty'],
 		['duplicate row ID', { getRowId: (): string => 'same' }, 'DataTable duplicate row ID']

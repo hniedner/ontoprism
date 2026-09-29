@@ -8,10 +8,10 @@
 	let { hits, operations = { kind: 'none' }, emptyMessage = 'No results.' }: { hits: readonly SearchHit[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<SearchHit>[] => [
-		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive ? ['asc', 'desc'] : undefined },
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: interactive ? ['asc', 'desc'] : undefined, filter: interactive ? { kind: 'text', ariaLabel: 'Filter NCIt codes' } : undefined, sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortable: interactive ? ['asc', 'desc'] : undefined, filter: interactive ? { kind: 'text', ariaLabel: 'Filter NCIt names' } : undefined },
 		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell },
-		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter NCIt representation status', options: [{ value: 'legacy-precoordinated', label: 'Legacy pre-coordinated' }] } : undefined }
+		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter NCIt representation status', textFilter: true, options: [{ value: 'legacy-precoordinated', label: 'Legacy pre-coordinated' }] } : undefined }
 	]);
 </script>
 

@@ -35,8 +35,12 @@ function validateSortStates<Row>(columns: readonly DataTableColumn<Row>[], opera
 function validateFilterState<Row>(columns: readonly DataTableColumn<Row>[], id: string, state: Extract<DataTableOperations, { kind: 'server' }>['filters'][string]): void {
 	const filter = columns.find((column) => column.id === id)?.filter;
 	if (!filter || filter.kind !== state.kind) invalid(`DataTable filter "${id}" is not configured`);
-	const available = new Set(filter.options.map((option) => option.value));
-	if (state.selected.some((value) => !available.has(value))) invalid(`DataTable filter "${id}" selected an invalid option`);
+	if (state.kind === 'categorical' && filter.kind === 'categorical' && state.text && !filter.textFilter) invalid(`DataTable filter "${id}" text is not configured`);
+	if (state.text && (state.text.length > 100 || state.text !== state.text.trim() || [...state.text].some((char) => char.charCodeAt(0) < 32))) invalid(`DataTable filter "${id}" text is invalid`);
+	if (state.kind === 'categorical' && filter.kind === 'categorical') {
+		const available = new Set(filter.options.map((option) => option.value));
+		if (state.selected.some((value) => !available.has(value))) invalid(`DataTable filter "${id}" selected an invalid option`);
+	}
 }
 
 function validateFilterStates<Row>(columns: readonly DataTableColumn<Row>[], operations: Extract<DataTableOperations, { kind: 'server' }>): void {

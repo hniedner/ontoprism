@@ -130,6 +130,13 @@ export async function postJsonBody<T>(
 	return (await resp.json()) as T;
 }
 
+function appendNcitColumnText(params: Record<string, string | number>, values: Record<string, string> = {}): void {
+	for (const [column, value] of Object.entries(values)) {
+		if (!['code', 'label', 'representation_status'].includes(column)) throw new Error(`Unknown NCIt text column: ${column}`);
+		params[`${column === 'representation_status' ? 'status' : column}_text`] = value;
+	}
+}
+
 export function searchNcit(
 	q: string,
 	opts: {
@@ -137,6 +144,7 @@ export function searchNcit(
 		offset?: number;
 		representationStatus?: RepresentationStatus;
 		sort?: NcitSearchSort;
+		columnText?: Record<string, string>;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitSearchPage> {
@@ -149,6 +157,7 @@ export function searchNcit(
 		params.representation_status = opts.representationStatus;
 	}
 	if (opts.sort) params.sort = opts.sort;
+	appendNcitColumnText(params, opts.columnText);
 	const url = apiUrl('/api/v1/ncit/search', params);
 	return getJson<NcitSearchPage>(url, opts.fetch);
 }
@@ -160,6 +169,7 @@ export function listNcit(
 		offset?: number;
 		representationStatus?: RepresentationStatus;
 		sort?: NcitBrowseSort;
+		columnText?: Record<string, string>;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitBrowsePage> {
@@ -171,6 +181,7 @@ export function listNcit(
 		params.representation_status = opts.representationStatus;
 	}
 	if (opts.sort) params.sort = opts.sort;
+	appendNcitColumnText(params, opts.columnText);
 	const url = apiUrl('/api/v1/ncit/list', params);
 	return getJson<NcitBrowsePage>(url, opts.fetch);
 }

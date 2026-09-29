@@ -54,6 +54,7 @@ interface NcitPageBase {
 	limit: number;
 	offset: number;
 	representation_status: RepresentationStatus | null;
+	column_text: Record<string, string>;
 	hits: SearchHit[];
 }
 

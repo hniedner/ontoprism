@@ -6,16 +6,17 @@
 	const filters = $derived(operations.kind === 'server' ? operations.filters : {});
 	const sort = $derived(operations.kind === 'server' ? operations.sort : null);
 	const activeFilters = $derived.by(() => Object.entries(filters).flatMap(([columnId, state]) => {
-		if (state.selected.length === 0) return [];
+		const selected = state.kind === 'categorical' ? state.selected : [];
+		if (selected.length === 0 && !state.text) return [];
 		const column = columns.find((candidate) => candidate.id === columnId);
 		if (!column?.filter) return [];
-		const optionLabels = new Map(column.filter.options.map((option) => [option.value, option.label]));
-		const selectedLabels = state.selected.map((value) => {
+		const optionLabels = new Map(column.filter.kind === 'categorical' ? column.filter.options.map((option) => [option.value, option.label]) : []);
+		const selectedLabels = selected.map((value) => {
 			const label = optionLabels.get(value);
 			if (label === undefined) throw new Error(`DataTable filter "${columnId}" selected an invalid option`);
 			return label;
 		});
-		return [{ columnId, columnLabel: column.label, selectedLabels }];
+		return [{ columnId, columnLabel: column.label, selectedLabels: [...selectedLabels, ...(state.text ? [`contains “${state.text}”`] : [])] }];
 	}));
 	const busy = $derived(operations.kind === 'server' && operations.busy);
 	function emit(intent: DataTableIntent): void { if (operations.kind === 'server') operations.onintent(intent); }
