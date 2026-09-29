@@ -17,6 +17,17 @@ async function search(page: Page, term: string, name: string): Promise<Locator> 
 	await expect(page).toHaveURL((url) => url.searchParams.get('q') === term);
 	const found = await rows(page, name);
 	expect((await found.locator('td:nth-child(2)').allTextContents()).some((text) => text.toLowerCase().includes(term.toLowerCase()))).toBe(true);
+	const absent = 'ontoprismnonexistenttermzqv834920';
+	await page.getByRole('searchbox').fill(absent);
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page).toHaveURL((url) => url.searchParams.get('q') === absent);
+	await expect(region(page, name)).toHaveAttribute('aria-busy', 'false');
+	await expect(region(page, name).locator('tbody tr')).toHaveCount(1);
+	await expect(region(page, name).locator('tbody tr td')).toHaveAttribute('colspan', /[1-9]/);
+	await page.getByRole('searchbox').fill(term);
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page).toHaveURL((url) => url.searchParams.get('q') === term);
+	await rows(page, name);
 	return found;
 }
 
@@ -26,7 +37,7 @@ async function detail(page: Page, name: string, identifier: string): Promise<voi
 	expect(path).toBeTruthy();
 	await link.click();
 	await expect(page).toHaveURL((url) => url.pathname === path);
-	await expect(page.getByText(identifier, { exact: false }).first()).toBeVisible();
+	await expect(page.locator('main').getByText(identifier, { exact: false }).first()).toBeVisible();
 }
 
 async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' = 'text'): Promise<void> {
