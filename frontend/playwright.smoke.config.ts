@@ -6,6 +6,7 @@ if (!baseURL?.startsWith('http://127.0.0.1:')) throw new Error('loopback fronten
 export default defineConfig({
 	testDir: 'e2e-real',
 	fullyParallel: false,
+	forbidOnly: true,
 	retries: 0,
 	reporter: 'list',
 	use: { baseURL },

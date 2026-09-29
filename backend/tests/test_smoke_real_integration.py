@@ -22,7 +22,6 @@ pytestmark = [
 @pytest.mark.integration
 async def test_real_smoke_fails_on_disposable_broken_search_manifest(
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     get_settings.cache_clear()
