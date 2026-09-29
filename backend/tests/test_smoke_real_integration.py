@@ -21,12 +21,10 @@ pytestmark = [
 
 @pytest.mark.integration
 async def test_real_smoke_fails_on_disposable_broken_search_manifest(
-    isolated_qlever_url: str,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("UBERON_SPARQL_URL", isolated_qlever_url)
     get_settings.cache_clear()
     engine = make_engine(get_settings().database_url)
     try:

@@ -281,6 +281,56 @@ def test_rebuild_uberon_refuses_changed_live_fields(
     assert checks == 2
 
 
+@pytest.mark.api
+def test_rebuild_uberon_refuses_drift_before_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    ready = asyncio.run(_ready_uberon())
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=lambda **_: asyncio.sleep(0, result=ready)
+    )
+    checks = 0
+
+    async def drifted(_url: str) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        nonlocal checks
+        checks += 1
+        live = ready.observation.model_dump()
+        live["triples"] += 1
+        return UberonIndexObservation.model_validate(live), ready.class_counts
+
+    monkeypatch.setattr("backend.api.v1.refresh.observe_uberon_repository", drifted)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 502
+    assert checks == 1
+    assert index.source is None
+
+
+@pytest.mark.api
+def test_rebuild_uberon_uncertified_source_returns_typed_503() -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=lambda **_: asyncio.sleep(
+            0,
+            result=RepositoryUnhealthy(
+                repository="uberon", reason="observation-mismatch", message="drift"
+            ),
+        )
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "observation-mismatch"
+    assert index.source is None
+
+
 class _FailingSearchIndex:
     async def rebuild(self, *args: object, **kwargs: object) -> int:
         raise StorageError("store unreachable")

@@ -2,12 +2,13 @@
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
@@ -50,7 +51,7 @@ def _deny_unoverridden_provider() -> None:
 @pytest.fixture(autouse=True)
 def _fence_test_app_services(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> Iterator[None]:
     """At TestClient construction, deny omitted persistent provider overrides."""
     allowed = False
     if "live_api_client" in request.fixturenames and request.node.get_closest_marker(
@@ -72,15 +73,25 @@ def _fence_test_app_services(
             and settings.uberon_sparql_url == qlever
         )
     if allowed:
+        yield
         return
     original = TestClient.__init__
+    inserted: list[tuple[FastAPI, Callable[..., object]]] = []
 
-    def fenced_client(client: TestClient, app, *args, **kwargs) -> None:
+    def fenced_client(client: TestClient, app: FastAPI, *args, **kwargs) -> None:
         for provider in _PERSISTENT_PROVIDERS:
-            app.dependency_overrides.setdefault(provider, _deny_unoverridden_provider)
+            if provider not in app.dependency_overrides:
+                app.dependency_overrides[provider] = _deny_unoverridden_provider
+                inserted.append((app, provider))
         original(client, app, *args, **kwargs)
 
     monkeypatch.setattr(TestClient, "__init__", fenced_client)
+    try:
+        yield
+    finally:
+        for app, provider in inserted:
+            if app.dependency_overrides.get(provider) is _deny_unoverridden_provider:
+                del app.dependency_overrides[provider]
 
 
 class _IsolatedRepositoryMetadata:

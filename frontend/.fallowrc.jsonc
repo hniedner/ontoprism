@@ -15,7 +15,7 @@
 		"src/hooks.{client,server}.{ts,js}",
 		"src/app.html",
 		"src/app.d.ts",
-		"scripts/smoke-real.mjs"
+		"playwright.smoke.config.ts"
 	],
 
 	"ignorePatterns": [

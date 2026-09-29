@@ -86,12 +86,15 @@ def main(
     connection_scope: Callable[[str], AbstractContextManager[None]] | None = None,
 ) -> int:
     backend_port, frontend_port = free_port(), free_port()
+    while frontend_port == backend_port:
+        frontend_port = free_port()
     env = os.environ.copy()
     # Frontend SSR is directed at this guarded app.
     env["ONTOPRISM_FASTAPI_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
     env["HOST"] = "127.0.0.1"
     env["PORT"] = str(frontend_port)
     env["ORIGIN"] = f"http://127.0.0.1:{frontend_port}"
+    env["SMOKE_FRONTEND_URL"] = env["ORIGIN"]
     npm, node = shutil.which("npm"), shutil.which("node")
     if npm is None or node is None:
         raise RuntimeError("npm and node are required for the browser smoke")
@@ -126,7 +129,15 @@ def main(
             frontend = start([node, "build"], cwd=ROOT / "frontend", env=env)
             wait_for(f"http://127.0.0.1:{frontend_port}/", frontend)
             result = subprocess.run(  # noqa: S603
-                [node, "scripts/smoke-real.mjs", f"http://127.0.0.1:{frontend_port}"],
+                [
+                    npm,
+                    "exec",
+                    "--",
+                    "playwright",
+                    "test",
+                    "--config",
+                    "playwright.smoke.config.ts",
+                ],
                 cwd=ROOT / "frontend",
                 env=env,
                 check=False,
