@@ -83,6 +83,7 @@ class SearchPage(StrictBoundaryModel):
     offset: int
     sort: RepositorySearchSort = "relevance"
     representation_status: RepresentationStatus | None
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: list[SearchHit] = Field(default_factory=list)
 
 
@@ -95,6 +96,7 @@ class BrowsePage(StrictBoundaryModel):
     offset: int
     sort: RepositoryBrowseSort = "source"
     representation_status: RepresentationStatus | None
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: list[SearchHit] = Field(default_factory=list)
 
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
+from ontolib.common.grid import text_predicate
 from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
@@ -390,6 +391,7 @@ class NcitGraphStore:
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
         sort: RepositoryBrowseSort = "source",
+        column_text: dict[str, str] | None = None,
     ) -> BrowsePage:
         """List all named concepts in the requested deterministic browse order.
 
@@ -406,6 +408,10 @@ class NcitGraphStore:
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
+        filters = "\n".join(
+            text_predicate(column, value, dialect="sparql")
+            for column, value in (column_text or {}).items()
+        )
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label (SAMPLE(?semtypeValue) AS ?semtype)
@@ -415,28 +421,13 @@ class NcitGraphStore:
                 OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
                 {page_status}
+                {filters}
             }}
             GROUP BY ?concept ?label
             ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
-        if representation_status not in self._total_concepts:
-            count_status = _representation_status_pattern(
-                "?concept", representation_status
-            )
-            count_rows = await self._client.select(
-                f"""{_PREFIXES}
-                SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
-                    ?concept a owl:Class ; rdfs:label ?label .
-                    FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
-                    {count_status}
-                }}
-                """
-            )
-            count_val = count_rows[0].get("count") if count_rows else None
-            self._total_concepts[representation_status] = (
-                int(count_val) if count_val is not None else 0
-            )
+        total = await self._browse_count(representation_status, column_text, filters)
         hits = [
             SearchHit(
                 code=_code_of(concept),
@@ -450,13 +441,43 @@ class NcitGraphStore:
         ]
         return BrowsePage(
             query="",
-            total=self._total_concepts[representation_status],
+            total=total,
             limit=limit,
             offset=offset,
             sort=sort,
             representation_status=representation_status,
+            column_text=column_text or {},
             hits=hits,
         )
+
+    async def _browse_count(
+        self,
+        representation_status: RepresentationStatus | None,
+        column_text: dict[str, str] | None,
+        filters: str,
+    ) -> int:
+        if not column_text and representation_status in self._total_concepts:
+            return self._total_concepts[representation_status]
+        count_status = _representation_status_pattern(
+            "?concept",
+            representation_status,
+            include_unfiltered="representation_status" in (column_text or {}),
+        )
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+                {count_status}
+                {filters}
+            }}
+            """
+        )
+        value = rows[0].get("count") if rows else None
+        total = int(value) if value is not None else 0
+        if not column_text:
+            self._total_concepts[representation_status] = total
+        return total
 
     async def search_records(
         self, *, limit: int, offset: int

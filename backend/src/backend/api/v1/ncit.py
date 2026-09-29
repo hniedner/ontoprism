@@ -24,6 +24,7 @@ from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ColumnText
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
@@ -205,6 +206,9 @@ async def search(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositorySearchSort = "relevance",
+    code_text: ColumnText | None = None,
+    label_text: ColumnText | None = None,
+    status_text: ColumnText | None = None,
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
     repository = await metadata.ncit()
@@ -225,6 +229,15 @@ async def search(
             offset=offset,
             representation_status=representation_status,
             sort=sort,
+            column_text={
+                key: value
+                for key, value in (
+                    ("code", code_text),
+                    ("label", label_text),
+                    ("representation_status", status_text),
+                )
+                if value is not None
+            },
         )
     except SQLAlchemyError as exc:
         logger.warning("NCIt FTS cache unavailable: %s", exc)
@@ -244,6 +257,9 @@ async def list_concepts(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositoryBrowseSort = "source",
+    code_text: ColumnText | None = None,
+    label_text: ColumnText | None = None,
+    status_text: ColumnText | None = None,
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
     return await store.list_concepts(
@@ -251,6 +267,15 @@ async def list_concepts(
         offset=offset,
         representation_status=representation_status,
         sort=sort,
+        column_text={
+            key: value
+            for key, value in (
+                ("code", code_text),
+                ("label", label_text),
+                ("representation_status", status_text),
+            )
+            if value is not None
+        },
     )
 
 

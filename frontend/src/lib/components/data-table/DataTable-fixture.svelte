@@ -14,13 +14,14 @@
 		regionLabel?: string;
 	} = $props();
 	const filterStates = $derived({
+		name: { kind: 'text', text: '' } satisfies DataTableFilterState,
 		group: { kind: 'categorical', selected: [] } satisfies DataTableFilterState,
 		active: { kind: 'categorical', selected: [] } satisfies DataTableFilterState,
 		...filters
 	});
 	let columns = $derived.by((): readonly DataTableColumn<TestRow>[] => [
-		{ id: 'name', label: 'Name', cell: nameCell, sortable: ['asc', 'desc'], sticky: sticky ? { side: 'left', offset: 0 } : undefined },
-		{ id: 'group', label: 'Group', cell: groupCell, sortable: ['asc', 'desc'], filter: { kind: 'categorical', ariaLabel: 'Filter groups', options: [
+		{ id: 'name', label: 'Name', cell: nameCell, sortable: ['asc', 'desc'], filter: { kind: 'text', ariaLabel: 'Filter names' }, sticky: sticky ? { side: 'left', offset: 0 } : undefined },
+		{ id: 'group', label: 'Group', cell: groupCell, sortable: ['asc', 'desc'], filter: { kind: 'categorical', ariaLabel: 'Filter groups', textFilter: true, options: [
 			{ value: 'Current', label: 'Current' }, { value: 'Archived', label: 'Archived' }
 		] } },
 		{ id: 'rank', label: 'Rank', cell: rankCell },

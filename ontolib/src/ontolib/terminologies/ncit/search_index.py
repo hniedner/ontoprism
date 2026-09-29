@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
+from ontolib.common.grid import text_param, text_predicate
 from ontolib.terminologies.ncit.models import (
     RepositorySearchSort,
     RepresentationStatus,
@@ -61,6 +62,7 @@ _SEARCH_SQL = r"""
     WHERE tsv @@ q
       AND (CAST(:representation_status AS text) IS NULL
            OR representation_status = CAST(:representation_status AS text))
+      {column_filters}
 """
 _SEARCH_COUNT_SQL = r"""
     SELECT COUNT(*)
@@ -68,6 +70,7 @@ _SEARCH_COUNT_SQL = r"""
     WHERE tsv @@ q
       AND (CAST(:representation_status AS text) IS NULL
            OR representation_status = CAST(:representation_status AS text))
+      {column_filters}
 """
 _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "relevance": (
@@ -149,6 +152,7 @@ class NcitSearchIndex:
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
         sort: RepositorySearchSort = "relevance",
+        column_text: dict[str, str] | None = None,
     ) -> SearchPage:
         """Search one page and count all matches with two bounded SQL statements."""
         async with self._sf() as session:
@@ -158,9 +162,22 @@ class NcitSearchIndex:
                 "offset": offset,
                 "representation_status": representation_status,
             }
-            count_result = await session.execute(text(_SEARCH_COUNT_SQL), params)
+            predicates = "".join(
+                text_predicate(column, value, dialect="sql")
+                for column, value in (column_text or {}).items()
+            )
+            params.update(
+                {
+                    f"{column}_text": text_param(value)
+                    for column, value in (column_text or {}).items()
+                }
+            )
+            count_result = await session.execute(
+                text(_SEARCH_COUNT_SQL.format(column_filters=predicates)), params
+            )
             sql = (
-                f"{_SEARCH_SQL}\nORDER BY {_SEARCH_ORDERS[sort]} "
+                f"{_SEARCH_SQL.format(column_filters=predicates)}\n"
+                f"ORDER BY {_SEARCH_ORDERS[sort]} "
                 "LIMIT :limit OFFSET :offset"
             )
             result = await session.execute(
@@ -186,6 +203,7 @@ class NcitSearchIndex:
             offset=offset,
             sort=sort,
             representation_status=representation_status,
+            column_text=column_text or {},
             hits=hits,
         )
 

@@ -4,12 +4,16 @@
 
 	let {
 		filterKeys,
+		textKeys = {},
 		initialFilters,
+		initialTextFilters = {},
 		intent,
 		sortKeys = {}
 	}: {
 		filterKeys: Readonly<Record<string, string>>;
+		textKeys?: Readonly<Record<string, string>>;
 		initialFilters: Record<string, string[]>;
+		initialTextFilters?: Record<string, string>;
 		intent: DataTableIntent;
 		sortKeys?: Readonly<Record<string, { asc: string; desc: string }>>;
 	} = $props();
@@ -32,8 +36,9 @@
 	browseTitle="Records"
 	countLabel={(total) => `${total} records`}
 	{results}
-	initial={{ result: { total: 0, hits: [] }, query: '', offset: 0, size: 25, sort: 'source', filters: initialFilters }}
+	initial={{ result: { total: 0, hits: [] }, query: '', offset: 0, size: 25, sort: 'source', filters: initialFilters, textFilters: initialTextFilters }}
 	defaultSort="source"
 	{sortKeys}
 	{filterKeys}
+	{textKeys}
 />

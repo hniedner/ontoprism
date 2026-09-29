@@ -1,0 +1,44 @@
+import { expect, test } from '@playwright/test';
+
+test('NCIt column text and controlled-vocabulary selection combine before pagination', async ({ page }) => {
+	const errors: string[] = [];
+	page.on('pageerror', (error) => errors.push(error.message));
+	page.on('response', (response) => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
+	await page.goto('/repositories/ncit');
+	const table = page.getByRole('region', { name: 'NCIt repository results' });
+	await expect(table).toHaveAttribute('aria-busy', 'false');
+	const totalBefore = await page.getByText(/concepts$/).first().textContent();
+	expect(totalBefore).not.toBe('1 concepts');
+	await table.getByRole('button', { name: 'Filter Code', exact: true }).click();
+	const codeDialog = page.getByRole('dialog', { name: 'Code filter' });
+	await codeDialog.getByRole('textbox', { name: 'Filter Code text' }).fill('C111021');
+	await codeDialog.getByRole('button', { name: 'Apply Code text' }).click();
+	await expect(page).toHaveURL((url) => url.searchParams.get('text_code') === 'C111021');
+	await expect(table.locator('tbody tr')).toHaveCount(1);
+	await expect(table.locator('tbody tr td').first()).toContainText('C111021');
+	await page.screenshot({ path: test.info().outputPath('ncit-text-filter.png') });
+	await table.getByRole('button', { name: 'Filter Name', exact: true }).click();
+	const nameDialog = page.getByRole('dialog', { name: 'Name filter' });
+	await nameDialog.getByRole('textbox', { name: 'Filter Name text' }).fill('Melanoma');
+	await nameDialog.getByRole('button', { name: 'Apply Name text' }).click();
+	await expect(page).toHaveURL((url) => url.searchParams.get('text_label') === 'Melanoma' && url.searchParams.get('text_code') === 'C111021');
+	await expect(table.locator('tbody tr')).toHaveCount(1);
+
+	await table.getByRole('button', { name: 'Filter Status', exact: true }).click();
+	const statusDialog = page.getByRole('dialog', { name: 'Status filter' });
+	await statusDialog.getByRole('textbox', { name: 'Filter Status text' }).fill('Legacy');
+	await expect(statusDialog.getByRole('checkbox', { name: 'Legacy pre-coordinated' })).toBeVisible();
+	await statusDialog.getByRole('checkbox', { name: 'Legacy pre-coordinated' }).check();
+	await expect(page).toHaveURL((url) => url.searchParams.get('text_code') === 'C111021' && url.searchParams.get('representation_status') === 'legacy-precoordinated');
+	await expect(statusDialog).toBeVisible();
+	await statusDialog.getByRole('textbox', { name: 'Filter Status text' }).fill('Legacy');
+	await statusDialog.getByRole('button', { name: 'Apply Status text' }).click();
+	await expect(page).toHaveURL((url) => url.searchParams.get('text_representation_status') === 'Legacy' && url.searchParams.get('representation_status') === 'legacy-precoordinated' && url.searchParams.get('text_label') === 'Melanoma');
+	await expect(table.locator('tbody tr')).toHaveCount(1);
+	await expect(page.getByText('Showing 1–1 of 1')).toBeVisible();
+	await page.screenshot({ path: test.info().outputPath('ncit-combined-filters.png') });
+	await page.getByRole('button', { name: 'Clear all filters' }).click();
+	await expect(page).toHaveURL((url) => !url.searchParams.has('text_code') && !url.searchParams.has('text_label') && !url.searchParams.has('representation_status') && !url.searchParams.has('text_representation_status'));
+	await expect(page.getByText(totalBefore!)).toBeVisible();
+	expect(errors).toEqual([]);
+});
