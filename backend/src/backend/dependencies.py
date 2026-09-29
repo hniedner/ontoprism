@@ -1,5 +1,6 @@
 """FastAPI dependencies for process-wide repository stores and clients."""
 
+import os
 from typing import Annotated, Literal, Protocol
 
 from fastapi import Depends, Request
@@ -37,8 +38,14 @@ from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.search_index import UberonSearchIndex
 
 
+def _require_isolated_test_provider() -> None:
+    if os.environ.get("ONTOPRISM_TEST_SEARCH_PROVIDERS") == "deny":
+        raise RuntimeError("test app provider requires isolated settings")
+
+
 def get_ncit_store(request: Request) -> NcitGraphStore:
     """Return the process-wide NCIt store created during app startup."""
+    _require_isolated_test_provider()
     return request.app.state.ncit_store
 
 
@@ -48,10 +55,12 @@ def get_ncit_client(request: Request) -> SparqlHttpClient:
 
 
 def get_uberon_store(request: Request) -> UberonGraphStore:
+    _require_isolated_test_provider()
     return request.app.state.uberon_store
 
 
 def get_uberon_search_index(request: Request) -> UberonSearchIndex:
+    _require_isolated_test_provider()
     return request.app.state.uberon_search_index
 
 
@@ -93,6 +102,7 @@ def get_ncit_search_index(
     request: Request,
 ) -> NcitSearchIndex:
     """Return the process-wide NCIt FTS search index."""
+    _require_isolated_test_provider()
     return request.app.state.ncit_search_index
 
 

@@ -1,6 +1,7 @@
 """Backend test fixtures."""
 
 import json
+import os
 import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -16,6 +17,38 @@ from backend.main import create_app
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
+
+
+@pytest.fixture(autouse=True)
+def _fence_test_app_services(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Only isolated integration tests may resolve actual search providers."""
+    allowed = bool(
+        request.node.get_closest_marker("integration")
+        or request.node.get_closest_marker("full_store")
+    )
+    if allowed and {
+        "isolated_postgres_settings",
+        "isolated_qlever_settings",
+    } <= set(request.fixturenames):
+        request.getfixturevalue("isolated_postgres_settings")
+        request.getfixturevalue("isolated_qlever_settings")
+        pg = request.getfixturevalue("isolated_postgres_url")
+        qlever = request.getfixturevalue("isolated_qlever_url")
+        allowed = (
+            get_settings().database_url == pg
+            and get_settings().ncit_sparql_url == qlever
+        )
+    else:
+        allowed = False
+    previous = os.environ.get("ONTOPRISM_TEST_SEARCH_PROVIDERS")
+    os.environ["ONTOPRISM_TEST_SEARCH_PROVIDERS"] = "isolated" if allowed else "deny"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("ONTOPRISM_TEST_SEARCH_PROVIDERS", None)
+        else:
+            os.environ["ONTOPRISM_TEST_SEARCH_PROVIDERS"] = previous
 
 
 class _IsolatedRepositoryMetadata:
@@ -169,6 +202,7 @@ def cadsr_client(tmp_path: Path) -> Iterator[TestClient]:
 def isolated_cadsr_client(
     tmp_path: Path,
     isolated_qlever_settings: None,
+    isolated_postgres_settings: None,
 ) -> Iterator[TestClient]:
     """Temporary caDSR repository joined to the disposable NCIt service."""
     db = tmp_path / "cde_repository.db"
