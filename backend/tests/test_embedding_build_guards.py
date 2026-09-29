@@ -59,6 +59,9 @@ def test_build_all_starts_and_migrates_services_before_online_build_steps(
         lambda **_kwargs: step("embeddings"),
     )
     monkeypatch.setattr(
+        data_build, "_publish_uberon_search", lambda: step("uberon-search")
+    )
+    monkeypatch.setattr(
         data_build,
         "get_settings",
         lambda: SimpleNamespace(ncit_store_dir=str(tmp_path / "qlever-ncit")),
@@ -86,6 +89,7 @@ def test_build_all_starts_and_migrates_services_before_online_build_steps(
         "migrate",
         "cadsr",
         "embeddings",
+        "uberon-search",
     ]
 
 

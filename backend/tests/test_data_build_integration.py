@@ -16,11 +16,16 @@ from uuid import uuid4
 
 import pytest
 from scripts import data_build
-from scripts.data_build import _publish_cadsr_embeddings, _publish_ncit_embeddings
+from scripts.data_build import (
+    _publish_cadsr_embeddings,
+    _publish_ncit_embeddings,
+    _publish_uberon_search,
+)
 from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.repository_metadata import UberonClassCounts
 from ontolib.core.download_cache import CacheManifest, DownloadOutcome
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
@@ -36,6 +41,11 @@ from ontolib.repositories.embeddings.publication import (
 )
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.search_index import UberonSearchIndex
+from ontolib.terminologies.uberon.store import (
+    UberonIndexObservation,
+    UberonServingFingerprint,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -47,6 +57,71 @@ pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
+
+
+@pytest.mark.integration
+async def test_build_publishes_uberon_search_with_certified_source(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh build serves Uberon search from a certified disposable source."""
+    observed = UberonIndexObservation(
+        version_iri="disposable",
+        triples=3,
+        has_uberon_lung=True,
+        has_cell_class=True,
+        has_ncit_xref=True,
+        serving=UberonServingFingerprint(
+            rows=3,
+            sha256="f" * 64,
+            uberon_classes=1,
+            cl_classes=1,
+            uberon_searchable_classes=1,
+            cl_searchable_classes=1,
+        ),
+    )
+    counts = UberonClassCounts(uberon=1, cl=1, uberon_searchable=1, cl_searchable=1)
+
+    async def observation(_url: str):
+        return observed, counts
+
+    class Metadata:
+        async def uberon(self, *, force: bool = False):
+            assert force
+            return SimpleNamespace(
+                source_identity="a" * 64,
+                observation=observed,
+                class_counts=counts,
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    async def records(self, *, limit: int, offset: int):
+        del self, limit
+        if offset:
+            return []
+        return [
+            {
+                "code": "UBERON:0002048",
+                "source": "uberon",
+                "label": "lung",
+                "synonyms": "pulmo",
+            },
+            {"code": "CL:0000000", "source": "cl", "label": "cell", "synonyms": ""},
+        ]
+
+    monkeypatch.setattr(data_build, "observe_uberon_repository", observation)
+    monkeypatch.setattr(data_build, "RepositoryMetadataService", lambda **_: Metadata())
+    monkeypatch.setattr(data_build.UberonGraphStore, "search_records", records)
+
+    assert await _publish_uberon_search() == 2
+    async with session_factory() as session:
+        identity = await session.scalar(
+            text("SELECT source_identity FROM uberon_search_manifest WHERE singleton")
+        )
+    assert identity == "a" * 64
+    page = await UberonSearchIndex(session_factory).search("lung", source="uberon")
+    assert [(hit.code, hit.label) for hit in page.hits] == [("UBERON:0002048", "lung")]
 
 
 class _StubEmbedder:
