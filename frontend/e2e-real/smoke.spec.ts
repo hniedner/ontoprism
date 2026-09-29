@@ -15,7 +15,18 @@ async function search(page: Page, term: string, name: string): Promise<Locator> 
 	await page.getByRole('searchbox').fill(term);
 	await page.getByRole('button', { name: 'Search', exact: true }).click();
 	await expect(page).toHaveURL((url) => url.searchParams.get('q') === term);
-	return rows(page, name);
+	const found = await rows(page, name);
+	expect((await found.locator('td:nth-child(2)').allTextContents()).some((text) => text.toLowerCase().includes(term.toLowerCase()))).toBe(true);
+	return found;
+}
+
+async function detail(page: Page, name: string, identifier: string): Promise<void> {
+	const link = region(page, name).locator('tbody a').first();
+	const path = await link.getAttribute('href');
+	expect(path).toBeTruthy();
+	await link.click();
+	await expect(page).toHaveURL((url) => url.pathname === path);
+	await expect(page.getByText(identifier, { exact: false }).first()).toBeVisible();
 }
 
 async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' = 'text'): Promise<void> {
@@ -63,55 +74,57 @@ test('read-only configured repository smoke', async ({ page }) => {
 		const response = await page.goto(path);
 		expect(response?.status()).toBeLessThan(500);
 	};
+	const passed = (message: string) => {
+		expect(errors).toEqual([]);
+		console.log(message);
+	};
 	await open('/repositories/ncit');
 	await rows(page, 'NCIt repository results');
 	await search(page, 'melanoma', 'NCIt repository results');
 	await sort(page, 'NCIt repository results', 'Code', 'code:asc');
 	await filter(page, 'NCIt repository results', 'Status', 'Legacy pre-coordinated', 'representation_status', 'legacy-precoordinated', 'Legacy pre-coordinated');
-	await region(page, 'NCIt repository results').locator('tbody a').first().click();
+	await detail(page, 'NCIt repository results', 'C111021');
 	await expect(page.getByRole('heading', { name: 'Concept graph' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Additive provisional enhancement' })).toBeVisible();
 	await expect(region(page, 'Stated occurrence delta')).toBeVisible();
-	console.log('NCIt list/search/sort/filter/detail/graph/decomposition/delta: PASS');
+	passed('NCIt list/search/sort/filter/detail/graph/decomposition/delta: PASS');
 
 	await open('/repositories/uberon');
 	await rows(page, 'Uberon and Cell Ontology repository results');
 	await search(page, 'lung', 'Uberon and Cell Ontology repository results');
 	await sort(page, 'Uberon and Cell Ontology repository results', 'Code', 'code:asc');
 	await filter(page, 'Uberon and Cell Ontology repository results', 'Source', 'Uberon', 'source', 'uberon', 'Uberon');
-	await region(page, 'Uberon and Cell Ontology repository results').locator('tbody a').first().click();
-	await expect(page.getByRole('heading').first()).toBeVisible();
-	console.log('Uberon list/search/sort/filter/detail: PASS');
+	await detail(page, 'Uberon and Cell Ontology repository results', 'UBERON:');
+	passed('Uberon list/search/sort/filter/detail: PASS');
 
 	await open('/repositories/cadsr');
 	await rows(page, 'caDSR CDE repository results');
 	await search(page, 'tumor', 'caDSR CDE repository results');
 	await sort(page, 'caDSR CDE repository results', 'Public ID', 'public_id:asc', 'numeric');
-	await region(page, 'caDSR CDE repository results').locator('tbody a').first().click();
-	await expect(page.getByRole('heading').first()).toBeVisible();
-	console.log('caDSR list/search/sort/detail: PASS; filter: not applicable (#487)');
+	const cde = await region(page, 'caDSR CDE repository results').locator('tbody a').first().textContent();
+	await detail(page, 'caDSR CDE repository results', cde!.trim());
+	passed('caDSR list/search/sort/detail: PASS; filter: not applicable (#487)');
 
 	await open('/repositories/icdo/3.2/morphology');
 	await rows(page, 'ICD-O repository results');
 	await search(page, 'carcinoma', 'ICD-O repository results');
 	await sort(page, 'ICD-O repository results', 'Code', 'code:asc');
 	await filter(page, 'ICD-O repository results', 'Behaviour', '3', 'behaviour', '3', '3');
-	await region(page, 'ICD-O repository results').locator('tbody a').first().click();
-	await expect(page.getByRole('heading').first()).toBeVisible();
-	console.log('ICD-O list/search/code sort/behaviour filter/detail: PASS');
+	const icdo = await region(page, 'ICD-O repository results').locator('tbody a').first().textContent();
+	await detail(page, 'ICD-O repository results', icdo!.trim());
+	passed('ICD-O list/search/code sort/behaviour filter/detail: PASS');
 
 	await open('/repositories/pubmed');
 	await search(page, 'melanoma', 'PubMed repository results');
 	await sort(page, 'PubMed repository results', 'Date', 'pub_date', 'date');
-	await region(page, 'PubMed repository results').locator('tbody a').first().click();
-	await expect(page.getByRole('heading').first()).toBeVisible();
-	console.log('PubMed search/publication-date sort/detail: PASS; initial list and filter: not applicable (#487)');
+	const pmid = await region(page, 'PubMed repository results').locator('tbody a').first().textContent();
+	await detail(page, 'PubMed repository results', pmid!.trim());
+	passed('PubMed search/publication-date sort/detail: PASS; initial list and filter: not applicable (#487)');
 
 	await open('/repositories/clinicaltrials');
 	await search(page, 'melanoma', 'ClinicalTrials.gov repository results');
 	await filter(page, 'ClinicalTrials.gov repository results', 'Status', 'RECRUITING', 'status', 'RECRUITING', 'RECRUITING');
-	await region(page, 'ClinicalTrials.gov repository results').locator('tbody a').first().click();
-	await expect(page.getByRole('heading').first()).toBeVisible();
-	console.log('ClinicalTrials.gov search/status filter/detail: PASS; initial list and sort: not applicable (#487)');
-	expect(errors).toEqual([]);
+	const nct = await region(page, 'ClinicalTrials.gov repository results').locator('tbody a').first().textContent();
+	await detail(page, 'ClinicalTrials.gov repository results', nct!.trim());
+	passed('ClinicalTrials.gov search/status filter/detail: PASS; initial list and sort: not applicable (#487)');
 });
