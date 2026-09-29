@@ -783,6 +783,7 @@ def test_congruence_refuses_unhealthy_uberon_without_inventory_read(
     report_store = _ReportStore()
     metadata = _Metadata()
     app.dependency_overrides[get_icdo_repository] = lambda: report_store
+    app.dependency_overrides[get_uberon_store] = object
     app.dependency_overrides[get_repository_metadata] = lambda: metadata
     with TestClient(app) as client:
         response = client.get(
@@ -823,6 +824,7 @@ def test_congruence_refuses_uncertified_icdo_before_protected_rows_are_read(
     report_store = _ReportStore()
     app.dependency_overrides[get_icdo_repository] = lambda: report_store
     metadata = _Metadata()
+    app.dependency_overrides[get_uberon_store] = object
     app.dependency_overrides[get_repository_metadata] = lambda: metadata
     with TestClient(app) as client:
         response = client.get(
@@ -855,6 +857,7 @@ def test_congruence_refuses_missing_active_topography_after_certification(
     store = _Store()
     metadata = _Metadata()
     app.dependency_overrides[get_icdo_repository] = lambda: store
+    app.dependency_overrides[get_uberon_store] = object
     app.dependency_overrides[get_repository_metadata] = lambda: metadata
     with TestClient(app) as client:
         response = client.get(
