@@ -43,7 +43,7 @@ async def test_real_smoke_fails_on_disposable_broken_search_manifest(
         assert main(connection_scope=integration_connection_scope) != 0
         output = capsys.readouterr().out
         assert "GET /api/v1/ncit/list" in output
-        assert "503 Service Unavailable" in output or "503" in output
+        assert "503" in output
     finally:
         async with engine.begin() as connection:
             await connection.execute(text("DELETE FROM ncit_search_manifest"))
