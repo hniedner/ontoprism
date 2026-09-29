@@ -1,12 +1,13 @@
-# Repository kit proposal (#487; awaiting owner approval)
+# Repository kit for the six shipped repositories (#487; approved design)
 
 This is reuse **inside the six shipped repositories**, not the ontology-generic
 platform. Existing `repository-manifest.json`, `backend/repository_registry.py`,
 `frontend/src/lib/repository-registry.ts`, `backend/api/v1/grid.py`,
 `frontend/src/lib/server/repository-load.ts`, `RepoBrowsePage`, `DataTable`,
 `RepoSearchBar`, `RepoPageHeader`, `RemoteSearchSurface`, and `AlignmentLinks`
-were inspected before proposing any new code. No production change, schema, or
-migration is authorized by this proposal.
+were inspected before proposing any new code. The owner approved this design
+with amendments in [#487](https://github.com/hniedner/ontoprism/issues/487#issuecomment-5897027546).
+It authorizes neither a schema migration, a new table, nor a new source release.
 
 ## Current inventory (code as of M10)
 
@@ -29,28 +30,25 @@ wrappers, backend request types and the fixed smoke flow. The two local FTS
 modules duplicate publication/count/ordering mechanics with different source
 and row shapes. `backend/api/v1/grid.py` shares only the page-size validator.
 
-## Proposed contract and ownership
+## Approved contract and ownership
 
 One **closed, version-controlled capability declaration per shipped repository**
-extends the existing `repository-manifest.json` (a persisted format change;
-requires explicit approval before implementation). Include supported dataset
-variants, columns (IDs/labels/rendering hints), sort keys and default sort by
-mode, filter keys/allowed values or bounded text-search capability, pagination
-kind, query-before-results, metadata/readiness kind, graph/link capabilities,
-and path templates. The Python and TypeScript validators at the existing
-registry boundaries reject unknown keys, contradictory sorts/filters, and
-unserved variants. Both API validation and UI tables read the same declaration;
-neither silently invents a capability. Smoke uses the declaration for the
-supported control *list* while checking actual rendered results, including
-explicitly unsupported controls, rather than treating a capability declaration
-as proof that a control works. The approval must also specify where any
-security-sensitive capability (for example ICD-O entitlement) is enforced;
-frontend declaration is not authorization.
+extends the existing `repository-manifest.json` (approved version-controlled
+configuration, **not** stored data and requiring no database migration).
+It holds **capabilities only**: sorts, filters (both kinds and controlled value
+domains), pagination kind, query-before-results, metadata kind, graph kind
+and link kind. It holds **no columns or rendering hints**. Columns remain
+typed snippets in the one shared `DataTable`; this is not a configuration-driven
+UI engine. Python and TypeScript validators at the existing registry boundaries
+reject unknown keys and contradictory capabilities. The API, table and smoke
+read the same declaration for supported controls. Smoke still checks actual
+rendered results, rather than treating a declaration as evidence that they work.
+ICD-O entitlement stays enforced in the backend; declaration is never authorization.
 
 - **Terminology base (NCIt, Uberon/CL, ICD-O, caDSR):** one backend grid
   service in `backend/api/v1/grid.py` orchestrates validated list/search/detail
-  parameters, certification before dependent reads, closed filters/sorts and
-  typed errors. Store-specific query functions remain in the existing ontolib
+  parameters, certification before **every local list, search and detail read**,
+  closed filters/sorts and typed errors. Store-specific query functions remain in the existing ontolib
   repositories (`NcitGraphStore`, `UberonGraphStore`, `IcdoRepository`,
   `CdeRepository`); do **not** force QLever, SQL and SQLite through an
   inefficient common query language. Source-bound FTS publication mechanics
@@ -71,34 +69,48 @@ frontend declaration is not authorization.
   until a query. Sort/filter are optional **only if absent upstream**; current
   PubMed filter and trial sort are declared unavailable, not labelled working.
 
-One configurable **frontend detail layout** hosts typed snippets (concept,
+One shared **frontend detail layout** hosts typed snippets (concept,
 article, study, data element) rather than six copy/pasted navigation and
-error-state implementations. One results table receives declarative column
-specifications and existing typed cell snippets; remove the six wrapper
+error-state implementations. One results table receives typed column and cell
+snippets (not manifest rendering configuration); remove the six wrapper
 components when equivalent functionality is wired. Search, sort, multi-select
-filter, paging, zero-result, error state and detail-link controls keep the same
-accessible labels, focus behavior and navigation semantics. The one
+and type-ahead filters, paging, zero-result, error state and detail-link controls
+keep the same accessible labels, focus behavior and navigation semantics. The one
 `RepoBrowsePage` owns URL state, and the already shared
 `repository-load.ts` owns canonical offset/cursor parsing; no second state
 owner. Fields absent upstream remain explicit in the UI, not synthesized.
 
-**Filter decision proposed for approval:** terminology base requires at least
-one meaningful filter if the source exposes an appropriate field. NCIt retains
-status, Uberon/CL source, ICD-O morphology behaviour/topography level; omit
-the single-valued morphology level control because it cannot narrow results.
-For caDSR, propose certified closed domains `workflow_status` and
-`registration_status` (inspect actual source values, including nulls and
-cardinality, before selecting which to expose). #484 adds shared NCIt text
-and categorical filtering through one `DataTable` and one backend predicate,
-with the filter declaration in configuration; it must not preempt the owner's
-decision about caDSR domains or make a second repository-specific table.
+**Approved filter behavior:** every filterable column in every repository has
+type-ahead text in the filter popover. A closed-domain column **also** has a
+multi-select; typing narrows its option list and may be applied as a text
+predicate on the column. Both applied predicates must match. One shared
+`DataTable` supports both kinds together; one shared backend predicate
+applies declared filters before pagination and computes the filtered total.
+NCIt retains status, Uberon/CL source and ICD-O morphology behaviour/topography
+level; the single-valued morphology level control adds no narrowing.
+caDSR gets a multi-select on **every** closed-domain field, not just one:
+
+| caDSR source field | Distinct values on configured store (79,835 CDEs; owner observation) |
+| --- | ---: |
+| `value_domain_type` | 3 |
+| `workflow_status` | 5 |
+| `registration_status` | 10 |
+| `context` | 51 |
+| `datatype` | 97 |
+
+Preserve source spellings, including distinct `registration_status` values
+“Superceded” (638) and “Superseded” (112). These figures come from the
+[owner's read-only observation](https://github.com/hniedner/ontoprism/issues/487#issuecomment-5897005792),
+not a new local count. #484 delivers shared behavior and NCIt code/label
+controls; the other repositories acquire filters in their M12 migrations.
 
 ## Cross-repository links: one construct, distinct semantics
 
 Reuse `ontolib/repositories/xref/` (`SSSOMRecord`,
 `XrefStore`, generation publication), `backend/api/v1/alignment.py` and
-`AlignmentLinks`. The single typed link envelope records endpoint kind,
-identifier/version, direction, relation kind and provenance/status. The
+`AlignmentLinks`. **One typed API read projection and one frontend component**
+serve both variants. The envelope records endpoint kind, identifier/version,
+direction, relation kind and provenance/status. The
 **semantic mapping** variant uses existing SSSOM fields and honest SKOS
 `exactMatch`/`closeMatch`/`broadMatch`/`narrowMatch`/`relatedMatch` annotations;
 no SKOS annotation by itself grants logical equivalence. A **caDSR source
@@ -107,55 +119,52 @@ permissible-value meaning references an NCIt code, preserving `concept_type`
 (`object_class`, `property`, `representation`, `value_meaning`) and `is_primary`.
 Its reverse lookup is navigation, **not** a SKOS match from NCIt to a CDE.
 The existing `concept_xref` schema admits only NCIt/Uberon/ICD-O endpoint
-pairs and mapping predicates; the owner must approve a schema change or an
-alternative unified read projection **before** any persistence implementation.
+pairs and mapping predicates: **keep that schema unchanged**. caDSR anchors
+remain in the caDSR store and are projected at read time into the shared API
+link envelope. This is one read construct, not a second copy of the anchors.
 No synthetic `skos:exactMatch`, inferred CDE↔NCIt identity, or promotion of
 mapping lifecycle to enhanced-NCIt proposal lifecycle. Existing caDSR source
-annotations remain available during transition; decide their provenance,
-NCIt-release binding and status with the owner before migration.
+annotations remain the source of truth; an API projection must not invent
+unrecorded NCIt-release binding, evidence, lifecycle or approval status.
 
-## Proposed bounded migration order (owner decides placement)
+## Approved bounded migration order (M12 issue contracts created by owner)
 
 Every issue includes its motivating behavioural tests, first RED then GREEN;
 estimate is **net non-test lines** after removing duplicates, not a budget to
-add parallel implementations. If an issue threatens ~400 net lines, split
-it with its tests before work. No migrations are created before approval.
+add parallel implementations. If an issue threatens ~400 net lines, stop and
+ask the owner to split it with its tests. The owner creates the migration
+issues from this amended design; implementers do not create them.
 
-1. **NCIt reference slice** (first): extend the approved registry shape and
-   existing grid/list/detail controls; one shared predicate and table build
-   from #484, preserving certified search. Target net -30 to +120 lines.
-2. **Uberon/CL**: declare its two-source column/filter rules and graph
+1. **NCIt reference slice** (first): extend the approved capabilities-only
+   registry, reuse existing grid/list/detail controls and #484's shared
+   predicate/table, preserve certified search. Move the verified #486
+   certification bypass behind **one** shared grid guard: no per-route patch
+   and no degraded direct reads. Target net -30 to +120 lines.
+2. **Uberon/CL**: declare its two-source filter and sort capabilities and graph
    extension; reuse NCIt grid/publication mechanics, remove duplicate paths.
    Target net -120 to +60 lines.
-3. **ICD-O and caDSR local variants**: migrate one at a time if the per-issue
-   cap allows; preserve licensed access and CDE anchors, introduce only
-   owner-approved caDSR filters. Target net -120 to +100 per repository.
-4. **Remote read-through pair**: share shell and cursor/offset control while
-   retaining separate upstream clients; split PubMed and trials if the
-   combined issue cannot fit. Target net -160 to +80 for the pair.
+3. **ICD-O**: inherit the shared grid, preserve backend entitlement and
+   edition/axis constraints. Target net -120 to +100 lines.
+4. **caDSR**: inherit the shared grid and read-projected link construct,
+   add all five approved source-domain multi-selects plus type-ahead without
+   altering the caDSR anchors or `concept_xref`. Target net -120 to +100 lines.
+5. **Remote read-through pair**: share shell and cursor/offset control while
+   retaining separate upstream clients. Target net -160 to +80 for the pair.
+   If both remote repositories do not fit one coherent issue under the size cap,
+   **stop and ask the owner for a split**; do not silently overfill M12.
 
-This is **five or six possible migration issues**, not a proposal to overfill
-M12 (which reserves #485 and at most four migrations). Owner selects which
-four fit M12, and where remaining work belongs, before issues are created;
-do not silently batch independent repository migrations to meet the slot cap.
+M12 has **five migrations and no separate filter issue**. Each repository's
+filters are in its migration; #485 is absorbed/closed by the owner when those
+issues are created. The kit as a whole **removes more non-test code than it
+adds**. Each issue states expected and actual net non-test lines; any
+positive-net migration explains why even though the overall kit is smaller.
 
-For each migration, compare the current endpoint p50/p95 cold and warm
-latencies, request counts, result and page shapes against the same configured
-dataset after the change (`#486` establishes baseline), plus a browser flow
+For each migration, compare measured cold and warm endpoint latency, request
+counts, result and page shapes against the same configured dataset before
+and after the change (using #486's measurements where comparable), plus a browser flow
 for search/filter/sort/paging/empty/error/detail and the read-only
 `pdm run smoke-real` gate. Preserve or improve latency and avoid extra
 per-row store calls; any slower path needs a profile and correction before
-acceptance. A new migration that adds more non-test lines than it removes
-needs a concrete rationale in its demo. No production data migration or
-source activation is implied by this design.
-
-## Owner decisions requested
-
-1. Approve or amend the single declaration and its persisted manifest-format
-   change, including security-sensitive capabilities and the caDSR filter domain.
-2. Confirm the link envelope's **mapping vs source-anchor** distinction,
-   CDE component role vocabulary, version/currentness and whether the
-   `concept_xref` table or a unified read projection is the eventual storage.
-3. Confirm the migration order and M12's at-most-four migration slots plus
-   #485; place overflow in a later owner-approved milestone. Approval of a
-   design alone does **not** approve a schema migration.
+acceptance. No database migration, new table, new source release or source
+activation is approved by this design. The manifest-format change is approved
+as version-controlled configuration, not stored data.
