@@ -9,19 +9,34 @@ library. Product goals: `README.md`. Architecture: `docs/ARCHITECTURE.md`. Decis
 These rules bind every agent and harness. The issue body is the contract; only the
 owner changes it.
 
-## Current scope and expert gate (D96)
+## Current scope and expert gate (D96 amended by D98)
 
 The product is an **NCIt Neoplasm decomposition demonstrator with expert review**.
-Until independent expert gate G1 passes, ontology-generic platform work, NAACCR,
-vision stages 3–5, post-coordination grammar, cloud, xref/bridge work and literature
-generation are parked. Follow the owner-approved milestone order; do not start later
-engine or UI milestones early. The bounded M1.8.1 expert packet prepares G1; it does
-not authorize a full corpus run.
+Ontology-generic platform work, NAACCR, vision stages 3–5, post-coordination grammar,
+cloud, promotion of mappings to identity grade, and literature generation are scheduled
+after G1 and start only after a "go" from it. Two things are not parked: correcting the
+existing cross-references (#226, #151, #159, #120), and keeping the repositories current
+(#490 to #494). A standard backend library and component set reused by the shipped
+repositories (#488) does not unpark the ontology-generic platform. Follow the
+owner-approved numbered delivery milestones (M10 onward) in due-date order: each states
+its value and issue order, contains at most five issues and ends with one reviewed PR to
+main. Split a stalled milestone rather than extending it. The static #461 packet is a
+development instrument, not G1. No new source release (NCIt, caDSR, Uberon, ICD-O) is
+activated on the instance until enhancements can be carried forward (#492 to #494).
 
-Independent experts review before any further full run or new feature milestone.
-If no independent expert engages by **2026-11-06**, stop platform work and write up the
+Evidence precedes human review: tier 0 stated NCIt axioms; tier 1 expert-curated
+ontologies (Uberon, NCIt P334 / ICD-O-3, SNOMED MRCM, mCODE); tier 2 a DL reasoner;
+tier 3 peer-reviewed literature with verified quotes. Tiers 0–2 run on each assertion
+before it reaches a human. Propose per-axis cardinality, morphology and residual-metric
+semantics from curated sources for the owner's approval in their issues. Conflicting or
+unresolved assertions go to the `needs-SME` queue. Evidence milestones report the
+evidence-supported share and queue size by reason and axis, before and after.
+
+Experts work the `needs-SME` queue in the completed graph-based curation interface at
+independent gate G1; the owner records their decisions and go/no-go. If no independent
+expert commits to sessions by **2026-11-06**, stop platform work and write up the
 findings (told closure, P334 histology anchoring, detector saturation, D58 cases) for
-NCI EVS. The owner records G1's decisions and go/no-go.
+NCI EVS. G1 no longer precedes the owner-approved corrected full run (#470).
 
 ## Workflow
 
@@ -201,7 +216,9 @@ set timeout to at least 1.5 times expected duration or run in the background and
 use resume; never require a commit/clean tree; never overwrite completed artifacts.
 Judge engine changes on the 20-concept SME oracle (D63), not a full corpus. Schedule a
 full run only after several fixes, with a written corpus-shape prediction and owner
-agreement, and only after G1. Never substitute a full run for independent expert review.
+agreement. From the merge of #482 on, a read-only smoke run against the configured
+stores precedes every milestone PR. Never substitute a full run or the static packet for
+independent expert review at G1.
 
 ## Domain and architecture
 
