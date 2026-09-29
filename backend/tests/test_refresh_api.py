@@ -241,6 +241,46 @@ def test_rebuild_uberon_accepts_same_live_fields_in_uncertified_observation(
     assert index.source == ("a" * 64, "f" * 64)
 
 
+@pytest.mark.api
+def test_rebuild_uberon_refuses_changed_live_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    ready = asyncio.run(_ready_uberon())
+    certified = CertifiedUberonIndexObservation.model_validate(
+        ready.observation.model_dump()
+    )
+
+    async def metadata(*, force: bool = False) -> SimpleNamespace:
+        return SimpleNamespace(
+            source_identity="a" * 64,
+            observation=certified,
+            class_counts=ready.class_counts,
+        )
+
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=metadata
+    )
+    checks = 0
+
+    async def changed(_url: str) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        nonlocal checks
+        checks += 1
+        live = certified.model_dump()
+        if checks > 1:
+            live["triples"] += 1
+        return UberonIndexObservation.model_validate(live), ready.class_counts
+
+    monkeypatch.setattr("backend.api.v1.refresh.observe_uberon_repository", changed)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 502
+    assert checks == 2
+
+
 class _FailingSearchIndex:
     async def rebuild(self, *args: object, **kwargs: object) -> int:
         raise StorageError("store unreachable")

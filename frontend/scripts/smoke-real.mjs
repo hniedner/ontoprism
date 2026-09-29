@@ -17,7 +17,6 @@ async function open(path) {
 async function rows(region) {
 	const result = page.getByRole('region', { name: region }).locator('tbody tr');
 	await result.first().waitFor();
-	if ((await result.count()) === 0) throw new Error(`empty ${region}`);
 	return result;
 }
 async function search(term, region) {
@@ -26,15 +25,25 @@ async function search(term, region) {
 	await page.waitForURL((url) => url.searchParams.get('q') === term);
 	return rows(region);
 }
-async function sort(name, value) {
+async function sort(name, value, expected = 'asc') {
+	const region = page.locator('[role="region"][aria-label$="repository results"]');
 	await page.getByRole('button', { name: `Sort by ${name}` }).click();
 	await page.waitForURL((url) => url.searchParams.get('sort') === value);
 	if (!(await page.locator('[aria-label="Active filters"]').textContent())?.includes('Sort:')) throw new Error('sort not rendered');
+	const current = (await region.locator('tbody tr td:first-child').allTextContents()).map((text) => text.trim());
+	if (current.length > 1 && expected === 'asc' && current.join('|') !== [...current].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('|')) throw new Error(`sort did not order ${name} rows`);
 }
 async function filter(column, option, parameter, value) {
+	const region = page.locator('[role="region"][aria-label$="repository results"]');
 	await page.getByRole('button', { name: `Filter ${column}`, exact: true }).click();
 	await page.getByRole('dialog', { name: `${column} filter` }).getByRole('checkbox', { name: option, exact: true }).check();
 	await page.waitForURL((url) => url.searchParams.getAll(parameter).includes(value));
+	await region.locator('tbody tr').first().waitFor();
+	const current = await region.locator('tbody tr').allTextContents();
+	if (!current.length) throw new Error(`filter emptied ${column} rows`);
+	const chip = page.getByRole('button', { name: `Clear ${column} filter` });
+	await chip.waitFor();
+	if (!(await chip.textContent())?.includes(option)) throw new Error(`filter did not apply ${option}`);
 }
 
 try {
@@ -77,7 +86,7 @@ try {
 
 	await open('/repositories/pubmed');
 	await search('melanoma', 'PubMed repository results');
-	await sort('Date', 'pub_date');
+	await sort('Date', 'pub_date', 'desc');
 	await page.getByRole('region', { name: 'PubMed repository results' }).locator('tbody a').first().click();
 	await page.getByRole('heading').first().waitFor();
 	console.log('PubMed search/publication-date sort/detail: PASS; initial list and filter: not applicable (#487)');

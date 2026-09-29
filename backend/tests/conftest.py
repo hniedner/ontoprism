@@ -1,7 +1,6 @@
 """Backend test fixtures."""
 
 import json
-import os
 import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -12,21 +11,53 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_cadsr_repo, get_ncit_store, get_repository_metadata
+from backend.dependencies import (
+    get_cadsr_repo,
+    get_embedding_store,
+    get_icdo_repository,
+    get_ncit_client,
+    get_ncit_search_index,
+    get_ncit_store,
+    get_provenance_store,
+    get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
+    get_xref_store,
+)
 from backend.main import create_app
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 
+_PERSISTENT_PROVIDERS = (
+    get_ncit_store,
+    get_ncit_client,
+    get_uberon_store,
+    get_ncit_search_index,
+    get_uberon_search_index,
+    get_cadsr_repo,
+    get_embedding_store,
+    get_provenance_store,
+    get_xref_store,
+    get_icdo_repository,
+)
+
+
+def _deny_unoverridden_provider() -> None:
+    raise RuntimeError("test app provider requires isolated settings")
+
 
 @pytest.fixture(autouse=True)
-def _fence_test_app_services(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Only isolated integration tests may resolve actual search providers."""
-    allowed = bool(
-        request.node.get_closest_marker("integration")
-        or request.node.get_closest_marker("full_store")
-    )
-    if allowed and {
+def _fence_test_app_services(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At TestClient construction, deny omitted persistent provider overrides."""
+    allowed = False
+    if "live_api_client" in request.fixturenames and request.node.get_closest_marker(
+        "full_store"
+    ):
+        allowed = True
+    elif request.node.get_closest_marker("integration") and {
         "isolated_postgres_settings",
         "isolated_qlever_settings",
     } <= set(request.fixturenames):
@@ -34,21 +65,22 @@ def _fence_test_app_services(request: pytest.FixtureRequest) -> Iterator[None]:
         request.getfixturevalue("isolated_qlever_settings")
         pg = request.getfixturevalue("isolated_postgres_url")
         qlever = request.getfixturevalue("isolated_qlever_url")
+        settings = get_settings()
         allowed = (
-            get_settings().database_url == pg
-            and get_settings().ncit_sparql_url == qlever
+            settings.database_url == pg
+            and settings.ncit_sparql_url == qlever
+            and settings.uberon_sparql_url == qlever
         )
-    else:
-        allowed = False
-    previous = os.environ.get("ONTOPRISM_TEST_SEARCH_PROVIDERS")
-    os.environ["ONTOPRISM_TEST_SEARCH_PROVIDERS"] = "isolated" if allowed else "deny"
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop("ONTOPRISM_TEST_SEARCH_PROVIDERS", None)
-        else:
-            os.environ["ONTOPRISM_TEST_SEARCH_PROVIDERS"] = previous
+    if allowed:
+        return
+    original = TestClient.__init__
+
+    def fenced_client(client: TestClient, app, *args, **kwargs) -> None:
+        for provider in _PERSISTENT_PROVIDERS:
+            app.dependency_overrides.setdefault(provider, _deny_unoverridden_provider)
+        original(client, app, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", fenced_client)
 
 
 class _IsolatedRepositoryMetadata:

@@ -40,8 +40,8 @@ from backend.repository_metadata import (
     icdo_expectation,
     observe_uberon_repository,
 )
+from backend.uberon_search_publication import publish_uberon_search
 from ontolib.core.data_build_tools import configured_robot_installation
-from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
@@ -119,9 +119,6 @@ from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.search_index import (
     UberonSearchIndex,
-)
-from ontolib.terminologies.uberon.search_index import (
-    populate_from_store as populate_uberon_search,
 )
 from ontolib.terminologies.uberon.store import (
     UBERON_ARTIFACT_MANIFEST_FILENAME,
@@ -406,47 +403,20 @@ async def _publish_uberon_search() -> int:
     try:
         async with SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as client:
             store = UberonGraphStore(client)
-            observation, counts = await observe_uberon_repository(
-                settings.uberon_sparql_url
-            )
             metadata = RepositoryMetadataService(
                 settings=settings,
                 cadsr=CdeRepository(settings.cadsr_db_path),
             )
             try:
-                ready = await metadata.uberon(force=True)
+                count = await publish_uberon_search(
+                    store,
+                    UberonSearchIndex(make_sessionmaker(engine)),
+                    metadata,
+                    settings.uberon_sparql_url,
+                    observe=observe_uberon_repository,
+                )
             finally:
                 await metadata.aclose()
-            if isinstance(ready, RepositoryUnhealthy):
-                raise StorageError(
-                    f"Uberon repository is not certified: {ready.reason}"
-                )
-            if (
-                observation.model_dump() != ready.observation.model_dump()
-                or counts != ready.class_counts
-            ):
-                raise StorageError("Uberon/CL source changed before search-index build")
-
-            async def validate_source() -> None:
-                after, after_counts = await observe_uberon_repository(
-                    settings.uberon_sparql_url
-                )
-                if (
-                    after.model_dump() != observation.model_dump()
-                    or after_counts != counts
-                ):
-                    raise StorageError(
-                        "Uberon/CL source changed during search-index build"
-                    )
-
-            count = await populate_uberon_search(
-                store,
-                UberonSearchIndex(make_sessionmaker(engine)),
-                source_identity=ready.source_identity,
-                source_hash=ready.observation.serving.sha256,
-                validate_source=validate_source,
-                expected_row_count=counts.uberon_searchable + counts.cl_searchable,
-            )
             typer.echo(f"Published certified Uberon/CL search: {count} concepts")
             return count
     finally:

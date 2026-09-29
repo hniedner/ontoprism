@@ -25,8 +25,9 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from backend.repository_metadata import UberonClassCounts
+from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
 from ontolib.core.download_cache import CacheManifest, DownloadOutcome
+from ontolib.core.exceptions import StorageError
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.embeddings.generate import (
@@ -122,6 +123,38 @@ async def test_build_publishes_uberon_search_with_certified_source(
     assert identity == "a" * 64
     page = await UberonSearchIndex(session_factory).search("lung", source="uberon")
     assert [(hit.code, hit.label) for hit in page.hits] == [("UBERON:0002048", "lung")]
+
+
+@pytest.mark.integration
+async def test_build_refuses_uncertified_uberon_without_publishing(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Metadata:
+        async def uberon(self, *, force: bool = False):
+            return RepositoryUnhealthy(
+                repository="uberon", reason="observation-mismatch", message="drift"
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(data_build, "RepositoryMetadataService", lambda **_: Metadata())
+    monkeypatch.setattr(
+        data_build,
+        "observe_uberon_repository",
+        lambda _url: asyncio.sleep(0, result=(None, None)),
+    )
+    async with session_factory() as session:
+        before = await session.scalar(
+            text("SELECT count(*) FROM uberon_search_manifest")
+        )
+    with pytest.raises(StorageError, match="not certified"):
+        await _publish_uberon_search()
+    async with session_factory() as session:
+        count = await session.scalar(
+            text("SELECT count(*) FROM uberon_search_manifest")
+        )
+    assert count == before
 
 
 class _StubEmbedder:

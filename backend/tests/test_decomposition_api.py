@@ -74,6 +74,7 @@ def test_corrupt_compact_graph_is_service_failure_not_invalid_code():
     app = create_app()
     app.dependency_overrides[get_decomposition_reader] = CorruptReader
     app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = _FakeXrefStore
     with TestClient(app) as client:
         response = client.get("/api/v1/ncit/concepts/C6135/decomposition")
     assert response.status_code == 503
