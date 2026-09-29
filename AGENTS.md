@@ -76,6 +76,9 @@ moving or reordering issues.
 ### Milestone completion
 
 1. Update local `main`, merge it into the milestone branch, and run `pdm run verify`.
+   Run `pdm run smoke-real` against the configured stores. It is read-only and starts
+   and stops only the servers it launched. A skip or a known failure is not a pass:
+   fix a red smoke or stop and report.
 2. With the milestone branch checked out, review `git diff --no-ext-diff main...HEAD`
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
@@ -216,12 +219,16 @@ set timeout to at least 1.5 times expected duration or run in the background and
 use resume; never require a commit/clean tree; never overwrite completed artifacts.
 Judge engine changes on the 20-concept SME oracle (D63), not a full corpus. Schedule a
 full run only after several fixes, with a written corpus-shape prediction and owner
-agreement. From the merge of #482 on, a read-only smoke run against the configured
-stores precedes every milestone PR. Never substitute a full run or the static packet for
-independent expert review at G1.
+agreement. Never substitute a full run or the static packet for independent expert
+review at G1.
 
 ## Domain and architecture
 
+- One implementation per concern. Repositories, the data table and other shared
+  controls are single configurable libraries or components; differences between
+  repositories are declared configuration, not code. Before writing new code, name
+  the existing module, component or maintained external library you checked. A
+  parallel implementation is a review finding.
 - Everything emitted is NCIt reorganised or enhanced-NCIt, even when derived from or
   aligned to another source (D60/D86). Record derivation/provenance, not external
   ownership. Lifecycle: `proposed -> locally-approved -> submitted -> accepted-in-ncit`.
