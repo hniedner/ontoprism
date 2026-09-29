@@ -7,6 +7,50 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-09-29 — one repository kit for the six shipped repositories
+
+### D99. Capabilities are configuration; readers, controls and links are reused
+
+**Context.** Six shipped repositories have distinct source readers and duplicate
+list/detail plumbing, filter declarations and link presentations. The owner
+approved the [#487 repository-kit design](design/repository-kit.md) with the
+[capabilities and migration amendments](https://github.com/hniedner/ontoprism/issues/487#issuecomment-5897027546)
+and [caDSR/type-ahead decision](https://github.com/hniedner/ontoprism/issues/487#issuecomment-5897005792).
+
+**Decision (owner).** Reuse one backend repository grid service and one frontend
+data table, search bar, list page and detail layout for the six shipped
+repositories. The existing version-controlled `repository-manifest.json` may
+be extended with **capabilities only**: sorts, filters (kinds and value domains),
+pagination, query-before-results, metadata, graph and link kinds. Columns
+remain typed snippets in the shared table, not manifest rendering hints or a
+configuration-driven UI engine. This config extension is not a persisted data
+format or database migration. Local list, search and detail responses all
+require certification once in the shared grid service, without degraded
+direct reads; ICD-O entitlement remains a backend check.
+
+Every filterable column has type-ahead; controlled-vocabulary columns also
+have a multi-select in the same popover, with option narrowing and an optional
+applied text predicate that combines with the selection. caDSR receives
+multi-selects on all five measured closed-domain fields (`value_domain_type`,
+`workflow_status`, `registration_status`, `context`, `datatype`), preserving
+source spellings. One typed API link read projection and one frontend component
+serve both SSSOM/SKOS semantic mappings and caDSR source anchors, without
+claiming CDE–NCIt identity. The anchors stay in caDSR; `concept_xref` keeps
+its schema. No schema migration, new table or new source release is approved.
+
+M12 migrates NCIt first, then Uberon/CL, ICD-O, caDSR and the remote pair.
+Filters belong to each migration, not a separate #485 implementation. The
+owner creates those migration issues and closes #485 as absorbed. Stop and ask
+for a split if the remote pair exceeds one issue's size cap. The kit overall
+removes more non-test code than it adds; every migration reports its expected
+and actual net change and explains a positive net. Compare performance and
+user-visible behavior with the existing paths before replacing them. This is
+internal reuse, not the ontology-generic platform gated by G1 (D98).
+
+**Why.** A single declaration avoids disagreement among API, UI and smoke;
+typed snippets retain compile-time UI contracts, and a read projection keeps
+different mapping/source-anchor semantics without duplicating persisted data.
+
 ## 2026-09-29 — curated evidence before expert curation in the graph viewer
 
 ### D98. Build the Neoplasm demonstrator and evidence queue before expert gate G1
