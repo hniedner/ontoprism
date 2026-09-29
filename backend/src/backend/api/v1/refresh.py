@@ -234,7 +234,7 @@ async def rebuild_uberon_search_index(
                 get_settings().uberon_sparql_url
             )
             if (
-                observation_after != repository.observation
+                observation_after.model_dump() != repository.observation.model_dump()
                 or counts_after != repository.class_counts
             ):
                 raise StorageError(

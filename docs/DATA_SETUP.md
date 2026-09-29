@@ -474,7 +474,8 @@ pdm run data-build embeddings --publish --corpus cadsr
 
 # …or provision a fresh/partially provisioned installation in one mutating shot.
 # `all` builds the offline indexes, starts QLever/Postgres with `docker compose up
-# -d --wait`, applies Alembic, then builds caDSR and publishes embeddings. It refuses
+# -d --wait`, applies Alembic, then builds caDSR, publishes embeddings, and publishes
+# the certified Uberon/CL search index. It refuses
 # replacement of an existing Uberon/CL index; use the individual refresh commands on
 # an established installation.
 pdm run data-build all
