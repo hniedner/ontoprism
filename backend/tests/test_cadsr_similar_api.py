@@ -18,6 +18,7 @@ from sqlalchemy.exc import OperationalError
 from backend.dependencies import (
     get_cadsr_repo,
     get_embedding_store,
+    get_ncit_store,
     get_repository_metadata,
 )
 from backend.main import create_app
@@ -43,10 +44,16 @@ class _BrokenRepo:
         raise self._boom
 
 
+class _UnusedNcitStore:
+    def __getattr__(self, name: str) -> None:
+        raise AssertionError(f"NCIt store must not be read for a broken CDE: {name}")
+
+
 @pytest.fixture
 def broken_client() -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_cadsr_repo] = _BrokenRepo
+    app.dependency_overrides[get_ncit_store] = _UnusedNcitStore
     with TestClient(app) as client:
         yield client
 

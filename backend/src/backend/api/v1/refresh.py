@@ -27,6 +27,10 @@ from backend.repository_metadata import (
     observe_uberon_repository,
 )
 from backend.security import RequireApiKey, RequireIcdoEntitlement
+from backend.uberon_search_publication import (
+    UberonNotCertifiedError,
+    publish_uberon_search,
+)
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -39,9 +43,6 @@ from ontolib.terminologies.ncit.owl_download import (
 from ontolib.terminologies.ncit.search_index import populate_from_store
 from ontolib.terminologies.uberon.search_index import (
     UberonSearchPublicationError,
-)
-from ontolib.terminologies.uberon.search_index import (
-    populate_from_store as populate_uberon_search,
 )
 
 logger = get_logger(__name__)
@@ -221,37 +222,19 @@ async def rebuild_uberon_search_index(
     metadata: RepositoryMetadataReads,
 ) -> SearchIndexReport:
     """Rebuild Uberon/CL FTS from the exact certified immutable source."""
-    repository = await metadata.uberon(force=True)
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            repository.model_dump(mode="json"),
-        )
     try:
-
-        async def validate_source() -> None:
-            observation_after, counts_after = await observe_uberon_repository(
-                get_settings().uberon_sparql_url
-            )
-            if (
-                observation_after != repository.observation
-                or counts_after != repository.class_counts
-            ):
-                raise StorageError(
-                    "Uberon/CL source changed during search-index rebuild"
-                )
-
-        count = await populate_uberon_search(
+        count = await publish_uberon_search(
             store,
             index,
-            source_identity=repository.source_identity,
-            source_hash=repository.observation.serving.sha256,
-            validate_source=validate_source,
-            expected_row_count=(
-                repository.class_counts.uberon_searchable
-                + repository.class_counts.cl_searchable
-            ),
+            metadata,
+            get_settings().uberon_sparql_url,
+            observe=observe_uberon_repository,
         )
+    except UberonNotCertifiedError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            exc.repository.model_dump(mode="json"),
+        ) from exc
     except (UberonSearchPublicationError, StorageError, SQLAlchemyError) as exc:
         logger.exception("Uberon/CL search-index rebuild failed")
         raise HTTPException(

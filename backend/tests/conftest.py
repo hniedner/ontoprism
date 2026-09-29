@@ -2,20 +2,96 @@
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_cadsr_repo, get_ncit_store, get_repository_metadata
+from backend.dependencies import (
+    get_cadsr_repo,
+    get_embedding_store,
+    get_icdo_repository,
+    get_ncit_client,
+    get_ncit_search_index,
+    get_ncit_store,
+    get_provenance_store,
+    get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
+    get_xref_store,
+)
 from backend.main import create_app
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
+
+_PERSISTENT_PROVIDERS = (
+    get_ncit_store,
+    get_ncit_client,
+    get_uberon_store,
+    get_ncit_search_index,
+    get_uberon_search_index,
+    get_cadsr_repo,
+    get_embedding_store,
+    get_provenance_store,
+    get_xref_store,
+    get_icdo_repository,
+)
+
+
+def _deny_unoverridden_provider() -> None:
+    raise RuntimeError("test app provider requires isolated settings")
+
+
+@pytest.fixture(autouse=True)
+def _fence_test_app_services(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """At TestClient construction, deny omitted persistent provider overrides."""
+    allowed = False
+    if "live_api_client" in request.fixturenames and request.node.get_closest_marker(
+        "full_store"
+    ):
+        allowed = True
+    elif request.node.get_closest_marker("integration") and {
+        "isolated_postgres_settings",
+        "isolated_qlever_settings",
+    } <= set(request.fixturenames):
+        request.getfixturevalue("isolated_postgres_settings")
+        request.getfixturevalue("isolated_qlever_settings")
+        pg = request.getfixturevalue("isolated_postgres_url")
+        qlever = request.getfixturevalue("isolated_qlever_url")
+        settings = get_settings()
+        allowed = (
+            settings.database_url == pg
+            and settings.ncit_sparql_url == qlever
+            and settings.uberon_sparql_url == qlever
+        )
+    if allowed:
+        yield
+        return
+    original = TestClient.__init__
+    inserted: list[tuple[FastAPI, Callable[..., object]]] = []
+
+    def fenced_client(client: TestClient, app: FastAPI, *args, **kwargs) -> None:
+        for provider in _PERSISTENT_PROVIDERS:
+            if provider not in app.dependency_overrides:
+                app.dependency_overrides[provider] = _deny_unoverridden_provider
+                inserted.append((app, provider))
+        original(client, app, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", fenced_client)
+    try:
+        yield
+    finally:
+        for app, provider in inserted:
+            if app.dependency_overrides.get(provider) is _deny_unoverridden_provider:
+                del app.dependency_overrides[provider]
 
 
 class _IsolatedRepositoryMetadata:
@@ -169,6 +245,7 @@ def cadsr_client(tmp_path: Path) -> Iterator[TestClient]:
 def isolated_cadsr_client(
     tmp_path: Path,
     isolated_qlever_settings: None,
+    isolated_postgres_settings: None,
 ) -> Iterator[TestClient]:
     """Temporary caDSR repository joined to the disposable NCIt service."""
     db = tmp_path / "cde_repository.db"

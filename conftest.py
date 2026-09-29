@@ -1075,9 +1075,11 @@ def isolated_migration_postgres_settings(
 
 @pytest.fixture
 def isolated_qlever_settings(isolated_qlever_url: str) -> Iterator[None]:
-    """Point NCIt settings at the disposable store for one mutating test."""
+    """Point NCIt and Uberon settings at the disposable store for one test."""
     prior = os.environ.get("NCIT_SPARQL_URL")
+    prior_uberon = os.environ.get("UBERON_SPARQL_URL")
     os.environ["NCIT_SPARQL_URL"] = isolated_qlever_url
+    os.environ["UBERON_SPARQL_URL"] = isolated_qlever_url
     get_settings.cache_clear()
     try:
         yield
@@ -1086,4 +1088,8 @@ def isolated_qlever_settings(isolated_qlever_url: str) -> Iterator[None]:
             os.environ.pop("NCIT_SPARQL_URL", None)
         else:
             os.environ["NCIT_SPARQL_URL"] = prior
+        if prior_uberon is None:
+            os.environ.pop("UBERON_SPARQL_URL", None)
+        else:
+            os.environ["UBERON_SPARQL_URL"] = prior_uberon
         get_settings.cache_clear()

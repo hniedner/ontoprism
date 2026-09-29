@@ -254,6 +254,28 @@ def test_operator_checks_refuse_live_drift_despite_cached_healthy_identity(
 
 
 @pytest.mark.api
+@pytest.mark.parametrize("endpoint", ["ncit", "uberon"])
+def test_unisolated_app_refuses_missing_search_provider_override(monkeypatch, endpoint):
+    """A metadata-only override must never expose real search providers."""
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql+asyncpg://nobody:nobody@127.0.0.1:9/forbidden"
+    )
+    monkeypatch.setenv("NCIT_SPARQL_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("UBERON_SPARQL_URL", "http://127.0.0.1:9")
+    get_settings.cache_clear()
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(_ncit_ready())
+    try:
+        with (
+            TestClient(app) as client,
+            pytest.raises(RuntimeError, match="test app provider"),
+        ):
+            client.post(f"/api/v1/refresh/{endpoint}/search-index")
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.api
 def test_ready_returns_typed_503_without_claiming_an_active_identity() -> None:
     unhealthy = RepositoryUnhealthy(
         repository="ncit",

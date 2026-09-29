@@ -38,7 +38,9 @@ from backend.repository_metadata import (
     RepositoryMetadataService,
     RepositoryUnhealthy,
     icdo_expectation,
+    observe_uberon_repository,
 )
+from backend.uberon_search_publication import publish_uberon_search
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -114,6 +116,10 @@ from ontolib.terminologies.ncit.sibling_store import (
     validate_ncit_sibling_manifest,
 )
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.graph_store import UberonGraphStore
+from ontolib.terminologies.uberon.search_index import (
+    UberonSearchIndex,
+)
 from ontolib.terminologies.uberon.store import (
     UBERON_ARTIFACT_MANIFEST_FILENAME,
     UBERON_OWNER_MARKER_FILENAME,
@@ -388,6 +394,33 @@ async def _build_uberon_store() -> UberonIndexManifest:
         f"source_identity={manifest.source_identity}"
     )
     return manifest
+
+
+async def _publish_uberon_search() -> int:
+    """Publish source-bound Uberon/CL search after services and schema are ready."""
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        async with SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as client:
+            store = UberonGraphStore(client)
+            metadata = RepositoryMetadataService(
+                settings=settings,
+                cadsr=CdeRepository(settings.cadsr_db_path),
+            )
+            try:
+                count = await publish_uberon_search(
+                    store,
+                    UberonSearchIndex(make_sessionmaker(engine)),
+                    metadata,
+                    settings.uberon_sparql_url,
+                    observe=observe_uberon_repository,
+                )
+            finally:
+                await metadata.aclose()
+            typer.echo(f"Published certified Uberon/CL search: {count} concepts")
+            return count
+    finally:
+        await dispose_engine(engine)
 
 
 def _cadsr_sidecars(destination: Path) -> list[Path]:
@@ -1163,6 +1196,7 @@ def build_all() -> None:
     )
     _build_cadsr()
     asyncio.run(_build_embeddings(publish=True, corpus=None, restart=False))
+    asyncio.run(_publish_uberon_search())
 
 
 if __name__ == "__main__":

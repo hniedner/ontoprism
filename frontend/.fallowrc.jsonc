@@ -14,7 +14,8 @@
 		"src/routes/**/+error.svelte",
 		"src/hooks.{client,server}.{ts,js}",
 		"src/app.html",
-		"src/app.d.ts"
+		"src/app.d.ts",
+		"playwright.smoke.config.ts"
 	],
 
 	"ignorePatterns": [

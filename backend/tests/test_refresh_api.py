@@ -20,6 +20,7 @@ from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.store import (
+    CertifiedUberonIndexObservation,
     UberonIndexObservation,
     UberonServingFingerprint,
 )
@@ -197,6 +198,137 @@ def test_rebuild_uberon_search_index_binds_certified_source() -> None:
     assert response.status_code == 200
     assert response.json() == {"concepts_indexed": 1}
     assert index.source == ("a" * 64, "f" * 64)
+
+
+@pytest.mark.api
+def test_rebuild_uberon_accepts_same_live_fields_in_uncertified_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    ready = asyncio.run(_ready_uberon())
+    certified = CertifiedUberonIndexObservation.model_validate(
+        ready.observation.model_dump()
+    )
+
+    async def certified_metadata(*, force: bool = False) -> SimpleNamespace:
+        del force
+        return SimpleNamespace(
+            source_identity="a" * 64,
+            observation=certified,
+            class_counts=ready.class_counts,
+        )
+
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=certified_metadata
+    )
+
+    async def same_live_fields(
+        _url: str,
+    ) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        return UberonIndexObservation.model_validate(
+            certified.model_dump()
+        ), ready.class_counts
+
+    monkeypatch.setattr(
+        "backend.api.v1.refresh.observe_uberon_repository", same_live_fields
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 200, response.text
+    assert index.source == ("a" * 64, "f" * 64)
+
+
+@pytest.mark.api
+def test_rebuild_uberon_refuses_changed_live_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    ready = asyncio.run(_ready_uberon())
+    certified = CertifiedUberonIndexObservation.model_validate(
+        ready.observation.model_dump()
+    )
+
+    async def metadata(*, force: bool = False) -> SimpleNamespace:
+        return SimpleNamespace(
+            source_identity="a" * 64,
+            observation=certified,
+            class_counts=ready.class_counts,
+        )
+
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=metadata
+    )
+    checks = 0
+
+    async def changed(_url: str) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        nonlocal checks
+        checks += 1
+        live = certified.model_dump()
+        if checks > 1:
+            live["triples"] += 1
+        return UberonIndexObservation.model_validate(live), ready.class_counts
+
+    monkeypatch.setattr("backend.api.v1.refresh.observe_uberon_repository", changed)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 502
+    assert checks == 2
+
+
+@pytest.mark.api
+def test_rebuild_uberon_refuses_drift_before_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    ready = asyncio.run(_ready_uberon())
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=lambda **_: asyncio.sleep(0, result=ready)
+    )
+    checks = 0
+
+    async def drifted(_url: str) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        nonlocal checks
+        checks += 1
+        live = ready.observation.model_dump()
+        live["triples"] += 1
+        return UberonIndexObservation.model_validate(live), ready.class_counts
+
+    monkeypatch.setattr("backend.api.v1.refresh.observe_uberon_repository", drifted)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 502
+    assert checks == 1
+    assert index.source is None
+
+
+@pytest.mark.api
+def test_rebuild_uberon_uncertified_source_returns_typed_503() -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = _FakeUberonStore
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=lambda **_: asyncio.sleep(
+            0,
+            result=RepositoryUnhealthy(
+                repository="uberon", reason="observation-mismatch", message="drift"
+            ),
+        )
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "observation-mismatch"
+    assert index.source is None
 
 
 class _FailingSearchIndex:
