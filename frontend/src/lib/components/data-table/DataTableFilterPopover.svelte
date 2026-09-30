@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import type { DataTableFilter, DataTableFilterState, DataTableIntent } from './types';
 
 	let {
@@ -19,23 +20,33 @@
 	const applied = $derived(value?.text ?? '');
 	let draft = $derived(applied);
 	const options = $derived(filter.kind === 'categorical' ? filter.options.filter((option) => option.label.toLowerCase().includes(draft.toLowerCase())) : []);
+	let pending: ReturnType<typeof setTimeout> | undefined;
+	function cancelPending(): void { if (pending !== undefined) clearTimeout(pending); pending = undefined; }
+	onDestroy(cancelPending);
+	function scheduleText(): void {
+		cancelPending();
+		pending = setTimeout(() => { pending = undefined; applyText(); }, 350);
+	}
 	function applyText(): void {
+		cancelPending();
 		const text = draft.trim();
 		if (filter.kind === 'categorical' && !filter.textFilter) return;
 		if (text.length > 100 || [...text].some((char) => char.charCodeAt(0) < 32)) return;
+		if (text === applied) return;
 		onintent({ kind: 'filter', columnId, filter: filter.kind === 'categorical'
 			? { kind: 'categorical', selected, text }
 			: { kind: 'text', text } });
 	}
 
 	function toggle(option: string): void {
+		cancelPending();
 		const next = selected.includes(option)
 			? selected.filter((value) => value !== option)
 			: [...selected, option];
 		onintent({
 			kind: 'filter',
 			columnId,
-			filter: applied ? { kind: 'categorical', selected: next, text: applied } : { kind: 'categorical', selected: next }
+			filter: draft.trim() ? { kind: 'categorical', selected: next, text: draft.trim() } : { kind: 'categorical', selected: next }
 		});
 	}
 </script>
@@ -47,10 +58,7 @@
 >
 	<form onsubmit={(event) => { event.preventDefault(); applyText(); }}>
 		<label for={`filter-${columnId}`} class="text-xs font-semibold text-muted">Filter {columnLabel} text</label>
-		<input id={`filter-${columnId}`} type="text" maxlength="100" bind:value={draft} class="block w-full rounded border border-default bg-card p-1 text-sm" />
-		{#if filter.kind === 'text' || filter.textFilter}
-			<button type="submit" class="mt-1 text-xs underline">Apply {columnLabel} text</button>
-		{/if}
+		<input id={`filter-${columnId}`} type="text" maxlength="100" bind:value={draft} oninput={scheduleText} class="block w-full rounded border border-default bg-card p-1 text-sm" />
 	</form>
 	{#if filter.kind === 'categorical'}
 		<fieldset class="mt-2 space-y-2">

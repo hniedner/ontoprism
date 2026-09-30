@@ -409,7 +409,19 @@ class NcitGraphStore:
             "?concept", representation_status, include_unfiltered=True
         )
         filters = "\n".join(
-            text_predicate(column, value, dialect="sparql")
+            text_predicate(
+                column,
+                value,
+                dialect="sparql",
+                expressions={
+                    "code": "STRAFTER(STR(?concept), '#')",
+                    "label": "STR(?label)",
+                    "representation_status": (
+                        "IF(BOUND(?representationStatusValue), "
+                        '"Legacy pre-coordinated", "")'
+                    ),
+                },
+            )
             for column, value in (column_text or {}).items()
         )
         rows = await self._client.select(

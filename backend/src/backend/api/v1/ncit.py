@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -194,11 +194,31 @@ async def _attach_xref_upstream(
     return decomposition
 
 
+def _column_text(
+    code_text: ColumnText | None = None,
+    label_text: ColumnText | None = None,
+    status_text: ColumnText | None = None,
+) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in (
+            ("code", code_text),
+            ("label", label_text),
+            ("representation_status", status_text),
+        )
+        if value is not None
+    }
+
+
+NcitColumnText = Annotated[dict[str, str], Depends(_column_text)]
+
+
 @router.get("/search", response_model=SearchPage)
 async def search(
     index: NcitSearch,
     metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1, description="Search term")],
+    column_text: NcitColumnText,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     representation_status: Annotated[
@@ -206,9 +226,6 @@ async def search(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositorySearchSort = "relevance",
-    code_text: ColumnText | None = None,
-    label_text: ColumnText | None = None,
-    status_text: ColumnText | None = None,
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
     repository = await metadata.ncit()
@@ -229,15 +246,7 @@ async def search(
             offset=offset,
             representation_status=representation_status,
             sort=sort,
-            column_text={
-                key: value
-                for key, value in (
-                    ("code", code_text),
-                    ("label", label_text),
-                    ("representation_status", status_text),
-                )
-                if value is not None
-            },
+            column_text=column_text,
         )
     except SQLAlchemyError as exc:
         logger.warning("NCIt FTS cache unavailable: %s", exc)
@@ -250,6 +259,7 @@ async def search(
 @router.get("/list", response_model=BrowsePage)
 async def list_concepts(
     store: NcitStore,
+    column_text: NcitColumnText,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     representation_status: Annotated[
@@ -257,9 +267,6 @@ async def list_concepts(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositoryBrowseSort = "source",
-    code_text: ColumnText | None = None,
-    label_text: ColumnText | None = None,
-    status_text: ColumnText | None = None,
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
     return await store.list_concepts(
@@ -267,15 +274,7 @@ async def list_concepts(
         offset=offset,
         representation_status=representation_status,
         sort=sort,
-        column_text={
-            key: value
-            for key, value in (
-                ("code", code_text),
-                ("label", label_text),
-                ("representation_status", status_text),
-            )
-            if value is not None
-        },
+        column_text=column_text,
     )
 
 

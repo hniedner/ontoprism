@@ -98,10 +98,10 @@ describe('DataTable server-owned operations', () => {
 		await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Filter Group text' }), { target: { value: 'Current' } });
 		expect(within(dialog).getByRole('checkbox', { name: 'Current' })).toBeInTheDocument();
 		expect(within(dialog).queryByRole('checkbox', { name: 'Archived' })).not.toBeInTheDocument();
-		await fireEvent.click(within(dialog).getByRole('button', { name: 'Apply Group text' }));
+		await fireEvent.submit(within(dialog).getByRole('textbox', { name: 'Filter Group text' }).closest('form')!);
 		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: [], text: 'Current' } });
 		await fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Current' }));
-		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Current'] } });
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'group', filter: { kind: 'categorical', selected: ['Current'], text: 'Current' } });
 	});
 
 	it('retains the applied categorical text when a selection changes after server navigation', async () => {
@@ -122,8 +122,32 @@ describe('DataTable server-owned operations', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Filter Name' }));
 		const dialog = screen.getByRole('dialog', { name: 'Name filter' });
 		await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Filter Name text' }), { target: { value: 'beta' } });
-		await fireEvent.submit(within(dialog).getByRole('button', { name: 'Apply Name text' }).closest('form')!);
+		await fireEvent.submit(within(dialog).getByRole('textbox', { name: 'Filter Name text' }).closest('form')!);
 		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'beta' } });
+	});
+
+	it('applies the typed filter after a quiet interval or immediately on Enter without an apply link', async () => {
+		vi.useFakeTimers();
+		try {
+			const onintent = vi.fn();
+			render(DataTableTestHost, { rows, onintent });
+			await fireEvent.click(screen.getByRole('button', { name: 'Filter Name' }));
+			const dialog = screen.getByRole('dialog', { name: 'Name filter' });
+			expect(within(dialog).queryByRole('button', { name: 'Apply Name text' })).not.toBeInTheDocument();
+			const input = within(dialog).getByRole('textbox', { name: 'Filter Name text' });
+			await fireEvent.input(input, { target: { value: 'beta' } });
+			expect(onintent).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(400);
+			expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'beta' } });
+			onintent.mockClear();
+			await fireEvent.input(input, { target: { value: 'alpha' } });
+			await fireEvent.submit(input.closest('form')!);
+			expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'alpha' } });
+			await vi.advanceTimersByTimeAsync(400);
+			expect(onintent).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('shows the applied text alongside the categorical selection and clears both', async () => {
