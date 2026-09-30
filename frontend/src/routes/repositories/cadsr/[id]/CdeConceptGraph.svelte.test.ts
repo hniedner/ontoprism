@@ -39,7 +39,7 @@ describe('CdeConceptGraph', () => {
 		const third = Promise.withResolvers<Neighborhood>();
 		const signals: AbortSignal[] = [];
 		for (const request of [first, second, third]) {
-			mock.mockImplementationOnce((_id, _depth, _fetch, signal) => {
+			mock.mockImplementationOnce((_id, _fetch, signal) => {
 				signals.push(signal!);
 				return request.promise;
 			});

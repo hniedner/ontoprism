@@ -337,12 +337,11 @@ export function getAlignments(
 /** CDE-centred subgraph joining the CDE into the NCIt concept graph. */
 export function getCdeNeighborhood(
 	publicId: string,
-	depth = 1,
 	fetchImpl?: typeof fetch,
 	signal?: AbortSignal
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
-		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/neighborhood`, { depth }),
+		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/neighborhood`),
 		fetchImpl,
 		signal
 	);

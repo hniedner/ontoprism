@@ -61,7 +61,7 @@ test('caDSR: browse → URL search → open a server-loaded CDE detail', async (
 });
 
 test('caDSR: concept graph precedes detail cards without loading eagerly', async ({ page }) => {
-	const graphRequest = 'GET /api/v1/cadsr/cdes/6686721/neighborhood?depth=1';
+	const graphRequest = 'GET /api/v1/cadsr/cdes/6686721/neighborhood';
 	const countsBefore = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
 		string,
 		number
