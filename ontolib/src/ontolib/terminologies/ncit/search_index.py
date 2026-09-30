@@ -163,7 +163,19 @@ class NcitSearchIndex:
                 "representation_status": representation_status,
             }
             predicates = "".join(
-                text_predicate(column, value, dialect="sql")
+                text_predicate(
+                    column,
+                    value,
+                    dialect="sql",
+                    expressions={
+                        "code": "code",
+                        "label": "label",
+                        "representation_status": (
+                            "CASE WHEN representation_status = 'legacy-precoordinated' "
+                            "THEN 'Legacy pre-coordinated' ELSE '' END"
+                        ),
+                    },
+                )
                 for column, value in (column_text or {}).items()
             )
             params.update(

@@ -141,6 +141,32 @@ def test_ncit_browse_text_filters_server_rows_and_total(
 
 
 @pytest.mark.integration
+def test_status_text_matches_displayed_label_in_list_and_search(
+    isolated_api_client: TestClient,
+) -> None:
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == HTTPStatus.OK, built.text
+    for endpoint, params in (
+        ("list", {}),
+        ("search", {"q": "neoplasm"}),
+    ):
+        response = isolated_api_client.get(
+            f"/api/v1/ncit/{endpoint}",
+            params={
+                **params,
+                "representation_status": "legacy-precoordinated",
+                "status_text": "pre-coordinated",
+            },
+        )
+        assert response.status_code == HTTPStatus.OK, response.text
+        assert response.json()["total"] > 0
+        assert all(
+            hit["representation_status"] == "legacy-precoordinated"
+            for hit in response.json()["hits"]
+        )
+
+
+@pytest.mark.integration
 def test_ncit_search_text_treats_sql_wildcards_as_literals(
     isolated_api_client: TestClient,
 ) -> None:
